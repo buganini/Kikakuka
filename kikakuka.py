@@ -1676,7 +1676,7 @@ class UI(Application):
             return orig
 
     def content(self):
-        title = f"KiKit UI v{VERSION} (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
+        title = f"Kikakuka v{VERSION} (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 with HBox():
