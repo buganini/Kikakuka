@@ -1,7 +1,7 @@
 # Interactive GUI for KiKit Panelization
 <img src="resources/icon.png" alt="Logo" width="64" height="64">
 
-This project is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely) and [PUI](https://github.com/buganini/PUI).
+Kikakuka (formerly Kikit-UI) is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely) and [PUI](https://github.com/buganini/PUI).
 
 # Features
 * Interactive arrangement, what you see is what you get
@@ -72,7 +72,7 @@ ${PYTHON} -m venv --system-site-packages env
 
 Run
 ```
-./env/bin/python3 kikit-ui.py
+./env/bin/python3 kikakuka.py
 ```
 
 # Run from source (Windows)
@@ -80,22 +80,22 @@ On Windows the Python interpreter is at `C:\Program Files\KiCad\9.0\bin\python.e
 But however in my Windows environment venv is not working properly, here is how I run it with everything installed in the KiCad's environment.
 ```
 "C:\Program Files\KiCad\9.0\bin\python.exe" -m pip install -r requirements.txt
-"C:\Program Files\KiCad\9.0\bin\python.exe" kikit-ui.py
+"C:\Program Files\KiCad\9.0\bin\python.exe" kikakuka.py
 ```
 
 # CLI Usage
 ```
 # Just open it
-./env/bin/python3 kikit-ui.py
+./env/bin/python3 kikakuka.py
 
 # Start with PCB files
-./env/bin/python3 kikit-ui.py a.kicad_pcb b.kicad_pcb...
+./env/bin/python3 kikakuka.py a.kicad_pcb b.kicad_pcb...
 
 # Load file
-./env/bin/python3 kikit-ui.py a.kikit_pnl
+./env/bin/python3 kikakuka.py a.kikit_pnl
 
 # Headless export
-./env/bin/python3 kikit-ui.py a.kikit_pnl out.kicad_pcb
+./env/bin/python3 kikakuka.py a.kikit_pnl out.kicad_pcb
 ```
 
 # Contributors
