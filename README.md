@@ -1,7 +1,7 @@
 # Interactive GUI for KiKit Panelization
 <img src="resources/icon.png" alt="Logo" width="64" height="64">
 
-Kikakuka (formerly Kikit-UI) is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely) and [PUI](https://github.com/buganini/PUI).
+Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely) and [PUI](https://github.com/buganini/PUI).
 
 # Features
 * Interactive arrangement, what you see is what you get
