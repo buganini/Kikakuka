@@ -23,6 +23,7 @@ import traceback
 import json
 import itertools
 from shootly import *
+from common import resource_path
 from PUI.PySide6 import *
 # from PUI.wx import *
 import PUI
@@ -47,14 +48,6 @@ class Direction(Enum):
     Down = 1
     Left = 2
     Right = 3
-
-def resource_path(relative_path):
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath("resources")
-
-    return os.path.join(base_path, relative_path)
 
 def extrapolate(x1, y1, x2, y2, r, d):
     dx = x2 - x1
