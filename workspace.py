@@ -43,8 +43,8 @@ class WorkspaceUI(Application):
         self.filepath = filepath
         self.state = State()
         self.state.focus = None
-        self.state.workspace = {}
-        self.adapter = TreeAdapter(self, self.state("workspace"))
+        self.state.workspace = {"projects": []}
+        self.state.adapter = TreeAdapter(self, self.state("workspace"))
 
     def setup(self):
         if self.filepath is not None:
@@ -65,7 +65,6 @@ class WorkspaceUI(Application):
         with open(self.filepath, "r") as f:
             self.state.workspace = json.load(f)
         self.findFiles()
-        self.adapter = TreeAdapter(self, self.state("workspace"))
 
     def saveFile(self):
         if self.filepath is None:
@@ -103,24 +102,25 @@ class WorkspaceUI(Application):
                         "parent": project,
                         "files": [],
                     })
+        self.state.adapter = TreeAdapter(self, self.state("workspace"))
 
     def content(self):
         with Window(size=(1300, 768), title=f"Kikakuka (PUI {PUI.__version__} {PUI_BACKEND}))", icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 with HBox():
-                    Button("Add KiCad Project")
+                    Button("Add KiCad Project").click(lambda e: self.addKicadProject())
                     Button("Add Panelization")
                     Spacer()
 
                 with HBox():
-                    Tree(self.adapter).layout(weight=1)
+                    Tree(self.state.adapter).layout(weight=1)
 
                     with VBox().layout(weight=1):
                         if self.state.focus is not None:
                             with HBox():
                                 Label(os.path.basename(self.state.focus["path"]))
                                 Spacer()
-                                Button("Remove Project")
+                                Button("Remove").click(lambda e: self.removeFile())
 
                         desc = ""
                         if self.state.focus is not None:
@@ -145,3 +145,21 @@ class WorkspaceUI(Application):
 
     def selectProject(self, node):
         self.state.focus = node
+
+    def addKicadProject(self):
+        filepath = OpenFile("Open KiCad Project", types=f"KiCad Project (*.kicad_pro)|*.kicad_pro")
+        if filepath:
+            self.state.workspace["projects"].append({
+                "path": filepath,
+                "description": "",
+            })
+            orders = [PNL_SUFFIX, ".kicad_pro"]
+            self.state.workspace["projects"].sort(key=lambda x: (-indexOf(orders, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
+            self.findFiles()
+            self.saveFile()
+
+    def removeFile(self):
+        if Confirm("Are you sure you want to remove this file from the workspace?", "Remove file"):
+            self.state.workspace["projects"] = [p for p in self.state.workspace["projects"] if p["path"] != self.state.focus["path"]]
+            self.findFiles()
+            self.saveFile()

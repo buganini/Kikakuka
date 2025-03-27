@@ -12,3 +12,9 @@ def resource_path(relative_path):
         base_path = os.path.abspath("resources")
 
     return os.path.join(base_path, relative_path)
+
+def indexOf(list, item):
+    try:
+        return list.index(item) + 1
+    except ValueError:
+        return -1
