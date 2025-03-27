@@ -476,12 +476,8 @@ class PanelizerUI(Application):
 
         pcbs = []
         for pcb in self.state.pcb:
-            try:
-                file = os.path.relpath(pcb.file, os.path.dirname(target))
-            except ValueError:
-                file = pcb.file
             pcbs.append({
-                "file": file,
+                "file": relpath(pcb.file, os.path.dirname(target)),
                 "x": pcb.x,
                 "y": pcb.y,
                 "rotate": pcb.rotate,

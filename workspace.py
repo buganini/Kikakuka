@@ -72,7 +72,7 @@ class WorkspaceUI(Application):
         projects = []
         for project in self.state.workspace["projects"]:
             projects.append({
-                "path": project["path"],
+                "path": relpath(project["path"], os.path.dirname(self.filepath)),
                 "description": project["description"],
             })
         workspace = {
@@ -108,8 +108,8 @@ class WorkspaceUI(Application):
         with Window(size=(1300, 768), title=f"Kikakuka (PUI {PUI.__version__} {PUI_BACKEND}))", icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 with HBox():
-                    Button("Add KiCad Project").click(lambda e: self.addKicadProject())
-                    Button("Add Panelization")
+                    Button("Add Project/Panelization").click(lambda e: self.addFile())
+                    Button("New Panelization")
                     Spacer()
 
                 with HBox():
@@ -146,8 +146,8 @@ class WorkspaceUI(Application):
     def selectProject(self, node):
         self.state.focus = node
 
-    def addKicadProject(self):
-        filepath = OpenFile("Open KiCad Project", types=f"KiCad Project (*.kicad_pro)|*.kicad_pro")
+    def addFile(self):
+        filepath = OpenFile("Open Project/Panelization", types=f"KiCad Project/Panelization (*.kicad_pro *.kikit_pnl)|*.kicad_pro|*.kikit_pnl")
         if filepath:
             self.state.workspace["projects"].append({
                 "path": filepath,
