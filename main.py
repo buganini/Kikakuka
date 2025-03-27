@@ -27,5 +27,9 @@ if inputs:
         ui.build()
         ui.run()
 else:
-    ui = WorkspaceUI()
-    ui.run()
+    if "PANELIZER" in os.environ:
+        ui = PanelizerUI()
+        ui.run()
+    else:
+        ui = WorkspaceUI()
+        ui.run()

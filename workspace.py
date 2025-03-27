@@ -5,6 +5,7 @@ from PUI.PySide6 import *
 from PUI.interfaces import BaseTreeAdapter
 import PUI
 import re
+import subprocess
 from common import *
 
 class TreeAdapter(BaseTreeAdapter):
@@ -109,7 +110,7 @@ class WorkspaceUI(Application):
             with VBox():
                 with HBox():
                     Button("Add Project/Panelization").click(lambda e: self.addFile())
-                    Button("New Panelization")
+                    Button("New Panelization").click(lambda e: self.newPanelization())
                     Spacer()
 
                 with HBox():
@@ -163,3 +164,6 @@ class WorkspaceUI(Application):
             self.state.workspace["projects"] = [p for p in self.state.workspace["projects"] if p["path"] != self.state.focus["path"]]
             self.findFiles()
             self.saveFile()
+
+    def newPanelization(self):
+        subprocess.Popen([sys.executable, sys.argv[0]], env={"PANELIZER": "1"})
