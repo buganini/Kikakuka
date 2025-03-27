@@ -1,14 +1,11 @@
 import os
 import sys
 import json
-import pywinctl as pwc
 from PUI.PySide6 import *
 from PUI.interfaces import BaseTreeAdapter
 import PUI
 import re
-from common import resource_path
-
-WORKSPACE_SUFFIX = ".kikakuka"
+from common import *
 
 class TreeAdapter(BaseTreeAdapter):
     def __init__(self, main, data):
@@ -37,27 +34,47 @@ class TreeAdapter(BaseTreeAdapter):
     def dblclicked(self, node):
         self.main.openProject(node["path"])
 
-class UI(Application):
-    def __init__(self):
+class WorkspaceUI(Application):
+    def __init__(self, filepath=None):
         super().__init__(icon=resource_path("icon.ico"))
+        self.filepath = filepath
         self.state = State()
-        self.state.workspace = {
-            "projects": [
-                {
-                    "path": "/Users/buganini/repo/cf/esp-dimmer-hw/esp-dimmer-AC/esp-dimmer-AC.kicad_pro",
-                    "description": "AC Dimmer",
-                },
-                {
-                    "path": "/Users/buganini/repo/cf/esp-dimmer-hw/esp-dimmer-DC/esp-dimmer-DC.kicad_pro",
-                    "description": "DC Dimmer",
-                },
-                {
-                    "path": "/Users/buganini/repo/buganini/usb-dl/panel.kikit_pnl",
-                    "description": "DC Dimmer",
-                },
-            ],
-        }
+
+
+    def setup(self):
+        if self.filepath is not None:
+            if os.path.exists(self.filepath):
+                self.loadFile()
+            else:
+                self.saveFile()
+        else:
+            filepath = OpenFile("Open/Create Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk|*.kkkk")
+            if filepath:
+                self.filepath = filepath
+                if os.path.exists(self.filepath):
+                    self.loadFile()
+                else:
+                    self.saveFile()
+
+    def loadFile(self):
+        with open(self.filepath, "r") as f:
+            self.state.workspace = json.load(f)
         self.findFiles()
+
+    def saveFile(self):
+        if self.filepath is None:
+            return
+        projects = []
+        for project in self.state.workspace["projects"]:
+            projects.append({
+                "path": project["path"],
+                "description": project["description"],
+            })
+        workspace = {
+            "projects": projects
+        }
+        with open(self.filepath, "w") as f:
+            json.dump(workspace, f, indent=4)
 
     def findFiles(self):
         for project in self.state.workspace["projects"]:
@@ -97,18 +114,3 @@ class UI(Application):
             os.startfile(path)
         else:
             subprocess.call(('xdg-open', path))
-
-    def loadFile(self, path):
-        if path.endswith(WORKSPACE_SUFFIX):
-            with open(path, "r") as f:
-                self.state.workspace = json.load(f)
-
-
-ui = UI()
-
-inputs = sys.argv[1:]
-if inputs:
-    if inputs[0].endswith(WORKSPACE_SUFFIX):
-        ui.File(inputs[0])
-
-ui.run()

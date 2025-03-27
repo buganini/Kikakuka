@@ -23,7 +23,7 @@ import traceback
 import json
 import itertools
 from shootly import *
-from common import resource_path
+from common import *
 from PUI.PySide6 import *
 # from PUI.wx import *
 import PUI
@@ -33,8 +33,6 @@ VERSION = "3.5"
 
 MIN_SPACING = 0.1
 VC_EXTENT = 3
-PNL_SUFFIX = ".kikit_pnl"
-PCB_SUFFIX = ".kicad_pcb"
 
 class Tool(Enum):
     END = -1
@@ -324,7 +322,7 @@ def autotab(boardSubstrate, origin, direction, width,
         return tabs[0][1]
     return None
 
-class UI(Application):
+class PanelizerUI(Application):
     def __init__(self):
         super().__init__(icon=resource_path("icon.ico"))
 
@@ -1873,24 +1871,3 @@ class UI(Application):
                         Label(f"Conflicts: {len(self.state.conflicts)}")
 
 wx_app = wx.App()
-
-ui = UI()
-
-inputs = sys.argv[1:]
-if inputs:
-    if inputs[0].endswith(PNL_SUFFIX):
-        ui.load(None, inputs[0])
-        if len(inputs) > 1:
-            ui.build(export=inputs[1])
-            sys.exit(0)
-        else:
-            ui.autoScale()
-            ui.build()
-    else:
-        for boardfile in inputs:
-            if boardfile.endswith(PCB_SUFFIX):
-                ui._addPCB(PCB(boardfile))
-
-        ui.autoScale()
-        ui.build()
-ui.run()
