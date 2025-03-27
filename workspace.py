@@ -31,6 +31,9 @@ class TreeAdapter(BaseTreeAdapter):
             return len(self._data.value["projects"])
         return len(parent["files"])
 
+    def clicked(self, node):
+        self.main.selectProject(node)
+
     def dblclicked(self, node):
         self.main.openProject(node["path"])
 
@@ -39,7 +42,9 @@ class WorkspaceUI(Application):
         super().__init__(icon=resource_path("icon.ico"))
         self.filepath = filepath
         self.state = State()
-
+        self.state.focus = None
+        self.state.workspace = {}
+        self.adapter = TreeAdapter(self, self.state("workspace"))
 
     def setup(self):
         if self.filepath is not None:
@@ -60,6 +65,7 @@ class WorkspaceUI(Application):
         with open(self.filepath, "r") as f:
             self.state.workspace = json.load(f)
         self.findFiles()
+        self.adapter = TreeAdapter(self, self.state("workspace"))
 
     def saveFile(self):
         if self.filepath is None:
@@ -100,7 +106,29 @@ class WorkspaceUI(Application):
 
     def content(self):
         with Window(size=(1300, 768), title=f"Kikakuka (PUI {PUI.__version__} {PUI_BACKEND}))", icon=resource_path("icon.ico")).keypress(self.keypress):
-            Tree(TreeAdapter(self, self.state("workspace")))
+            with VBox():
+                with HBox():
+                    Button("Add KiCad Project")
+                    Button("Add Panelization")
+                    Spacer()
+
+                with HBox():
+                    Tree(self.adapter).layout(weight=1)
+
+                    with VBox().layout(weight=1):
+                        if self.state.focus is not None:
+                            with HBox():
+                                Label(os.path.basename(self.state.focus["path"]))
+                                Spacer()
+                                Button("Remove Project")
+
+                        desc = ""
+                        if self.state.focus is not None:
+                            if "description" in self.state.focus:
+                                desc = self.state.focus["description"]
+                            else:
+                                desc = self.state.focus["parent"]["description"]
+                        Text(desc).layout(weight=1)
 
     def openProject(self, path, new_window=True):
         import subprocess, os, platform
@@ -114,3 +142,6 @@ class WorkspaceUI(Application):
             os.startfile(path)
         else:
             subprocess.call(('xdg-open', path))
+
+    def selectProject(self, node):
+        self.state.focus = node
