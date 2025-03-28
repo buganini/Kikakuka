@@ -6,6 +6,7 @@ from PUI.interfaces import BaseTreeAdapter
 import PUI
 import re
 import subprocess
+from threading import Thread
 from common import *
 
 FILE_ORDER = [PNL_SUFFIX, ".kicad_pro"]
@@ -48,6 +49,8 @@ class WorkspaceUI(Application):
         self.state.focus = None
         self.state.workspace = {"projects": []}
         self.state.adapter = TreeAdapter(self, self.state("workspace"))
+
+        self.pidmap = {}
 
     def setup(self):
         if self.state.filepath:
@@ -148,23 +151,6 @@ class WorkspaceUI(Application):
             self.state.filepath = filepath
             self.loadFile()
 
-    def openFile(self, path, new_window=True):
-        print("openFile", path)
-        if path.endswith(PNL_SUFFIX):
-            self.openPanelizer(path)
-            return
-        import subprocess, os, platform
-        if platform.system() == 'Darwin':
-            cmd = ["open"]
-            if new_window:
-                cmd.append("-n")
-            cmd.append(path)
-            subprocess.call(cmd)
-        elif platform.system() == 'Windows':
-            os.startfile(path)
-        else:
-            subprocess.call(('xdg-open', path))
-
     def selectFile(self, node):
         self.state.focus = node
 
@@ -198,6 +184,55 @@ class WorkspaceUI(Application):
                 self.saveFile()
             self.openPanelizer(filepath)
 
+    def openFile(self, path):
+        if path.endswith(PNL_SUFFIX):
+            self.openPanelizer(path)
+            return
+        print(self.pidmap)
+        pid = self.pidmap.get(path)
+        if pid:
+            self.bringToFront(pid)
+            return
+        Thread(target=self._openFile, args=[path], daemon=True).start()
+
+    def _openFile(self, filepath):
+        import subprocess, os, platform
+        if platform.system() == 'Darwin':
+            cmd = ["open", "-n", "-W", filepath]
+            p = subprocess.Popen(cmd)
+            pid = p.pid + 1
+            self.pidmap[filepath] = pid
+            p.wait()
+            self.pidmap.pop(filepath, None)
+        elif platform.system() == 'Windows':
+            os.startfile(filepath) # XXX wait for process to finish
+        else:
+            subprocess.call(('xdg-open', filepath)) # XXX wait for process to finish
+
     def openPanelizer(self, filepath):
-        print("openPanelizer", filepath)
-        subprocess.Popen([sys.executable, sys.argv[0], filepath])
+        pid = self.pidmap.get(filepath)
+        if pid:
+            self.bringToFront(pid)
+            return
+        Thread(target=self._openPanelizer, args=[filepath], daemon=True).start()
+
+    def _openPanelizer(self, filepath):
+        p = subprocess.Popen([sys.executable, sys.argv[0], filepath])
+        pid = p.pid
+        self.pidmap[filepath] = pid
+        p.wait()
+        self.pidmap.pop(filepath, None)
+
+    def bringToFront(self, pid):
+        import platform
+        if platform.system() == 'Darwin':
+            applescript = f'''
+            tell application "System Events"
+                set frontmost of every process whose unix id is {pid} to true
+            end tell
+            '''
+            subprocess.run(["osascript", "-e", applescript])
+        elif platform.system() == 'Windows':
+            subprocess.call(["taskkill", "/PID", str(pid), "/F"])
+        else:
+            subprocess.call(["xdotool", "windowactivate", "--sync", str(pid)])
