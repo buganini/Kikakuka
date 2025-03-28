@@ -1,16 +1,21 @@
-# Interactive GUI for KiKit Panelization
+# Workspace Manager & Interactive GUI Panelizer
 <img src="resources/icon.png" alt="Logo" width="64" height="64">
 
 Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely) and [PUI](https://github.com/buganini/PUI).
 
 # Features
-* Interactive arrangement, what you see is what you get
-* Freeform arrangement, not limited to M×N configuration
-* Multiple different PCB panelization
-* Auto/Manual tab creation
-* Auto V-cut/mousebites selection
-* Enable hole creation in panel substrate for extruded parts
-* Does not require coding skill
+* Workspace Manager
+* Panelizer
+    * Interactive arrangement, what you see is what you get
+    * Freeform arrangement, not limited to M×N configuration
+    * Multiple different PCB panelization
+    * Auto/Manual tab creation
+    * Auto V-cut/mousebites selection
+    * Enable hole creation in panel substrate for extruded parts
+    * Does not require coding skill
+
+# kkkk file
+The .kkkk file saves workspace information in JSON format.
 
 # kikit_pnl file
 The .kikit_pnl file saves panelization settings in JSON format, with PCB paths stored relative to the file's location.
