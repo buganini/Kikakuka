@@ -205,9 +205,19 @@ class WorkspaceUI(Application):
             p.wait()
             self.pidmap.pop(filepath, None)
         elif platform.system() == 'Windows':
-            os.startfile(filepath) # XXX wait for process to finish
+            # XXX untested
+            p = subprocess.Popen(['cmd', '/c', 'start', '/wait', filepath], shell=True)
+            pid = p.pid + 1
+            self.pidmap[filepath] = pid
+            p.wait()
+            self.pidmap.pop(filepath, None)
         else:
-            subprocess.call(('xdg-open', filepath)) # XXX wait for process to finish
+            # XXX untested
+            p = subprocess.Popen(('xdg-open', filepath)) # XXX wait for process to finish
+            pid = p.pid + 1
+            self.pidmap[filepath] = pid
+            p.wait()
+            self.pidmap.pop(filepath, None)
 
     def openPanelizer(self, filepath):
         pid = self.pidmap.get(filepath)
