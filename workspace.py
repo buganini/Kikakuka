@@ -8,6 +8,8 @@ import re
 import subprocess
 from common import *
 
+FILE_ORDER = [PNL_SUFFIX, ".kicad_pro"]
+
 class TreeAdapter(BaseTreeAdapter):
     def __init__(self, main, data):
         self.main = main
@@ -33,55 +35,44 @@ class TreeAdapter(BaseTreeAdapter):
         return len(parent["files"])
 
     def clicked(self, node):
-        self.main.selectProject(node)
+        self.main.selectFile(node)
 
     def dblclicked(self, node):
-        self.main.openProject(node["path"])
+        self.main.openFile(node["path"])
 
 class WorkspaceUI(Application):
     def __init__(self, filepath=None):
         super().__init__(icon=resource_path("icon.ico"))
-        self.filepath = filepath
         self.state = State()
+        self.state.filepath = filepath
         self.state.focus = None
         self.state.workspace = {"projects": []}
         self.state.adapter = TreeAdapter(self, self.state("workspace"))
 
     def setup(self):
-        if self.filepath is not None:
-            if os.path.exists(self.filepath):
-                self.loadFile()
-            else:
-                self.saveFile()
-        else:
-            filepath = OpenFile("Open/Create Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk|*.kkkk")
-            if filepath:
-                self.filepath = filepath
-                if os.path.exists(self.filepath):
-                    self.loadFile()
-                else:
-                    self.saveFile()
-            else:
-                self.quit()
+        if self.state.filepath:
+            self.loadFile()
 
     def loadFile(self):
-        with open(self.filepath, "r") as f:
+        if not os.path.exists(self.state.filepath):
+            return
+        with open(self.state.filepath, "r") as f:
             self.state.workspace = json.load(f)
         self.findFiles()
 
     def saveFile(self):
-        if self.filepath is None:
+        if self.state.filepath is None:
             return
         projects = []
         for project in self.state.workspace["projects"]:
             projects.append({
-                "path": relpath(project["path"], os.path.dirname(self.filepath)),
+                "path": relpath(project["path"], os.path.dirname(self.state.filepath)),
                 "description": project["description"],
             })
         workspace = {
             "projects": projects
         }
-        with open(self.filepath, "w") as f:
+        with open(self.state.filepath, "w") as f:
             json.dump(workspace, f, indent=4)
 
     def findFiles(self):
@@ -110,6 +101,16 @@ class WorkspaceUI(Application):
     def content(self):
         with Window(size=(1300, 768), title=f"Kikakuka (PUI {PUI.__version__} {PUI_BACKEND}))", icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
+                if self.state.filepath is None:
+                    with HBox():
+                        Button("New Workspace").click(lambda e: self.newWorkspace())
+                        Button("Open Workspace").click(lambda e: self.openWorkspace())
+                        Button("New Panelization").click(lambda e: self.newPanelization())
+                        Spacer()
+
+                    Spacer()
+                    return
+
                 with HBox():
                     Button("Add Project/Panelization").click(lambda e: self.addFile())
                     Button("New Panelization").click(lambda e: self.newPanelization())
@@ -133,7 +134,25 @@ class WorkspaceUI(Application):
                                 desc = self.state.focus["parent"]["description"]
                         Text(desc).layout(weight=1)
 
-    def openProject(self, path, new_window=True):
+    def newWorkspace(self):
+        filepath = SaveFile("New Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
+        if filepath:
+            self.state.filepath = filepath
+            self.state.workspace = {"projects": []}
+            self.findFiles()
+            self.saveFile()
+
+    def openWorkspace(self):
+        filepath = OpenFile("Open Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
+        if filepath:
+            self.state.filepath = filepath
+            self.loadFile()
+
+    def openFile(self, path, new_window=True):
+        print("openFile", path)
+        if path.endswith(PNL_SUFFIX):
+            self.openPanelizer(path)
+            return
         import subprocess, os, platform
         if platform.system() == 'Darwin':
             cmd = ["open"]
@@ -146,7 +165,7 @@ class WorkspaceUI(Application):
         else:
             subprocess.call(('xdg-open', path))
 
-    def selectProject(self, node):
+    def selectFile(self, node):
         self.state.focus = node
 
     def addFile(self):
@@ -156,8 +175,7 @@ class WorkspaceUI(Application):
                 "path": filepath,
                 "description": "",
             })
-            orders = [PNL_SUFFIX, ".kicad_pro"]
-            self.state.workspace["projects"].sort(key=lambda x: (-indexOf(orders, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
+            self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
             self.findFiles()
             self.saveFile()
 
@@ -168,4 +186,18 @@ class WorkspaceUI(Application):
             self.saveFile()
 
     def newPanelization(self):
-        subprocess.Popen([sys.executable, sys.argv[0]], env={"PANELIZER": "1"})
+        filepath = SaveFile("New Panelization", types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
+        if filepath:
+            if self.state.filepath:
+                self.state.workspace["projects"].append({
+                    "path": filepath,
+                    "description": "",
+                })
+                self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
+                self.findFiles()
+                self.saveFile()
+            self.openPanelizer(filepath)
+
+    def openPanelizer(self, filepath):
+        print("openPanelizer", filepath)
+        subprocess.Popen([sys.executable, sys.argv[0], filepath])

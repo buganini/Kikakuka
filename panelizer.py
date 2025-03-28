@@ -526,6 +526,9 @@ class PanelizerUI(Application):
         else:
             return
 
+        if not os.path.exists(target):
+            return
+
         with open(target, "r") as f:
             data = json.load(f)
             if "export_path" in data:
