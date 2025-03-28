@@ -60,6 +60,7 @@ class WorkspaceUI(Application):
         if not os.path.exists(self.state.filepath):
             return
         with open(self.state.filepath, "r") as f:
+            self.state.root = os.path.dirname(os.path.abspath(self.state.filepath))
             self.state.workspace = json.load(f)
         self.findFiles()
 
@@ -87,6 +88,10 @@ class WorkspaceUI(Application):
             if project["path"].endswith(".kicad_pro"):
                 sch = re.sub(r"\.kicad_pro$", ".kicad_sch", project["path"])
                 pcb = re.sub(r"\.kicad_pro$", ".kicad_pcb", project["path"])
+                if not os.path.isabs(sch):
+                    sch = os.path.join(self.state.root, sch)
+                if not os.path.isabs(pcb):
+                    pcb = os.path.join(self.state.root, pcb)
                 if os.path.exists(sch):
                     project["files"].append({
                         "path": sch,
