@@ -125,7 +125,7 @@ class WorkspaceUI(Application):
                     Spacer()
 
                 with HBox():
-                    Tree(self.state.adapter).layout(weight=1)
+                    Tree(self.state.adapter).layout(weight=1).expandAll().expandable(False)
 
                     with VBox().layout(weight=1):
                         if self.state.focus is not None:
