@@ -61,6 +61,8 @@ class WorkspaceUI(Application):
                     self.loadFile()
                 else:
                     self.saveFile()
+            else:
+                self.quit()
 
     def loadFile(self):
         with open(self.filepath, "r") as f:
