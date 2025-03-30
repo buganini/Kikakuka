@@ -1,4 +1,4 @@
-# Workspace Manager & Interactive GUI Panelizer
+# KiCad Workspace Manager & Interactive GUI Panelizer
 <img src="resources/icon.png" alt="Logo" width="64" height="64">
 
 Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely) and [PUI](https://github.com/buganini/PUI).
