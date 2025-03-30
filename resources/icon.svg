@@ -2,9 +2,9 @@
 <!-- Created with Inkscape (http://www.inkscape.org/) -->
 
 <svg
-   width="256"
-   height="256"
-   viewBox="0 0 256 256"
+   width="512"
+   height="512"
+   viewBox="0 0 512 512"
    version="1.1"
    id="svg1"
    inkscape:version="1.4 (e7c3feb1, 2024-10-09)"
@@ -27,17 +27,34 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      inkscape:document-units="px"
-     inkscape:zoom="1.5683261"
-     inkscape:cx="147.92842"
-     inkscape:cy="141.23338"
-     inkscape:window-width="1216"
-     inkscape:window-height="838"
-     inkscape:window-x="158"
-     inkscape:window-y="1117"
-     inkscape:window-maximized="0"
-     inkscape:current-layer="g6" />
+     inkscape:zoom="0.69864361"
+     inkscape:cx="96.615784"
+     inkscape:cy="242.61297"
+     inkscape:window-width="1712"
+     inkscape:window-height="986"
+     inkscape:window-x="0"
+     inkscape:window-y="43"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
   <defs
      id="defs1">
+    <inkscape:path-effect
+       effect="fillet_chamfer"
+       id="path-effect7"
+       is_visible="true"
+       lpeversion="1"
+       nodesatellites_param="F,0,0,1,0,320,0,1 @ F,0,0,1,0,320,0,1 @ F,0,0,1,0,320,0,1 @ F,0,0,1,0,320,0,1"
+       radius="20"
+       unit="px"
+       method="auto"
+       mode="F"
+       chamfer_steps="1"
+       flexible="false"
+       use_knot_distance="true"
+       apply_no_radius="true"
+       apply_with_radius="true"
+       only_selected="false"
+       hide_knots="false" />
     <inkscape:path-effect
        effect="fillet_chamfer"
        id="path-effect4"
@@ -96,89 +113,104 @@
          rx="35"
          ry="35" />
     </mask>
+    <clipPath
+       clipPathUnits="userSpaceOnUse"
+       id="clipPath10">
+      <rect
+         style="display:inline;fill:none;stroke:#000000;stroke-width:6.13909;stroke-opacity:1"
+         id="rect10"
+         width="505.8609"
+         height="505.86093"
+         x="-124.93047"
+         y="-124.93047"
+         rx="101.17218"
+         ry="101.17219" />
+    </clipPath>
   </defs>
   <g
      inkscape:label="Layer 1"
      inkscape:groupmode="layer"
-     id="layer1">
+     id="layer1"
+     transform="translate(128,128)">
     <g
-       id="g7"
-       clip-path="url(#clipPath7)"
-       mask="url(#mask11)">
-      <g
-         inkscape:label="Clip"
-         id="g6">
-        <rect
-           style="fill:#2446d1;fill-opacity:1"
-           id="rect1"
-           width="128"
-           height="128"
-           x="0"
-           y="0" />
-        <use
-           x="0"
-           y="0"
-           xlink:href="#rect1"
-           id="use3"
-           transform="translate(128,128)" />
-        <rect
-           style="fill:#417e5a;fill-opacity:1;stroke-width:1.00157;stroke-dasharray:none"
-           id="rect3"
-           width="128"
-           height="128"
-           x="128"
-           y="0" />
-        <use
-           x="0"
-           y="0"
-           xlink:href="#rect3"
-           id="use4"
-           transform="translate(-128,128)" />
-        <text
-           xml:space="preserve"
-           style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:96px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#ffffff;fill-opacity:1;stroke-width:7.47869;stroke-dasharray:none"
-           x="36.375"
-           y="103.53125"
-           id="text4"><tspan
-             sodipodi:role="line"
-             id="tspan4"
-             x="36.375"
-             y="103.53125"
-             style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:96px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke-width:7.47869">K</tspan></text>
-        <text
-           xml:space="preserve"
-           style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:96px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#ffffff;fill-opacity:1;stroke-width:7.47869;stroke-dasharray:none"
-           x="156.375"
-           y="223.53125"
-           id="text4-9"><tspan
-             sodipodi:role="line"
-             id="tspan4-0"
-             x="156.375"
-             y="223.53125"
-             style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:96px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke-width:7.47869">K</tspan></text>
-        <text
-           xml:space="preserve"
-           style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:96px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#ffffff;fill-opacity:1;stroke-width:7.47869;stroke-dasharray:none"
-           x="156.375"
-           y="103.53125"
-           id="text4-2"><tspan
-             sodipodi:role="line"
-             id="tspan4-8"
-             x="156.375"
-             y="103.53125"
-             style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:96px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke-width:7.47869">K</tspan></text>
-        <text
-           xml:space="preserve"
-           style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:96px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#ffffff;fill-opacity:1;stroke-width:7.47869;stroke-dasharray:none"
-           x="36.375"
-           y="223.53125"
-           id="text4-3"><tspan
-             sodipodi:role="line"
-             id="tspan4-5"
-             x="36.375"
-             y="223.53125"
-             style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:96px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke-width:7.47869">K</tspan></text>
-      </g>
+       inkscape:label="Clip"
+       id="g6"
+       style="display:inline"
+       transform="matrix(0.8046875,0,0,0.8046875,25,25)"
+       clip-path="url(#clipPath10)">
+      <path
+         style="fill:#2446d1;fill-opacity:1;stroke-width:2"
+         id="rect1"
+         width="256"
+         height="256"
+         x="-128"
+         y="-128"
+         inkscape:path-effect="#path-effect7"
+         sodipodi:type="rect"
+         d="M 128,-128 V 128 H -128 V -128 Z" />
+      <use
+         x="0"
+         y="0"
+         xlink:href="#rect1"
+         id="use3"
+         transform="translate(256,256)" />
+      <rect
+         style="fill:#417e5a;fill-opacity:1;stroke-width:2.00314;stroke-dasharray:none"
+         id="rect3"
+         width="256"
+         height="256"
+         x="128"
+         y="-128" />
+      <use
+         x="0"
+         y="0"
+         xlink:href="#rect3"
+         id="use4"
+         transform="translate(-256,256)" />
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:192px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#ffffff;fill-opacity:1;stroke-width:14.9574;stroke-dasharray:none"
+         x="-55.25"
+         y="79.0625"
+         id="text4"><tspan
+           sodipodi:role="line"
+           id="tspan4"
+           x="-55.25"
+           y="79.0625"
+           style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:192px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke-width:14.9574">K</tspan></text>
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:192px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#ffffff;fill-opacity:1;stroke-width:14.9574;stroke-dasharray:none"
+         x="184.75"
+         y="319.0625"
+         id="text4-9"><tspan
+           sodipodi:role="line"
+           id="tspan4-0"
+           x="184.75"
+           y="319.0625"
+           style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:192px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke-width:14.9574">K</tspan></text>
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:192px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#ffffff;fill-opacity:1;stroke-width:14.9574;stroke-dasharray:none"
+         x="184.75"
+         y="79.0625"
+         id="text4-2"><tspan
+           sodipodi:role="line"
+           id="tspan4-8"
+           x="184.75"
+           y="79.0625"
+           style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:192px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke-width:14.9574">K</tspan></text>
+      <text
+         xml:space="preserve"
+         style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:192px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;fill:#ffffff;fill-opacity:1;stroke-width:14.9574;stroke-dasharray:none"
+         x="-55.25"
+         y="319.0625"
+         id="text4-3"><tspan
+           sodipodi:role="line"
+           id="tspan4-5"
+           x="-55.25"
+           y="319.0625"
+           style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:192px;font-family:'Open Sans';-inkscape-font-specification:'Open Sans, Bold';font-variant-ligatures:normal;font-variant-caps:normal;font-variant-numeric:normal;font-variant-east-asian:normal;fill:#ffffff;fill-opacity:1;stroke-width:14.9574">K</tspan></text>
     </g>
   </g>
 </svg>
