@@ -28,6 +28,15 @@ from PUI.PySide6 import *
 # from PUI.wx import *
 import PUI
 import wx
+import tempfile
+
+_, kikit_tmp = tempfile.mkstemp(prefix='kikakuka_', suffix='.kicad_pcb')
+
+def cleanup_kikit_tmp():
+    try:
+        os.remove(kikit_tmp)
+    except FileNotFoundError:
+        pass
 
 VERSION = "3.5"
 
@@ -63,7 +72,7 @@ class PCB(StateObject):
         self.file = boardfile
         board = pcbnew.LoadBoard(boardfile)
 
-        panel = panelize.Panel("")
+        panel = panelize.Panel(kikit_tmp)
         panel.appendBoard(
             boardfile,
             pcbnew.VECTOR2I(0, 0),
@@ -99,6 +108,8 @@ class PCB(StateObject):
         self.height = bbox[3] - bbox[1]
         self.rotate = 0
         self._tabs = []
+
+        cleanup_kikit_tmp()
 
     @property
     def shapes(self):
@@ -635,7 +646,7 @@ class PanelizerUI(Application):
                 export += PCB_SUFFIX
             self.state.export_path = export
 
-        panel = panelize.Panel(self.state.export_path if export else "")
+        panel = panelize.Panel(self.state.export_path if export else kikit_tmp)
         panel.vCutSettings.layer = {
             "Cmts.User": Layer.Cmts_User,
             "Edge.Cuts": Layer.Edge_Cuts,
@@ -1100,6 +1111,8 @@ class PanelizerUI(Application):
 
         if export:
             panel.save()
+
+        cleanup_kikit_tmp()
 
     def addHole(self, e):
         self.tool = Tool.HOLE
