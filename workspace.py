@@ -49,6 +49,8 @@ class WorkspaceUI(Application):
         self.state.focus = None
         self.state.workspace = {"projects": []}
         self.state.adapter = TreeAdapter(self, self.state("workspace"))
+        self.state.editingDesc = False
+        self.state.edit = ""
 
         self.pidmap = {}
 
@@ -131,19 +133,45 @@ class WorkspaceUI(Application):
                         .dragEnter(self.handleDragEnter).drop(self.handleDrop))
 
                     with VBox().layout(weight=1):
-                        if self.state.focus is not None:
-                            with HBox():
+                        with HBox():
+                            Label("File:")
+                            if self.state.focus is not None:
                                 Label(os.path.basename(self.state.focus["path"]))
-                                Spacer()
                                 Button("Remove").click(lambda e: self.removeFile())
+                            Spacer()
 
-                        desc = ""
-                        if self.state.focus is not None:
-                            if "description" in self.state.focus:
-                                desc = self.state.focus["description"]
-                            else:
-                                desc = self.state.focus["parent"]["description"]
-                        Text(desc).layout(weight=1)
+                        with HBox():
+                            Label("Description:")
+                            if self.state.focus is not None:
+                                if self.state.editingDesc:
+                                    TextField(self.state("edit")).layout(weight=1)
+                                    Button("Save").click(lambda e: self.saveDescription())
+                                else:
+                                    if "description" in self.state.focus:
+                                        desc = self.state.focus["description"]
+                                    else:
+                                        desc = self.state.focus["parent"]["description"]
+                                    Label(desc)
+                                    Button("Edit").click(lambda e: self.editDescription())
+                            Spacer()
+
+                        Spacer()
+
+    def editDescription(self):
+        if "description" in self.state.focus:
+            desc = self.state.focus["description"]
+        else:
+            desc = self.state.focus["parent"]["description"]
+        self.state.edit = desc
+        self.state.editingDesc = True
+
+    def saveDescription(self):
+        if "description" in self.state.focus:
+            self.state.focus["description"] = self.state.edit
+        else:
+            self.state.focus["parent"]["description"] = self.state.edit
+        self.state.editingDesc = False
+        self.saveFile()
 
     def handleDragEnter(self, event):
         if event.mimeData().hasUrls():
