@@ -62,6 +62,8 @@ class WorkspaceUI(Application):
         with open(self.state.filepath, "r") as f:
             self.state.root = os.path.dirname(os.path.abspath(self.state.filepath))
             self.state.workspace = json.load(f)
+            for project in self.state.workspace["projects"]:
+                project["path"] = os.path.abspath(project["path"])
         self.findFiles()
 
     def saveFile(self):
@@ -120,12 +122,13 @@ class WorkspaceUI(Application):
                     return
 
                 with HBox():
-                    Button("Add Project/Panelization").click(lambda e: self.addFile())
+                    Button("Add Project/Panelization").click(lambda e: self.addFileDialog())
                     Button("New Panelization").click(lambda e: self.newPanelization())
                     Spacer()
 
                 with HBox():
-                    Tree(self.state.adapter).layout(weight=1).expandAll().expandable(False)
+                    (Tree(self.state.adapter).layout(weight=1).expandAll().expandable(False)
+                        .dragEnter(self.handleDragEnter).drop(self.handleDrop))
 
                     with VBox().layout(weight=1):
                         if self.state.focus is not None:
@@ -141,6 +144,28 @@ class WorkspaceUI(Application):
                             else:
                                 desc = self.state.focus["parent"]["description"]
                         Text(desc).layout(weight=1)
+
+    def handleDragEnter(self, event):
+        if event.mimeData().hasUrls():
+            print("Drag enter", "accent", event)
+            event.accept()
+        else:
+            print("Drag enter", "ignore", event)
+            event.ignore()
+
+    def handleDrop(self, event):
+        print("Dropped", event)
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                filepath = url.toLocalFile()
+                if re.match(r".+?\.kicad_(pro|sch|pcb|prl)$", filepath):
+                    filepath = re.sub(r"\.kicad_(pro|sch|pcb|prl)$", ".kicad_pro", filepath)
+                    self.addFile(filepath)
+                else:
+                    print("Dropped unknown file", filepath)
+            event.accept()
+        else:
+            event.ignore()
 
     def newWorkspace(self):
         filepath = SaveFile("New Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
@@ -159,16 +184,25 @@ class WorkspaceUI(Application):
     def selectFile(self, node):
         self.state.focus = node
 
-    def addFile(self):
+    def addFileDialog(self):
         filepath = OpenFile("Open Project/Panelization", types=f"KiCad Project/Panelization (*.kicad_pro *.kikit_pnl)|*.kicad_pro|*.kikit_pnl")
         if filepath:
-            self.state.workspace["projects"].append({
-                "path": filepath,
-                "description": "",
-            })
-            self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
-            self.findFiles()
-            self.saveFile()
+            self.addFile(filepath)
+
+
+    def addFile(self, filepath):
+        filepath = os.path.abspath(filepath)
+        if not os.path.exists(filepath):
+            return
+        if filepath in [project["path"] for project in self.state.workspace["projects"]]:
+            return
+        self.state.workspace["projects"].append({
+            "path": filepath,
+            "description": "",
+        })
+        self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
+        self.findFiles()
+        self.saveFile()
 
     def removeFile(self):
         if Confirm("Are you sure you want to remove this file from the workspace?", "Remove file"):
