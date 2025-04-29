@@ -1,4 +1,4 @@
 KiKit>=1.7.1
 shapely>=2.0.5
 PySide6_Essentials
-QPUIQ>=0.12
+QPUIQ>=0.13
