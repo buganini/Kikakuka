@@ -11,36 +11,6 @@ from common import *
 
 FILE_ORDER = [PNL_SUFFIX, ".kicad_pro"]
 
-class TreeAdapter(BaseTreeAdapter):
-    def __init__(self, main, data):
-        self.main = main
-        self._data = data
-
-    def parent(self, node):
-        if node is None:
-            return None
-        return node["parent"]
-
-    def child(self, parent, index):
-        if parent is None:
-            return self._data.value["projects"][index]
-        else:
-            return parent["files"][index]
-
-    def data(self, node):
-        return os.path.basename(node["path"])
-
-    def rowCount(self, parent):
-        if parent is None:
-            return len(self._data.value["projects"])
-        return len(parent["files"])
-
-    def clicked(self, node):
-        self.main.selectFile(node)
-
-    def dblclicked(self, node):
-        self.main.openFile(node["path"])
-
 class WorkspaceUI(Application):
     def __init__(self, filepath=None):
         super().__init__(icon=resource_path("icon.ico"))
@@ -48,7 +18,6 @@ class WorkspaceUI(Application):
         self.state.filepath = filepath
         self.state.focus = None
         self.state.workspace = {"projects": []}
-        self.state.adapter = TreeAdapter(self, self.state("workspace"))
         self.state.editingDesc = False
         self.state.edit = ""
 
@@ -108,7 +77,6 @@ class WorkspaceUI(Application):
                         "parent": project,
                         "files": [],
                     })
-        self.state.adapter = TreeAdapter(self, self.state("workspace"))
 
     def content(self):
         with Window(size=(1300, 768), title=f"Kikakuka (PUI {PUI.__version__} {PUI_BACKEND}))", icon=resource_path("icon.ico")).keypress(self.keypress):
@@ -129,8 +97,16 @@ class WorkspaceUI(Application):
                     Spacer()
 
                 with HBox():
-                    (Tree(self.state.adapter).layout(weight=1).expandAll().expandable(False)
-                        .dragEnter(self.handleDragEnter).drop(self.handleDrop))
+                    with (Tree().layout(weight=1).expandAll().expandable(False)
+                        .dragEnter(self.handleDragEnter).drop(self.handleDrop)):
+                        for project in self.state.workspace["projects"]:
+                            with (TreeNode(os.path.basename(project["path"]))
+                                  .click(lambda e, project: self.selectFile(project), project)
+                                  .dblclick(lambda e, project: self.openFile(project["path"]), project)):
+                                for file in project["files"]:
+                                    (TreeNode(os.path.basename(file["path"]))
+                                     .click(lambda e, file: self.selectFile(file), file)
+                                     .dblclick(lambda e, file: self.openFile(file["path"]), file))
 
                     with VBox().layout(weight=1):
                         with HBox():
@@ -210,6 +186,7 @@ class WorkspaceUI(Application):
             self.loadFile()
 
     def selectFile(self, node):
+        self.state.editingDesc = False
         self.state.focus = node
 
     def addFileDialog(self):
