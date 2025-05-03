@@ -345,6 +345,8 @@ class PanelizerUI(Application):
         self.off_y = 20 * self.unit
 
         self.state = State()
+        self.state.auto_build = True
+
         self.state.hide_outside_reference_value = True
         self.state.debug = False
         self.state.show_conflicts = True
@@ -621,7 +623,10 @@ class PanelizerUI(Application):
             self.autoScale()
             self.build()
 
-    def build(self, e=None, export=False):
+    def build(self, e=None, export=False, auto_build=True):
+        if auto_build and not self.state.auto_build:
+            return
+
         pcbs = self.state.pcb
         if len(pcbs) == 0:
             return
@@ -1707,6 +1712,9 @@ class PanelizerUI(Application):
                             Label("Panel")
                             Button("Load").click(self.load)
                             Button("Save").click(self.save)
+                            Checkbox("Auto Build", self.state("auto_build"))
+                            if not self.state.auto_build:
+                                Button("Build").click(self.build, auto_build=False)
 
                             Spacer()
 
