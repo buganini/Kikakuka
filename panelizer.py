@@ -403,7 +403,7 @@ class PanelizerUI(Application):
 
         self.state.boardSubstrate = None
 
-        self.mousepos = None
+        self.state.mousepos = None
         self.mouse_dragging = None
         self.mousehold = False
         self.mousemoved = 0
@@ -1363,7 +1363,7 @@ class PanelizerUI(Application):
                 self.build()
 
     def mousedown(self, e):
-        self.mousepos = e.x, e.y
+        self.state.mousepos = e.x, e.y
         self.mousehold = True
         self.mousemoved = 0
 
@@ -1426,11 +1426,11 @@ class PanelizerUI(Application):
         if self.tool == Tool.TAB or self.tool == Tool.HOLE:
             self.state()
         elif self.mousehold:
-            pdx = e.x - self.mousepos[0]
-            pdy = e.y - self.mousepos[1]
+            pdx = e.x - self.state.mousepos[0]
+            pdy = e.y - self.state.mousepos[1]
             self.mousemoved += (pdx**2 + pdy**2)**0.5
 
-            x1, y1 = self.fromCanvas(*self.mousepos)
+            x1, y1 = self.fromCanvas(*self.state.mousepos)
             x2, y2 = self.fromCanvas(e.x, e.y)
             dx = x2 - x1
             dy = y2 - y1
@@ -1444,7 +1444,7 @@ class PanelizerUI(Application):
                 offx += pdx
                 offy += pdy
                 self.state.scale = offx, offy, scale
-        self.mousepos = e.x, e.y
+        self.state.mousepos = e.x, e.y
 
     def wheel(self, e):
         offx, offy, scale = self.state.scale
@@ -1635,8 +1635,8 @@ class PanelizerUI(Application):
         edit_polygon = self.state.edit_polygon
         if edit_polygon:
             edit_polygon = list(edit_polygon)
-            if self.mousepos:
-                edit_polygon.append(self.fromCanvas(*self.mousepos))
+            if self.state.mousepos:
+                edit_polygon.append(self.fromCanvas(*self.state.mousepos))
             self.drawPolyline(canvas, edit_polygon, color=0xFF6E00, width=1)
 
         drawCross = False
@@ -1645,7 +1645,7 @@ class PanelizerUI(Application):
             drawCross = True
 
         if self.tool == Tool.TAB:
-            x, y = self.fromCanvas(*self.mousepos)
+            x, y = self.fromCanvas(*self.state.mousepos)
             p = Point(x+self.off_x, y+self.off_y)
             if self.state.focus.contains(p):
                 shortest = None
@@ -1664,8 +1664,8 @@ class PanelizerUI(Application):
                     canvas.drawEllipse(x2, y2, 3, 3, stroke=0xFF0000)
                     canvas.drawLine(x1, y1, x2, y2, color=0xFFFF00)
 
-        if drawCross and self.mousepos:
-            x, y = self.mousepos[0], self.mousepos[1]
+        if drawCross and self.state.mousepos:
+            x, y = self.state.mousepos[0], self.state.mousepos[1]
             canvas.drawLine(x-10, y, x+10, y, color=0xFF0000)
             canvas.drawLine(x, y-10, x, y+10, color=0xFF0000)
 
@@ -1692,6 +1692,7 @@ class PanelizerUI(Application):
                     self.state.cut_method
                     self.state.mb_diameter
                     self.state.mb_spacing
+                    self.state.mousepos
                     (Canvas(self.painter)
                         .dblclick(self.dblclicked)
                         .mousedown(self.mousedown)
