@@ -30,13 +30,16 @@ import PUI
 import wx
 import tempfile
 
-_, kikit_tmp = tempfile.mkstemp(prefix='kikakuka_', suffix='.kicad_pcb')
+with tempfile.NamedTemporaryFile(prefix='kikakuka_', suffix='.kicad_pcb', delete=True) as tmp:
+    kikit_tmp = tmp.name
 
 def cleanup_kikit_tmp():
-    try:
-        os.remove(kikit_tmp)
-    except FileNotFoundError:
-        pass
+    try: os.remove(kikit_tmp)
+    except: pass
+    try: os.remove(kikit_tmp.replace("kicad_pcb", "kicad_pro"))
+    except: pass
+    try: os.remove(kikit_tmp.replace("kicad_pcb", "kicad_prl"))
+    except: pass
 
 VERSION = "3.5"
 
