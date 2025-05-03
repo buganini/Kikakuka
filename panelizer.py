@@ -180,7 +180,7 @@ class PCB(StateObject):
         else:
             objs = [obj]
         for shape, obj in itertools.product(self.shapes, objs):
-            c = collision(shape, obj, direction)
+            c = collision(shape, obj, direction, arrow_size=10000*mm)
             if c:
                 dist = LineString(c).length
                 if mdist is None:

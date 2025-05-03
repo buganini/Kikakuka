@@ -26,13 +26,16 @@ def longest_distance(a, b):
     return ret
 
 
-def shoot(origin, obj, direction):
+def shoot(origin, obj, direction, arrow_size=None):
     """
     Returns the points where the object (exterior) would hit
     """
 
     # Make an arrow long enough to penetrate the target object
-    l2 = longest_distance(origin, obj) * 2
+    if arrow_size:
+        l2 = arrow_size
+    else:
+        l2 = longest_distance(origin, obj) * 2
     dl = LineString([(0,0), direction]).length
     d = (direction[0]*l2/dl, direction[1]*l2/dl)
 
@@ -78,7 +81,7 @@ def interpolate(ps, n):
 
 
 # BUG: return 0 when initially contacts on opposite side of direction, should only test on facade
-def collision(origin, obj, direction):
+def collision(origin, obj, direction, arrow_size=None):
     """
     Returns the coordinates on the exterior of the two objects where the collision would happen
     """
@@ -95,7 +98,7 @@ def collision(origin, obj, direction):
 
     # forward tests with origin's vertices
     for a in interpolate(exterior(origin), 2):
-        ps = shoot(a, obj, direction)
+        ps = shoot(a, obj, direction, arrow_size)
         if len(ps)==1 and isinstance(ps[0], Point): # contact on a point
             ps = []
         ps = [p for p in ps if not isinstance(p, LineString)]
@@ -107,7 +110,7 @@ def collision(origin, obj, direction):
     # reversed tests with obj's vertices
     rdirection = (-direction[0], -direction[1])
     for b in interpolate(exterior(obj), 2):
-        ps = shoot(b, origin, rdirection)
+        ps = shoot(b, origin, rdirection, arrow_size)
         if len(ps)==1 and isinstance(ps[0], Point): # contact on a point
             ps = []
         ps = [p for p in ps if not isinstance(p, LineString)]
