@@ -201,6 +201,10 @@ class WorkspaceUI(Application):
             self.loadFile()
 
     def selectFile(self, node):
+        Thread(target=self._selectFile, args=[node], daemon=True).start()
+
+    def _selectFile(self, node):
+        time.sleep(0.5)
         self.state.editingDesc = False
         self.state.focus = node
 
