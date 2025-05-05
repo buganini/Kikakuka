@@ -56,6 +56,7 @@ class WorkspaceUI(Application):
         for project in self.state.workspace["projects"]:
             project["files"] = []
             project["parent"] = None
+            project["project_path"] = project["path"]
             if project["path"].endswith(".kikit_pnl"):
                 continue
             if project["path"].endswith(".kicad_pro"):
@@ -67,12 +68,14 @@ class WorkspaceUI(Application):
                     pcb = os.path.join(self.state.root, pcb)
                 if os.path.exists(sch):
                     project["files"].append({
+                        "project_path": project["path"],
                         "path": sch,
                         "parent": project,
                         "files": [],
                     })
                 if os.path.exists(pcb):
                     project["files"].append({
+                        "project_path": project["path"],
                         "path": pcb,
                         "parent": project,
                         "files": [],
@@ -112,9 +115,11 @@ class WorkspaceUI(Application):
                         with HBox():
                             Label("File:")
                             if self.state.focus is not None:
-                                Label(os.path.basename(self.state.focus["path"]))
+                                Label(os.path.basename(self.state.focus["project_path"]))
+                                Spacer()
                                 Button("Remove").click(lambda e: self.removeFile())
-                            Spacer()
+                            else:
+                                Spacer()
 
                         with HBox():
                             Label("Description:")
@@ -208,12 +213,14 @@ class WorkspaceUI(Application):
         self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
         self.findFiles()
         self.saveFile()
+        self.state()
 
     def removeFile(self):
         if Confirm("Are you sure you want to remove this file from the workspace?", "Remove file"):
-            self.state.workspace["projects"] = [p for p in self.state.workspace["projects"] if p["path"] != self.state.focus["path"]]
+            self.state.workspace["projects"] = [p for p in self.state.workspace["projects"] if p["project_path"] != self.state.focus["project_path"]]
             self.findFiles()
             self.saveFile()
+            self.state()
 
     def newPanelization(self):
         filepath = SaveFile("New Panelization", types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
