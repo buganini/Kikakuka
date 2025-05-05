@@ -41,8 +41,6 @@ def cleanup_kikit_tmp():
     try: os.remove(kikit_tmp.replace("kicad_pcb", "kicad_prl"))
     except: pass
 
-VERSION = "3.5"
-
 MIN_SPACING = 0.1
 VC_EXTENT = 3
 
@@ -1682,7 +1680,7 @@ class PanelizerUI(Application):
             return orig
 
     def content(self):
-        title = f"Kikakuka v{VERSION} (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
+        title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 with HBox():

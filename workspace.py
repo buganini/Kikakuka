@@ -35,7 +35,7 @@ class WorkspaceUI(Application):
             self.state.workspace = json.load(f)
             for project in self.state.workspace["projects"]:
                 project["path"] = os.path.abspath(project["path"])
-        self.findFiles()
+        findFiles(self.state.workspace, self.state.root)
 
     def saveFile(self):
         if self.state.filepath is None:
@@ -51,45 +51,6 @@ class WorkspaceUI(Application):
         }
         with open(self.state.filepath, "w") as f:
             json.dump(workspace, f, indent=4)
-
-    def findFiles(self):
-        for project in self.state.workspace["projects"]:
-            project["files"] = []
-            project["parent"] = None
-            project["project_path"] = project["path"]
-            if project["path"].endswith(".kikit_pnl"):
-                continue
-            if project["path"].endswith(".kicad_pro"):
-                sch = re.sub(r"\.kicad_pro$", ".kicad_sch", project["path"])
-                pcb = re.sub(r"\.kicad_pro$", ".kicad_pcb", project["path"])
-                step = re.sub(r"\.kicad_pro$", ".step", project["path"])
-                if not os.path.isabs(sch):
-                    sch = os.path.join(self.state.root, sch)
-                if not os.path.isabs(pcb):
-                    pcb = os.path.join(self.state.root, pcb)
-                if not os.path.isabs(step):
-                    step = os.path.join(self.state.root, step)
-                if os.path.exists(sch):
-                    project["files"].append({
-                        "project_path": project["path"],
-                        "path": sch,
-                        "parent": project,
-                        "files": [],
-                    })
-                if os.path.exists(pcb):
-                    project["files"].append({
-                        "project_path": project["path"],
-                        "path": pcb,
-                        "parent": project,
-                        "files": [],
-                    })
-                if os.path.exists(step):
-                    project["files"].append({
-                        "project_path": project["path"],
-                        "path": step,
-                        "parent": project,
-                        "files": [],
-                    })
 
     def content(self):
         with Window(size=(1300, 768), title=f"Kikakuka (PUI {PUI.__version__} {PUI_BACKEND}))", icon=resource_path("icon.ico")).keypress(self.keypress):
@@ -192,7 +153,7 @@ class WorkspaceUI(Application):
         if filepath:
             self.state.filepath = filepath
             self.state.workspace = {"projects": []}
-            self.findFiles()
+            findFiles(self.state.workspace, self.state.root)
             self.saveFile()
 
     def openWorkspace(self):
@@ -225,14 +186,14 @@ class WorkspaceUI(Application):
             "description": "",
         })
         self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
-        self.findFiles()
+        findFiles(self.state.workspace, self.state.root)
         self.saveFile()
         self.state()
 
     def removeFile(self):
         if Confirm("Are you sure you want to remove this file from the workspace?", "Remove file"):
             self.state.workspace["projects"] = [p for p in self.state.workspace["projects"] if p["project_path"] != self.state.focus["project_path"]]
-            self.findFiles()
+            findFiles(self.state.workspace, self.state.root)
             self.saveFile()
             self.state()
 
@@ -245,7 +206,7 @@ class WorkspaceUI(Application):
                     "description": "",
                 })
                 self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
-                self.findFiles()
+                findFiles(self.state.workspace, self.state.root)
                 self.saveFile()
             self.openPanelizer(filepath)
 
