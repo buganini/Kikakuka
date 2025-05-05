@@ -3,6 +3,7 @@ import sys
 
 WORKSPACE_SUFFIX = ".kkkk"
 PNL_SUFFIX = ".kikit_pnl"
+STEP_SUFFIX = ".step"
 PCB_SUFFIX = ".kicad_pcb"
 
 def resource_path(relative_path):

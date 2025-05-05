@@ -209,7 +209,6 @@ class WorkspaceUI(Application):
         if filepath:
             self.addFile(filepath)
 
-
     def addFile(self, filepath):
         filepath = os.path.abspath(filepath)
         if not os.path.exists(filepath):
@@ -246,10 +245,12 @@ class WorkspaceUI(Application):
             self.openPanelizer(filepath)
 
     def openFile(self, path):
-        if path.endswith(PNL_SUFFIX):
+        if path.lower().endswith(PNL_SUFFIX):
             self.openPanelizer(path)
             return
-        print(self.pidmap)
+        if path.lower().endswith(STEP_SUFFIX):
+            self.openStep(path)
+            return
         pid = self.pidmap.get(path)
         if pid:
             self.bringToFront(pid)
@@ -290,6 +291,21 @@ class WorkspaceUI(Application):
     def _openPanelizer(self, filepath):
         p = subprocess.Popen([sys.executable, sys.argv[0], filepath])
         pid = p.pid
+        self.pidmap[filepath] = pid
+        p.wait()
+        self.pidmap.pop(filepath, None)
+
+    def openStep(self, filepath):
+        pid = self.pidmap.get(filepath)
+        if pid:
+            self.bringToFront(pid)
+            return
+        Thread(target=self._openStep, args=[filepath], daemon=True).start()
+
+    def _openStep(self, filepath):
+        cmd = ["open", "-a", "FreeCAD", "-n", "-W", "--args", filepath]
+        p = subprocess.Popen(cmd)
+        pid = p.pid + 1
         self.pidmap[filepath] = pid
         p.wait()
         self.pidmap.pop(filepath, None)
