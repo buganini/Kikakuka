@@ -30,7 +30,7 @@ pyinstaller_args.extend(["--add-data", f"{os.path.join(kikit_base, 'resources', 
 print(pyinstaller_args)
 
 PyInstaller.__main__.run([
-    'kikit-ui.py',
+    'kikakuka.py',
     "--onedir",
     "--noconfirm",
     "--windowed",
@@ -40,10 +40,10 @@ PyInstaller.__main__.run([
 
 if codesign_identity:
     for path in itertools.chain(
-        glob.glob("dist/kikit-ui.app/**/*.so", recursive=True),
-        glob.glob("dist/kikit-ui.app/**/*.dylib", recursive=True),
-        glob.glob("dist/kikit-ui.app/**/Python3", recursive=True),
-        ["dist/kikit-ui.app"],
+        glob.glob("dist/kikakuka.app/**/*.so", recursive=True),
+        glob.glob("dist/kikakuka.app/**/*.dylib", recursive=True),
+        glob.glob("dist/kikakuka.app/**/Python3", recursive=True),
+        ["dist/kikakuka.app"],
     ):
         print("codesign", path)
         subprocess.run(["codesign",
@@ -57,15 +57,15 @@ if codesign_identity:
         ])
 
 if create_dmg:
-    if os.path.exists("kikit-ui.dmg"):
-        os.unlink("kikit-ui.dmg")
+    if os.path.exists("kikakuka.dmg"):
+        os.unlink("kikakuka.dmg")
     subprocess.run([
         "create-dmg",
-        "--volname", "KiKit-UI",
+        "--volname", "Kikakuka",
         "--volicon", "resources/icon.icns",
         "--app-drop-link", "0", "0",
         *create_dmg_args,
-        "kikit-ui.dmg", "dist/kikit-ui.app"
+        "kikakuka.dmg", "dist/kikakuka.app"
     ])
     if codesign_identity:
-        subprocess.run(["spctl", "-a", "-t", "open", "--context", "context:primary-signature", "-v", "kikit-ui.dmg"])
+        subprocess.run(["spctl", "-a", "-t", "open", "--context", "context:primary-signature", "-v", "kikakuka.dmg"])
