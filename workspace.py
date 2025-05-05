@@ -126,6 +126,7 @@ class WorkspaceUI(Application):
                             Label("File:")
                             if self.state.focus is not None:
                                 Label(os.path.basename(self.state.focus["project_path"]))
+                                Button("Open File Location").click(lambda e, location: self.openFolder(location), os.path.dirname(self.state.focus["project_path"]))
                                 Spacer()
                                 Button("Remove").click(lambda e: self.removeFile())
                             else:
@@ -262,7 +263,7 @@ class WorkspaceUI(Application):
         Thread(target=self._openFile, args=[path], daemon=True).start()
 
     def _openFile(self, filepath):
-        import subprocess, os, platform
+        import subprocess, platform
         if platform.system() == 'Darwin':
             cmd = ["open", "-n", "-W", filepath]
             p = subprocess.Popen(cmd)
@@ -284,6 +285,15 @@ class WorkspaceUI(Application):
             self.pidmap[filepath] = pid
             p.wait()
             self.pidmap.pop(filepath, None)
+
+    def openFolder(self, location):
+        import subprocess, platform
+        if platform.system() == 'Darwin':
+            subprocess.run(["open", location])
+        elif platform.system() == 'Windows':
+            subprocess.run(["explorer", location])
+        else:
+            subprocess.run(["xdg-open", location])
 
     def openPanelizer(self, filepath):
         pid = self.pidmap.get(filepath)
