@@ -62,10 +62,13 @@ class WorkspaceUI(Application):
             if project["path"].endswith(".kicad_pro"):
                 sch = re.sub(r"\.kicad_pro$", ".kicad_sch", project["path"])
                 pcb = re.sub(r"\.kicad_pro$", ".kicad_pcb", project["path"])
+                step = re.sub(r"\.kicad_pro$", ".step", project["path"])
                 if not os.path.isabs(sch):
                     sch = os.path.join(self.state.root, sch)
                 if not os.path.isabs(pcb):
                     pcb = os.path.join(self.state.root, pcb)
+                if not os.path.isabs(step):
+                    step = os.path.join(self.state.root, step)
                 if os.path.exists(sch):
                     project["files"].append({
                         "project_path": project["path"],
@@ -77,6 +80,13 @@ class WorkspaceUI(Application):
                     project["files"].append({
                         "project_path": project["path"],
                         "path": pcb,
+                        "parent": project,
+                        "files": [],
+                    })
+                if os.path.exists(step):
+                    project["files"].append({
+                        "project_path": project["path"],
+                        "path": step,
                         "parent": project,
                         "files": [],
                     })
