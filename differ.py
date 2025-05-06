@@ -107,6 +107,12 @@ class DiffView(PUIView):
         self.state.splitter_x = e.x / self.canvas_width
 
     def wheel(self, e):
+        if e.modifiers & KeyModifier.CTRL:
+            zoom_factor = 1.7  # Factor for smoother zooming
+            noverlap = self.state.overlap * (zoom_factor ** (e.v_delta / 120))
+            self.state.overlap = max(0.0001, min(0.1, noverlap))
+            return
+
         if self.state.scale is None:
             return
 
@@ -268,7 +274,9 @@ class DifferUI(Application):
                                     Spacer()
                                 Spacer()
                         else:
-                            DiffView(self).layout(weight=1)
+                            with VBox().layout(weight=1).id("sch-diff-view"):
+                                Label("Ctrl+Wheel to adjust overlap")
+                                DiffView(self)
 
                         with Scroll().layout(width=250):
                             with VBox():
