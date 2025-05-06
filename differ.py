@@ -41,7 +41,8 @@ class DiffView(PUIView):
         self.main = main
         self.path_a = Prop()
         self.path_b = Prop()
-        self.diff_mtime = Prop()
+        self.mask_mtime = Prop()
+        self.darker_mtime = Prop()
         self.canvas_width = None
         self.canvas_height = None
         self.diff_width = None
@@ -51,11 +52,11 @@ class DiffView(PUIView):
         self.state = State()
         self.state.scale = None
         self.state.splitter_x = 0.5
-        self.state.overlap = 0.005
+        self.state.overlap = 0.05
 
     def autoScale(self, canvas_width, canvas_height):
-        diff = PILImage.open("diff.png")
-        dw, dh = diff.size
+        mask = PILImage.open("mask.png")
+        dw, dh = mask.size
         self.diff_width, self.diff_height = dw, dh
         self.canvas_width, self.canvas_height = canvas_width, canvas_height
 
@@ -71,7 +72,6 @@ class DiffView(PUIView):
         offx = (cw - (dw) * scale) / 2
         offy = (ch - (dh) * scale) / 2
         self.state.scale = (offx, offy, scale)
-        print("autoScale", offx, offy, scale)
 
     def toCanvas(self, x, y):
         """
@@ -123,6 +123,7 @@ class DiffView(PUIView):
         offy = e.y - (e.y - offy) * nscale / scale
 
         self.state.scale = offx, offy, nscale
+        self.state.overlap *= nscale/scale
 
     def painter(self, canvas):
         if self.state.scale is None:
@@ -137,9 +138,13 @@ class DiffView(PUIView):
         if self.path_b.set(path):
             self.image_b = canvas.loadImage(path)
 
-        path = "diff.png"
-        if self.diff_mtime.set(os.path.getmtime(path)):
-            self.diff = canvas.loadImage(path)
+        path = "darker.png"
+        if self.darker_mtime.set(os.path.getmtime(path)):
+            self.darker = canvas.loadImage(path)
+
+        path = "mask.png"
+        if self.mask_mtime.set(os.path.getmtime(path)):
+            self.mask = canvas.loadImage(path)
 
         x1, y1 = self.fromCanvas(0, 0)
         x2, y2 = self.fromCanvas(canvas.width*(self.state.splitter_x - self.state.overlap), canvas.height)
@@ -154,9 +159,20 @@ class DiffView(PUIView):
                          x, 0, width=canvas.width*(1 - self.state.splitter_x - self.state.overlap), height=canvas.height,
                          src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1))
 
+        ox1 = canvas.width*(self.state.splitter_x - self.state.overlap)
+        ox2 = canvas.width*(self.state.splitter_x + self.state.overlap)
+        x1, y1 = self.fromCanvas(ox1, 0)
+        x2, y2 = self.fromCanvas(ox2, canvas.height)
+        canvas.drawImage(self.darker,
+                         ox1, 0, width=canvas.width*self.state.overlap*2, height=canvas.height,
+                         src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1))
+
         x1, y1 = self.fromCanvas(0, 0)
         x2, y2 = self.fromCanvas(canvas.width, canvas.height)
-        canvas.drawImage(self.diff, 0, 0, width=canvas.width, height=canvas.height, src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.1)
+        canvas.drawImage(self.mask, 0, 0, width=canvas.width, height=canvas.height, src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.1)
+
+        canvas.drawLine(ox1, 0, ox1, canvas.height, color=0, width=1)
+        canvas.drawLine(ox2, 0, ox2, canvas.height, color=0, width=1)
 
 class DifferUI(Application):
     def __init__(self, filepath):
@@ -346,10 +362,13 @@ class DifferUI(Application):
 
                 a, b = self.pad_to_same_size(a, b)
 
-                diff = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
+                darker = ImageChops.darker(a, b)
+                darker.save("darker.png")
+
+                mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
                         .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
                         .filter(ImageFilter.GaussianBlur(radius=10))) # blur
-                diff.save("diff.png")
+                mask.save("mask.png")
                 self.state.diff_pair = diff_pair
 
                 self.state.loading_diff = False
