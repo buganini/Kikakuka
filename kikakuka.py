@@ -1,10 +1,14 @@
 import sys
+from differ import *
 from workspace import *
 from panelizer import *
 
 inputs = sys.argv[1:]
 if inputs:
-    if inputs[0].endswith(WORKSPACE_SUFFIX):
+    if inputs[0] == "--differ" and len(inputs) > 1:
+        ui = DifferUI(inputs[1])
+        ui.run()
+    elif inputs[0].endswith(WORKSPACE_SUFFIX):
         ui = WorkspaceUI(inputs[0])
         ui.run()
     elif inputs[0].endswith(PNL_SUFFIX):

@@ -38,6 +38,9 @@ PyInstaller.__main__.run([
     *pyinstaller_args
 ])
 
+if platform.system() == "Darwin":
+    subprocess.run(["sed", "-i", "", "s!</dict>!<key>CFBundleTypeRole</key><string>Editor</string><key>LSHandlerRank</key><string>Owner</string><key>CFBundleTypeExtensions</key><array><string>kkkk</string></array></dict>!", "dist/kikakuka.app/Contents/Info.plist"])
+
 if codesign_identity:
     for path in itertools.chain(
         glob.glob("dist/kikakuka.app/**/*.so", recursive=True),

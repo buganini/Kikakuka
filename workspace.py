@@ -68,6 +68,7 @@ class WorkspaceUI(Application):
                 with HBox():
                     Button("Add Project/Panelization").click(lambda e: self.addFileDialog())
                     Button("New Panelization").click(lambda e: self.newPanelization())
+                    Button("Differ").click(lambda e: self.openDiffer())
                     Spacer()
 
                 with HBox():
@@ -161,6 +162,20 @@ class WorkspaceUI(Application):
         if filepath:
             self.state.filepath = filepath
             self.loadFile()
+
+    def openDiffer(self):
+        pid = self.pidmap.get(":differ")
+        if pid:
+            self.bringToFront(pid)
+            return
+        Thread(target=self._openDiffer, args=[self.state.filepath], daemon=True).start()
+
+    def _openDiffer(self, filepath):
+        p = subprocess.Popen([sys.executable, sys.argv[0], "--differ", filepath])
+        pid = p.pid
+        self.pidmap[":differ"] = pid
+        p.wait()
+        self.pidmap.pop(":differ", None)
 
     def selectFile(self, node):
         Thread(target=self._selectFile, args=[node], daemon=True).start()
