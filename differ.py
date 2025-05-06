@@ -274,7 +274,7 @@ class DifferUI(Application):
                                     Spacer()
                                 Spacer()
                         else:
-                            with VBox().layout(weight=1).id("sch-diff-view"):
+                            with VBox().layout(weight=1).id("sch-diff-view"): # set id to workaround PUI bug (doesn't update weight)
                                 Label("Ctrl+Wheel to adjust overlap")
                                 DiffView(self)
 
