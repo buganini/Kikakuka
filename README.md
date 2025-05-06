@@ -14,43 +14,43 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
     * Enable hole creation in panel substrate for extruded parts
     * Does not require coding skill
 
-# kkkk file
-The .kkkk file saves workspace information in JSON format.
+# Workspace Manager
+The `.kkkk` file saves workspace information in JSON format.
 
-# kikit_pnl file
-The .kikit_pnl file saves panelization settings in JSON format, with PCB paths stored relative to the file's location.
+# Panelizer
+The `.kikit_pnl` file saves panelization settings in JSON format, with PCB paths stored relative to the file's location.
 
-# Global Alignment
+## Global Alignment
 ![Global Alignment](screenshots/global_alignment.gif)
 
-# Per-PCB Alignment
+## Per-PCB Alignment
 ![Per-PCB Alignment](screenshots/single_alignment.gif)
 
-# Substrate Hole
+## Substrate Hole
 ![Substrate Hole](screenshots/substrate_hole.gif)
 
-# Tight Frame + Auto Tab + V-Cuts *or* Mousebites
+## Tight Frame + Auto Tab + V-Cuts *or* Mousebites
 ![UI](screenshots/tight_frame_autotab_autocut.png)
-## Output
+### Output
 ![Output](screenshots/tight_frame_autotab_autocut_output.png)
-## 3D Output
+### 3D Output
 ![3D Output](screenshots/tight_frame_autotab_autocut_output_3d.png)
 
-# Tight Frame + Auto Tab + V-Cuts *and* Mousebites
+## Tight Frame + Auto Tab + V-Cuts *and* Mousebites
 ![UI](screenshots/tight_frame_autotab_vcuts_and_mousebites.png)
 
-# Loose Frame + Auto Tab + Mousebites
+## Loose Frame + Auto Tab + Mousebites
 ![UI](screenshots/loose_frame_autotab_mousebites.png)
-## 3D Output
+### 3D Output
 ![3D Output](screenshots/loose_frame_autotab_mousebites_output_3d.png)
 
-# Auto Tab
+## Auto Tab
 Tab position candidates are determined by the PCB edge and max_tab_spacing, prioritized by divided edge length (smaller first), and skipped if there is a nearby candidate (distance < max_tab_spacing/3) with higher priority.
 
 In the image below with debug mode on, small red dots are tab position candidates, larger red circles are selected candidates, and the two rectangles represent the two half-bridge tabs.
 ![Auto Tab](screenshots/auto_tab.png)
 
-# Manual Tab
+## Manual Tab
 ![Manual Tab](screenshots/manual_tab.gif)
 
 # Run from source (Linux/macOS)
