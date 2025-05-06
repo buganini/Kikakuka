@@ -153,6 +153,7 @@ class WorkspaceUI(Application):
         filepath = SaveFile("New Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
         if filepath:
             self.state.filepath = filepath
+            self.state.root = os.path.dirname(os.path.abspath(filepath))
             self.state.workspace = {"projects": []}
             findFiles(self.state.workspace, self.state.root)
             self.saveFile()
