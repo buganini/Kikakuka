@@ -7,6 +7,7 @@ import platform
 import subprocess
 from threading import Thread
 import hashlib
+import queue
 import pypdfium2 as pdfium
 from PIL import Image as PILImage, ImageChops
 
@@ -23,8 +24,8 @@ def convert_sch(path, outpath):
         cmd = [kicad_cli, "sch", "export", "pdf", "-o", pdfpath, path]
         subprocess.run(cmd)
 
-    os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
     if not os.path.exists(os.path.join(outpath, "png")):
+        os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
         pdf = pdfium.PdfDocument(pdfpath)
         for p, page in enumerate(pdf):
             pil_image = page.render(
@@ -67,8 +68,10 @@ class DifferUI(Application):
 
         self.cached_file_a = ""
         self.cached_file_b = ""
-        self.cached_page_a = ""
-        self.cached_page_b = ""
+
+        self.queue = queue.Queue()
+
+        Thread(target=self.bg_looper, daemon=True).start()
 
         with open(filepath, "r") as f:
             self.base_dir = os.path.dirname(os.path.abspath(filepath))
@@ -129,6 +132,10 @@ class DifferUI(Application):
                         if self.state.loading_diff:
                             Label("Loading diff...")
                             Spacer()
+                        elif not self.state.page_a or not self.state.page_b:
+                            with VBox():
+                                Label("Select pages to compare")
+                                Spacer()
                         else:
                             DiffView(self).layout(weight=1)
 
@@ -139,47 +146,50 @@ class DifferUI(Application):
                                 Spacer()
 
     def select_a(self, e, png):
-        print("select_a", png)
         self.state.page_a = png
         self.build()
 
     def select_b(self, e, png):
-        print("select_b", png)
         self.state.page_b = png
         self.build()
 
     def build(self):
         if not self.state.file_a or not self.state.file_b:
             return
+        self.queue.put(1)
 
-        Thread(target=self._build, daemon=True).start()
+    def bg_looper(self):
+        while True:
+            self.queue.get()
 
-    def _build(self):
-        self.state.loading = True
+            self.state.loading = True
 
-        path_a = hashlib.sha256(self.state.file_a.encode("utf-8")).hexdigest()
-        if self.cached_file_a != path_a:
-            convert_sch(self.state.file_a, path_a)
-            self.cached_file_a = path_a
-            self.state.page_a = 0
+            path_a = hashlib.sha256(self.state.file_a.encode("utf-8")).hexdigest()
+            if self.cached_file_a != path_a:
+                convert_sch(self.state.file_a, path_a)
+                self.cached_file_a = path_a
+                self.state.page_a = 0
 
-        path_b = hashlib.sha256(self.state.file_b.encode("utf-8")).hexdigest()
-        if self.cached_file_b != path_b:
-            convert_sch(self.state.file_b, path_b)
-            self.cached_file_b = path_b
-            self.state.page_b = 0
+            path_b = hashlib.sha256(self.state.file_b.encode("utf-8")).hexdigest()
+            if self.cached_file_b != path_b:
+                convert_sch(self.state.file_b, path_b)
+                self.cached_file_b = path_b
+                self.state.page_b = 0
 
-        self.state.loading = False
-
-        if not self.state.page_a or not self.state.page_b:
             self.state.loading = False
-            return
 
-        if self.cached_page_a != self.state.page_a or self.cached_page_b != self.state.page_b:
-            a = PILImage.open(os.path.join(self.cached_file_a, "png", self.state.page_a))
-            b = PILImage.open(os.path.join(self.cached_file_b, "png", self.state.page_b))
-            self.state.diff_pair = (self.cached_file_a, self.cached_file_b, self.state.page_a, self.state.page_b)
-            diff = ImageChops.difference(a, b)
-            diff.save("diff.png")
-            print("diff updated")
+            if not self.state.page_a or not self.state.page_b:
+                self.state.loading = False
+                continue
+
+            diff_pair = (self.cached_file_a, self.cached_file_b, self.state.page_a, self.state.page_b)
+            print("diff_pair", diff_pair, self.state.diff_pair != diff_pair)
+            if self.state.diff_pair != diff_pair:
+                print("diff updated", diff_pair)
+                a = PILImage.open(os.path.join(self.cached_file_a, "png", self.state.page_a))
+                b = PILImage.open(os.path.join(self.cached_file_b, "png", self.state.page_b))
+                diff = ImageChops.difference(a, b)
+                diff.save("diff.png")
+                print("diff updated")
+                self.state.diff_pair = diff_pair
 
