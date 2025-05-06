@@ -110,9 +110,6 @@ class DiffView(PUIView):
         if self.state.scale is None:
             return
 
-        x, y = self.fromCanvas(e.x, e.y)
-        self.state.splitter_x = x / self.diff_width
-
         offx, offy, scale = self.state.scale
         zoom_factor = 1.2  # Factor for smoother zooming
 
