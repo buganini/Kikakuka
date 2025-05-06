@@ -8,6 +8,7 @@ import subprocess
 from threading import Thread
 import hashlib
 import queue
+import glob
 import pypdfium2 as pdfium
 from PIL import Image as PILImage, ImageChops, ImageFilter
 
@@ -15,6 +16,8 @@ if platform.system() == "Darwin":
     kicad_cli = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
 else:
     kicad_cli = "kicad-cli"
+
+PCB_LAYERS = ["Edge.Cuts", "F.Cu", "F.Silkscreen", "F.Mask", "F.Paste", "B.Cu", "B.Silkscreen", "B.Mask", "B.Paste"]
 
 def convert_sch(path, outpath):
     os.makedirs(outpath, exist_ok=True)
@@ -34,8 +37,32 @@ def convert_sch(path, outpath):
             ).to_pil()
             pil_image.save(os.path.join(outpath, "png", f"sch_{p:02d}.png"))
 
+def convert_pcb(path, outpath):
+    os.makedirs(outpath, exist_ok=True)
 
-class DiffView(PUIView):
+    pdfpath = os.path.join(outpath, f"pcb.pdf")
+    if not os.path.exists(pdfpath):
+        cmd = [kicad_cli, "pcb", "export", "pdf", "--mode-multipage", "--layers", ",".join(PCB_LAYERS), "-o", pdfpath, path]
+        subprocess.run(cmd)
+
+    if os.path.isdir(pdfpath):
+        pdfpath = glob.glob(os.path.join(pdfpath, f"*.pdf"))[0]
+
+    for p, layer in enumerate(PCB_LAYERS):
+        png_path = os.path.join(outpath, "png", f"{layer}.png")
+        if not os.path.exists(png_path):
+            os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
+            pdf = pdfium.PdfDocument(pdfpath)
+            pil_image = pdf[p].render(
+                fill_color=(255, 255, 255, 0),
+                scale=8,  # 72*x DPI is the default PDF resolution
+                rotation=0
+            ).to_pil().convert("RGBA")
+
+            pil_image.save(png_path)
+
+
+class SchDiffView(PUIView):
     def __init__(self, main):
         super().__init__()
         self.main = main
@@ -186,10 +213,171 @@ class DiffView(PUIView):
         canvas.drawLine(ox1, 0, ox1, canvas.height, color=0, width=1)
         canvas.drawLine(ox2, 0, ox2, canvas.height, color=0, width=1)
 
+class PcbDiffView(PUIView):
+    def __init__(self, main):
+        super().__init__()
+        self.main = main
+        self.path_a = Prop()
+        self.path_b = Prop()
+        self.mask_mtime = Prop()
+        self.darker_mtime = Prop()
+        self.canvas_width = None
+        self.canvas_height = None
+        self.diff_width = None
+        self.diff_height = None
+
+    def setup(self):
+        self.state = State()
+        self.state.scale = None
+        self.state.splitter_x = 0.5
+        self.state.overlap = 0.05
+
+    def autoScale(self, canvas_width, canvas_height):
+        mask = PILImage.open("mask.png")
+        dw, dh = mask.size
+        self.diff_width, self.diff_height = dw, dh
+        self.canvas_width, self.canvas_height = canvas_width, canvas_height
+
+        if dw == 0 or dh == 0:
+            return
+
+        cw = canvas_width
+        ch = canvas_height
+        sw = cw / dw
+        sh = ch / dh
+        scale = min(sw, sh) * 0.75
+        self.scale = scale
+        offx = (cw - (dw) * scale) / 2
+        offy = (ch - (dh) * scale) / 2
+        self.state.scale = (offx, offy, scale)
+
+    def toCanvas(self, x, y):
+        """
+        Convert global coordinate system to canvas coordinate system
+        """
+        offx, offy, scale = self.state.scale
+        return x * scale + offx, y * scale + offy
+
+    def fromCanvas(self, x, y):
+        """
+        Convert canvas coordinate system to global coordinate system
+        """
+        offx, offy, scale = self.state.scale
+        return (x - offx)/scale, (y - offy)/scale
+
+    def content(self):
+        # register update
+        self.main.state.diff_pair
+        self.state.splitter_x
+        self.state.overlap
+        self.state.scale
+        self.main.state.show_layers
+
+        (Canvas(self.painter).layout(weight=1)
+         .style(bgColor=0xFFFFFF)
+         .mousemove(self.mousemove)
+         .wheel(self.wheel))
+
+    def mousemove(self, e):
+        if self.state.scale is None:
+            return
+        if self.canvas_width is None:
+            return
+
+        self.state.splitter_x = e.x / self.canvas_width
+
+    def wheel(self, e):
+        if e.modifiers & KeyModifier.CTRL:
+            zoom_factor = 1.7  # Factor for smoother zooming
+            noverlap = self.state.overlap * (zoom_factor ** (e.v_delta / 120))
+            self.state.overlap = max(0.0001, min(0.1, noverlap))
+            return
+
+        if self.state.scale is None:
+            return
+
+        offx, offy, scale = self.state.scale
+        zoom_factor = 1.2  # Factor for smoother zooming
+
+        nscale = scale * (zoom_factor ** (e.v_delta / 120))
+
+        # Limit the scale
+        nscale = min(self.scale*2, max(self.scale/8, nscale))
+
+        # Calculate new offsets
+        offx = e.x - (e.x - offx) * nscale / scale
+        offy = e.y - (e.y - offy) * nscale / scale
+
+        self.state.scale = offx, offy, nscale
+        self.state.overlap *= nscale/scale
+
+    def painter(self, canvas):
+        if self.state.scale is None:
+            self.autoScale(canvas.width, canvas.height)
+            return
+
+        if self.path_a.set(self.main.cached_file_a):
+            self.image_a = {}
+            for layer in PCB_LAYERS:
+                self.image_a[layer] = canvas.loadImage(os.path.join(self.main.cached_file_a, "png", f"{layer}.png"))
+
+        if self.path_b.set(self.main.cached_file_b):
+            self.image_b = {}
+            for layer in PCB_LAYERS:
+                self.image_b[layer] = canvas.loadImage(os.path.join(self.main.cached_file_b, "png", f"{layer}.png"))
+
+        # path = "darker.png"
+        # if self.darker_mtime.set(os.path.getmtime(path)):
+        #     self.darker = canvas.loadImage(path)
+
+        # path = "mask.png"
+        # if self.mask_mtime.set(os.path.getmtime(path)):
+        #     self.mask = canvas.loadImage(path)
+
+        # A
+        x = max(0, canvas.width*(self.state.splitter_x - self.state.overlap))
+        x1, y1 = self.fromCanvas(0, 0)
+        x2, y2 = self.fromCanvas(x, canvas.height)
+        for layer in PCB_LAYERS[::-1]:
+            if not self.main.state.show_layers.get(layer, True):
+                continue
+            canvas.drawImage(self.image_a[layer],
+                             0, 0, width=x, height=canvas.height,
+                             src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
+
+        # B
+        x = min(canvas.width, canvas.width*(self.state.splitter_x + self.state.overlap))
+        x1, y1 = self.fromCanvas(x, 0)
+        x2, y2 = self.fromCanvas(canvas.width, canvas.height)
+        for layer in PCB_LAYERS[::-1]:
+            if not self.main.state.show_layers.get(layer, True):
+                continue
+            canvas.drawImage(self.image_b[layer],
+                             x, 0, width=canvas.width-x, height=canvas.height,
+                             src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
+
+        # # Darker
+        ox1 = max(0, canvas.width*(self.state.splitter_x - self.state.overlap))
+        ox2 = min(canvas.width, canvas.width*(self.state.splitter_x + self.state.overlap))
+        x1, y1 = self.fromCanvas(ox1, 0)
+        x2, y2 = self.fromCanvas(ox2, canvas.height)
+        # canvas.drawImage(self.darker,
+        #                  ox1, 0, width=ox2-ox1, height=canvas.height,
+        #                  src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1))
+
+        # # Mask
+        # x1, y1 = self.fromCanvas(0, 0)
+        # x2, y2 = self.fromCanvas(canvas.width, canvas.height)
+        # canvas.drawImage(self.mask, 0, 0, width=canvas.width, height=canvas.height, src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.08)
+
+        # Overlap cursor
+        canvas.drawLine(ox1, 0, ox1, canvas.height, color=0, width=1)
+        canvas.drawLine(ox2, 0, ox2, canvas.height, color=0, width=1)
 class DifferUI(Application):
     def __init__(self, filepath):
         super().__init__(icon=resource_path("icon.ico"))
         self.state = State()
+        self.state.show_layers = {l: True for l in PCB_LAYERS[1:]}
         self.state.loading = False
         self.state.loading_diff = False
         self.state.file_a = ""
@@ -276,13 +464,23 @@ class DifferUI(Application):
                         else:
                             with VBox().layout(weight=1).id("sch-diff-view"): # set id to workaround PUI bug (doesn't update weight)
                                 Label("Ctrl+Wheel to adjust overlap")
-                                DiffView(self)
+                                SchDiffView(self)
 
                         with Scroll().layout(width=250):
                             with VBox():
                                 for png in os.listdir(os.path.join(self.cached_file_b, "png")):
                                     Image(os.path.join(self.cached_file_b, "png", png)).layout(width=240).click(self.select_b, png)
                                 Spacer()
+                elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
+                    with HBox():
+                        with VBox().layout(weight=1).id("pcb-diff-view"): # set id to workaround PUI bug (doesn't update weight)
+                            Label("Ctrl+Wheel to adjust overlap")
+                            PcbDiffView(self)
+                        with VBox():
+                            Label("Display Layers")
+                            for layer in PCB_LAYERS[1:]:
+                                Checkbox(layer, model=self.state.show_layers(layer))
+                            Spacer()
 
     def select_a(self, e, png):
         self.state.page_a = png
@@ -349,17 +547,25 @@ class DifferUI(Application):
 
             self.state.loading = True
 
-            if self.state.file_a.lower().endswith(SCH_SUFFIX):
-                path_a = hashlib.sha256(self.state.file_a.encode("utf-8")).hexdigest()
-                if self.cached_file_a != path_a:
+            path_a = hashlib.sha256(self.state.file_a.encode("utf-8")).hexdigest()
+            if self.cached_file_a != path_a:
+                if self.state.file_a.lower().endswith(SCH_SUFFIX):
                     convert_sch(self.state.file_a, path_a)
                     self.cached_file_a = path_a
                     self.state.page_a = 0
+                if self.state.file_a.lower().endswith(PCB_SUFFIX):
+                    convert_pcb(self.state.file_a, path_a)
+                    self.cached_file_a = path_a
+                    self.state.page_a = 0
 
-            if self.state.file_b.lower().endswith(SCH_SUFFIX):
-                path_b = hashlib.sha256(self.state.file_b.encode("utf-8")).hexdigest()
-                if self.cached_file_b != path_b:
+            path_b = hashlib.sha256(self.state.file_b.encode("utf-8")).hexdigest()
+            if self.cached_file_b != path_b:
+                if self.state.file_b.lower().endswith(SCH_SUFFIX):
                     convert_sch(self.state.file_b, path_b)
+                    self.cached_file_b = path_b
+                    self.state.page_b = 0
+                if self.state.file_b.lower().endswith(PCB_SUFFIX):
+                    convert_pcb(self.state.file_b, path_b)
                     self.cached_file_b = path_b
                     self.state.page_b = 0
 
