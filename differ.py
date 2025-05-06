@@ -9,7 +9,7 @@ from threading import Thread
 import hashlib
 import queue
 import pypdfium2 as pdfium
-from PIL import Image as PILImage, ImageChops
+from PIL import Image as PILImage, ImageChops, ImageFilter
 
 if platform.system() == "Darwin":
     kicad_cli = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
@@ -188,7 +188,9 @@ class DifferUI(Application):
                 print("diff updated", diff_pair)
                 a = PILImage.open(os.path.join(self.cached_file_a, "png", self.state.page_a))
                 b = PILImage.open(os.path.join(self.cached_file_b, "png", self.state.page_b))
-                diff = ImageChops.difference(a, b)
+                diff = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
+                        .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
+                        .filter(ImageFilter.GaussianBlur(radius=10))) # blur
                 diff.save("diff.png")
                 print("diff updated")
                 self.state.diff_pair = diff_pair
