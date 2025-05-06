@@ -352,13 +352,10 @@ class PanelizerUI(Application):
         self.state.show_vc = True
 
         self.state.pcb = []
-        self.state.scale = (0, 0, 1)
+        self.state.scale = None
 
         self.state.target_path = ""
         self.state.export_path = ""
-
-        self.state.canvas_width = 800
-        self.state.canvas_height = 800
 
         self.state.focus = None
         self.state.focus_tab = None
@@ -408,7 +405,7 @@ class PanelizerUI(Application):
         self.tool = Tool.NONE
         self.state.edit_polygon = None
 
-    def autoScale(self):
+    def autoScale(self, canvas_width, canvas_height):
         x1, y1 = 0, 0
         x2, y2 = self.state.frame_width * self.unit, self.state.frame_height * self.unit
         for pcb in self.state.pcb:
@@ -424,14 +421,12 @@ class PanelizerUI(Application):
         if dw == 0 or dh == 0:
             return
 
-        cw = self.state.canvas_width
-        ch = self.state.canvas_height
-        sw = cw / dw
-        sh = ch / dh
+        sw = canvas_width / dw
+        sh = canvas_height / dh
         scale = min(sw, sh) * 0.75
         self.scale = scale
-        offx = (cw - (dw+x1) * scale) / 2
-        offy = (ch - (dh+y1) * scale) / 2
+        offx = (canvas_width - (dw+x1) * scale) / 2
+        offy = (canvas_height - (dh+y1) * scale) / 2
         self.state.scale = (offx, offy, scale)
 
     def addPCB(self, e):
@@ -449,7 +444,7 @@ class PanelizerUI(Application):
         pcb.off_x = self.off_x
         pcb.off_y = self.off_y
         self.state.pcb.append(pcb)
-        self.autoScale()
+        self.state.scane = None
         self.build()
 
     def duplicate(self, e, pcb):
@@ -458,7 +453,7 @@ class PanelizerUI(Application):
     def remove(self, e, obj):
         if isinstance(obj, PCB):
             self.state.pcb = [p for p in self.state.pcb if p is not obj]
-            self.autoScale()
+            self.state.scale = None
         elif obj:
             self.state.holes = [h for h in self.state.holes if h is not obj]
         self.state.focus = None
@@ -616,7 +611,7 @@ class PanelizerUI(Application):
                 pcb.disable_auto_tab = p.get("disable_auto_tab", False)
                 pcb._tabs = p.get("tabs", [])
                 self.state.pcb.append(pcb)
-            self.autoScale()
+            self.state.scale = None
             self.build()
 
     def build(self, e=None, export=False):
@@ -1168,7 +1163,7 @@ class PanelizerUI(Application):
                         top + self.state.spacing*self.unit,
                         topmost
                     ))
-        self.autoScale()
+        self.state.scale = None
         self.build()
 
     def align_bottom(self, e, pcb=None):
@@ -1220,7 +1215,7 @@ class PanelizerUI(Application):
                         bottom - self.state.spacing*self.unit,
                         bottommost
                     ))
-        self.autoScale()
+        self.state.scale = None
         self.build()
 
     def align_left(self, e, pcb=None):
@@ -1272,7 +1267,7 @@ class PanelizerUI(Application):
                         left + self.state.spacing*self.unit,
                         leftmost
                     ))
-        self.autoScale()
+        self.state.scale = None
         self.build()
 
     def align_right(self, e, pcb=None):
@@ -1324,7 +1319,7 @@ class PanelizerUI(Application):
                         right - self.state.spacing*self.unit,
                         rightmost
                     ))
-        self.autoScale()
+        self.state.scale = None
         self.build()
 
     def rotateBy(self, e, deg=90):
@@ -1536,7 +1531,10 @@ class PanelizerUI(Application):
             i += 1
 
     def painter(self, canvas):
-        offx, offy, scale = self.state.scale
+        if self.state.scale is None:
+            self.autoScale(canvas.width, canvas.height)
+            return
+
         pcbs = self.state.pcb
 
         # frame area
@@ -1681,7 +1679,7 @@ class PanelizerUI(Application):
 
     def content(self):
         title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
-        with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
+        with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 with HBox():
                     self.state.scale
@@ -1698,7 +1696,7 @@ class PanelizerUI(Application):
                         .mouseup(self.mouseup)
                         .mousemove(self.mousemove)
                         .wheel(self.wheel)
-                        .layout(width=self.state.canvas_width, height=self.state.canvas_height)
+                        .layout(width=800)
                         .style(bgColor=0x000000))
 
                     with VBox().layout(weight=1):

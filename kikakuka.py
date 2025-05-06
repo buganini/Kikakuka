@@ -18,7 +18,6 @@ if inputs:
             ui.build(export=inputs[1])
             sys.exit(0)
         else:
-            ui.autoScale()
             ui.build()
             ui.run()
     else:
@@ -27,7 +26,6 @@ if inputs:
             if boardfile.endswith(PCB_SUFFIX):
                 ui._addPCB(PCB(boardfile))
 
-        ui.autoScale()
         ui.build()
         ui.run()
 else:
