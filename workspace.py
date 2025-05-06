@@ -34,7 +34,8 @@ class WorkspaceUI(Application):
             self.state.root = os.path.dirname(os.path.abspath(self.state.filepath))
             self.state.workspace = json.load(f)
             for project in self.state.workspace["projects"]:
-                project["path"] = os.path.abspath(project["path"])
+                if not os.path.isabs(project["path"]):
+                    project["path"] = os.path.join(self.state.root, project["path"])
         findFiles(self.state.workspace, self.state.root)
 
     def saveFile(self):

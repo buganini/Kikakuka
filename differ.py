@@ -74,7 +74,8 @@ class DifferUI(Application):
             self.base_dir = os.path.dirname(os.path.abspath(filepath))
             self.workspace = json.load(f)
             for project in self.workspace["projects"]:
-                project["path"] = os.path.abspath(project["path"])
+                if not os.path.isabs(project["path"]):
+                    project["path"] = os.path.join(self.base_dir, project["path"])
         findFiles(self.workspace, self.base_dir, [SCH_SUFFIX, PCB_SUFFIX])
 
     def content(self):
