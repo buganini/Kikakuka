@@ -5,6 +5,12 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
 
 # Features
 * Workspace Manager
+* Differ
+    * Highlight
+    * Schematics diff viewer
+    * TODO:
+        * PCB diff viewer
+        * Integrate pygit2
 * Panelizer
     * Interactive arrangement, what you see is what you get
     * Freeform arrangement, not limited to M×N configuration
@@ -16,6 +22,11 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
 
 # Workspace Manager
 The `.kkkk` file saves workspace information in JSON format.
+
+# Differ
+## Schematics Differ
+![Schematics Differ](screenshots/sch_differ.gif)
+
 
 # Panelizer
 The `.kikit_pnl` file saves panelization settings in JSON format, with PCB paths stored relative to the file's location.
