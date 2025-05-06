@@ -209,7 +209,7 @@ class DifferUI(Application):
 
     def content(self):
         title = f"Kikakuka v{VERSION} Differ (PUI {PUI.__version__} {PUI_BACKEND})"
-        with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
+        with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 if not os.path.exists(kicad_cli):
                     Label("KiCad CLI not found")
