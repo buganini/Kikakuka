@@ -1684,6 +1684,7 @@ class PanelizerUI(Application):
         with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 with HBox():
+                    self.state.scale
                     self.state.pcb
                     self.state.bites
                     self.state.vcuts
