@@ -520,7 +520,6 @@ class DifferUI(Application):
                     return
                 with HBox():
                     with ComboBox(text_model=self.state("file_a")).change(lambda e: self.build()):
-                        ComboBoxItem("")
                         for project in self.workspace["projects"]:
                             if project["path"].lower().endswith(PNL_SUFFIX):
                                 continue
@@ -528,7 +527,6 @@ class DifferUI(Application):
                                 ComboBoxItem(os.path.basename(file["path"]), file["path"])
 
                     with ComboBox(text_model=self.state("file_b")).change(lambda e: self.build()):
-                        ComboBoxItem("")
                         for project in self.workspace["projects"]:
                             if project["path"].lower().endswith(PNL_SUFFIX):
                                 continue
