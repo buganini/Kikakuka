@@ -33,6 +33,7 @@ import tempfile
 with tempfile.NamedTemporaryFile(prefix='kikakuka_', suffix='.kicad_pcb', delete=True) as tmp:
     kikit_tmp = tmp.name
 
+# wx.App breaks atexit somehow...
 def cleanup_kikit_tmp():
     try: os.remove(kikit_tmp)
     except: pass
@@ -336,6 +337,9 @@ def autotab(boardSubstrate, origin, direction, width,
 
 class PanelizerUI(Application):
     def __init__(self):
+        # pcbnew needs this
+        self.wx_app = wx.App()
+
         super().__init__(icon=resource_path("icon.ico"))
 
         self.unit = mm
@@ -1882,5 +1886,3 @@ class PanelizerUI(Application):
                             Spacer()
 
                         Label(f"Conflicts: {len(self.state.conflicts)}")
-
-wx_app = wx.App()

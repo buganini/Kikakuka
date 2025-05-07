@@ -11,6 +11,9 @@ import queue
 import glob
 import pypdfium2 as pdfium
 from PIL import Image as PILImage, ImageChops, ImageFilter
+import tempfile
+import atexit
+import shutil
 
 if platform.system() == "Darwin":
     kicad_cli = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
@@ -172,11 +175,11 @@ class SchDiffView(PUIView):
         if self.path_b.set(path):
             self.image_b = canvas.loadImage(path)
 
-        path = "darker.png"
+        path = os.path.join(self.main.temp_dir, "darker.png")
         if self.darker_mtime.set(os.path.getmtime(path)):
             self.darker = canvas.loadImage(path)
 
-        path = "mask.png"
+        path = os.path.join(self.main.temp_dir, "mask.png")
         if self.mask_mtime.set(os.path.getmtime(path)):
             self.mask = canvas.loadImage(path)
 
@@ -333,13 +336,13 @@ class PcbDiffView(PUIView):
                 self.image_b[layer] = canvas.loadImage(os.path.join(self.main.cached_file_b, "png", f"{layer}.png"))
 
 
-        mtime = [os.path.getmtime(fn) for fn in [os.path.join("darker", f"{layer}.png") for layer in PCB_LAYERS] if os.path.exists(fn)]
+        mtime = [os.path.getmtime(fn) for fn in [os.path.join(self.main.temp_dir, f"darker_{layer}.png") for layer in PCB_LAYERS] if os.path.exists(fn)]
         if mtime and self.darker_mtime.set(max(mtime)):
             self.darker = {}
             for layer in PCB_LAYERS:
-                self.darker[layer] = canvas.loadImage(os.path.join("darker", f"{layer}.png"))
+                self.darker[layer] = canvas.loadImage(os.path.join(self.main.temp_dir, f"darker_{layer}.png"))
 
-        path = "mask.png"
+        path = os.path.join(self.main.temp_dir, "mask.png")
         if self.mask_mtime.set(os.path.getmtime(path)):
             self.mask = canvas.loadImage(path)
 
@@ -392,6 +395,10 @@ class PcbDiffView(PUIView):
 class DifferUI(Application):
     def __init__(self, filepath):
         super().__init__(icon=resource_path("icon.ico"))
+
+        self.temp_dir = tempfile.mkdtemp(prefix="kikakuka_differ_")
+        atexit.register(self.cleanup)
+
         self.state = State()
         self.state.show_layers = {l: True for l in PCB_LAYERS[1:]}
         self.state.loading = False
@@ -418,9 +425,13 @@ class DifferUI(Application):
                     project["path"] = os.path.join(self.base_dir, project["path"])
         findFiles(self.workspace, self.base_dir, [SCH_SUFFIX, PCB_SUFFIX])
 
+    def cleanup(self):
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
     def content(self):
         title = f"Kikakuka v{VERSION} Differ (PUI {PUI.__version__} {PUI_BACKEND})"
-        with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
+        with Window(maximize=True, title=title, icon=resource_path("icon.ico")):
             with VBox():
                 if not os.path.exists(kicad_cli):
                     Label("KiCad CLI not found")
@@ -576,7 +587,7 @@ class DifferUI(Application):
             try:
                 self.state.loading = True
 
-                path_a = hashlib.sha256(self.state.file_a.encode("utf-8")).hexdigest()
+                path_a = os.path.join(self.temp_dir, hashlib.sha256(self.state.file_a.encode("utf-8")).hexdigest())
                 if self.cached_file_a != path_a:
                     if self.state.file_a.lower().endswith(SCH_SUFFIX):
                         convert_sch(self.state.file_a, path_a)
@@ -587,7 +598,7 @@ class DifferUI(Application):
                         self.cached_file_a = path_a
                         self.state.page_a = 0
 
-                path_b = hashlib.sha256(self.state.file_b.encode("utf-8")).hexdigest()
+                path_b = os.path.join(self.temp_dir, hashlib.sha256(self.state.file_b.encode("utf-8")).hexdigest())
                 if self.cached_file_b != path_b:
                     if self.state.file_b.lower().endswith(SCH_SUFFIX):
                         convert_sch(self.state.file_b, path_b)
@@ -614,12 +625,12 @@ class DifferUI(Application):
                                 a, b = self.pad_to_same_size(a, b)
 
                                 darker = ImageChops.darker(a, b)
-                                darker.save("darker.png")
+                                darker.save(os.path.join(self.temp_dir, "darker.png"))
 
                                 mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
                                         .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
                                         .filter(ImageFilter.GaussianBlur(radius=10))) # blur
-                                mask.save("mask.png")
+                                mask.save(os.path.join(self.temp_dir, "mask.png"))
                                 self.state.diff_pair = diff_pair
 
                                 self.state.loading_diff = False
@@ -629,7 +640,7 @@ class DifferUI(Application):
                         if self.state.diff_pair != diff_pair:
                             merged_mask = None
 
-                            os.makedirs(os.path.join("darker"), exist_ok=True)
+                            os.makedirs(os.path.join(self.temp_dir, "darker"), exist_ok=True)
 
                             for layer in PCB_LAYERS:
                                 self.state.loading_diff = layer
@@ -645,7 +656,7 @@ class DifferUI(Application):
                                     darker.append(ImageChops.darker(aa[i], bb[i]))
                                 darker.append(ImageChops.lighter(aa[3], bb[3]))
                                 darker = PILImage.merge("RGBA", darker)
-                                darker.save(os.path.join("darker", f"{layer}.png"))
+                                darker.save(os.path.join(self.temp_dir, "darker", f"{layer}.png"))
 
                                 mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
                                         .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
@@ -656,7 +667,7 @@ class DifferUI(Application):
                                 else:
                                     merged_mask = ImageChops.lighter(merged_mask, mask)
 
-                            merged_mask.save("mask.png")
+                            merged_mask.save(os.path.join(self.temp_dir, "mask.png"))
 
                             self.state.diff_pair = diff_pair
 
