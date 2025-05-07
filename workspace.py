@@ -161,6 +161,8 @@ class WorkspaceUI(Application):
     def newWorkspace(self):
         filepath = SaveFile("New Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
         if filepath:
+            if not filepath.endswith(".kkkk"):
+                filepath = filepath + ".kkkk"
             self.state.filepath = filepath
             self.state.root = os.path.dirname(os.path.abspath(filepath))
             self.state.workspace = {"projects": []}
@@ -225,6 +227,8 @@ class WorkspaceUI(Application):
     def newPanelization(self):
         filepath = SaveFile("New Panelization", types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
         if filepath:
+            if not filepath.endswith(".kikit_pnl"):
+                filepath = filepath + ".kikit_pnl"
             if self.state.filepath:
                 self.state.workspace["projects"].append({
                     "path": filepath,
