@@ -620,6 +620,8 @@ class DifferUI(Application):
                     if self.state.diff_pair != diff_pair:
                         merged_mask = None
 
+                        os.makedirs(os.path.join("darker"), exist_ok=True)
+
                         for layer in PCB_LAYERS:
                             self.state.loading_diff = layer
                             a = PILImage.open(os.path.join(self.cached_file_a, "png", f"{layer}.png"))
@@ -627,8 +629,7 @@ class DifferUI(Application):
 
                             a, b = self.pad_to_same_size(a, b)
 
-                            darker = ImageChops.darker(a, b)
-                            os.makedirs(os.path.join("darker"), exist_ok=True)
+                            darker = ImageChops.overlay(a, b)
                             darker.save(os.path.join("darker", f"{layer}.png"))
 
                             mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
