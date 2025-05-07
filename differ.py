@@ -565,84 +565,93 @@ class DifferUI(Application):
         while True:
             self.queue.get()
 
-            self.state.loading = True
+            try:
+                self.state.loading = True
 
-            path_a = hashlib.sha256(self.state.file_a.encode("utf-8")).hexdigest()
-            if self.cached_file_a != path_a:
-                if self.state.file_a.lower().endswith(SCH_SUFFIX):
-                    convert_sch(self.state.file_a, path_a)
-                    self.cached_file_a = path_a
-                    self.state.page_a = 0
-                if self.state.file_a.lower().endswith(PCB_SUFFIX):
-                    convert_pcb(self.state.file_a, path_a)
-                    self.cached_file_a = path_a
-                    self.state.page_a = 0
+                path_a = hashlib.sha256(self.state.file_a.encode("utf-8")).hexdigest()
+                if self.cached_file_a != path_a:
+                    if self.state.file_a.lower().endswith(SCH_SUFFIX):
+                        convert_sch(self.state.file_a, path_a)
+                        self.cached_file_a = path_a
+                        self.state.page_a = 0
+                    if self.state.file_a.lower().endswith(PCB_SUFFIX):
+                        convert_pcb(self.state.file_a, path_a)
+                        self.cached_file_a = path_a
+                        self.state.page_a = 0
 
-            path_b = hashlib.sha256(self.state.file_b.encode("utf-8")).hexdigest()
-            if self.cached_file_b != path_b:
-                if self.state.file_b.lower().endswith(SCH_SUFFIX):
-                    convert_sch(self.state.file_b, path_b)
-                    self.cached_file_b = path_b
-                    self.state.page_b = 0
-                if self.state.file_b.lower().endswith(PCB_SUFFIX):
-                    convert_pcb(self.state.file_b, path_b)
-                    self.cached_file_b = path_b
-                    self.state.page_b = 0
+                path_b = hashlib.sha256(self.state.file_b.encode("utf-8")).hexdigest()
+                if self.cached_file_b != path_b:
+                    if self.state.file_b.lower().endswith(SCH_SUFFIX):
+                        convert_sch(self.state.file_b, path_b)
+                        self.cached_file_b = path_b
+                        self.state.page_b = 0
+                    if self.state.file_b.lower().endswith(PCB_SUFFIX):
+                        convert_pcb(self.state.file_b, path_b)
+                        self.cached_file_b = path_b
+                        self.state.page_b = 0
 
-            self.state.loading = False
+                self.state.loading = False
 
 
-            if os.path.splitext(self.state.file_a)[1].lower() == os.path.splitext(self.state.file_b)[1].lower():
-                if self.state.file_a.lower().endswith(SCH_SUFFIX):
-                    if self.state.page_a and self.state.page_b:
-                        diff_pair = (self.cached_file_a, self.cached_file_b, self.state.page_a, self.state.page_b)
+                if os.path.splitext(self.state.file_a)[1].lower() == os.path.splitext(self.state.file_b)[1].lower():
+                    if self.state.file_a.lower().endswith(SCH_SUFFIX):
+                        if self.state.page_a and self.state.page_b:
+                            diff_pair = (self.cached_file_a, self.cached_file_b, self.state.page_a, self.state.page_b)
+                            if self.state.diff_pair != diff_pair:
+                                self.state.loading_diff = True
+
+                                a = PILImage.open(os.path.join(self.cached_file_a, "png", self.state.page_a))
+                                b = PILImage.open(os.path.join(self.cached_file_b, "png", self.state.page_b))
+
+                                a, b = self.pad_to_same_size(a, b)
+
+                                darker = ImageChops.darker(a, b)
+                                darker.save("darker.png")
+
+                                mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
+                                        .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
+                                        .filter(ImageFilter.GaussianBlur(radius=10))) # blur
+                                mask.save("mask.png")
+                                self.state.diff_pair = diff_pair
+
+                                self.state.loading_diff = False
+
+                    elif self.state.file_a.lower().endswith(PCB_SUFFIX):
+                        diff_pair = (self.cached_file_a, self.cached_file_b)
                         if self.state.diff_pair != diff_pair:
-                            self.state.loading_diff = True
+                            merged_mask = None
 
-                            a = PILImage.open(os.path.join(self.cached_file_a, "png", self.state.page_a))
-                            b = PILImage.open(os.path.join(self.cached_file_b, "png", self.state.page_b))
+                            os.makedirs(os.path.join("darker"), exist_ok=True)
 
-                            a, b = self.pad_to_same_size(a, b)
+                            for layer in PCB_LAYERS:
+                                self.state.loading_diff = layer
+                                a = PILImage.open(os.path.join(self.cached_file_a, "png", f"{layer}.png"))
+                                b = PILImage.open(os.path.join(self.cached_file_b, "png", f"{layer}.png"))
 
-                            darker = ImageChops.darker(a, b)
-                            darker.save("darker.png")
+                                a, b = self.pad_to_same_size(a, b)
 
-                            mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
-                                    .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
-                                    .filter(ImageFilter.GaussianBlur(radius=10))) # blur
-                            mask.save("mask.png")
+                                aa = a.split()
+                                bb = b.split()
+                                darker = []
+                                for i in range(3):
+                                    darker.append(ImageChops.darker(aa[i], bb[i]))
+                                darker.append(ImageChops.lighter(aa[3], bb[3]))
+                                darker = PILImage.merge("RGBA", darker)
+                                darker.save(os.path.join("darker", f"{layer}.png"))
+
+                                mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
+                                        .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
+                                        .filter(ImageFilter.GaussianBlur(radius=10))) # blur
+
+                                if merged_mask is None:
+                                    merged_mask = mask
+                                else:
+                                    merged_mask = ImageChops.lighter(merged_mask, mask)
+
+                            merged_mask.save("mask.png")
+
                             self.state.diff_pair = diff_pair
 
                             self.state.loading_diff = False
-
-                elif self.state.file_a.lower().endswith(PCB_SUFFIX):
-                    diff_pair = (self.cached_file_a, self.cached_file_b)
-                    if self.state.diff_pair != diff_pair:
-                        merged_mask = None
-
-                        os.makedirs(os.path.join("darker"), exist_ok=True)
-
-                        for layer in PCB_LAYERS:
-                            self.state.loading_diff = layer
-                            a = PILImage.open(os.path.join(self.cached_file_a, "png", f"{layer}.png"))
-                            b = PILImage.open(os.path.join(self.cached_file_b, "png", f"{layer}.png"))
-
-                            a, b = self.pad_to_same_size(a, b)
-
-                            darker = ImageChops.overlay(a, b)
-                            darker.save(os.path.join("darker", f"{layer}.png"))
-
-                            mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
-                                    .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
-                                    .filter(ImageFilter.GaussianBlur(radius=10))) # blur
-
-                            if merged_mask is None:
-                                merged_mask = mask
-                            else:
-                                merged_mask = ImageChops.lighter(merged_mask, mask)
-
-                        merged_mask.save("mask.png")
-
-                        self.state.diff_pair = diff_pair
-
-                        self.state.loading_diff = False
+            except:
+                pass
