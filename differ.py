@@ -17,6 +17,8 @@ import shutil
 
 if platform.system() == "Darwin":
     kicad_cli = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
+elif platform.system() == "Windows":
+    kicad_cli = "C:/Program Files/KiCad/9.0/bin/kicad-cli.exe"
 else:
     kicad_cli = "kicad-cli"
 
