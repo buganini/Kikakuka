@@ -224,8 +224,8 @@ class SchDiffView(PUIView):
         if self.mask_mtime.set(os.path.getmtime(path)):
             self.mask = canvas.loadImage(path)
 
-        xL = max(0, self.diff_width*(self.state.splitter_x - self.state.overlap))
-        xR = min(self.diff_width, self.diff_width*(self.state.splitter_x + self.state.overlap))
+        xL = min(self.diff_width, max(0, self.diff_width*(self.state.splitter_x - self.state.overlap)))
+        xR = max(0, min(self.diff_width, self.diff_width*(self.state.splitter_x + self.state.overlap)))
 
         # A
         x1, y1 = 0, 0
