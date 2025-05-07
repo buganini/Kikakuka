@@ -79,6 +79,7 @@ class SchDiffView(PUIView):
         self.canvas_height = None
         self.diff_width = None
         self.diff_height = None
+        self.mousehold = False
 
     def setup(self):
         self.state = State()
@@ -129,7 +130,16 @@ class SchDiffView(PUIView):
 
         (Canvas(self.painter).layout(weight=1)
          .mousemove(self.mousemove)
+         .mousedown(self.mousedown)
+         .mouseup(self.mouseup)
          .wheel(self.wheel))
+
+    def mousedown(self, e):
+        self.state.mousepos = e.x, e.y
+        self.mousehold = True
+
+    def mouseup(self, e):
+        self.mousehold = False
 
     def mousemove(self, e):
         if self.state.scale is None:
@@ -137,7 +147,18 @@ class SchDiffView(PUIView):
         if self.canvas_width is None:
             return
 
-        self.state.splitter_x = e.x / self.canvas_width
+        if self.mousehold:
+            pdx = e.x - self.state.mousepos[0]
+            pdy = e.y - self.state.mousepos[1]
+
+            offx, offy, scale = self.state.scale
+            offx += pdx
+            offy += pdy
+            self.state.scale = offx, offy, scale
+        else:
+            x, _ = self.fromCanvas(e.x, 0)
+            self.state.splitter_x = x / self.diff_width
+        self.state.mousepos = e.x, e.y
 
     def wheel(self, e):
         if e.modifiers & KeyModifier.CTRL:
@@ -244,6 +265,7 @@ class PcbDiffView(PUIView):
         self.image_b = None
         self.darker = None
         self.mask = None
+        self.mousehold = False
 
     def setup(self):
         self.state = State()
@@ -294,8 +316,17 @@ class PcbDiffView(PUIView):
         self.main.state.highlight_changes
         (Canvas(self.painter).layout(weight=1)
          .style(bgColor=0xFFFFFF)
+         .mousedown(self.mousedown)
+         .mouseup(self.mouseup)
          .mousemove(self.mousemove)
          .wheel(self.wheel))
+
+    def mousedown(self, e):
+        self.state.mousepos = e.x, e.y
+        self.mousehold = True
+
+    def mouseup(self, e):
+        self.mousehold = False
 
     def mousemove(self, e):
         if self.state.scale is None:
@@ -303,8 +334,18 @@ class PcbDiffView(PUIView):
         if self.canvas_width is None:
             return
 
-        x, _ = self.fromCanvas(e.x, 0)
-        self.state.splitter_x = x / self.diff_width
+        if self.mousehold:
+            pdx = e.x - self.state.mousepos[0]
+            pdy = e.y - self.state.mousepos[1]
+
+            offx, offy, scale = self.state.scale
+            offx += pdx
+            offy += pdy
+            self.state.scale = offx, offy, scale
+        else:
+            x, _ = self.fromCanvas(e.x, 0)
+            self.state.splitter_x = x / self.diff_width
+        self.state.mousepos = e.x, e.y
 
     def wheel(self, e):
         if e.modifiers & KeyModifier.CTRL:
