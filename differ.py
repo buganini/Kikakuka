@@ -120,6 +120,7 @@ class SchDiffView(PUIView):
         self.state.splitter_x
         self.state.overlap
         self.state.scale
+        self.main.state.highlight_changes
 
         (Canvas(self.painter).layout(weight=1)
          .mousemove(self.mousemove)
@@ -205,9 +206,10 @@ class SchDiffView(PUIView):
                          src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1))
 
         # Mask
-        x1, y1 = self.fromCanvas(0, 0)
-        x2, y2 = self.fromCanvas(canvas.width, canvas.height)
-        canvas.drawImage(self.mask, 0, 0, width=canvas.width, height=canvas.height, src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.08)
+        if self.main.state.highlight_changes:
+            x1, y1 = self.fromCanvas(0, 0)
+            x2, y2 = self.fromCanvas(canvas.width, canvas.height)
+            canvas.drawImage(self.mask, 0, 0, width=canvas.width, height=canvas.height, src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.08)
 
         # Overlap cursor
         canvas.drawLine(ox1, 0, ox1, canvas.height, color=0, width=1)
@@ -276,7 +278,7 @@ class PcbDiffView(PUIView):
         self.state.overlap
         self.state.scale
         self.main.state.show_layers
-
+        self.main.state.highlight_changes
         (Canvas(self.painter).layout(weight=1)
          .style(bgColor=0xFFFFFF)
          .mousemove(self.mousemove)
@@ -379,9 +381,10 @@ class PcbDiffView(PUIView):
                                 src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
 
         # # Mask
-        x1, y1 = self.fromCanvas(0, 0)
-        x2, y2 = self.fromCanvas(canvas.width, canvas.height)
-        canvas.drawImage(self.mask, 0, 0, width=canvas.width, height=canvas.height, src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.08)
+        if self.main.state.highlight_changes:
+            x1, y1 = self.fromCanvas(0, 0)
+            x2, y2 = self.fromCanvas(canvas.width, canvas.height)
+            canvas.drawImage(self.mask, 0, 0, width=canvas.width, height=canvas.height, src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.08)
 
         # Overlap cursor
         canvas.drawLine(ox1, 0, ox1, canvas.height, color=0, width=1)
@@ -398,6 +401,7 @@ class DifferUI(Application):
         self.state.page_a = 0
         self.state.page_b = 0
         self.state.diff_pair = None
+        self.state.highlight_changes = True
 
         self.cached_file_a = ""
         self.cached_file_b = ""
@@ -476,7 +480,9 @@ class DifferUI(Application):
                                 Spacer()
                         else:
                             with VBox().layout(weight=1).id("sch-diff-view"): # set id to workaround PUI bug (doesn't update weight)
-                                Label("Ctrl+Wheel to adjust overlap")
+                                with HBox():
+                                    Label("Ctrl+Wheel to adjust overlap")
+                                    Checkbox("Highlight Changes", model=self.state("highlight_changes"))
                                 SchDiffView(self)
 
                         with Scroll().layout(width=250):
@@ -494,7 +500,9 @@ class DifferUI(Application):
                     else:
                         with HBox():
                             with VBox().layout(weight=1).id("pcb-diff-view"): # set id to workaround PUI bug (doesn't update weight)
-                                Label("Ctrl+Wheel to adjust overlap")
+                                with HBox():
+                                    Label("Ctrl+Wheel to adjust overlap")
+                                    Checkbox("Highlight Changes", model=self.state("highlight_changes"))
                                 PcbDiffView(self)
                             with VBox():
                                 Label("Display Layers")
