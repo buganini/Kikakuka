@@ -1,6 +1,6 @@
 KiKit>=1.7.1
 shapely>=2.0.5
 PySide6_Essentials
-QPUIQ>=0.14
+QPUIQ>=0.15
 pypdfium2
 pillow
