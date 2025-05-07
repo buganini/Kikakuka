@@ -338,11 +338,11 @@ class PcbDiffView(PUIView):
                 self.image_b[layer] = canvas.loadImage(os.path.join(self.main.cached_file_b, "png", f"{layer}.png"))
 
 
-        mtime = [os.path.getmtime(fn) for fn in [os.path.join(self.main.temp_dir, f"darker_{layer}.png") for layer in PCB_LAYERS] if os.path.exists(fn)]
+        mtime = [os.path.getmtime(fn) for fn in [os.path.join(self.main.temp_dir, "darker", f"{layer}.png") for layer in PCB_LAYERS] if os.path.exists(fn)]
         if mtime and self.darker_mtime.set(max(mtime)):
             self.darker = {}
             for layer in PCB_LAYERS:
-                self.darker[layer] = canvas.loadImage(os.path.join(self.main.temp_dir, f"darker_{layer}.png"))
+                self.darker[layer] = canvas.loadImage(os.path.join(self.main.temp_dir, "darker", f"{layer}.png"))
 
         path = os.path.join(self.main.temp_dir, "mask.png")
         if self.mask_mtime.set(os.path.getmtime(path)):
@@ -377,13 +377,15 @@ class PcbDiffView(PUIView):
         ox2 = min(canvas.width, canvas.width*(self.state.splitter_x + self.state.overlap))
         x1, y1 = self.fromCanvas(ox1, 0)
         x2, y2 = self.fromCanvas(ox2, canvas.height)
-        if self.darker:
-            for layer in PCB_LAYERS[::-1]:
-                if not self.main.state.show_layers.get(layer, True):
-                    continue
-                canvas.drawImage(self.darker[layer],
-                                ox1, 0, width=ox2-ox1, height=canvas.height,
-                                src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
+        for layer in PCB_LAYERS[::-1]:
+            darker = self.darker.get(layer)
+            if not darker:
+                continue
+            if not self.main.state.show_layers.get(layer, True):
+                continue
+            canvas.drawImage(darker,
+                            ox1, 0, width=ox2-ox1, height=canvas.height,
+                            src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
 
         # # Mask
         if self.main.state.highlight_changes:
