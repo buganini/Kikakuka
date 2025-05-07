@@ -22,7 +22,17 @@ elif platform.system() == "Windows":
 else:
     kicad_cli = "kicad-cli"
 
-PCB_LAYERS = ["Edge.Cuts", "F.Cu", "F.Silkscreen", "F.Mask", "F.Paste", "B.Cu", "B.Silkscreen", "B.Mask", "B.Paste"]
+PCB_LAYERS = [
+    "Edge.Cuts",
+    # "F.Paste",
+    "F.Silkscreen",
+    # "F.Mask",
+    "F.Cu",
+    "B.Cu",
+    # "B.Mask",
+    "B.Silkscreen",
+    # "B.Paste"
+]
 
 def convert_sch(path, outpath):
     os.makedirs(outpath, exist_ok=True)
