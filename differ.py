@@ -225,6 +225,10 @@ class PcbDiffView(PUIView):
         self.canvas_height = None
         self.diff_width = None
         self.diff_height = None
+        self.image_a = None
+        self.image_b = None
+        self.darker = None
+        self.mask = None
 
     def setup(self):
         self.state = State()
@@ -326,49 +330,58 @@ class PcbDiffView(PUIView):
             for layer in PCB_LAYERS:
                 self.image_b[layer] = canvas.loadImage(os.path.join(self.main.cached_file_b, "png", f"{layer}.png"))
 
-        # path = "darker.png"
-        # if self.darker_mtime.set(os.path.getmtime(path)):
-        #     self.darker = canvas.loadImage(path)
 
-        # path = "mask.png"
-        # if self.mask_mtime.set(os.path.getmtime(path)):
-        #     self.mask = canvas.loadImage(path)
+        mtime = [os.path.getmtime(fn) for fn in [os.path.join("darker", f"{layer}.png") for layer in PCB_LAYERS] if os.path.exists(fn)]
+        if mtime and self.darker_mtime.set(max(mtime)):
+            self.darker = {}
+            for layer in PCB_LAYERS:
+                self.darker[layer] = canvas.loadImage(os.path.join("darker", f"{layer}.png"))
+
+        path = "mask.png"
+        if self.mask_mtime.set(os.path.getmtime(path)):
+            self.mask = canvas.loadImage(path)
 
         # A
         x = max(0, canvas.width*(self.state.splitter_x - self.state.overlap))
         x1, y1 = self.fromCanvas(0, 0)
         x2, y2 = self.fromCanvas(x, canvas.height)
-        for layer in PCB_LAYERS[::-1]:
-            if not self.main.state.show_layers.get(layer, True):
-                continue
-            canvas.drawImage(self.image_a[layer],
-                             0, 0, width=x, height=canvas.height,
-                             src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
+        if self.image_a:
+            for layer in PCB_LAYERS[::-1]:
+                if not self.main.state.show_layers.get(layer, True):
+                    continue
+                canvas.drawImage(self.image_a[layer],
+                                0, 0, width=x, height=canvas.height,
+                                src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
 
         # B
         x = min(canvas.width, canvas.width*(self.state.splitter_x + self.state.overlap))
         x1, y1 = self.fromCanvas(x, 0)
         x2, y2 = self.fromCanvas(canvas.width, canvas.height)
-        for layer in PCB_LAYERS[::-1]:
-            if not self.main.state.show_layers.get(layer, True):
-                continue
-            canvas.drawImage(self.image_b[layer],
-                             x, 0, width=canvas.width-x, height=canvas.height,
-                             src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
+        if self.image_b:
+            for layer in PCB_LAYERS[::-1]:
+                if not self.main.state.show_layers.get(layer, True):
+                    continue
+                canvas.drawImage(self.image_b[layer],
+                                x, 0, width=canvas.width-x, height=canvas.height,
+                                src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
 
-        # # Darker
+        # Darker
         ox1 = max(0, canvas.width*(self.state.splitter_x - self.state.overlap))
         ox2 = min(canvas.width, canvas.width*(self.state.splitter_x + self.state.overlap))
         x1, y1 = self.fromCanvas(ox1, 0)
         x2, y2 = self.fromCanvas(ox2, canvas.height)
-        # canvas.drawImage(self.darker,
-        #                  ox1, 0, width=ox2-ox1, height=canvas.height,
-        #                  src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1))
+        if self.darker:
+            for layer in PCB_LAYERS[::-1]:
+                if not self.main.state.show_layers.get(layer, True):
+                    continue
+                canvas.drawImage(self.darker[layer],
+                                ox1, 0, width=ox2-ox1, height=canvas.height,
+                                src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
 
         # # Mask
-        # x1, y1 = self.fromCanvas(0, 0)
-        # x2, y2 = self.fromCanvas(canvas.width, canvas.height)
-        # canvas.drawImage(self.mask, 0, 0, width=canvas.width, height=canvas.height, src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.08)
+        x1, y1 = self.fromCanvas(0, 0)
+        x2, y2 = self.fromCanvas(canvas.width, canvas.height)
+        canvas.drawImage(self.mask, 0, 0, width=canvas.width, height=canvas.height, src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.08)
 
         # Overlap cursor
         canvas.drawLine(ox1, 0, ox1, canvas.height, color=0, width=1)
@@ -472,15 +485,22 @@ class DifferUI(Application):
                                     Image(os.path.join(self.cached_file_b, "png", png)).layout(width=240).click(self.select_b, png)
                                 Spacer()
                 elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
-                    with HBox():
-                        with VBox().layout(weight=1).id("pcb-diff-view"): # set id to workaround PUI bug (doesn't update weight)
-                            Label("Ctrl+Wheel to adjust overlap")
-                            PcbDiffView(self)
+                    if self.state.loading_diff:
                         with VBox():
-                            Label("Display Layers")
-                            for layer in PCB_LAYERS[1:]:
-                                Checkbox(layer, model=self.state.show_layers(layer))
+                            with HBox():
+                                Label("Loading diff...")
+                                Spacer()
                             Spacer()
+                    else:
+                        with HBox():
+                            with VBox().layout(weight=1).id("pcb-diff-view"): # set id to workaround PUI bug (doesn't update weight)
+                                Label("Ctrl+Wheel to adjust overlap")
+                                PcbDiffView(self)
+                            with VBox():
+                                Label("Display Layers")
+                                for layer in PCB_LAYERS[1:]:
+                                    Checkbox(layer, model=self.state.show_layers(layer))
+                                Spacer()
 
     def select_a(self, e, png):
         self.state.page_a = png
@@ -571,28 +591,58 @@ class DifferUI(Application):
 
             self.state.loading = False
 
-            if not self.state.page_a or not self.state.page_b:
-                self.state.loading = False
-                continue
 
             if os.path.splitext(self.state.file_a)[1].lower() == os.path.splitext(self.state.file_b)[1].lower():
                 if self.state.file_a.lower().endswith(SCH_SUFFIX):
-                    diff_pair = (self.cached_file_a, self.cached_file_b, self.state.page_a, self.state.page_b)
+                    if self.state.page_a and self.state.page_b:
+                        diff_pair = (self.cached_file_a, self.cached_file_b, self.state.page_a, self.state.page_b)
+                        if self.state.diff_pair != diff_pair:
+                            self.state.loading_diff = True
+
+                            a = PILImage.open(os.path.join(self.cached_file_a, "png", self.state.page_a))
+                            b = PILImage.open(os.path.join(self.cached_file_b, "png", self.state.page_b))
+
+                            a, b = self.pad_to_same_size(a, b)
+
+                            darker = ImageChops.darker(a, b)
+                            darker.save("darker.png")
+
+                            mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
+                                    .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
+                                    .filter(ImageFilter.GaussianBlur(radius=10))) # blur
+                            mask.save("mask.png")
+                            self.state.diff_pair = diff_pair
+
+                            self.state.loading_diff = False
+
+                elif self.state.file_a.lower().endswith(PCB_SUFFIX):
+                    diff_pair = (self.cached_file_a, self.cached_file_b)
                     if self.state.diff_pair != diff_pair:
                         self.state.loading_diff = True
 
-                        a = PILImage.open(os.path.join(self.cached_file_a, "png", self.state.page_a))
-                        b = PILImage.open(os.path.join(self.cached_file_b, "png", self.state.page_b))
+                        merged_mask = None
 
-                        a, b = self.pad_to_same_size(a, b)
+                        for layer in PCB_LAYERS:
+                            a = PILImage.open(os.path.join(self.cached_file_a, "png", f"{layer}.png"))
+                            b = PILImage.open(os.path.join(self.cached_file_b, "png", f"{layer}.png"))
 
-                        darker = ImageChops.darker(a, b)
-                        darker.save("darker.png")
+                            a, b = self.pad_to_same_size(a, b)
 
-                        mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
-                                .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
-                                .filter(ImageFilter.GaussianBlur(radius=10))) # blur
-                        mask.save("mask.png")
+                            darker = ImageChops.darker(a, b)
+                            os.makedirs(os.path.join("darker"), exist_ok=True)
+                            darker.save(os.path.join("darker", f"{layer}.png"))
+
+                            mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
+                                    .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
+                                    .filter(ImageFilter.GaussianBlur(radius=10))) # blur
+
+                            if merged_mask is None:
+                                merged_mask = mask
+                            else:
+                                merged_mask = ImageChops.lighter(merged_mask, mask)
+
+                        merged_mask.save("mask.png")
+
                         self.state.diff_pair = diff_pair
 
                         self.state.loading_diff = False
