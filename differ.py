@@ -488,7 +488,7 @@ class DifferUI(Application):
                     if self.state.loading_diff:
                         with VBox():
                             with HBox():
-                                Label("Loading diff...")
+                                Label(f"Loading diff for {self.state.loading_diff}...")
                                 Spacer()
                             Spacer()
                     else:
@@ -618,11 +618,10 @@ class DifferUI(Application):
                 elif self.state.file_a.lower().endswith(PCB_SUFFIX):
                     diff_pair = (self.cached_file_a, self.cached_file_b)
                     if self.state.diff_pair != diff_pair:
-                        self.state.loading_diff = True
-
                         merged_mask = None
 
                         for layer in PCB_LAYERS:
+                            self.state.loading_diff = layer
                             a = PILImage.open(os.path.join(self.cached_file_a, "png", f"{layer}.png"))
                             b = PILImage.open(os.path.join(self.cached_file_b, "png", f"{layer}.png"))
 
