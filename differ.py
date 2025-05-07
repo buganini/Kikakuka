@@ -21,7 +21,7 @@ if platform.system() == "Darwin":
 elif platform.system() == "Windows":
     kicad_cli = "C:/Program Files/KiCad/9.0/bin/kicad-cli.exe"
 else:
-    kicad_cli = "kicad-cli"
+    kicad_cli = "/usr/bin/kicad-cli"
 
 try:
     base_path = sys._MEIPASS
