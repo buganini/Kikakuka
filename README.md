@@ -5,6 +5,7 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
 
 # Features
 * Workspace Manager
+    * Easier to traverse between projects
 * Differ
     * Highlight changed areas
     * Schematics diff viewer
