@@ -63,7 +63,6 @@ elif platform.system() == "Windows":
         shutil.copy(kicad_cli, "dist/Kikakuka/_internal/KiCad/bin")
         shutil.copy(os.path.join(os.path.dirname(kicad_cli), "_pcbnew.dll"), "dist/Kikakuka/_internal/KiCad/bin")
         shutil.copy(os.path.join(os.path.dirname(kicad_cli), "_eeschema.dll"), "dist/Kikakuka/_internal/KiCad/bin")
-        shutil.copytree(os.path.join(os.path.dirname(kicad_cli), "..", "share"), "dist/Kikakuka/_internal/KiCad/share")
     else:
         print("KiCad CLI not found at", kicad_cli)
         exit(1)
