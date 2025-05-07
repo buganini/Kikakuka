@@ -558,7 +558,10 @@ class DifferUI(Application):
                             with VBox():
                                 for i,png in enumerate(os.listdir(os.path.join(self.cached_file_a, "png"))):
                                     Image(os.path.join(self.cached_file_a, "png", png)).layout(width=240).click(self.select_a, png)
-                                    Label(f"Page {i+1}").style(bgColor=0x777777 if png==self.state.page_a else 0x000000)
+                                    if png==self.state.page_a:
+                                        Label(f"* Page {i+1} *")
+                                    else:
+                                        Label(f"Page {i+1}")
                                 Spacer()
 
                         if self.state.loading_diff:
@@ -584,7 +587,10 @@ class DifferUI(Application):
                             with VBox():
                                 for i,png in enumerate(os.listdir(os.path.join(self.cached_file_b, "png"))):
                                     Image(os.path.join(self.cached_file_b, "png", png)).layout(width=240).click(self.select_b, png)
-                                    Label(f"Page {i+1}").style(bgColor=0x777777 if png==self.state.page_b else 0x000000)
+                                    if png==self.state.page_b:
+                                        Label(f"* Page {i+1} *")
+                                    else:
+                                        Label(f"Page {i+1}")
                                 Spacer()
                 elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
                     if self.state.loading_diff:
