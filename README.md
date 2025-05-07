@@ -9,7 +9,6 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
     * Highlight changed areas
     * Schematics diff viewer
     * TODO:
-        * PCB diff viewer
         * Integrate pygit2
 * Panelizer
     * Interactive arrangement, what you see is what you get
