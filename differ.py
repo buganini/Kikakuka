@@ -10,6 +10,7 @@ import hashlib
 import queue
 import glob
 import pypdfium2 as pdfium
+import PIL
 from PIL import Image as PILImage, ImageChops, ImageFilter
 import tempfile
 import atexit
@@ -515,7 +516,7 @@ class DifferUI(Application):
             shutil.rmtree(self.temp_dir)
 
     def content(self):
-        title = f"Kikakuka v{VERSION} Differ (PUI {PUI.__version__} {PUI_BACKEND})"
+        title = f"Kikakuka v{VERSION} Differ (Pypdfium2 {pdfium.V_PYPDFIUM2}, Pillow {PIL.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")):
             with VBox():
                 if not os.path.exists(kicad_cli):

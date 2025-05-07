@@ -61,7 +61,8 @@ class WorkspaceUI(Application):
             json.dump(workspace, f, indent=4)
 
     def content(self):
-        with Window(size=(1300, 768), title=f"Kikakuka (PUI {PUI.__version__} {PUI_BACKEND}))", icon=resource_path("icon.ico")).keypress(self.keypress):
+        title = f"Kikakuka v{VERSION} Workspace (PUI {PUI.__version__} {PUI_BACKEND})"
+        with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 if self.state.filepath is None:
                     with HBox():
