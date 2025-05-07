@@ -313,7 +313,7 @@ class PcbDiffView(PUIView):
         nscale = scale * (zoom_factor ** (e.v_delta / 120))
 
         # Limit the scale
-        nscale = min(self.scale*4, max(self.scale/8, nscale))
+        nscale = min(self.scale*8, max(self.scale/8, nscale))
 
         # Calculate new offsets
         offx = e.x - (e.x - offx) * nscale / scale
