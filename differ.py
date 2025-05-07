@@ -54,7 +54,10 @@ def convert_sch(path, outpath):
     pdfpath = os.path.join(outpath, "sch.pdf")
     if not os.path.exists(pdfpath):
         cmd = [kicad_cli, "sch", "export", "pdf", "-o", pdfpath, path]
-        subprocess.run(cmd, creationflags=subprocess.CREATE_NO_WINDOW)
+        kwargs = {}
+        if platform.system() == "Windows":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        subprocess.run(cmd, **kwargs)
 
     if not os.path.exists(os.path.join(outpath, "png")):
         os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
@@ -72,7 +75,10 @@ def convert_pcb(path, outpath):
     pdfpath = os.path.join(outpath, f"pcb.pdf")
     if not os.path.exists(pdfpath):
         cmd = [kicad_cli, "pcb", "export", "pdf", "--mode-multipage", "--layers", ",".join(PCB_LAYERS), "-o", pdfpath, path]
-        subprocess.run(cmd, creationflags=subprocess.CREATE_NO_WINDOW)
+        kwargs = {}
+        if platform.system() == "Windows":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        subprocess.run(cmd, **kwargs)
 
     if os.path.isdir(pdfpath):
         pdfpath = glob.glob(os.path.join(pdfpath, f"*.pdf"))[0]
