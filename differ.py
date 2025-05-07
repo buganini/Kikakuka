@@ -668,40 +668,45 @@ class DifferUI(Application):
             try:
                 self.state.loading = True
 
-                path_a = os.path.join(self.temp_dir, hashlib.sha256(self.state.file_a.encode("utf-8")).hexdigest())
+                file_a = self.state.file_a
+                file_b = self.state.file_b
+
+                path_a = os.path.join(self.temp_dir, hashlib.sha256(file_a.encode("utf-8")).hexdigest())
                 if self.cached_file_a != path_a:
-                    if self.state.file_a.lower().endswith(SCH_SUFFIX):
-                        convert_sch(self.state.file_a, path_a)
+                    if file_a.lower().endswith(SCH_SUFFIX):
+                        convert_sch(file_a, path_a)
                         self.cached_file_a = path_a
                         self.state.page_a = 0
-                    if self.state.file_a.lower().endswith(PCB_SUFFIX):
-                        convert_pcb(self.state.file_a, path_a)
+                    if file_a.lower().endswith(PCB_SUFFIX):
+                        convert_pcb(file_a, path_a)
                         self.cached_file_a = path_a
                         self.state.page_a = 0
 
-                path_b = os.path.join(self.temp_dir, hashlib.sha256(self.state.file_b.encode("utf-8")).hexdigest())
+                path_b = os.path.join(self.temp_dir, hashlib.sha256(file_b.encode("utf-8")).hexdigest())
                 if self.cached_file_b != path_b:
-                    if self.state.file_b.lower().endswith(SCH_SUFFIX):
-                        convert_sch(self.state.file_b, path_b)
+                    if file_b.lower().endswith(SCH_SUFFIX):
+                        convert_sch(file_b, path_b)
                         self.cached_file_b = path_b
                         self.state.page_b = 0
-                    if self.state.file_b.lower().endswith(PCB_SUFFIX):
-                        convert_pcb(self.state.file_b, path_b)
+                    if file_b.lower().endswith(PCB_SUFFIX):
+                        convert_pcb(file_b, path_b)
                         self.cached_file_b = path_b
                         self.state.page_b = 0
 
                 self.state.loading = False
 
+                page_a = self.state.page_a
+                page_b = self.state.page_b
 
-                if os.path.splitext(self.state.file_a)[1].lower() == os.path.splitext(self.state.file_b)[1].lower():
-                    if self.state.file_a.lower().endswith(SCH_SUFFIX):
-                        if self.state.page_a and self.state.page_b:
-                            diff_pair = (self.cached_file_a, self.cached_file_b, self.state.page_a, self.state.page_b)
+                if os.path.splitext(file_a)[1].lower() == os.path.splitext(file_b)[1].lower():
+                    if file_a.lower().endswith(SCH_SUFFIX):
+                        if page_a and page_b:
+                            diff_pair = (self.cached_file_a, self.cached_file_b, page_a, page_b)
                             if self.state.diff_pair != diff_pair:
                                 self.state.loading_diff = True
 
-                                a = PILImage.open(os.path.join(self.cached_file_a, "png", self.state.page_a))
-                                b = PILImage.open(os.path.join(self.cached_file_b, "png", self.state.page_b))
+                                a = PILImage.open(os.path.join(self.cached_file_a, "png", page_a))
+                                b = PILImage.open(os.path.join(self.cached_file_b, "png", page_b))
 
                                 a, b = self.pad_to_same_size(a, b)
 
@@ -716,7 +721,7 @@ class DifferUI(Application):
 
                                 self.state.loading_diff = False
 
-                    elif self.state.file_a.lower().endswith(PCB_SUFFIX):
+                    elif file_a.lower().endswith(PCB_SUFFIX):
                         diff_pair = (self.cached_file_a, self.cached_file_b)
                         if self.state.diff_pair != diff_pair:
                             merged_mask = None
