@@ -27,6 +27,9 @@ The `.kkkk` file saves workspace information in JSON format.
 ## Schematics Differ
 ![Schematics Differ](screenshots/sch_differ.gif)
 
+## PCB Differ
+![PCB Differ](screenshots/pcb_differ.png)
+
 
 # Panelizer
 The `.kikit_pnl` file saves panelization settings in JSON format, with PCB paths stored relative to the file's location.
