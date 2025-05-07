@@ -54,10 +54,19 @@ if platform.system() == "Darwin":
         print("KiCad CLI not found at", kicad_cli)
         exit(1)
     os.makedirs("dist/Kikakuka.app/Contents/PlugIns", exist_ok=True)
-    # os.makedirs("dist/Kikakuka.app/Contents/Frameworks/Frameworks/Python.framework", exist_ok=True)
     shutil.copy("/Applications/KiCad/KiCad.app/Contents/PlugIns/_eeschema.kiface", "dist/Kikakuka.app/Contents/PlugIns")
     shutil.copy("/Applications/KiCad/KiCad.app/Contents/PlugIns/_pcbnew.kiface", "dist/Kikakuka.app/Contents/PlugIns")
     shutil.copytree("/Applications/KiCad/KiCad.app/Contents/PlugIns/sim", "dist/Kikakuka.app/Contents/PlugIns/sim")
+elif platform.system() == "Windows":
+    if os.path.exists(kicad_cli):
+        os.makedirs("dist/Kikakuka/_internal/KiCad/bin", exist_ok=True)
+        shutil.copy(kicad_cli, "dist/Kikakuka/_internal/KiCad/bin")
+        shutil.copy(os.path.join(os.path.dirname(kicad_cli), "_pcbnew.dll"), "dist/Kikakuka/_internal/KiCad/bin")
+        shutil.copy(os.path.join(os.path.dirname(kicad_cli), "_eeschema.dll"), "dist/Kikakuka/_internal/KiCad/bin")
+        shutil.copytree(os.path.join(os.path.dirname(kicad_cli), "..", "share"), "dist/Kikakuka/_internal/KiCad/share")
+    else:
+        print("KiCad CLI not found at", kicad_cli)
+        exit(1)
 
 if codesign_identity:
     for path in itertools.chain(

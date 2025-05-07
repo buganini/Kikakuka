@@ -24,8 +24,12 @@ else:
 
 try:
     base_path = sys._MEIPASS
-    cands = glob.glob(os.path.join(os.path.abspath(base_path, "..", "MacOS"), "kicad-cli*"))
-    if kicad_cli:
+    cands = None
+    if platform.system() == "Darwin":
+        cands = glob.glob(os.path.join(os.path.abspath(base_path, "..", "MacOS"), "kicad-cli*"))
+    elif platform.system() == "Windows":
+        cands = glob.glob(os.path.join(base_path, "KiCad", "bin", "kicad-cli*"))
+    if cands:
         kicad_cli = cands[0]
 except Exception:
     pass
