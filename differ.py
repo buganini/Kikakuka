@@ -85,7 +85,7 @@ class SchDiffView(PUIView):
         self.state.overlap = 0.05
 
     def autoScale(self, canvas_width, canvas_height):
-        mask = PILImage.open("mask.png")
+        mask = PILImage.open(os.path.join(self.main.temp_dir, "mask.png"))
         dw, dh = mask.size
         self.diff_width, self.diff_height = dw, dh
         self.canvas_width, self.canvas_height = canvas_width, canvas_height
@@ -242,7 +242,7 @@ class PcbDiffView(PUIView):
         self.state.overlap = 0.05
 
     def autoScale(self, canvas_width, canvas_height):
-        mask = PILImage.open("mask.png")
+        mask = PILImage.open(os.path.join(self.main.temp_dir, "mask.png"))
         dw, dh = mask.size
         self.diff_width, self.diff_height = dw, dh
         self.canvas_width, self.canvas_height = canvas_width, canvas_height
