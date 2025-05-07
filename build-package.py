@@ -4,9 +4,12 @@ import subprocess
 import os
 import itertools
 import glob
+import shutil
 
 import kikit
 kikit_base = os.path.dirname(kikit.__file__)
+
+from differ import kicad_cli
 
 create_dmg = False
 codesign_identity = None
@@ -25,12 +28,17 @@ if platform.system()=="Darwin":
 else:
     pyinstaller_args.extend(["-i", 'resources/icon.ico'])
 
+# kikit's footprint for mousebites driils
 pyinstaller_args.extend(["--add-data", f"{os.path.join(kikit_base, 'resources', 'kikit.pretty')}:kikit.pretty"])
+
+# pypdfium2 for differ
+pyinstaller_args.extend(["--collect-all=pypdfium2_raw", "--collect-all=pypdfium2"])
 
 print(pyinstaller_args)
 
 PyInstaller.__main__.run([
     'kikakuka.py',
+    "--name", "Kikakuka",
     "--onedir",
     "--noconfirm",
     "--windowed",
@@ -38,15 +46,26 @@ PyInstaller.__main__.run([
     *pyinstaller_args
 ])
 
+# kicad-cli for differ
 if platform.system() == "Darwin":
-    subprocess.run(["sed", "-i", "", "s!</dict>!<key>CFBundleTypeRole</key><string>Editor</string><key>LSHandlerRank</key><string>Owner</string><key>CFBundleTypeExtensions</key><array><string>kkkk</string></array></dict>!", "dist/kikakuka.app/Contents/Info.plist"])
+    if os.path.exists(kicad_cli):
+        shutil.copy(kicad_cli, "dist/Kikakuka.app/Contents/MacOS")
+    else:
+        print("KiCad CLI not found at", kicad_cli)
+        exit(1)
+    os.makedirs("dist/Kikakuka.app/Contents/PlugIns", exist_ok=True)
+    # os.makedirs("dist/Kikakuka.app/Contents/Frameworks/Frameworks/Python.framework", exist_ok=True)
+    shutil.copy("/Applications/KiCad/KiCad.app/Contents/PlugIns/_eeschema.kiface", "dist/Kikakuka.app/Contents/PlugIns")
+    shutil.copy("/Applications/KiCad/KiCad.app/Contents/PlugIns/_pcbnew.kiface", "dist/Kikakuka.app/Contents/PlugIns")
+    shutil.copytree("/Applications/KiCad/KiCad.app/Contents/PlugIns/sim", "dist/Kikakuka.app/Contents/PlugIns/sim")
 
 if codesign_identity:
     for path in itertools.chain(
-        glob.glob("dist/kikakuka.app/**/*.so", recursive=True),
-        glob.glob("dist/kikakuka.app/**/*.dylib", recursive=True),
-        glob.glob("dist/kikakuka.app/**/Python3", recursive=True),
-        ["dist/kikakuka.app"],
+        glob.glob("dist/Kikakuka.app/**/*.so", recursive=True),
+        glob.glob("dist/Kikakuka.app/**/*.kiface", recursive=True),
+        glob.glob("dist/Kikakuka.app/**/*.dylib", recursive=True),
+        glob.glob("dist/Kikakuka.app/**/Python3", recursive=True),
+        ["dist/Kikakuka.app"],
     ):
         print("codesign", path)
         subprocess.run(["codesign",
@@ -60,15 +79,15 @@ if codesign_identity:
         ])
 
 if create_dmg:
-    if os.path.exists("kikakuka.dmg"):
-        os.unlink("kikakuka.dmg")
+    if os.path.exists("Kikakuka.dmg"):
+        os.unlink("Kikakuka.dmg")
     subprocess.run([
         "create-dmg",
         "--volname", "Kikakuka",
         "--volicon", "resources/icon.icns",
         "--app-drop-link", "0", "0",
         *create_dmg_args,
-        "kikakuka.dmg", "dist/kikakuka.app"
+        "Kikakuka.dmg", "dist/Kikakuka.app"
     ])
     if codesign_identity:
-        subprocess.run(["spctl", "-a", "-t", "open", "--context", "context:primary-signature", "-v", "kikakuka.dmg"])
+        subprocess.run(["spctl", "-a", "-t", "open", "--context", "context:primary-signature", "-v", "Kikakuka.dmg"])

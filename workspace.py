@@ -11,6 +11,13 @@ from common import *
 
 FILE_ORDER = [PNL_SUFFIX, ".kicad_pro"]
 
+
+try:
+    base_path = sys._MEIPASS
+    ARGV0 = [sys.argv[0]]
+except Exception:
+    ARGV0 = [sys.executable, sys.argv[0]]
+
 class WorkspaceUI(Application):
     def __init__(self, filepath=None):
         super().__init__(icon=resource_path("icon.ico"))
@@ -173,7 +180,7 @@ class WorkspaceUI(Application):
         Thread(target=self._openDiffer, args=[self.state.filepath], daemon=True).start()
 
     def _openDiffer(self, filepath):
-        p = subprocess.Popen([sys.executable, sys.argv[0], "--differ", filepath])
+        p = subprocess.Popen([*ARGV0, "--differ", filepath])
         pid = p.pid
         self.pidmap[":differ"] = pid
         p.wait()
@@ -281,7 +288,7 @@ class WorkspaceUI(Application):
         Thread(target=self._openPanelizer, args=[filepath], daemon=True).start()
 
     def _openPanelizer(self, filepath):
-        p = subprocess.Popen([sys.executable, sys.argv[0], filepath])
+        p = subprocess.Popen([*ARGV0, filepath])
         pid = p.pid
         self.pidmap[filepath] = pid
         p.wait()

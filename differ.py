@@ -22,6 +22,15 @@ elif platform.system() == "Windows":
 else:
     kicad_cli = "kicad-cli"
 
+try:
+    base_path = sys._MEIPASS
+    cands = glob.glob(os.path.join(os.path.abspath(base_path, "..", "MacOS"), "kicad-cli*"))
+    if kicad_cli:
+        kicad_cli = cands[0]
+except Exception:
+    pass
+
+
 PCB_LAYERS = [
     "Edge.Cuts",
     # "F.Paste",
