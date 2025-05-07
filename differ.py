@@ -162,7 +162,6 @@ class SchDiffView(PUIView):
         offy = e.y - (e.y - offy) * nscale / scale
 
         self.state.scale = offx, offy, nscale
-        self.state.overlap *= nscale/scale
 
     def painter(self, canvas):
         if self.state.scale is None:
@@ -185,36 +184,45 @@ class SchDiffView(PUIView):
         if self.mask_mtime.set(os.path.getmtime(path)):
             self.mask = canvas.loadImage(path)
 
+        xL = max(0, self.diff_width*(self.state.splitter_x - self.state.overlap))
+        xR = min(self.diff_width, self.diff_width*(self.state.splitter_x + self.state.overlap))
+
         # A
-        x = max(0, canvas.width*(self.state.splitter_x - self.state.overlap))
-        x1, y1 = self.fromCanvas(0, 0)
-        x2, y2 = self.fromCanvas(x, canvas.height)
+        x1, y1 = 0, 0
+        x2, y2 = xL, self.diff_height
+        cx1, cy1 = self.toCanvas(x1, y1)
+        cx2, cy2 = self.toCanvas(x2, y2)
         canvas.drawImage(self.image_a,
-                         0, 0, width=x, height=canvas.height,
-                         src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1))
+                         cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
+                         src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1))
 
         # B
-        x = min(canvas.width, canvas.width*(self.state.splitter_x + self.state.overlap))
-        x1, y1 = self.fromCanvas(x, 0)
-        x2, y2 = self.fromCanvas(canvas.width, canvas.height)
+        x1, y1 = xR, 0
+        x2, y2 = self.diff_width, self.diff_height
+        cx1, cy1 = self.toCanvas(x1, y1)
+        cx2, cy2 = self.toCanvas(x2, y2)
         canvas.drawImage(self.image_b,
-                         x, 0, width=canvas.width-x, height=canvas.height,
-                         src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1))
+                         cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
+                         src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1))
 
         # Darker
-        ox1 = max(0, canvas.width*(self.state.splitter_x - self.state.overlap))
-        ox2 = min(canvas.width, canvas.width*(self.state.splitter_x + self.state.overlap))
-        x1, y1 = self.fromCanvas(ox1, 0)
-        x2, y2 = self.fromCanvas(ox2, canvas.height)
+        x1, y1 = xL, 0
+        x2, y2 = xR, self.diff_height
+        cx1, cy1 = self.toCanvas(x1, y1)
+        cx2, cy2 = self.toCanvas(x2, y2)
+        ox1, ox2 = cx1, cx2
         canvas.drawImage(self.darker,
-                         ox1, 0, width=ox2-ox1, height=canvas.height,
-                         src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1))
+                         cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
+                         src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1))
 
         # Mask
         if self.main.state.highlight_changes:
-            x1, y1 = self.fromCanvas(0, 0)
-            x2, y2 = self.fromCanvas(canvas.width, canvas.height)
-            canvas.drawImage(self.mask, 0, 0, width=canvas.width, height=canvas.height, src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.08)
+            x1, y1 = 0, 0
+            x2, y2 = self.diff_width, self.diff_height
+            cx1, cy1 = self.toCanvas(x1, y1)
+            cx2, cy2 = self.toCanvas(x2, y2)
+            canvas.drawImage(self.mask, cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
+                             src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.08)
 
         # Overlap cursor
         canvas.drawLine(ox1, 0, ox1, canvas.height, color=0, width=1)
