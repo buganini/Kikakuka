@@ -257,7 +257,7 @@ class WorkspaceUI(Application):
         if platform.system() == 'Darwin':
             cmd = ["open", "-n", "-W", filepath]
             p = subprocess.Popen(cmd)
-            pid = p.pid + 1
+            pid = p.pid + 1 # XXX not sure if this is reliable
             self.pidmap[filepath] = pid
             p.wait()
             self.pidmap.pop(filepath, None)
