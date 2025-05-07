@@ -295,7 +295,8 @@ class PcbDiffView(PUIView):
         if self.canvas_width is None:
             return
 
-        self.state.splitter_x = e.x / self.canvas_width
+        x, _ = self.fromCanvas(e.x, 0)
+        self.state.splitter_x = x / self.diff_width
 
     def wheel(self, e):
         if e.modifiers & KeyModifier.CTRL:
@@ -349,34 +350,37 @@ class PcbDiffView(PUIView):
             self.mask = canvas.loadImage(path)
 
         # A
-        x = max(0, canvas.width*(self.state.splitter_x - self.state.overlap))
-        x1, y1 = self.fromCanvas(0, 0)
-        x2, y2 = self.fromCanvas(x, canvas.height)
+        x1, x2 = 0, max(0, self.diff_width*(self.state.splitter_x - self.state.overlap))
+        y1, y2 = 0, self.diff_height
+        cx1, cy1 = self.toCanvas(x1, y1)
+        cx2, cy2 = self.toCanvas(x2, y2)
         if self.image_a:
             for layer in PCB_LAYERS[::-1]:
                 if not self.main.state.show_layers.get(layer, True):
                     continue
                 canvas.drawImage(self.image_a[layer],
-                                0, 0, width=x, height=canvas.height,
+                                cx1, cy1, width=(cx2 - cx1), height=(cy2 - cy1),
                                 src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
 
         # B
-        x = min(canvas.width, canvas.width*(self.state.splitter_x + self.state.overlap))
-        x1, y1 = self.fromCanvas(x, 0)
-        x2, y2 = self.fromCanvas(canvas.width, canvas.height)
+        x1, y1 = min(self.diff_width, self.diff_width*(self.state.splitter_x + self.state.overlap)), 0
+        x2, y2 = self.diff_width, self.diff_height
+        cx1, cy1 = self.toCanvas(x1, y1)
+        cx2, cy2 = self.toCanvas(x2, y2)
         if self.image_b:
             for layer in PCB_LAYERS[::-1]:
                 if not self.main.state.show_layers.get(layer, True):
                     continue
                 canvas.drawImage(self.image_b[layer],
-                                x, 0, width=canvas.width-x, height=canvas.height,
+                                cx1, cy1, width=(cx2 - cx1), height=(cy2 - cy1),
                                 src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
 
         # Darker
-        ox1 = max(0, canvas.width*(self.state.splitter_x - self.state.overlap))
-        ox2 = min(canvas.width, canvas.width*(self.state.splitter_x + self.state.overlap))
-        x1, y1 = self.fromCanvas(ox1, 0)
-        x2, y2 = self.fromCanvas(ox2, canvas.height)
+        x1, y1 = max(0, self.diff_width*(self.state.splitter_x - self.state.overlap)), 0
+        x2, y2 = min(self.diff_width, self.diff_width*(self.state.splitter_x + self.state.overlap)), self.diff_height
+        cx1, cy1 = self.toCanvas(x1, y1)
+        cx2, cy2 = self.toCanvas(x2, y2)
+        ox1, ox2 = cx1, cx2
         for layer in PCB_LAYERS[::-1]:
             darker = self.darker.get(layer)
             if not darker:
@@ -384,10 +388,10 @@ class PcbDiffView(PUIView):
             if not self.main.state.show_layers.get(layer, True):
                 continue
             canvas.drawImage(darker,
-                            ox1, 0, width=ox2-ox1, height=canvas.height,
-                            src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
+                                cx1, cy1, width=(cx2 - cx1), height=(cy2 - cy1),
+                                src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.8)
 
-        # # Mask
+        # Mask
         if self.main.state.highlight_changes:
             x1, y1 = self.fromCanvas(0, 0)
             x2, y2 = self.fromCanvas(canvas.width, canvas.height)
