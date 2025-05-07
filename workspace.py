@@ -264,17 +264,17 @@ class WorkspaceUI(Application):
         elif platform.system() == 'Windows':
             # XXX untested
             p = subprocess.Popen(['cmd', '/c', 'start', '/wait', filepath], shell=True)
-            pid = p.pid + 1
-            self.pidmap[filepath] = pid
-            p.wait()
-            self.pidmap.pop(filepath, None)
+            print("PID", p.pid)
+            # self.pidmap[filepath] = pid
+            # p.wait()
+            # self.pidmap.pop(filepath, None)
         else:
             # XXX untested
             p = subprocess.Popen(('xdg-open', filepath)) # XXX wait for process to finish
-            pid = p.pid + 1
-            self.pidmap[filepath] = pid
-            p.wait()
-            self.pidmap.pop(filepath, None)
+            # pid = p.pid + 1
+            # self.pidmap[filepath] = pid
+            # p.wait()
+            # self.pidmap.pop(filepath, None)
 
     def openFolder(self, location):
         import subprocess, platform
