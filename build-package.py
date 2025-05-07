@@ -73,6 +73,7 @@ if codesign_identity:
         glob.glob("dist/Kikakuka.app/**/*.kiface", recursive=True),
         glob.glob("dist/Kikakuka.app/**/*.dylib", recursive=True),
         glob.glob("dist/Kikakuka.app/**/Python3", recursive=True),
+        glob.glob("dist/Kikakuka.app/**/kicad-cli", recursive=True),
         ["dist/Kikakuka.app"],
     ):
         print("codesign", path)
