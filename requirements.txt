@@ -4,5 +4,5 @@ PySide6_Essentials
 QPUIQ>=0.15
 pypdfium2
 pillow
-psutil # windows only
-pywin32 # windows only
+psutil; platform_system == "Windows"
+pywin32; platform_system == "Windows"
