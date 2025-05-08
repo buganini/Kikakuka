@@ -35,6 +35,12 @@ try:
 except Exception:
     pass
 
+kicad_cli_version = "Error"
+try:
+    kicad_cli_version = subprocess.check_output([kicad_cli, "--version"]).decode().strip()
+except Exception:
+    pass
+
 
 PCB_LAYERS = [
     "Edge.Cuts",
@@ -522,7 +528,7 @@ class DifferUI(Application):
             shutil.rmtree(self.temp_dir)
 
     def content(self):
-        title = f"Kikakuka v{VERSION} Differ (Pypdfium2 {pdfium.V_PYPDFIUM2}, Pillow {PIL.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
+        title = f"Kikakuka v{VERSION} Differ (KiCad CLI {kicad_cli_version}, Pypdfium2 {pdfium.V_PYPDFIUM2}, Pillow {PIL.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")):
             with VBox():
                 if not os.path.exists(kicad_cli):
