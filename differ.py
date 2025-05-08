@@ -87,20 +87,37 @@ def convert_pcb(path, outpath):
         subprocess.run(cmd, **kwargs)
 
     if os.path.isdir(pdfpath):
-        pdfpath = glob.glob(os.path.join(pdfpath, f"*.pdf"))[0]
+        pdfspath = glob.glob(os.path.join(pdfpath, f"*.pdf"))
 
-    for p, layer in enumerate(PCB_LAYERS):
-        png_path = os.path.join(outpath, "png", f"{layer}.png")
-        if not os.path.exists(png_path):
-            os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
-            pdf = pdfium.PdfDocument(pdfpath)
-            pil_image = pdf[p].render(
-                fill_color=(255, 255, 255, 0),
-                scale=8,  # 72*x DPI is the default PDF resolution
-                rotation=0
-            ).to_pil().convert("RGBA")
+        os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
+        if len(pdfspath) == 1:
+            print("Single PDF")
+            for p, layer in enumerate(PCB_LAYERS):
+                print(f"Exporting {layer}...")
+                png_path = os.path.join(outpath, "png", f"{layer}.png")
+                if not os.path.exists(png_path):
+                    pdf = pdfium.PdfDocument(pdfspath[0])
+                    pil_image = pdf[p].render(
+                        fill_color=(255, 255, 255, 0),
+                        scale=8,  # 72*x DPI is the default PDF resolution
+                        rotation=0
+                    ).to_pil().convert("RGBA")
 
-            pil_image.save(png_path)
+                    pil_image.save(png_path)
+        else:
+            print("Multiple PDFs")
+            for layer in PCB_LAYERS:
+                print(f"Exporting {layer}...")
+                png_path = os.path.join(outpath, "png", f"{layer}.png")
+                layerpdfpath = glob.glob(os.path.join(pdfpath, f"*{layer.replace('.', '_')}.pdf"))[0]
+                pdf = pdfium.PdfDocument(layerpdfpath)
+                pil_image = pdf[0].render(
+                    fill_color=(255, 255, 255, 0),
+                    scale=8,  # 72*x DPI is the default PDF resolution
+                    rotation=0
+                ).to_pil().convert("RGBA")
+
+                pil_image.save(png_path)
 
 
 class SchDiffView(PUIView):
@@ -782,4 +799,5 @@ class DifferUI(Application):
 
                             self.state.loading_diff = False
             except:
-                pass
+                import traceback
+                traceback.print_exc()
