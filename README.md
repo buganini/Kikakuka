@@ -6,7 +6,7 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
 # Features
 * Workspace Manager
     * Easier to traverse between projects
-    * Recall windows of opened files (only works on macOS so far)
+    * Recall windows of opened files (macOS and Windows only)
 * Differ
     * Highlight changed areas
     * Schematics diff viewer
