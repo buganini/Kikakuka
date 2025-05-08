@@ -6,17 +6,136 @@ from PUI.interfaces import BaseTreeAdapter
 import PUI
 import re
 import subprocess
+import platform
 from threading import Thread
 from common import *
 
 FILE_ORDER = [PNL_SUFFIX, ".kicad_pro"]
-
 
 try:
     base_path = sys._MEIPASS
     ARGV0 = [sys.argv[0]]
 except Exception:
     ARGV0 = [sys.executable, sys.argv[0]]
+
+if platform.system() == 'Windows':
+    import psutil
+    import win32gui
+    import win32process
+    import win32con
+
+def windows_open_file(file_path, filters):
+    """
+    Opens a file with its default application and returns the PID
+    of the launched process.
+    
+    Args:
+        file_path (str): Path to the file to be opened
+        filters ([str]): List of process filter keyword
+    
+    Returns:
+        int: PID of the opened application, or None if unsuccessful
+    """
+    # Get initial set of PIDs before launching
+    initial_pids = set(psutil.pids())
+    
+    # Open the file with the default application (non-blocking)
+    os.startfile(file_path)
+    
+    # Wait a moment for the application to launch
+    time.sleep(2)
+    
+    # Get new set of PIDs after launching
+    new_pids = set(psutil.pids())
+    
+    # Find newly created processes
+    new_processes = new_pids - initial_pids
+    
+    # If no new process was created, return None
+    if not new_processes:
+        print("No new process detected")
+        return None
+    
+    # If multiple processes were created, find the most likely parent process
+    if len(new_processes) > 1:
+        # Get process info for all new processes
+        processes = []
+        for pid in new_processes:
+            try:
+                proc = psutil.Process(pid)
+                processes.append((pid, proc.name(), proc.create_time()))
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        
+        processes = [p for p in processes if any([f in psutil.Process(p[0]).name().lower() for f in filters])]
+        
+        if processes:
+            pid = processes[0][0]
+            print(f"Multiple processes created. Using newest: PID {pid} ({processes[0][1]})")
+            print(f"All new processes: {processes}")
+            return pid
+    else:
+        # Only one new process, return its PID
+        pid = list(new_processes)[0]
+        try:
+            proc_name = psutil.Process(pid).name()
+            print(f"File opened with: {proc_name} (PID: {pid})")
+            return pid
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            print(f"Process with PID {pid} was created but can't access its info")
+            return pid
+    
+    return None
+
+
+def windows_bring_pid_to_front(pid):
+    """
+    Brings the main window of a process with the specified PID to the foreground.
+    
+    Args:
+        pid (int): Process ID of the window to bring to front
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    def enum_windows_callback(hwnd, result):
+        # Get the process ID for the current window
+        _, window_pid = win32process.GetWindowThreadProcessId(hwnd)
+        
+        # Check if this window belongs to the PID we're looking for and is visible
+        if window_pid == pid and win32gui.IsWindowVisible(hwnd):
+            # Store the window handle in our result list
+            result.append(hwnd)
+    
+    window_handles = []
+    win32gui.EnumWindows(enum_windows_callback, window_handles)
+    
+    if not window_handles:
+        print(f"No visible windows found for PID {pid}")
+        return False
+    
+    # Bring the first window found to the front
+    # You might want to modify this to find the main window if there are multiple
+    hwnd = window_handles[0]
+    
+    # Check if the window is minimized
+    if win32gui.IsIconic(hwnd):
+        # Restore the window if it's minimized
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    
+    # Set the window to foreground
+    win32gui.SetForegroundWindow(hwnd)
+    print(f"Successfully brought window for PID {pid} to front")
+    return True
+
+def macos_bring_pid_to_front(pid):
+    applescript = f'''
+    tell application "System Events"
+        set frontmost of every process whose unix id is {pid} to true
+    end tell
+    '''
+    subprocess.run(["osascript", "-e", applescript])
+    return True
 
 class WorkspaceUI(Application):
     def __init__(self, filepath=None):
@@ -176,9 +295,7 @@ class WorkspaceUI(Application):
             self.loadFile()
 
     def openDiffer(self):
-        pid = self.pidmap.get(":differ")
-        if pid:
-            self.bringToFront(pid)
+        if self.bringToFront(":differ"):
             return
         Thread(target=self._openDiffer, args=[self.state.filepath], daemon=True).start()
 
@@ -246,9 +363,7 @@ class WorkspaceUI(Application):
         if path.lower().endswith(STEP_SUFFIX):
             self.openStep(path)
             return
-        pid = self.pidmap.get(path)
-        if pid:
-            self.bringToFront(pid)
+        if self.bringToFront(path):
             return
         Thread(target=self._openFile, args=[path], daemon=True).start()
 
@@ -262,22 +377,14 @@ class WorkspaceUI(Application):
             p.wait()
             self.pidmap.pop(filepath, None)
         elif platform.system() == 'Windows':
-            # XXX untested
-            p = subprocess.Popen(['cmd', '/c', 'start', '/wait', filepath], shell=True)
-            print("PID", p.pid)
-            # self.pidmap[filepath] = pid
-            # p.wait()
-            # self.pidmap.pop(filepath, None)
+            pid = windows_open_file(filepath, ["pcbnew", "eeschema", "freecad"])
+            if pid:
+                self.pidmap[filepath] = pid
         else:
-            # XXX untested
-            p = subprocess.Popen(('xdg-open', filepath)) # XXX wait for process to finish
-            # pid = p.pid + 1
-            # self.pidmap[filepath] = pid
-            # p.wait()
-            # self.pidmap.pop(filepath, None)
+            # XXX window recalling is not implemented
+            subprocess.Popen(('xdg-open', filepath)) # XXX wait for process to finish
 
     def openFolder(self, location):
-        import subprocess, platform
         if platform.system() == 'Darwin':
             subprocess.run(["open", location])
         elif platform.system() == 'Windows':
@@ -286,9 +393,7 @@ class WorkspaceUI(Application):
             subprocess.run(["xdg-open", location])
 
     def openPanelizer(self, filepath):
-        pid = self.pidmap.get(filepath)
-        if pid:
-            self.bringToFront(pid)
+        if self.bringToFront(filepath):
             return
         Thread(target=self._openPanelizer, args=[filepath], daemon=True).start()
 
@@ -300,30 +405,34 @@ class WorkspaceUI(Application):
         self.pidmap.pop(filepath, None)
 
     def openStep(self, filepath):
-        pid = self.pidmap.get(filepath)
-        if pid:
-            self.bringToFront(pid)
+        if self.bringToFront(filepath):
             return
         Thread(target=self._openStep, args=[filepath], daemon=True).start()
 
     def _openStep(self, filepath):
-        cmd = ["open", "-a", "FreeCAD", "-n", "-W", "--args", filepath]
-        p = subprocess.Popen(cmd)
-        pid = p.pid + 1
-        self.pidmap[filepath] = pid
-        p.wait()
-        self.pidmap.pop(filepath, None)
+        if platform.system() == 'Darwin':
+            cmd = ["open", "-a", "FreeCAD", "-n", "-W", "--args", filepath]
+            p = subprocess.Popen(cmd)
+            pid = p.pid + 1
+            self.pidmap[filepath] = pid
+            p.wait()
+            self.pidmap.pop(filepath, None)
+        elif platform.system() == 'Windows':
+            pid = windows_open_file(filepath, ["freecad"])
+            if pid:
+                self.pidmap[filepath] = pid
 
-    def bringToFront(self, pid):
+    def bringToFront(self, path):
         import platform
         if platform.system() == 'Darwin':
-            applescript = f'''
-            tell application "System Events"
-                set frontmost of every process whose unix id is {pid} to true
-            end tell
-            '''
-            subprocess.run(["osascript", "-e", applescript])
+            pid = self.pidmap.get(path)
+            if not pid:
+                return False
+            return macos_bring_pid_to_front(pid)
         elif platform.system() == 'Windows':
-            subprocess.call(["taskkill", "/PID", str(pid), "/F"])
+            pid = self.pidmap.get(path)
+            if not pid:
+                return False
+            return windows_bring_pid_to_front(pid)
         else:
-            subprocess.call(["xdotool", "windowactivate", "--sync", str(pid)])
+            return False
