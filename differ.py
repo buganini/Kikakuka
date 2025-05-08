@@ -80,7 +80,7 @@ def convert_pcb(path, outpath):
 
     pdfpath = os.path.join(outpath, f"pcb.pdf")
     if not os.path.exists(pdfpath):
-        cmd = [kicad_cli, "pcb", "export", "pdf", "--mode-multipage", "--layers", ",".join(PCB_LAYERS), "-o", pdfpath, path]
+        cmd = [kicad_cli, "pcb", "export", "pdf", "--mode-separate", "--layers", ",".join(PCB_LAYERS), "-o", pdfpath, path]
         kwargs = {}
         if platform.system() == "Windows":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
