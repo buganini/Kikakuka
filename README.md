@@ -5,22 +5,23 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
 
 # Features
 * Workspace Manager
-    * Easier to traverse between projects
-    * Recall windows of opened files (macOS and Windows only)
+    * Easily navigate between projects
+        * Automatically open multiple KiCad instances on macOS
+    * Recall windows of previously opened files (macOS and Windows only)
 * Differ
     * Highlight changed areas
-    * Schematics diff viewer
+    * Schematic diff viewer
     * PCB diff viewer
     * TODO:
         * Integrate pygit2
 * Panelizer
-    * Interactive arrangement, what you see is what you get
-    * Freeform arrangement, not limited to M×N configuration
-    * Multiple different PCB panelization
-    * Auto/Manual tab creation
-    * Auto V-cut/mousebites selection
+    * Interactive arrangement with real-time preview
+    * Freeform placement not limited to M×N grid configurations
+    * Support for multiple different PCBs in a single panel
+    * Automatic or manual tab creation
+    * Automatic V-cut/mousebites selection
     * Enable hole creation in panel substrate for extruded parts
-    * Does not require coding skill
+    * No coding skills required
 
 # Workspace Manager
 The `.kkkk` file saves workspace information in JSON format.
