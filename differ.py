@@ -48,6 +48,7 @@ PCB_LAYERS = [
     "F.Silkscreen",
     # "F.Mask",
     "F.Cu",
+    *[f"In{i+1}.Cu" for i in range(32)],
     "B.Cu",
     # "B.Mask",
     "B.Silkscreen",
@@ -78,7 +79,7 @@ def convert_sch(path, outpath):
 def convert_pcb(path, outpath):
     os.makedirs(outpath, exist_ok=True)
 
-    pdfpath = os.path.join(outpath, f"pcb.pdf")
+    pdfpath = os.path.join(outpath, f"pcb_pdf")
     if not os.path.exists(pdfpath):
         cmd = [kicad_cli, "pcb", "export", "pdf", "--mode-separate", "--layers", ",".join(PCB_LAYERS), "-o", pdfpath, path]
         kwargs = {}
@@ -90,27 +91,12 @@ def convert_pcb(path, outpath):
         pdfspath = glob.glob(os.path.join(pdfpath, f"*.pdf"))
 
         os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
-        if len(pdfspath) == 1:
-            print("Single PDF")
-            for p, layer in enumerate(PCB_LAYERS):
-                print(f"Exporting {layer}...")
-                png_path = os.path.join(outpath, "png", f"{layer}.png")
-                if not os.path.exists(png_path):
-                    pdf = pdfium.PdfDocument(pdfspath[0])
-                    pil_image = pdf[p].render(
-                        fill_color=(255, 255, 255, 0),
-                        scale=8,  # 72*x DPI is the default PDF resolution
-                        rotation=0
-                    ).to_pil().convert("RGBA")
-
-                    pil_image.save(png_path)
-        else:
-            print("Multiple PDFs")
-            for layer in PCB_LAYERS:
-                print(f"Exporting {layer}...")
-                png_path = os.path.join(outpath, "png", f"{layer}.png")
-                layerpdfpath = glob.glob(os.path.join(pdfpath, f"*{layer.replace('.', '_')}.pdf"))[0]
-                pdf = pdfium.PdfDocument(layerpdfpath)
+        for layer in PCB_LAYERS:
+            print(f"Exporting {layer}...")
+            png_path = os.path.join(outpath, "png", f"{layer}.png")
+            layerpdfpath = glob.glob(os.path.join(pdfpath, f"*{layer.replace('.', '_')}.pdf"))
+            if layerpdfpath:
+                pdf = pdfium.PdfDocument(layerpdfpath[0])
                 pil_image = pdf[0].render(
                     fill_color=(255, 255, 255, 0),
                     scale=8,  # 72*x DPI is the default PDF resolution
@@ -429,21 +415,23 @@ class PcbDiffView(PUIView):
             self.autoScale(canvas.width, canvas.height)
             return
 
+        layers = self.main.state.layers
+
         if self.path_a.set(self.main.cached_file_a):
             self.image_a = {}
-            for layer in PCB_LAYERS:
+            for layer in layers:
                 self.image_a[layer] = canvas.loadImage(os.path.join(self.main.cached_file_a, "png", f"{layer}.png"))
 
         if self.path_b.set(self.main.cached_file_b):
             self.image_b = {}
-            for layer in PCB_LAYERS:
+            for layer in layers:
                 self.image_b[layer] = canvas.loadImage(os.path.join(self.main.cached_file_b, "png", f"{layer}.png"))
 
 
-        mtime = [os.path.getmtime(fn) for fn in [os.path.join(self.main.temp_dir, "darker", f"{layer}.png") for layer in PCB_LAYERS] if os.path.exists(fn)]
+        mtime = [os.path.getmtime(fn) for fn in [os.path.join(self.main.temp_dir, "darker", f"{layer}.png") for layer in layers] if os.path.exists(fn)]
         if mtime and self.darker_mtime.set(max(mtime)):
             self.darker = {}
-            for layer in PCB_LAYERS:
+            for layer in layers:
                 self.darker[layer] = canvas.loadImage(os.path.join(self.main.temp_dir, "darker", f"{layer}.png"))
 
         path = os.path.join(self.main.temp_dir, "mask.png")
@@ -459,7 +447,7 @@ class PcbDiffView(PUIView):
         cx1, cy1 = self.toCanvas(x1, y1)
         cx2, cy2 = self.toCanvas(x2, y2)
         if self.image_a:
-            for layer in PCB_LAYERS[::-1]:
+            for layer in layers[::-1]:
                 if not self.main.state.show_layers.get(layer, True):
                     continue
                 canvas.drawImage(self.image_a[layer],
@@ -472,7 +460,7 @@ class PcbDiffView(PUIView):
         cx1, cy1 = self.toCanvas(x1, y1)
         cx2, cy2 = self.toCanvas(x2, y2)
         if self.image_b:
-            for layer in PCB_LAYERS[::-1]:
+            for layer in layers[::-1]:
                 if not self.main.state.show_layers.get(layer, True):
                     continue
                 canvas.drawImage(self.image_b[layer],
@@ -485,7 +473,7 @@ class PcbDiffView(PUIView):
         cx1, cy1 = self.toCanvas(x1, y1)
         cx2, cy2 = self.toCanvas(x2, y2)
         ox1, ox2 = cx1, cx2
-        for layer in PCB_LAYERS[::-1]:
+        for layer in layers[::-1]:
             darker = self.darker.get(layer)
             if not darker:
                 continue
@@ -515,7 +503,7 @@ class DifferUI(Application):
         atexit.register(self.cleanup)
 
         self.state = State()
-        self.state.show_layers = {l: True for l in PCB_LAYERS[1:]}
+        self.state.show_layers = {}
         self.state.loading = False
         self.state.loading_diff = False
         self.state.file_a = ""
@@ -523,6 +511,7 @@ class DifferUI(Application):
         self.state.page_a = 0
         self.state.page_b = 0
         self.state.diff_pair = None
+        self.state.layers = []
         self.state.highlight_changes = True
 
         self.cached_file_a = ""
@@ -638,7 +627,7 @@ class DifferUI(Application):
                                 PcbDiffView(self)
                             with VBox():
                                 Label("Display Layers")
-                                for layer in PCB_LAYERS[1:]:
+                                for layer in self.state.layers:
                                     Checkbox(layer, model=self.state.show_layers(layer))
                                 Spacer()
 
@@ -768,23 +757,43 @@ class DifferUI(Application):
 
                             os.makedirs(os.path.join(self.temp_dir, "darker"), exist_ok=True)
 
+                            layers = []
                             for layer in PCB_LAYERS:
                                 self.state.loading_diff = layer
-                                a = PILImage.open(os.path.join(self.cached_file_a, "png", f"{layer}.png"))
-                                b = PILImage.open(os.path.join(self.cached_file_b, "png", f"{layer}.png"))
+                                png_a = os.path.join(self.cached_file_a, "png", f"{layer}.png")
+                                png_b = os.path.join(self.cached_file_b, "png", f"{layer}.png")
 
-                                a, b = self.pad_to_same_size(a, b)
+                                if not os.path.exists(png_a) and not os.path.exists(png_b):
+                                    continue
 
-                                aa = a.split()
-                                bb = b.split()
-                                darker = []
-                                for i in range(3):
-                                    darker.append(ImageChops.darker(aa[i], bb[i]))
-                                darker.append(ImageChops.lighter(aa[3], bb[3]))
-                                darker = PILImage.merge("RGBA", darker)
-                                darker.save(os.path.join(self.temp_dir, "darker", f"{layer}.png"))
+                                layers.append(layer)
 
-                                mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
+                                darker_png = os.path.join(self.temp_dir, "darker", f"{layer}.png")
+
+                                if not os.path.exists(png_a):
+                                    shutil.copy(png_b, darker_png)
+                                    diff = PILImage.open(png_b).convert("L")
+                                elif not os.path.exists(png_b):
+                                    shutil.copy(png_a, darker_png)
+                                    diff = PILImage.open(png_a).convert("L")
+                                else:
+                                    a = PILImage.open(png_a)
+                                    b = PILImage.open(png_b)
+
+                                    a, b = self.pad_to_same_size(a, b)
+
+                                    aa = a.split()
+                                    bb = b.split()
+                                    darker = []
+                                    for i in range(3):
+                                        darker.append(ImageChops.darker(aa[i], bb[i]))
+                                    darker.append(ImageChops.lighter(aa[3], bb[3]))
+                                    darker = PILImage.merge("RGBA", darker)
+                                    darker.save(darker_png)
+
+                                    diff = ImageChops.difference(a, b).convert("L")
+
+                                mask = (diff.point(lambda x: 255 if x else 0) # diff mask
                                         .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
                                         .filter(ImageFilter.GaussianBlur(radius=10))) # blur
 
@@ -792,6 +801,13 @@ class DifferUI(Application):
                                     merged_mask = mask
                                 else:
                                     merged_mask = ImageChops.lighter(merged_mask, mask)
+
+                            layers_changed = False
+                            if self.state.layers != layers:
+                                layers_changed = True
+                            if layers_changed:
+                                self.state.show_layers = {layer: True for layer in layers}
+                            self.state.layers = layers
 
                             merged_mask = PILImage.merge("RGBA", [merged_mask, merged_mask, merged_mask, merged_mask])
 
