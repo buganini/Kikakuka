@@ -368,7 +368,7 @@ class PcbDiffView(PUIView):
         self.main.state.show_layers
         self.main.state.highlight_changes
         (Canvas(self.painter).layout(weight=1)
-         .style(bgColor=0xFFFFFF)
+         .style(bgColor=0x001124)
          .mousedown(self.mousedown)
          .mouseup(self.mouseup)
          .mousemove(self.mousemove)
@@ -505,8 +505,8 @@ class PcbDiffView(PUIView):
                                 src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.08)
 
         # Overlap cursor
-        canvas.drawLine(ox1, 0, ox1, canvas.height, color=0, width=1)
-        canvas.drawLine(ox2, 0, ox2, canvas.height, color=0, width=1)
+        canvas.drawLine(ox1, 0, ox1, canvas.height, color=0x7e8792, width=1)
+        canvas.drawLine(ox2, 0, ox2, canvas.height, color=0x7e8792, width=1)
 class DifferUI(Application):
     def __init__(self, filepath):
         super().__init__(icon=resource_path("icon.ico"))
@@ -792,6 +792,8 @@ class DifferUI(Application):
                                     merged_mask = mask
                                 else:
                                     merged_mask = ImageChops.lighter(merged_mask, mask)
+
+                            merged_mask = PILImage.merge("RGBA", [merged_mask, merged_mask, merged_mask, merged_mask])
 
                             merged_mask.save(os.path.join(self.temp_dir, "mask.png"))
 
