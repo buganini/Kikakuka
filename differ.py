@@ -58,6 +58,7 @@ PCB_LAYERS = [
 def convert_sch(path, outpath):
     os.makedirs(outpath, exist_ok=True)
 
+    yield f"Exporting SCH for {os.path.basename(path)}..."
     pdfpath = os.path.join(outpath, "sch.pdf")
     if not os.path.exists(pdfpath):
         cmd = [kicad_cli, "sch", "export", "pdf", "-o", pdfpath, path]
@@ -67,6 +68,7 @@ def convert_sch(path, outpath):
         subprocess.run(cmd, **kwargs)
 
     if not os.path.exists(os.path.join(outpath, "png")):
+        yield f"Exporting PNG for {os.path.basename(path)}..."
         os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
         pdf = pdfium.PdfDocument(pdfpath)
         for p, page in enumerate(pdf):
@@ -81,6 +83,7 @@ def convert_pcb(path, outpath):
 
     pdfpath = os.path.join(outpath, f"pcb_pdf")
     if not os.path.exists(pdfpath):
+        yield f"Exporting PDF for {os.path.basename(path)}..."
         cmd = [kicad_cli, "pcb", "export", "pdf", "--mode-separate", "--layers", ",".join(PCB_LAYERS), "-o", pdfpath, path]
         kwargs = {}
         if platform.system() == "Windows":
@@ -92,10 +95,10 @@ def convert_pcb(path, outpath):
 
         os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
         for layer in PCB_LAYERS:
-            print(f"Exporting {layer}...")
             png_path = os.path.join(outpath, "png", f"{layer}.png")
             layerpdfpath = glob.glob(os.path.join(pdfpath, f"*{layer.replace('.', '_')}.pdf"))
             if layerpdfpath:
+                yield f"Exporting {layer} to PNG for {os.path.basename(path)}..."
                 pdf = pdfium.PdfDocument(layerpdfpath[0])
                 pil_image = pdf[0].render(
                     fill_color=(255, 255, 255, 0),
@@ -584,7 +587,7 @@ class DifferUI(Application):
                     return
 
                 if self.state.loading:
-                    Label("Loading...")
+                    Label(self.state.loading)
                     Spacer()
                     return
 
@@ -724,30 +727,32 @@ class DifferUI(Application):
             self.queue.get()
 
             try:
-                self.state.loading = True
-
                 file_a = self.state.file_a
                 file_b = self.state.file_b
 
                 path_a = os.path.join(self.temp_dir, hashlib.sha256(file_a.encode("utf-8")).hexdigest())
                 if self.cached_file_a != path_a:
                     if file_a.lower().endswith(SCH_SUFFIX):
-                        convert_sch(file_a, path_a)
+                        for l in convert_sch(file_a, path_a):
+                            self.state.loading = l
                         self.cached_file_a = path_a
                         self.state.page_a = 0
                     if file_a.lower().endswith(PCB_SUFFIX):
-                        convert_pcb(file_a, path_a)
+                        for l in convert_pcb(file_a, path_a):
+                            self.state.loading = l
                         self.cached_file_a = path_a
                         self.state.page_a = 0
 
                 path_b = os.path.join(self.temp_dir, hashlib.sha256(file_b.encode("utf-8")).hexdigest())
                 if self.cached_file_b != path_b:
                     if file_b.lower().endswith(SCH_SUFFIX):
-                        convert_sch(file_b, path_b)
+                        for l in convert_sch(file_b, path_b):
+                            self.state.loading = l
                         self.cached_file_b = path_b
                         self.state.page_b = 0
                     if file_b.lower().endswith(PCB_SUFFIX):
-                        convert_pcb(file_b, path_b)
+                        for l in convert_pcb(file_b, path_b):
+                            self.state.loading = l
                         self.cached_file_b = path_b
                         self.state.page_b = 0
 
@@ -788,12 +793,13 @@ class DifferUI(Application):
 
                             layers = []
                             for layer in PCB_LAYERS:
-                                self.state.loading_diff = layer
                                 png_a = os.path.join(self.cached_file_a, "png", f"{layer}.png")
                                 png_b = os.path.join(self.cached_file_b, "png", f"{layer}.png")
 
                                 if not os.path.exists(png_a) and not os.path.exists(png_b):
                                     continue
+
+                                self.state.loading_diff = layer
 
                                 layers.append(layer)
 
