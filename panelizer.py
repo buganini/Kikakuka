@@ -28,6 +28,7 @@ from PUI.PySide6 import *
 # from PUI.wx import *
 import PUI
 import wx
+import platform
 import tempfile
 
 with tempfile.NamedTemporaryFile(prefix='kikakuka_', suffix='.kicad_pcb', delete=True) as tmp:
@@ -337,8 +338,9 @@ def autotab(boardSubstrate, origin, direction, width,
 
 class PanelizerUI(Application):
     def __init__(self):
-        # pcbnew needs this
-        self.wx_app = wx.App()
+        # pcbnew needs this on Windows
+        if platform.system() == "Windows":
+            self.wx_app = wx.App()
 
         super().__init__(icon=resource_path("icon.ico"))
 
