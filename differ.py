@@ -619,6 +619,7 @@ class DifferUI(Application):
                             with VBox().layout(weight=1).id("sch-diff-view"): # set id to workaround PUI bug (doesn't update weight)
                                 with HBox():
                                     Label("Ctrl+Wheel to adjust overlap")
+                                    Spacer()
                                     Checkbox("Highlight Changes", model=self.state("highlight_changes"))
                                 SchDiffView(self)
 
