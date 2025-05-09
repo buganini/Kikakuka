@@ -338,9 +338,8 @@ def autotab(boardSubstrate, origin, direction, width,
 
 class PanelizerUI(Application):
     def __init__(self):
-        # pcbnew needs this on Windows
-        if platform.system() == "Windows":
-            self.wx_app = wx.App()
+        # pcbnew my crash with "./src/common/stdpbase.cpp(59): assert ""traits"" failed in Get(): create wxApp before calling this" without this
+        # self.wx_app = wx.App()
 
         super().__init__(icon=resource_path("icon.ico"))
 
