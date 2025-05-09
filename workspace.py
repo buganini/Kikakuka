@@ -269,6 +269,7 @@ class WorkspaceUI(Application):
                         Button("New Workspace").click(lambda e: self.newWorkspace())
                         Button("Open Workspace").click(lambda e: self.openWorkspace())
                         Button("New Panelization").click(lambda e: self.newPanelization())
+                        Button("Open Panelization").click(lambda e: self.openPanelizationAndClose())
                         Spacer()
 
                     Spacer()
@@ -436,6 +437,12 @@ class WorkspaceUI(Application):
                 findFiles(self.state.workspace, self.state.root)
                 self.saveFile()
             self.openPanelizer(filepath)
+
+    def openPanelizationAndClose(self):
+        filepath = OpenFile("Open Panelization", types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
+        if filepath:
+            self.openPanelizer(filepath)
+        self.quit()
 
     def openFile(self, path):
         if path.lower().endswith(PNL_SUFFIX):
