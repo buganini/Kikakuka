@@ -30,19 +30,8 @@ import PUI
 import wx
 import platform
 import tempfile
-
-with tempfile.NamedTemporaryFile(prefix='kikakuka_', suffix='.kicad_pcb', delete=True) as tmp:
-    kikit_tmp = tmp.name
-
-# wx.App breaks atexit somehow...
-def cleanup_kikit_tmp():
-    try: os.remove(kikit_tmp)
-    except: pass
-    try: os.remove(kikit_tmp.replace("kicad_pcb", "kicad_pro"))
-    except: pass
-    try: os.remove(kikit_tmp.replace("kicad_pcb", "kicad_prl"))
-    except: pass
-
+import atexit
+import shutil
 MIN_SPACING = 0.1
 VC_EXTENT = 3
 
@@ -68,6 +57,14 @@ def extrapolate(x1, y1, x2, y2, r, d):
     l = n*r + d
     return x1 + dx*l/n, y1 + dy*l/n
 
+
+temp_dir = tempfile.mkdtemp(prefix="kikakuka_panelizer_")
+
+@atexit.register
+def cleanup():
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
+
 class PCB(StateObject):
     def __init__(self, boardfile):
         super().__init__()
@@ -75,7 +72,7 @@ class PCB(StateObject):
         self.file = boardfile
         board = pcbnew.LoadBoard(boardfile)
 
-        panel = panelize.Panel(kikit_tmp)
+        panel = panelize.Panel(os.path.join(temp_dir, "temp.kicad_pcb"))
         panel.appendBoard(
             boardfile,
             pcbnew.VECTOR2I(0, 0),
@@ -111,8 +108,6 @@ class PCB(StateObject):
         self.height = bbox[3] - bbox[1]
         self.rotate = 0
         self._tabs = []
-
-        cleanup_kikit_tmp()
 
     @property
     def shapes(self):
@@ -339,6 +334,7 @@ def autotab(boardSubstrate, origin, direction, width,
 class PanelizerUI(Application):
     def __init__(self):
         # pcbnew my crash with "./src/common/stdpbase.cpp(59): assert ""traits"" failed in Get(): create wxApp before calling this" without this
+        # Be aware that this will break atexit
         # self.wx_app = wx.App()
 
         super().__init__(icon=resource_path("icon.ico"))
@@ -647,7 +643,7 @@ class PanelizerUI(Application):
                 export += PCB_SUFFIX
             self.state.export_path = export
 
-        panel = panelize.Panel(self.state.export_path if export else kikit_tmp)
+        panel = panelize.Panel(self.state.export_path if export else os.path.join(temp_dir, "temp.kicad_pcb"))
         panel.vCutSettings.layer = {
             "Cmts.User": Layer.Cmts_User,
             "Edge.Cuts": Layer.Edge_Cuts,
@@ -1112,8 +1108,6 @@ class PanelizerUI(Application):
 
         if export:
             panel.save()
-
-        cleanup_kikit_tmp()
 
     def addHole(self, e):
         self.tool = Tool.HOLE
