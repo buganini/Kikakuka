@@ -171,6 +171,7 @@ class SchDiffView(PUIView):
         self.main.state.highlight_changes
 
         (Canvas(self.painter).layout(weight=1)
+         .style(bgColor=0xF5F4EE)
          .mousemove(self.mousemove)
          .mousedown(self.mousedown)
          .mouseup(self.mouseup)
