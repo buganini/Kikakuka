@@ -513,6 +513,7 @@ class DifferUI(Application):
         self.state.diff_pair = None
         self.state.layers = []
         self.state.highlight_changes = True
+        self.state.use_workspace = False
 
         self.cached_file_a = ""
         self.cached_file_b = ""
@@ -521,13 +522,15 @@ class DifferUI(Application):
 
         Thread(target=self.bg_looper, daemon=True).start()
 
-        with open(filepath, "r") as f:
-            self.base_dir = os.path.dirname(os.path.abspath(filepath))
-            self.workspace = json.load(f)
-            for project in self.workspace["projects"]:
-                if not os.path.isabs(project["path"]):
-                    project["path"] = os.path.join(self.base_dir, project["path"])
-        findFiles(self.workspace, self.base_dir, [SCH_SUFFIX, PCB_SUFFIX])
+        if filepath:
+            with open(filepath, "r") as f:
+                self.state.use_workspace = True
+                self.base_dir = os.path.dirname(os.path.abspath(filepath))
+                self.workspace = json.load(f)
+                for project in self.workspace["projects"]:
+                    if not os.path.isabs(project["path"]):
+                        project["path"] = os.path.join(self.base_dir, project["path"])
+                findFiles(self.workspace, self.base_dir, [SCH_SUFFIX, PCB_SUFFIX])
 
     def cleanup(self):
         if os.path.exists(self.temp_dir):
@@ -542,19 +545,33 @@ class DifferUI(Application):
                     Spacer()
                     return
                 with HBox():
-                    with ComboBox(text_model=self.state("file_a")).change(lambda e: self.build()):
-                        for project in self.workspace["projects"]:
-                            if project["path"].lower().endswith(PNL_SUFFIX):
-                                continue
-                            for file in project["files"]:
-                                ComboBoxItem(os.path.basename(file["path"]), file["path"])
+                    if self.state.use_workspace:
+                            with ComboBox(text_model=self.state("file_a")).change(lambda e: self.build()):
+                                for project in self.workspace["projects"]:
+                                    if project["path"].lower().endswith(PNL_SUFFIX):
+                                        continue
+                                    for file in project["files"]:
+                                        ComboBoxItem(os.path.basename(file["path"]), file["path"])
 
-                    with ComboBox(text_model=self.state("file_b")).change(lambda e: self.build()):
-                        for project in self.workspace["projects"]:
-                            if project["path"].lower().endswith(PNL_SUFFIX):
-                                continue
-                            for file in project["files"]:
-                                ComboBoxItem(os.path.basename(file["path"]), file["path"])
+                            with ComboBox(text_model=self.state("file_b")).change(lambda e: self.build()):
+                                for project in self.workspace["projects"]:
+                                    if project["path"].lower().endswith(PNL_SUFFIX):
+                                        continue
+                                    for file in project["files"]:
+                                        ComboBoxItem(os.path.basename(file["path"]), file["path"])
+                    else:
+                        with HBox():
+                            if self.state.file_a:
+                                Label(self.state.file_a).layout(weight=1)
+                            Button("Open File A").click(self.open_file_a)
+                            if not self.state.file_a:
+                                Spacer()
+                        with HBox():
+                            if self.state.file_b:
+                                Label(self.state.file_b).layout(weight=1)
+                            Button("Open File B").click(self.open_file_b)
+                            if not self.state.file_b:
+                                Spacer()
 
                 if not (self.state.file_a and self.state.file_b):
                     Label("Select two files to compare")
@@ -630,6 +647,18 @@ class DifferUI(Application):
                                 for layer in self.state.layers:
                                     Checkbox(layer, model=self.state.show_layers(layer))
                                 Spacer()
+
+    def open_file_a(self, e):
+        fn = OpenFile("Open File A", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb|KiCad SCH (*.kicad_sch)|*.kicad_sch")
+        if fn:
+            self.state.file_a = fn
+            self.build()
+
+    def open_file_b(self, e):
+        fn = OpenFile("Open File B", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb|KiCad SCH (*.kicad_sch)|*.kicad_sch")
+        if fn:
+            self.state.file_b = fn
+            self.build()
 
     def select_a(self, e, png):
         self.state.page_a = png

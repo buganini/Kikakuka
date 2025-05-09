@@ -5,8 +5,8 @@ from panelizer import *
 
 inputs = sys.argv[1:]
 if inputs:
-    if inputs[0] == "--differ" and len(inputs) > 1:
-        ui = DifferUI(inputs[1])
+    if inputs[0] == "--differ":
+        ui = DifferUI(inputs[1] if len(inputs) > 1 else None)
         ui.run()
     elif inputs[0].endswith(WORKSPACE_SUFFIX):
         ui = WorkspaceUI(inputs[0])

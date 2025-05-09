@@ -270,6 +270,7 @@ class WorkspaceUI(Application):
                         Button("Open Workspace").click(lambda e: self.openWorkspace())
                         Button("New Panelization").click(lambda e: self.newPanelization())
                         Button("Open Panelization").click(lambda e: self.openPanelizationAndClose())
+                        Button("Differ").click(lambda e: self.openDiffer())
                         Spacer()
 
                     Spacer()
@@ -382,7 +383,10 @@ class WorkspaceUI(Application):
         Thread(target=self._openDiffer, args=[self.state.filepath], daemon=True).start()
 
     def _openDiffer(self, filepath):
-        p = subprocess.Popen([*ARGV0, "--differ", filepath])
+        p = subprocess.Popen([*ARGV0, "--differ", *([filepath] if filepath else [])])
+        if not filepath:
+            self.quit()
+            return
         pid = p.pid
         self.pidmap[":differ"] = pid
         p.wait()
