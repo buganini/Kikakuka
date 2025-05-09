@@ -732,6 +732,8 @@ class DifferUI(Application):
                 file_a = self.state.file_a
                 file_b = self.state.file_b
 
+                self.state.loading = "Loading..."
+
                 path_a = os.path.join(self.temp_dir, hashlib.sha256(file_a.encode("utf-8")).hexdigest())
                 if self.cached_file_a != path_a:
                     if file_a.lower().endswith(SCH_SUFFIX):
