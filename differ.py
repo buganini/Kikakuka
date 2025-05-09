@@ -58,9 +58,9 @@ PCB_LAYERS = [
 def convert_sch(path, outpath):
     os.makedirs(outpath, exist_ok=True)
 
-    yield f"Exporting SCH for {os.path.basename(path)}..."
     pdfpath = os.path.join(outpath, "sch.pdf")
     if not os.path.exists(pdfpath):
+        yield f"Exporting PDF for {os.path.basename(path)}..."
         cmd = [kicad_cli, "sch", "export", "pdf", "-o", pdfpath, path]
         kwargs = {}
         if platform.system() == "Windows":
