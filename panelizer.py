@@ -57,22 +57,15 @@ def extrapolate(x1, y1, x2, y2, r, d):
     l = n*r + d
     return x1 + dx*l/n, y1 + dy*l/n
 
-
-temp_dir = tempfile.mkdtemp(prefix="kikakuka_panelizer_")
-
-@atexit.register
-def cleanup():
-    if os.path.exists(temp_dir):
-        shutil.rmtree(temp_dir)
-
 class PCB(StateObject):
-    def __init__(self, boardfile):
+    def __init__(self, main, boardfile):
         super().__init__()
+        self.main = main
         boardfile = os.path.realpath(boardfile)
         self.file = boardfile
         board = pcbnew.LoadBoard(boardfile)
 
-        panel = panelize.Panel(os.path.join(temp_dir, "temp.kicad_pcb"))
+        panel = panelize.Panel(os.path.join(self.main.temp_dir, "temp.kicad_pcb"))
         panel.appendBoard(
             boardfile,
             pcbnew.VECTOR2I(0, 0),
@@ -142,7 +135,7 @@ class PCB(StateObject):
         return ret
 
     def clone(self):
-        pcb = PCB(self.file)
+        pcb = PCB(self.main, self.file)
         pcb.rotate = self.rotate
         pcb.disable_auto_tab = self.disable_auto_tab
         pcb._tabs = list(self._tabs)
@@ -339,6 +332,9 @@ class PanelizerUI(Application):
 
         super().__init__(icon=resource_path("icon.ico"))
 
+        self.temp_dir = tempfile.mkdtemp(prefix="kikakuka_panelizer_")
+        atexit.register(self.cleanup)
+
         self.unit = mm
         self.off_x = 20 * self.unit
         self.off_y = 20 * self.unit
@@ -406,6 +402,10 @@ class PanelizerUI(Application):
         self.tool = Tool.NONE
         self.state.edit_polygon = None
 
+    def cleanup(self):
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
     def autoScale(self, canvas_width, canvas_height):
         x1, y1 = 0, 0
         x2, y2 = self.state.frame_width * self.unit, self.state.frame_height * self.unit
@@ -433,7 +433,7 @@ class PanelizerUI(Application):
     def addPCB(self, e):
         boardfile = OpenFile("Open PCB", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
         if boardfile:
-            p = PCB(boardfile)
+            p = PCB(self, boardfile)
             self._addPCB(p)
 
     def _addPCB(self, pcb):
@@ -603,7 +603,7 @@ class PanelizerUI(Application):
                 file = p["file"]
                 if not os.path.isabs(file):
                     file = os.path.realpath(os.path.join(os.path.dirname(target), file))
-                pcb = PCB(file)
+                pcb = PCB(self, file)
                 pcb.off_x = self.off_x
                 pcb.off_y = self.off_y
                 pcb.x = p["x"]
@@ -643,7 +643,7 @@ class PanelizerUI(Application):
                 export += PCB_SUFFIX
             self.state.export_path = export
 
-        panel = panelize.Panel(self.state.export_path if export else os.path.join(temp_dir, "temp.kicad_pcb"))
+        panel = panelize.Panel(self.state.export_path if export else os.path.join(self.temp_dir, "temp.kicad_pcb"))
         panel.vCutSettings.layer = {
             "Cmts.User": Layer.Cmts_User,
             "Edge.Cuts": Layer.Edge_Cuts,
