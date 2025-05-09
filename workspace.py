@@ -266,11 +266,18 @@ class WorkspaceUI(Application):
             with VBox():
                 if self.state.filepath is None:
                     with HBox():
-                        Button("New Workspace").click(lambda e: self.newWorkspace())
-                        Button("Open Workspace").click(lambda e: self.openWorkspace())
-                        Button("New Panelization").click(lambda e: self.newPanelization())
-                        Button("Open Panelization").click(lambda e: self.openPanelizationAndClose())
-                        Button("Differ").click(lambda e: self.openDiffer())
+                        Label("Workspace")
+                        Button("New").click(lambda e: self.newWorkspace())
+                        Button("Open").click(lambda e: self.openWorkspace())
+                        Spacer()
+                    with HBox():
+                        Label("Panelization")
+                        Button("New").click(lambda e: self.newPanelization())
+                        Button("Open").click(lambda e: self.openPanelizationAndClose())
+                        Spacer()
+                    with HBox():
+                        Label("Differ")
+                        Button("Open").click(lambda e: self.openDiffer())
                         Spacer()
 
                     Spacer()
