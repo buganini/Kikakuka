@@ -867,11 +867,12 @@ class DifferUI(Application):
                 if self.state.commit_a:
                     self.state.loading_a = f"Checking out {self.state.commit_a}..."
                     path_a = os.path.join(self.temp_dir, f"{hex}_{self.state.commit_a}", "workdir")
+                    repo_workdir = os.path.join(path_a, "workdir")
                     if not os.path.exists(path_a):
                         dir = os.path.dirname(file_a)
-                        fname = os.path.splitext(file_a)[0]
-                        git.checkout(self.repo_a, self.state.commit_a, os.path.join(path_a, "workdir"), [f"{fname}{SCH_SUFFIX}", f"{fname}{PCB_SUFFIX}", os.path.join(dir, "fp-info-cache"), os.path.join(dir, "fp-lib-table"), os.path.join(dir, "sym-lib-table")])
-                    file_a = os.path.join(path_a, "workdir", os.path.basename(file_a))
+                        git.checkout(self.repo_a, self.state.commit_a, repo_workdir)
+                    file_a = os.path.relpath(file_a, self.repo_a).replace("\\", "/")
+                    file_a = os.path.join(repo_workdir, file_a)
                 else:
                     path_a = os.path.join(self.temp_dir, hex)
 
@@ -894,11 +895,12 @@ class DifferUI(Application):
                 if self.state.commit_b:
                     self.state.loading_b = f"Checking out {self.state.commit_b}..."
                     path_b = os.path.join(self.temp_dir, f"{hex}_{self.state.commit_b}", "workdir")
+                    repo_workdir = os.path.join(path_b, "workdir")
                     if not os.path.exists(path_b):
                         dir = os.path.dirname(file_b)
-                        fname = os.path.splitext(file_b)[0]
-                        git.checkout(self.repo_b, self.state.commit_b, os.path.join(path_b, "workdir"), [f"{fname}{SCH_SUFFIX}", f"{fname}{PCB_SUFFIX}", os.path.join(dir, "fp-info-cache"), os.path.join(dir, "fp-lib-table"), os.path.join(dir, "sym-lib-table")])
-                    file_b = os.path.join(path_b, "workdir", os.path.basename(file_b))
+                        git.checkout(self.repo_b, self.state.commit_b, repo_workdir)
+                    file_b = os.path.relpath(file_b, self.repo_b).replace("\\", "/")
+                    file_b = os.path.join(repo_workdir, file_b)
                 else:
                     path_b = os.path.join(self.temp_dir, hex)
 

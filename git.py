@@ -79,57 +79,49 @@ def log(repo_path, file_path=None):
         dtg = datetime.fromtimestamp(commit.commit_time).strftime("%Y-%m-%d %H:%M")
         yield (commit.id, f"{dtg} {commit.message.strip()}")
 
-def _extract_tree(repo, tree_id, destination):
-    """Extract a tree object to the destination folder."""
-    # Create the directory if it doesn't exist
-    os.makedirs(destination, exist_ok=True)
+def _extract_tree_recursive(repo, tree, destination_path):
+    """
+    Recursively extract all files and directories from a git tree.
 
-    # Get the tree object
-    tree = repo.get(tree_id)
+    Args:
+        repo: The pygit2.Repository object
+        tree: The tree object to extract
+        destination_path: The path where files should be extracted
+    """
+    # Create the destination directory if it doesn't exist
+    os.makedirs(destination_path, exist_ok=True)
 
     # Process all entries in the tree
     for entry in tree:
-        path = os.path.join(destination, entry.name)
+        entry_path = os.path.join(destination_path, entry.name)
 
-        if entry.type == pygit2.GIT_OBJ_TREE:
-            # If it's a directory, recursively extract it
-            _extract_tree(repo, entry.id, path)
-        elif entry.type == pygit2.GIT_OBJ_BLOB:
-            # If it's a file, extract it
-            _extract_blob(repo, entry.id, path)
+        if entry.type == pygit2.GIT_OBJECT_TREE:
+            # It's a directory, recurse into it
+            subtree = repo.get(entry.id)
+            _extract_tree_recursive(repo, subtree, entry_path)
+        elif entry.type == pygit2.GIT_OBJECT_BLOB:
+            # It's a file, write it to disk
+            blob = repo.get(entry.id)
 
-def _extract_blob(repo, blob_id, destination):
-    """Extract a blob object to the destination file."""
-    # Get the blob object
-    blob = repo.get(blob_id)
+            # Create parent directories if they don't exist
+            os.makedirs(os.path.dirname(entry_path), exist_ok=True)
 
-    # Ensure the parent directory exists
-    os.makedirs(os.path.dirname(destination), exist_ok=True)
+            # Write the file content
+            with open(entry_path, 'wb') as f:
+                f.write(blob.data)
 
-    # Write the blob content to the file
-    with open(destination, 'wb') as f:
-        f.write(blob.data)
-
-def checkout(repo_path, commit_id, outdir, file_paths):
+def checkout(repo_path, commit_id, outdir):
     repo = pygit2.Repository(repo_path)
     commit = repo.get(commit_id)
     tree = commit.tree
 
     os.makedirs(outdir, exist_ok=True)
 
-    for file_path in file_paths:
-        file_path = os.path.relpath(os.path.abspath(file_path), repo_path).replace("\\", "/")
+    # Get the commit tree
+    tree = commit.tree
 
-        try:
-            entry = tree[file_path]
-        except:
-            continue
-        if entry.type == pygit2.GIT_OBJECT_TREE:
-            # If it's a directory, extract all contents
-            _extract_tree(repo, entry.id, os.path.join(outdir, os.path.basename(file_path)))
-        else:
-            # If it's a file, extract just that file
-            _extract_blob(repo, entry.id, os.path.join(outdir, os.path.basename(file_path)))
+    # Extract all files from the tree
+    _extract_tree_recursive(repo, tree, outdir)
 
 if __name__ == "__main__":
     import sys
