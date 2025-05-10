@@ -120,7 +120,10 @@ def checkout(repo_path, commit_id, outdir, file_paths):
     for file_path in file_paths:
         file_path = os.path.relpath(os.path.abspath(file_path), repo_path).replace("\\", "/")
 
-        entry = tree[file_path]
+        try:
+            entry = tree[file_path]
+        except:
+            continue
         if entry.type == pygit2.GIT_OBJECT_TREE:
             # If it's a directory, extract all contents
             _extract_tree(repo, entry.id, os.path.join(outdir, os.path.basename(file_path)))
