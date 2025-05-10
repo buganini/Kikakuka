@@ -74,7 +74,7 @@ def convert_sch(path, outpath):
         pdf = pdfium.PdfDocument(pdfpath)
         for p, page in enumerate(pdf):
             pil_image = page.render(
-                scale=8,  # 72*x DPI is the default PDF resolution
+                scale=7,  # 72*x DPI is the default PDF resolution
                 rotation=0
             ).to_pil()
             pil_image.save(os.path.join(outpath, "png", f"sch_{p:02d}.png"))
@@ -101,7 +101,7 @@ def convert_pcb(path, outpath):
                 pdf = pdfium.PdfDocument(layerpdfpath[0])
                 pil_image = pdf[0].render(
                     fill_color=(255, 255, 255, 0),
-                    scale=8,  # 72*x DPI is the default PDF resolution
+                    scale=7,  # 72*x DPI is the default PDF resolution
                     rotation=0
                 ).to_pil().convert("RGBA")
 
