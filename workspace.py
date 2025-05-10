@@ -390,7 +390,10 @@ class WorkspaceUI(Application):
         Thread(target=self._openDiffer, args=[self.state.filepath], daemon=True).start()
 
     def _openDiffer(self, filepath):
-        p = subprocess.Popen([*ARGV0, "--differ", *([filepath] if filepath else [])])
+        kwargs = {}
+        if platform.system() == "Windows":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        p = subprocess.Popen([*ARGV0, "--differ", *([filepath] if filepath else [])], **kwargs)
         if not filepath:
             self.quit()
             return
@@ -494,7 +497,10 @@ class WorkspaceUI(Application):
         Thread(target=self._openPanelizer, args=[filepath], daemon=True).start()
 
     def _openPanelizer(self, filepath):
-        p = subprocess.Popen([*ARGV0, filepath])
+        kwargs = {}
+        if platform.system() == "Windows":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        p = subprocess.Popen([*ARGV0, filepath], **kwargs)
         pid = p.pid
         self.pidmap[filepath] = pid
         p.wait()
