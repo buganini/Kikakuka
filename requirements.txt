@@ -6,3 +6,4 @@ pypdfium2
 pillow
 psutil
 pywin32; platform_system == "Windows"
+pygit2

@@ -15,6 +15,7 @@ from PIL import Image as PILImage, ImageChops, ImageFilter
 import tempfile
 import atexit
 import shutil
+import git
 
 if platform.system() == "Darwin":
     kicad_cli = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
@@ -130,7 +131,11 @@ class SchDiffView(PUIView):
         self.state.overlap = 0.05
 
     def autoScale(self, canvas_width, canvas_height):
-        mask = PILImage.open(os.path.join(self.main.temp_dir, "mask.png"))
+        mask = os.path.join(self.main.temp_dir, "mask.png")
+        if not os.path.exists(mask):
+            return
+
+        mask = PILImage.open(mask)
         dw, dh = mask.size
         self.diff_width, self.diff_height = dw, dh
         self.canvas_width, self.canvas_height = canvas_width, canvas_height
@@ -232,11 +237,11 @@ class SchDiffView(PUIView):
             self.autoScale(canvas.width, canvas.height)
             return
 
-        path = os.path.join(self.main.cached_file_a, "png", self.main.state.page_a)
+        path = os.path.join(self.main.state.cached_file_a, "png", self.main.state.page_a)
         if self.path_a.set(path):
             self.image_a = canvas.loadImage(path)
 
-        path = os.path.join(self.main.cached_file_b, "png", self.main.state.page_b)
+        path = os.path.join(self.main.state.cached_file_b, "png", self.main.state.page_b)
         if self.path_b.set(path):
             self.image_b = canvas.loadImage(path)
 
@@ -421,15 +426,15 @@ class PcbDiffView(PUIView):
 
         layers = self.main.state.layers
 
-        if self.path_a.set(self.main.cached_file_a):
+        if self.path_a.set(self.main.state.cached_file_a):
             self.image_a = {}
             for layer in layers:
-                self.image_a[layer] = canvas.loadImage(os.path.join(self.main.cached_file_a, "png", f"{layer}.png"))
+                self.image_a[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_a, "png", f"{layer}.png"))
 
-        if self.path_b.set(self.main.cached_file_b):
+        if self.path_b.set(self.main.state.cached_file_b):
             self.image_b = {}
             for layer in layers:
-                self.image_b[layer] = canvas.loadImage(os.path.join(self.main.cached_file_b, "png", f"{layer}.png"))
+                self.image_b[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_b, "png", f"{layer}.png"))
 
 
         mtime = [os.path.getmtime(fn) for fn in [os.path.join(self.main.temp_dir, "darker", f"{layer}.png") for layer in layers] if os.path.exists(fn)]
@@ -508,19 +513,26 @@ class DifferUI(Application):
 
         self.state = State()
         self.state.show_layers = {}
-        self.state.loading = False
         self.state.loading_diff = False
+        self.state.loading_a = False
+        self.state.loading_b = False
         self.state.file_a = ""
         self.state.file_b = ""
+        self.state.logs_a = None
+        self.state.logs_b = None
+        self.state.commit_a = ""
+        self.state.commit_b = ""
         self.state.page_a = 0
         self.state.page_b = 0
         self.state.diff_pair = None
         self.state.layers = []
         self.state.highlight_changes = True
         self.state.use_workspace = False
-
-        self.cached_file_a = ""
-        self.cached_file_b = ""
+        self.state.cached_file_a = ""
+        self.state.cached_file_b = ""
+        self.state.message = ""
+        self.repo_a = None
+        self.repo_b = None
 
         self.queue = queue.Queue()
 
@@ -550,35 +562,81 @@ class DifferUI(Application):
                     return
                 with HBox():
                     if self.state.use_workspace:
-                            with ComboBox(text_model=self.state("file_a")).change(lambda e: self.build()):
-                                for project in self.workspace["projects"]:
-                                    if project["path"].lower().endswith(PNL_SUFFIX):
-                                        continue
-                                    for file in project["files"]:
-                                        ComboBoxItem(os.path.basename(file["path"]), file["path"])
+                            with HBox():
+                                Label("File A")
+                                with ComboBox(text_model=self.state("file_a")).layout(weight=1).change(lambda e: self.change_file_a()):
+                                    for project in self.workspace["projects"]:
+                                        if project["path"].lower().endswith(PNL_SUFFIX):
+                                            continue
+                                        for file in project["files"]:
+                                            ComboBoxItem(os.path.basename(file["path"]), file["path"])
 
-                            with ComboBox(text_model=self.state("file_b")).change(lambda e: self.build()):
-                                for project in self.workspace["projects"]:
-                                    if project["path"].lower().endswith(PNL_SUFFIX):
-                                        continue
-                                    for file in project["files"]:
-                                        ComboBoxItem(os.path.basename(file["path"]), file["path"])
+                            with HBox():
+                                Label("File B")
+                                with ComboBox(text_model=self.state("file_b")).layout(weight=1).change(lambda e: self.change_file_b()):
+                                    for project in self.workspace["projects"]:
+                                        if project["path"].lower().endswith(PNL_SUFFIX):
+                                            continue
+                                        for file in project["files"]:
+                                            ComboBoxItem(os.path.basename(file["path"]), file["path"])
                     else:
                         with HBox():
+                            Label("File A")
                             if self.state.file_a:
                                 Label(self.state.file_a).layout(weight=1)
-                            Button("Open File A").click(self.open_file_a)
+                            Button("Open").click(self.open_file_a)
                             if not self.state.file_a:
                                 Spacer()
                         with HBox():
+                            Label("File B")
                             if self.state.file_b:
                                 Label(self.state.file_b).layout(weight=1)
-                            Button("Open File B").click(self.open_file_b)
+                            Button("Open").click(self.open_file_b)
                             if not self.state.file_b:
                                 Spacer()
 
+                with HBox():
+                    with HBox().layout(weight=1):
+                        Label("Revision")
+                        if self.state.file_a and self.state.logs_a is None:
+                            Label("Loading...").layout(weight=1)
+                        elif self.state.logs_a:
+                            with ComboBox(text_model=self.state("commit_a")).layout(weight=1).change(lambda e: self.select_commit_a()):
+                                ComboBoxItem("WORKING", "")
+                                for hex, msg in self.state.logs_a:
+                                    ComboBoxItem(msg, hex)
+                        else:
+                            Label("N/A").layout(weight=1)
+
+                    with HBox().layout(weight=1):
+                        Label("Revision")
+                        if self.state.file_b and self.state.logs_b is None:
+                            Label("Loading...").layout(weight=1)
+                        elif self.state.logs_b:
+                            with ComboBox(text_model=self.state("commit_b")).layout(weight=1).change(lambda e: self.select_commit_b()):
+                                ComboBoxItem("WORKING", "")
+                                for hex, msg in self.state.logs_b:
+                                    ComboBoxItem(msg, hex)
+                        else:
+                            Label("N/A").layout(weight=1)
+
+
+                with HBox():
+                    if self.state.loading_diff:
+                        Spacer()
+                        Label("Loading Diff...")
+                        Spacer()
+                    elif self.state.loading_a or self.state.loading_b:
+                            Label(self.state.loading_a or "").layout(weight=1)
+                            Label(self.state.loading_b or "").layout(weight=1)
+                    elif self.state.file_a and self.state.file_a:
+                            Label("Ctrl+Wheel to adjust overlap").layout(weight=1)
+                            Label(self.state.message).layout(weight=1)
+                            Checkbox("Highlight Changes", model=self.state("highlight_changes"))
+                    else:
+                        Label("Select two files to compare")
+
                 if not (self.state.file_a and self.state.file_b):
-                    Label("Select two files to compare")
                     Spacer()
                     return
 
@@ -587,30 +645,22 @@ class DifferUI(Application):
                     Spacer()
                     return
 
-                if self.state.loading:
-                    Label(self.state.loading)
-                    Spacer()
-                    return
-
                 if os.path.splitext(self.state.file_a)[1].lower() == SCH_SUFFIX:
                     with HBox():
                         with Scroll().layout(width=250):
                             with VBox():
-                                for i,png in enumerate(os.listdir(os.path.join(self.cached_file_a, "png"))):
-                                    Image(os.path.join(self.cached_file_a, "png", png)).layout(width=240).click(self.select_a, png)
-                                    if png==self.state.page_a:
-                                        Label(f"* Page {i+1} *")
-                                    else:
-                                        Label(f"Page {i+1}")
+                                if self.state.cached_file_a:
+                                    for i,png in enumerate(os.listdir(os.path.join(self.state.cached_file_a, "png"))):
+                                        Image(os.path.join(self.state.cached_file_a, "png", png)).layout(width=240).click(lambda e, png: self.select_page_a(png), png)
+                                        if png==self.state.page_a:
+                                            Label(f"* Page {i+1} *")
+                                        else:
+                                            Label(f"Page {i+1}")
+                                else:
+                                    Label("Loading pages...")
                                 Spacer()
 
-                        if self.state.loading_diff:
-                            with VBox():
-                                with HBox():
-                                    Label("Loading diff...")
-                                    Spacer()
-                                Spacer()
-                        elif not self.state.page_a or not self.state.page_b:
+                        if not self.state.page_a or not self.state.page_b:
                             with VBox():
                                 with HBox():
                                     Label("Select pages to compare")
@@ -618,20 +668,19 @@ class DifferUI(Application):
                                 Spacer()
                         else:
                             with VBox().layout(weight=1).id("sch-diff-view"): # set id to workaround PUI bug (doesn't update weight)
-                                with HBox():
-                                    Label("Ctrl+Wheel to adjust overlap")
-                                    Spacer()
-                                    Checkbox("Highlight Changes", model=self.state("highlight_changes"))
                                 SchDiffView(self)
 
                         with Scroll().layout(width=250):
                             with VBox():
-                                for i,png in enumerate(os.listdir(os.path.join(self.cached_file_b, "png"))):
-                                    Image(os.path.join(self.cached_file_b, "png", png)).layout(width=240).click(self.select_b, png)
-                                    if png==self.state.page_b:
-                                        Label(f"* Page {i+1} *")
-                                    else:
-                                        Label(f"Page {i+1}")
+                                if self.state.cached_file_b:
+                                    for i,png in enumerate(os.listdir(os.path.join(self.state.cached_file_b, "png"))):
+                                        Image(os.path.join(self.state.cached_file_b, "png", png)).layout(width=240).click(lambda e, png: self.select_page_b(png), png)
+                                        if png==self.state.page_b:
+                                            Label(f"* Page {i+1} *")
+                                        else:
+                                            Label(f"Page {i+1}")
+                                else:
+                                    Label("Loading pages...")
                                 Spacer()
                 elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
                     if self.state.loading_diff:
@@ -643,15 +692,22 @@ class DifferUI(Application):
                     else:
                         with HBox():
                             with VBox().layout(weight=1).id("pcb-diff-view"): # set id to workaround PUI bug (doesn't update weight)
-                                with HBox():
-                                    Label("Ctrl+Wheel to adjust overlap")
-                                    Checkbox("Highlight Changes", model=self.state("highlight_changes"))
                                 PcbDiffView(self)
                             with VBox():
                                 Label("Display Layers")
                                 for layer in self.state.layers:
                                     Checkbox(layer, model=self.state.show_layers(layer))
                                 Spacer()
+
+    def change_file_a(self):
+        self.state.logs_a = None
+        self.state.cached_file_a = ""
+        self.build()
+
+    def change_file_b(self):
+        self.state.logs_b = None
+        self.state.cached_file_b = ""
+        self.build()
 
     def open_file_a(self, e):
         fn = OpenFile("Open File A", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb|KiCad SCH (*.kicad_sch)|*.kicad_sch")
@@ -663,19 +719,25 @@ class DifferUI(Application):
         fn = OpenFile("Open File B", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb|KiCad SCH (*.kicad_sch)|*.kicad_sch")
         if fn:
             self.state.file_b = fn
+            self.state.logs_b = None
+            self.state.cached_file_b = ""
             self.build()
 
-    def select_a(self, e, png):
+    def select_page_a(self, png):
         self.state.page_a = png
         self.build()
 
-    def select_b(self, e, png):
+    def select_page_b(self, png):
         self.state.page_b = png
         self.build()
 
+    def select_commit_a(self):
+        self.build()
+
+    def select_commit_b(self):
+        self.build()
+
     def build(self):
-        if not self.state.file_a or not self.state.file_b:
-            return
         self.queue.put(1)
 
     def pad_to_same_size(self, image_a, image_b):
@@ -732,35 +794,84 @@ class DifferUI(Application):
                 file_a = self.state.file_a
                 file_b = self.state.file_b
 
-                self.state.loading = "Loading..."
+                if file_a and self.state.logs_a is None:
+                    self.repo_a = git.repo(file_a)
+                    if self.repo_a:
+                        self.state.commit_a = ""
+                        self.state.logs_a = [(hex, msg) for hex,msg in git.log(self.repo_a, file_a)]
+                    else:
+                        self.state.logs_a = False
 
-                path_a = os.path.join(self.temp_dir, hashlib.sha256(file_a.encode("utf-8")).hexdigest())
-                if self.cached_file_a != path_a:
+                if file_b and self.state.logs_b is None:
+                    self.repo_b = git.repo(file_b)
+                    if self.repo_b:
+                        self.state.commit_b = ""
+                        self.state.logs_b = [(hex, msg) for hex,msg in git.log(self.repo_b, file_b)]
+                    else:
+                        self.state.logs_b = False
+
+                if self.state.logs_a and self.state.commit_a is None:
+                    continue
+
+                if self.state.logs_b and self.state.commit_b is None:
+                    continue
+
+                # A
+                hex = hashlib.sha256(file_a.encode("utf-8")).hexdigest()
+
+                ## Checkout
+                if self.state.commit_a:
+                    self.state.loading_a = f"Checking out {self.state.commit_a}..."
+                    path_a = os.path.join(self.temp_dir, f"{hex}_{self.state.commit_a}", "workdir")
+                    if not os.path.exists(path_a):
+                        dir = os.path.dirname(file_a)
+                        fname = os.path.splitext(file_a)[0]
+                        git.checkout(self.repo_a, self.state.commit_a, os.path.join(path_a, "workdir"), [f"{fname}{SCH_SUFFIX}", f"{fname}{PCB_SUFFIX}", os.path.join(dir, "fp-info-cache"), os.path.join(dir, "fp-lib-table"), os.path.join(dir, "sym-lib-table")])
+                    file_a = os.path.join(path_a, "workdir", os.path.basename(file_a))
+                else:
+                    path_a = os.path.join(self.temp_dir, hex)
+
+                ## Convert
+                if self.state.cached_file_a != path_a:
                     if file_a.lower().endswith(SCH_SUFFIX):
                         for l in convert_sch(file_a, path_a):
-                            self.state.loading = l
-                        self.cached_file_a = path_a
-                        self.state.page_a = 0
+                            self.state.loading_a = l
+                        self.state.cached_file_a = path_a
                     if file_a.lower().endswith(PCB_SUFFIX):
                         for l in convert_pcb(file_a, path_a):
-                            self.state.loading = l
-                        self.cached_file_a = path_a
+                            self.state.loading_a = l
+                        self.state.cached_file_a = path_a
                         self.state.page_a = 0
 
-                path_b = os.path.join(self.temp_dir, hashlib.sha256(file_b.encode("utf-8")).hexdigest())
-                if self.cached_file_b != path_b:
+                # B
+                hex = hashlib.sha256(file_b.encode("utf-8")).hexdigest()
+
+                ## Checkout
+                if self.state.commit_b:
+                    self.state.loading_b = f"Checking out {self.state.commit_b}..."
+                    path_b = os.path.join(self.temp_dir, f"{hex}_{self.state.commit_b}", "workdir")
+                    if not os.path.exists(path_b):
+                        dir = os.path.dirname(file_b)
+                        fname = os.path.splitext(file_b)[0]
+                        git.checkout(self.repo_b, self.state.commit_b, os.path.join(path_b, "workdir"), [f"{fname}{SCH_SUFFIX}", f"{fname}{PCB_SUFFIX}", os.path.join(dir, "fp-info-cache"), os.path.join(dir, "fp-lib-table"), os.path.join(dir, "sym-lib-table")])
+                    file_b = os.path.join(path_b, "workdir", os.path.basename(file_b))
+                else:
+                    path_b = os.path.join(self.temp_dir, hex)
+
+                ## Convert
+                if self.state.cached_file_b != path_b:
                     if file_b.lower().endswith(SCH_SUFFIX):
                         for l in convert_sch(file_b, path_b):
-                            self.state.loading = l
-                        self.cached_file_b = path_b
-                        self.state.page_b = 0
+                            self.state.loading_b = l
+                        self.state.cached_file_b = path_b
                     if file_b.lower().endswith(PCB_SUFFIX):
                         for l in convert_pcb(file_b, path_b):
-                            self.state.loading = l
-                        self.cached_file_b = path_b
+                            self.state.loading_b = l
+                        self.state.cached_file_b = path_b
                         self.state.page_b = 0
 
-                self.state.loading = False
+                self.state.loading_a = False
+                self.state.loading_b = False
 
                 page_a = self.state.page_a
                 page_b = self.state.page_b
@@ -768,12 +879,12 @@ class DifferUI(Application):
                 if os.path.splitext(file_a)[1].lower() == os.path.splitext(file_b)[1].lower():
                     if file_a.lower().endswith(SCH_SUFFIX):
                         if page_a and page_b:
-                            diff_pair = (self.cached_file_a, self.cached_file_b, page_a, page_b)
+                            diff_pair = (self.state.cached_file_a, self.state.cached_file_b, page_a, page_b)
                             if self.state.diff_pair != diff_pair:
                                 self.state.loading_diff = True
 
-                                a = PILImage.open(os.path.join(self.cached_file_a, "png", page_a))
-                                b = PILImage.open(os.path.join(self.cached_file_b, "png", page_b))
+                                a = PILImage.open(os.path.join(self.state.cached_file_a, "png", page_a))
+                                b = PILImage.open(os.path.join(self.state.cached_file_b, "png", page_b))
 
                                 a, b = self.pad_to_same_size(a, b)
 
@@ -789,7 +900,7 @@ class DifferUI(Application):
                                 self.state.loading_diff = False
 
                     elif file_a.lower().endswith(PCB_SUFFIX):
-                        diff_pair = (self.cached_file_a, self.cached_file_b)
+                        diff_pair = (self.state.cached_file_a, self.state.cached_file_b)
                         if self.state.diff_pair != diff_pair:
                             merged_mask = None
 
@@ -797,8 +908,8 @@ class DifferUI(Application):
 
                             layers = []
                             for layer in PCB_LAYERS:
-                                png_a = os.path.join(self.cached_file_a, "png", f"{layer}.png")
-                                png_b = os.path.join(self.cached_file_b, "png", f"{layer}.png")
+                                png_a = os.path.join(self.state.cached_file_a, "png", f"{layer}.png")
+                                png_b = os.path.join(self.state.cached_file_b, "png", f"{layer}.png")
 
                                 if not os.path.exists(png_a) and not os.path.exists(png_b):
                                     continue
@@ -855,6 +966,11 @@ class DifferUI(Application):
                             self.state.diff_pair = diff_pair
 
                             self.state.loading_diff = False
+
+                if file_a == file_b and page_a == page_b and page_a and page_b:
+                    self.state.message = "A === B"
+                else:
+                    self.state.message = ""
             except:
                 import traceback
                 traceback.print_exc()
