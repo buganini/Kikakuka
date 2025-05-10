@@ -877,11 +877,11 @@ class DifferUI(Application):
                         for l in convert_sch(file_a, path_a):
                             self.state.loading_a = l
                         self.state.cached_file_a = path_a
+                        self.state.page_a = os.listdir(os.path.join(path_a, "png"))[0]
                     if file_a.lower().endswith(PCB_SUFFIX):
                         for l in convert_pcb(file_a, path_a):
                             self.state.loading_a = l
                         self.state.cached_file_a = path_a
-                        self.state.page_a = 0
 
                 # B
                 hex = hashlib.sha256(file_b.encode("utf-8")).hexdigest()
@@ -904,11 +904,11 @@ class DifferUI(Application):
                         for l in convert_sch(file_b, path_b):
                             self.state.loading_b = l
                         self.state.cached_file_b = path_b
+                        self.state.page_b = os.listdir(os.path.join(path_b, "png"))[0]
                     if file_b.lower().endswith(PCB_SUFFIX):
                         for l in convert_pcb(file_b, path_b):
                             self.state.loading_b = l
                         self.state.cached_file_b = path_b
-                        self.state.page_b = 0
 
                 self.state.loading_a = False
                 self.state.loading_b = False
