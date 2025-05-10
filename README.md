@@ -31,6 +31,7 @@ The `.kkkk` file saves workspace information in JSON format.
 
 ## PCB Differ
 ![PCB Differ](screenshots/pcb_differ.png)
+* A diff sample of [cynthion-hardware](https://github.com/greatscottgadgets/cynthion-hardware)
 
 
 # Panelizer
