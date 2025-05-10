@@ -18,6 +18,7 @@ pyinstaller_args = []
 create_dmg_args = []
 if platform.system()=="Darwin":
     pyinstaller_args.extend(["--add-binary", f"/Applications/KiCad/KiCad.app/Contents/Frameworks/*.dylib:."])
+    pyinstaller_args.extend(["--add-binary", f"/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/3.9/lib/*.dylib:."]) # for pygit2
     pyinstaller_args.extend(["-i", 'resources/icon.icns'])
     subprocess.run(["security", "find-identity", "-v", "-p", "codesigning"])
     codesign_identity = input("Enter the codesign identity \"Developer ID Application: XXXXXX (XXXXXXXXXX)\" (leave empty for no signing): ").strip()
@@ -33,6 +34,9 @@ pyinstaller_args.extend(["--add-data", f"{os.path.join(kikit_base, 'resources', 
 
 # pypdfium2 for differ
 pyinstaller_args.extend(["--collect-all=pypdfium2_raw", "--collect-all=pypdfium2"])
+
+# fix for pygit2
+pyinstaller_args.extend(["--collect-all=pygit2"])
 
 print(pyinstaller_args)
 
