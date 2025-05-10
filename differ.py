@@ -179,6 +179,7 @@ class SchDiffView(PUIView):
         self.state.overlap
         self.state.scale
         self.main.state.highlight_changes
+        self.main.state.build_time
 
         (Canvas(self.painter).layout(weight=1)
          .style(bgColor=0xF5F4EE)
@@ -379,6 +380,8 @@ class PcbDiffView(PUIView):
         self.state.scale
         self.main.state.show_layers
         self.main.state.highlight_changes
+        self.main.state.build_time
+
         (Canvas(self.painter).layout(weight=1)
          .style(bgColor=0x001124)
          .mousedown(self.mousedown)
@@ -554,6 +557,7 @@ class DifferUI(Application):
         self.state.diff_pair = None
         self.state.layers = []
         self.state.highlight_changes = True
+        self.state.build_time = 0
         self.state.use_workspace = False
         self.state.cached_file_a = ""
         self.state.cached_file_b = ""
@@ -1057,6 +1061,8 @@ class DifferUI(Application):
                     self.state.message = "A === B"
                 else:
                     self.state.message = ""
+
+                self.state.build_time = time.time()
             except:
                 import traceback
                 traceback.print_exc()
