@@ -92,8 +92,6 @@ def convert_pcb(path, outpath):
         subprocess.run(cmd, **kwargs)
 
     if os.path.isdir(pdfpath):
-        pdfspath = glob.glob(os.path.join(pdfpath, f"*.pdf"))
-
         os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
         for layer in PCB_LAYERS:
             png_path = os.path.join(outpath, "png", f"{layer}.png")
