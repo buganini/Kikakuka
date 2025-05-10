@@ -443,15 +443,25 @@ class PcbDiffView(PUIView):
 
         layers = self.main.state.layers
 
-        if self.path_a.set(self.main.state.cached_file_a):
+        changed = self.path_a.set(self.main.state.cached_file_a)
+        if changed:
             self.image_a = {}
-            for layer in layers:
-                self.image_a[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_a, "png", f"{layer}.png"))
+        for layer in layers:
+            if not self.image_a.get(layer):
+                try:
+                    self.image_a[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_a, "png", f"{layer}.png"))
+                except:
+                    pass
 
-        if self.path_b.set(self.main.state.cached_file_b):
+        changed = self.path_b.set(self.main.state.cached_file_b)
+        if changed:
             self.image_b = {}
-            for layer in layers:
-                self.image_b[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_b, "png", f"{layer}.png"))
+        for layer in layers:
+            if not self.image_b.get(layer):
+                try:
+                    self.image_b[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_b, "png", f"{layer}.png"))
+                except:
+                    pass
 
 
         mtime = [os.path.getmtime(fn) for fn in [os.path.join(self.main.temp_dir, "darker", f"{layer}.png") for layer in layers] if os.path.exists(fn)]
