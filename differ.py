@@ -49,7 +49,7 @@ PCB_LAYERS = [
     "F.Silkscreen",
     # "F.Mask",
     "F.Cu",
-    *[f"In{i+1}.Cu" for i in range(32)],
+    *[f"In{i+1}.Cu" for i in range(16)],
     "B.Cu",
     # "B.Mask",
     "B.Silkscreen",
