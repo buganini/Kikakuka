@@ -135,7 +135,10 @@ class SchDiffView(PUIView):
         if not os.path.exists(mask):
             return
 
-        mask = PILImage.open(mask)
+        try:
+            mask = PILImage.open(mask)
+        except:
+            return
         dw, dh = mask.size
         self.diff_width, self.diff_height = dw, dh
         self.canvas_width, self.canvas_height = canvas_width, canvas_height
@@ -322,7 +325,14 @@ class PcbDiffView(PUIView):
         self.state.overlap = 0.05
 
     def autoScale(self, canvas_width, canvas_height):
-        mask = PILImage.open(os.path.join(self.main.temp_dir, "mask.png"))
+        mask = os.path.join(self.main.temp_dir, "mask.png")
+        if not os.path.exists(mask):
+            return
+
+        try:
+            mask = PILImage.open(mask)
+        except:
+            return
         dw, dh = mask.size
         self.diff_width, self.diff_height = dw, dh
         self.canvas_width, self.canvas_height = canvas_width, canvas_height
@@ -622,9 +632,13 @@ class DifferUI(Application):
 
 
                 with HBox():
-                    if self.state.loading_diff:
+                    if self.state.loading_diff is True:
                         Spacer()
-                        Label("Loading Diff...")
+                        Label("Loading diff...")
+                        Spacer()
+                    elif self.state.loading_diff:
+                        Spacer()
+                        Label(f"Loading diff for {self.state.loading_diff}...")
                         Spacer()
                     elif self.state.loading_a or self.state.loading_b:
                             Label(self.state.loading_a or "").layout(weight=1)
@@ -683,21 +697,14 @@ class DifferUI(Application):
                                     Label("Loading pages...")
                                 Spacer()
                 elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
-                    if self.state.loading_diff:
+                    with HBox():
+                        with VBox().layout(weight=1).id("pcb-diff-view"): # set id to workaround PUI bug (doesn't update weight)
+                            PcbDiffView(self)
                         with VBox():
-                            with HBox():
-                                Label(f"Loading diff for {self.state.loading_diff}...")
-                                Spacer()
+                            Label("Display Layers")
+                            for layer in self.state.layers:
+                                Checkbox(layer, model=self.state.show_layers(layer))
                             Spacer()
-                    else:
-                        with HBox():
-                            with VBox().layout(weight=1).id("pcb-diff-view"): # set id to workaround PUI bug (doesn't update weight)
-                                PcbDiffView(self)
-                            with VBox():
-                                Label("Display Layers")
-                                for layer in self.state.layers:
-                                    Checkbox(layer, model=self.state.show_layers(layer))
-                                Spacer()
 
     def change_file_a(self):
         self.state.logs_a = None
