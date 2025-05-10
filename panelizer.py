@@ -885,10 +885,10 @@ class PanelizerUI(Application):
 
         # x, y, abs(direction), partition index
         tabs = []
-        tab_dist = max_tab_spacing*self.unit/3
+        tab_dist = max_tab_spacing * self.unit / 3
         for p, inward_direction, partiion, score_divider in tab_candidates:
             # prevent overlapping tabs
-            if len([t for t in tabs if
+            if spacing <= mb_diameter and len([t for t in tabs if
                     (abs(inward_direction[0]), abs(inward_direction[1]))==(abs(t[2][0]), abs(t[2][1])) # same axis
                     and
                     t[3] == partiion # same partition
@@ -989,12 +989,7 @@ class PanelizerUI(Application):
             self.state.dbg_text = dbg_text
             self.state.boardSubstrate = panel.boardSubstrate
 
-        filtered_vcuts = []
-        for cut in cuts:
-            x1, y1, x2, y2 = cut.bounds
-            if Polygon(((x1,y1), (x2,y1), (x2,y2), (x1,y2))).area == 0: # is a line
-                filtered_vcuts.append(cut)
-        cuts = sorted(filtered_vcuts,key=lambda cut: cut.bounds)
+        cuts = sorted(cuts,key=lambda cut: cut.bounds)
 
         # normalize linestring direction
         for i in range(len(cuts)):
@@ -1009,7 +1004,6 @@ class PanelizerUI(Application):
 
         if cut_method == "mb":
             bites.extend(cuts)
-            panel.makeMouseBites(cuts, diameter=mb_diameter * self.unit, spacing=mb_spacing * self.unit - SHP_EPSILON, offset=mb_offset * self.unit, prolongation=0 * self.unit)
         elif cut_method == "vc":
             vcuts.extend(cuts)
         elif cut_method == "vc_or_mb" or cut_method == "vc_and_mb":
@@ -1028,11 +1022,9 @@ class PanelizerUI(Application):
                     do_mb = not vc_ok or cut_method == "vc_and_mb"
 
                     if do_mb:
-                        panel.makeMouseBites([cut], diameter=mb_diameter * self.unit - SHP_EPSILON, spacing=mb_spacing * self.unit, offset=mb_offset * self.unit, prolongation=0 * self.unit)
                         bites.append(cut)
                     if do_vc:
                         vcuts.append(cut)
-
                 elif p1[1]==p2[1]: # horizontal
                     vc_ok = True
                     for i, pcb in enumerate(pcbs):
@@ -1045,14 +1037,14 @@ class PanelizerUI(Application):
                     do_mb = not vc_ok or cut_method == "vc_and_mb"
 
                     if do_mb:
-                        panel.makeMouseBites([cut], diameter=mb_diameter * self.unit - SHP_EPSILON, spacing=mb_spacing * self.unit, offset=mb_offset * self.unit, prolongation=0 * self.unit)
                         bites.append(cut)
                     if do_vc:
                         vcuts.append(cut)
-
                 else:
-                    panel.makeMouseBites([cut], diameter=mb_diameter * self.unit - SHP_EPSILON, spacing=mb_spacing * self.unit, offset=mb_offset * self.unit, prolongation=0 * self.unit)
                     bites.append(cut)
+
+        if bites:
+            panel.makeMouseBites(bites, diameter=mb_diameter * self.unit, spacing=mb_spacing * self.unit - SHP_EPSILON, offset=mb_offset * self.unit, prolongation=0 * self.unit)
 
         merge_vcuts = self.state.merge_vcuts
         merge_threshold = self.state.merge_vcuts_threshold * self.unit
