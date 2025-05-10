@@ -14,7 +14,7 @@ def repo(file_path):
     """
     try:
         # Convert to absolute path and normalize
-        abs_file_path = os.path.abspath(file_path)
+        abs_file_path = os.path.abspath(file_path).replace("\\", "/")
 
         # Try to find the repository that contains this file
         repo_path = pygit2.discover_repository(os.path.dirname(abs_file_path))
@@ -29,7 +29,7 @@ def repo(file_path):
         if not abs_file_path.startswith(repo_workdir):
             return False
 
-        rel_path = os.path.relpath(abs_file_path, repo_workdir)
+        rel_path = os.path.relpath(abs_file_path, repo_workdir).replace("\\", "/")
 
         # Check if the file is tracked in the index
         try:
@@ -69,7 +69,7 @@ def log(repo_path, file_path=None):
     repo = pygit2.Repository(repo_path)
 
     if file_path:
-        file_path = os.path.relpath(os.path.abspath(file_path), repo_path)
+        file_path = os.path.relpath(os.path.abspath(file_path), repo_path).replace("\\", "/")
 
     for commit in repo.walk(repo.head.target, pygit2.GIT_SORT_TIME):
         if commit.type != pygit2.GIT_OBJECT_COMMIT:
@@ -118,7 +118,7 @@ def checkout(repo_path, commit_id, outdir, file_paths):
     os.makedirs(outdir, exist_ok=True)
 
     for file_path in file_paths:
-        file_path = os.path.relpath(os.path.abspath(file_path), repo_path)
+        file_path = os.path.relpath(os.path.abspath(file_path), repo_path).replace("\\", "/")
 
         entry = tree[file_path]
         if entry.type == pygit2.GIT_OBJECT_TREE:
