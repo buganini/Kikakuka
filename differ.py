@@ -10,8 +10,7 @@ import hashlib
 import queue
 import glob
 import pypdfium2 as pdfium
-import PIL
-from PIL import Image as PILImage, ImageChops, ImageFilter
+import cv2
 import tempfile
 import atexit
 import shutil
@@ -73,11 +72,12 @@ def convert_sch(path, outpath):
         os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
         pdf = pdfium.PdfDocument(pdfpath)
         for p, page in enumerate(pdf):
-            pil_image = page.render(
+            opencv_image = page.render(
                 scale=7,  # 72*x DPI is the default PDF resolution
                 rotation=0
-            ).to_pil()
-            pil_image.save(os.path.join(outpath, "png", f"sch_{p:02d}.png"))
+            ).to_numpy()
+            opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGBA2RGB)
+            cv2.imwrite(os.path.join(outpath, "png", f"sch_{p:02d}.png"), opencv_image)
 
 def convert_pcb(path, outpath):
     os.makedirs(outpath, exist_ok=True)
@@ -99,13 +99,12 @@ def convert_pcb(path, outpath):
             if layerpdfpath:
                 yield f"Exporting {layer} to PNG for {os.path.basename(path)}..."
                 pdf = pdfium.PdfDocument(layerpdfpath[0])
-                pil_image = pdf[0].render(
+                opencv_image = pdf[0].render(
                     fill_color=(255, 255, 255, 0),
                     scale=7,  # 72*x DPI is the default PDF resolution
                     rotation=0
-                ).to_pil().convert("RGBA")
-
-                pil_image.save(png_path)
+                ).to_numpy()
+                cv2.imwrite(png_path, opencv_image)
 
 
 class SchDiffView(PUIView):
@@ -134,10 +133,15 @@ class SchDiffView(PUIView):
             return
 
         try:
-            mask = PILImage.open(mask)
+            mask = cv2.imread(mask, cv2.IMREAD_UNCHANGED)  # IMREAD_UNCHANGED preserves alpha if present
+            if mask is None:  # OpenCV returns None if image loading fails
+                return
+
+            # In OpenCV, shape is (height, width, channels) or (height, width) for grayscale
+            # So we need to swap compared to PIL's size which is (width, height)
+            dh, dw = mask.shape[:2]  # Get first two dimensions (height, width)
         except:
             return
-        dw, dh = mask.size
         self.diff_width, self.diff_height = dw, dh
         self.canvas_width, self.canvas_height = canvas_width, canvas_height
 
@@ -328,10 +332,15 @@ class PcbDiffView(PUIView):
             return
 
         try:
-            mask = PILImage.open(mask)
+            mask = cv2.imread(mask, cv2.IMREAD_UNCHANGED)  # IMREAD_UNCHANGED preserves alpha if present
+            if mask is None:  # OpenCV returns None if image loading fails
+                return
+
+            # In OpenCV, shape is (height, width, channels) or (height, width) for grayscale
+            # So we need to swap compared to PIL's size which is (width, height)
+            dh, dw = mask.shape[:2]  # Get first two dimensions (height, width)
         except:
             return
-        dw, dh = mask.size
         self.diff_width, self.diff_height = dw, dh
         self.canvas_width, self.canvas_height = canvas_width, canvas_height
 
@@ -561,7 +570,7 @@ class DifferUI(Application):
             shutil.rmtree(self.temp_dir)
 
     def content(self):
-        title = f"Kikakuka v{VERSION} Differ (KiCad CLI {kicad_cli_version}, Pypdfium2 {pdfium.V_PYPDFIUM2}, Pillow {PIL.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
+        title = f"Kikakuka v{VERSION} Differ (KiCad CLI {kicad_cli_version}, Pypdfium2 {pdfium.V_PYPDFIUM2}, OpenCV {cv2.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")):
             with VBox():
                 if not os.path.exists(kicad_cli):
@@ -746,31 +755,54 @@ class DifferUI(Application):
         self.queue.put(1)
 
     def pad_to_same_size(self, image_a, image_b):
-        width_a, height_a = image_a.size
-        width_b, height_b = image_b.size
+        # Get dimensions - in OpenCV shape is (height, width, channels)
+        height_a, width_a = image_a.shape[:2]
+        height_b, width_b = image_b.shape[:2]
+
         target_width = max(width_a, width_b)
         target_height = max(height_a, height_b)
 
+        # If images are already the same size, return them unchanged
         if width_a == width_b and height_a == height_b:
             return image_a, image_b
-        # Create new images with padding
-        # Ensure we maintain the original image mode if possible
-        mode_a = image_a.mode
-        mode_b = image_b.mode
 
-        # If one image has alpha and the other doesn't, convert both to RGBA
-        if 'A' in mode_a or 'A' in mode_b:
-            if 'A' not in mode_a:
-                image_a = image_a.convert('RGBA')
-            if 'A' not in mode_b:
-                image_b = image_b.convert('RGBA')
-            mode_a = mode_b = 'RGBA'
+        # Check number of channels in each image
+        channels_a = image_a.shape[2] if len(image_a.shape) > 2 else 1
+        channels_b = image_b.shape[2] if len(image_b.shape) > 2 else 1
 
-        # Create new blank images with the target size
-        padded_a = Image.new(mode_a, (target_width, target_height), (255, 255, 255, 0))
-        padded_b = Image.new(mode_b, (target_width, target_height), (255, 255, 255, 0))
+        # Handle alpha channel (equivalent to RGBA in PIL)
+        has_alpha_a = channels_a == 4
+        has_alpha_b = channels_b == 4
 
-        # Calculate where to paste original images (center them)
+        # If one image has alpha and the other doesn't, convert both to have alpha
+        if has_alpha_a or has_alpha_b:
+            if not has_alpha_a:
+                # Convert BGR to BGRA
+                image_a = cv2.cvtColor(image_a, cv2.COLOR_BGR2BGRA)
+            if not has_alpha_b:
+                image_b = cv2.cvtColor(image_b, cv2.COLOR_BGR2BGRA)
+
+            # Update channels after conversion
+            channels_a = channels_b = 4
+
+        # Create padded images with transparent background (255,255,255,0)
+        if channels_a == 4:  # BGRA
+            padded_a = np.zeros((target_height, target_width, 4), dtype=np.uint8)
+            padded_a[:, :] = [255, 255, 255, 0]  # White transparent background
+        elif channels_a == 3:  # BGR
+            padded_a = np.ones((target_height, target_width, 3), dtype=np.uint8) * 255  # White background
+        else:  # Grayscale
+            padded_a = np.ones((target_height, target_width), dtype=np.uint8) * 255  # White background
+
+        if channels_b == 4:
+            padded_b = np.zeros((target_height, target_width, 4), dtype=np.uint8)
+            padded_b[:, :] = [255, 255, 255, 0]
+        elif channels_b == 3:
+            padded_b = np.ones((target_height, target_width, 3), dtype=np.uint8) * 255
+        else:
+            padded_b = np.ones((target_height, target_width), dtype=np.uint8) * 255
+
+        # Calculate center positions
         paste_x_a = (target_width - width_a) // 2
         paste_y_a = (target_height - height_a) // 2
 
@@ -778,16 +810,9 @@ class DifferUI(Application):
         paste_y_b = (target_height - height_b) // 2
 
         # Paste original images onto padded versions
-        if 'A' in mode_a:
-            # If the image has an alpha channel, use it as mask
-            padded_a.paste(image_a, (paste_x_a, paste_y_a), image_a)
-        else:
-            padded_a.paste(image_a, (paste_x_a, paste_y_a))
-
-        if 'A' in mode_b:
-            padded_b.paste(image_b, (paste_x_b, paste_y_b), image_b)
-        else:
-            padded_b.paste(image_b, (paste_x_b, paste_y_b))
+        # In OpenCV, we use array slicing instead of paste
+        padded_a[paste_y_a:paste_y_a+height_a, paste_x_a:paste_x_a+width_a] = image_a
+        padded_b[paste_y_b:paste_y_b+height_b, paste_x_b:paste_x_b+width_b] = image_b
 
         return padded_a, padded_b
 
@@ -888,18 +913,42 @@ class DifferUI(Application):
                             if self.state.diff_pair != diff_pair:
                                 self.state.loading_diff = True
 
-                                a = PILImage.open(os.path.join(self.state.cached_file_a, "png", page_a))
-                                b = PILImage.open(os.path.join(self.state.cached_file_b, "png", page_b))
+                                # Load images
+                                a = cv2.imread(os.path.join(self.state.cached_file_a, "png", page_a))
+                                b = cv2.imread(os.path.join(self.state.cached_file_b, "png", page_b))
 
+                                # Assuming self.pad_to_same_size exists, here's how it might look in OpenCV
+                                # If you need this function translated too, let me know
                                 a, b = self.pad_to_same_size(a, b)
 
-                                darker = ImageChops.darker(a, b)
-                                darker.save(os.path.join(self.temp_dir, "darker.png"))
+                                # Create darker image (equivalent to ImageChops.darker)
+                                darker = cv2.min(a, b)
+                                cv2.imwrite(os.path.join(self.temp_dir, "darker.png"), darker)
 
-                                mask = (ImageChops.difference(a, b).convert("L").point(lambda x: 255 if x else 0) # diff mask
-                                        .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
-                                        .filter(ImageFilter.GaussianBlur(radius=10))) # blur
-                                mask.save(os.path.join(self.temp_dir, "mask.png"))
+                                # Create mask with the same sequence of operations
+                                # 1. Get difference between images
+                                diff = cv2.absdiff(a, b)
+                                # 2. Convert to grayscale
+                                if len(diff.shape) == 3:  # If color image
+                                    diff_gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+                                else:
+                                    diff_gray = diff
+
+                                # 3. Threshold to create binary mask (equivalent to point lambda)
+                                _, binary_mask = cv2.threshold(diff_gray, 0, 255, cv2.THRESH_BINARY)
+
+                                # 4. First Gaussian blur
+                                blurred = cv2.GaussianBlur(binary_mask, (21, 21), 10)  # Kernel size 21x21, sigma=10
+
+                                # 5. Second threshold
+                                _, extended_mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY)
+
+                                # 6. Final Gaussian blur
+                                mask = cv2.GaussianBlur(extended_mask, (21, 21), 10)
+
+                                # Save mask
+                                cv2.imwrite(os.path.join(self.temp_dir, "mask.png"), mask)
+
                                 self.state.diff_pair = diff_pair
 
                                 self.state.loading_diff = False
@@ -920,43 +969,65 @@ class DifferUI(Application):
                                     continue
 
                                 self.state.loading_diff = layer
-
                                 layers.append(layer)
-
                                 darker_png = os.path.join(self.temp_dir, "darker", f"{layer}.png")
 
                                 if not os.path.exists(png_a):
                                     shutil.copy(png_b, darker_png)
-                                    diff = PILImage.open(png_b).convert("L")
+                                    diff = cv2.imread(png_b, cv2.IMREAD_GRAYSCALE)
                                 elif not os.path.exists(png_b):
                                     shutil.copy(png_a, darker_png)
-                                    diff = PILImage.open(png_a).convert("L")
+                                    diff = cv2.imread(png_a, cv2.IMREAD_GRAYSCALE)
                                 else:
-                                    a = PILImage.open(png_a)
-                                    b = PILImage.open(png_b)
+                                    # Load images with alpha channel
+                                    a = cv2.imread(png_a, cv2.IMREAD_UNCHANGED)
+                                    b = cv2.imread(png_b, cv2.IMREAD_UNCHANGED)
 
                                     a, b = self.pad_to_same_size(a, b)
 
-                                    aa = a.split()
-                                    bb = b.split()
-                                    darker = []
-                                    for i in range(3):
-                                        darker.append(ImageChops.darker(aa[i], bb[i]))
-                                    darker.append(ImageChops.lighter(aa[3], bb[3]))
-                                    darker = PILImage.merge("RGBA", darker)
-                                    darker.save(darker_png)
+                                    # Ensure both images have 4 channels (BGRA)
+                                    if len(a.shape) == 2:  # Grayscale
+                                        a = cv2.cvtColor(a, cv2.COLOR_GRAY2BGRA)
+                                    elif a.shape[2] == 3:  # BGR without alpha
+                                        a = cv2.cvtColor(a, cv2.COLOR_BGR2BGRA)
 
-                                    diff = ImageChops.difference(a, b).convert("L")
+                                    if len(b.shape) == 2:  # Grayscale
+                                        b = cv2.cvtColor(b, cv2.COLOR_GRAY2BGRA)
+                                    elif b.shape[2] == 3:  # BGR without alpha
+                                        b = cv2.cvtColor(b, cv2.COLOR_BGR2BGRA)
 
-                                mask = (diff.point(lambda x: 255 if x else 0) # diff mask
-                                        .filter(ImageFilter.GaussianBlur(radius=10)).point(lambda x: 255 if x else 0) # extend mask
-                                        .filter(ImageFilter.GaussianBlur(radius=10))) # blur
+                                    # Split channels
+                                    b_a, g_a, r_a, alpha_a = cv2.split(a)
+                                    b_b, g_b, r_b, alpha_b = cv2.split(b)
 
+                                    # Apply darker operation to RGB channels and lighter to alpha
+                                    darker_b = cv2.min(b_a, b_b)
+                                    darker_g = cv2.min(g_a, g_b)
+                                    darker_r = cv2.min(r_a, r_b)
+                                    darker_alpha = cv2.max(alpha_a, alpha_b)  # Lighter for alpha
+
+                                    # Merge channels
+                                    darker = cv2.merge([darker_b, darker_g, darker_r, darker_alpha])
+                                    cv2.imwrite(darker_png, darker)
+
+                                    # Calculate difference
+                                    diff = cv2.absdiff(a, b)
+                                    if len(diff.shape) > 2:
+                                        diff = cv2.cvtColor(diff, cv2.COLOR_BGRA2GRAY)
+
+                                # Create mask from difference with gaussian blur operations
+                                _, binary_mask = cv2.threshold(diff, 0, 255, cv2.THRESH_BINARY)
+                                blurred = cv2.GaussianBlur(binary_mask, (21, 21), 10)
+                                _, extended_mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY)
+                                mask = cv2.GaussianBlur(extended_mask, (21, 21), 10)
+
+                                # Merge masks using "lighter" (max) operation
                                 if merged_mask is None:
                                     merged_mask = mask
                                 else:
-                                    merged_mask = ImageChops.lighter(merged_mask, mask)
+                                    merged_mask = cv2.max(merged_mask, mask)
 
+                            # Update layer state
                             layers_changed = False
                             if self.state.layers != layers:
                                 layers_changed = True
@@ -964,9 +1035,9 @@ class DifferUI(Application):
                                 self.state.show_layers = {layer: True for layer in layers}
                             self.state.layers = layers
 
-                            merged_mask = PILImage.merge("RGBA", [merged_mask, merged_mask, merged_mask, merged_mask])
-
-                            merged_mask.save(os.path.join(self.temp_dir, "mask.png"))
+                            # Convert merged mask to RGBA
+                            merged_mask_rgba = cv2.merge([merged_mask, merged_mask, merged_mask, merged_mask])
+                            cv2.imwrite(os.path.join(self.temp_dir, "mask.png"), merged_mask_rgba)
 
                             self.state.diff_pair = diff_pair
 
