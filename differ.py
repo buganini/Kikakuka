@@ -843,8 +843,9 @@ class DifferUI(Application):
                     self.state.file_b = fn
                     self.build()
                     event.accept()
-                    return
+                    return True
         event.ignore()
+        return False
 
     def change_file_a(self):
         self.state.logs_a = None
