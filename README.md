@@ -113,11 +113,14 @@ But however in my Windows environment venv is not working properly, here is how 
 # Start with PCB files
 ./env/bin/python3 kikakuka.py a.kicad_pcb b.kicad_pcb...
 
-# Load file
+# Load file (.kkkk or .kikit_pnl)
 ./env/bin/python3 kikakuka.py a.kikit_pnl
 
 # Headless export
 ./env/bin/python3 kikakuka.py a.kikit_pnl out.kicad_pcb
+
+# Differ
+./env/bin/python3 kikakuka.py --differ a.kicad_sch b.kicad_sch
 ```
 
 # Contributors
