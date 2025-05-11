@@ -535,7 +535,7 @@ class PcbDiffView(PUIView):
         canvas.drawLine(ox1, 0, ox1, canvas.height, color=0x7e8792, width=1)
         canvas.drawLine(ox2, 0, ox2, canvas.height, color=0x7e8792, width=1)
 class DifferUI(Application):
-    def __init__(self, filepath):
+    def __init__(self, *argv):
         super().__init__(icon=resource_path("icon.ico"))
 
         self.temp_dir = tempfile.mkdtemp(prefix="kikakuka_differ_")
@@ -569,7 +569,8 @@ class DifferUI(Application):
 
         Thread(target=self.bg_looper, daemon=True).start()
 
-        if filepath:
+        if len(argv) == 1:
+            filepath = argv[0]
             with open(filepath, "r") as f:
                 self.state.use_workspace = True
                 self.base_dir = os.path.dirname(os.path.abspath(filepath))
@@ -578,6 +579,10 @@ class DifferUI(Application):
                     if not os.path.isabs(project["path"]):
                         project["path"] = os.path.join(self.base_dir, project["path"])
                 findFiles(self.workspace, self.base_dir, [SCH_SUFFIX, PCB_SUFFIX])
+        elif len(argv) == 2:
+            self.state.file_a = os.path.abspath(argv[0])
+            self.state.file_b = os.path.abspath(argv[1])
+            self.build()
 
     def cleanup(self):
         if os.path.exists(self.temp_dir):
