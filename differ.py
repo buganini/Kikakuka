@@ -326,6 +326,10 @@ class PcbDiffView(PUIView):
         self.image_b = {}
         self.darker = {}
         self.mask = None
+        self.scaled_mask = None
+        self.scaled_darker = {}
+        self.scaled_image_a = {}
+        self.scaled_image_b = {}
         self.mousehold = False
         self.scaled_params = Prop()
 
@@ -470,6 +474,7 @@ class PcbDiffView(PUIView):
         if self.mask is None:
             try:
                 self.mask = canvas.loadImage(path)
+                self.scaled_mask = None
                 immediate = True
             except:
                 self.mask = False
@@ -481,6 +486,7 @@ class PcbDiffView(PUIView):
             if not layer in self.darker:
                 try:
                     self.darker[layer] = canvas.loadImage(os.path.join(self.main.temp_dir, "darker", f"{layer}.png"))
+                    self.scaled_darker.pop(layer, None)
                     immediate = True
                     break
                 except:
@@ -489,6 +495,7 @@ class PcbDiffView(PUIView):
             if not layer in self.image_a:
                 try:
                     self.image_a[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_a, "png", f"{layer}.png"))
+                    self.scaled_image_a.pop(layer, None)
                     immediate = True
                     break
                 except:
@@ -497,6 +504,7 @@ class PcbDiffView(PUIView):
             if not layer in self.image_b:
                 try:
                     self.image_b[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_b, "png", f"{layer}.png"))
+                    self.scaled_image_b.pop(layer, None)
                     immediate = True
                     break
                 except:
