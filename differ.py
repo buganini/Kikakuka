@@ -707,7 +707,7 @@ class DifferUI(Application):
                                     Spacer()
                                 Spacer()
                         else:
-                            with VBox().layout(weight=1).id("sch-diff-view"): # set id to workaround PUI bug (doesn't update weight)
+                            with VBox().layout(weight=1):
                                 SchDiffView(self)
 
                         with Scroll().layout(width=250):
@@ -724,7 +724,7 @@ class DifferUI(Application):
                                 Spacer()
                 elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
                     with HBox():
-                        with VBox().layout(weight=1).id("pcb-diff-view"): # set id to workaround PUI bug (doesn't update weight)
+                        with VBox().layout(weight=1):
                             PcbDiffView(self)
                         with VBox():
                             Label("Display Layers")
