@@ -120,6 +120,7 @@ class SchDiffView(PUIView):
         self.diff_width = None
         self.diff_height = None
         self.mousehold = False
+        self.scaled_params = Prop()
 
     def setup(self):
         self.state = State()
@@ -259,49 +260,55 @@ class SchDiffView(PUIView):
         if self.mask_mtime.set(os.path.getmtime(path)):
             self.mask = canvas.loadImage(path)
 
-        xL = min(self.diff_width, max(0, self.diff_width*(self.state.splitter_x - self.state.overlap)))
-        xR = max(0, min(self.diff_width, self.diff_width*(self.state.splitter_x + self.state.overlap)))
+        offx, offy, scale = self.state.scale
+
+        scaled_diff_width = round(self.diff_width * scale)
+        scaled_diff_height = round(self.diff_height * scale)
+
+        if self.scaled_params.set(scale):
+            self.scaled_image_a = self.image_a.scale(scaled_diff_width, scaled_diff_height)
+            self.scaled_image_b = self.image_b.scale(scaled_diff_width, scaled_diff_height)
+            self.scaled_darker = self.darker.scale(scaled_diff_width, scaled_diff_height)
+            self.scaled_mask = self.mask.scale(scaled_diff_width, scaled_diff_height)
+
+        xL = round(min(scaled_diff_width, max(0, scaled_diff_width*(self.state.splitter_x - self.state.overlap))))
+        xR = round(max(0, min(scaled_diff_width, scaled_diff_width*(self.state.splitter_x + self.state.overlap))))
+
+        offx = round(offx)
+        offy = round(offy)
 
         # A
         x1, y1 = 0, 0
-        x2, y2 = xL, self.diff_height
-        cx1, cy1 = self.toCanvas(x1, y1)
-        cx2, cy2 = self.toCanvas(x2, y2)
-        canvas.drawImage(self.image_a,
-                         cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
-                         src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1))
+        x2, y2 = xL, scaled_diff_height
+        canvas.drawImage(self.scaled_image_a,
+                         x1+offx, y1+offy, width=(x2-x1), height=(y2-y1),
+                         src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1))
 
         # B
         x1, y1 = xR, 0
-        x2, y2 = self.diff_width, self.diff_height
-        cx1, cy1 = self.toCanvas(x1, y1)
-        cx2, cy2 = self.toCanvas(x2, y2)
-        canvas.drawImage(self.image_b,
-                         cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
-                         src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1))
+        x2, y2 = scaled_diff_width, scaled_diff_height
+        canvas.drawImage(self.scaled_image_b,
+                         x1+offx, y1+offy, width=(x2-x1), height=(y2-y1),
+                         src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1))
 
         # Darker
         x1, y1 = xL, 0
-        x2, y2 = xR, self.diff_height
-        cx1, cy1 = self.toCanvas(x1, y1)
-        cx2, cy2 = self.toCanvas(x2, y2)
-        ox1, ox2 = cx1, cx2
-        canvas.drawImage(self.darker,
-                         cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
-                         src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1))
+        x2, y2 = xR, scaled_diff_height
+        canvas.drawImage(self.scaled_darker,
+                         x1+offx, y1+offy, width=(x2-x1), height=(y2-y1),
+                         src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1))
 
         # Mask
         if self.main.state.highlight_changes:
             x1, y1 = 0, 0
-            x2, y2 = self.diff_width, self.diff_height
-            cx1, cy1 = self.toCanvas(x1, y1)
-            cx2, cy2 = self.toCanvas(x2, y2)
-            canvas.drawImage(self.mask, cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
-                             src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.08)
+            x2, y2 = scaled_diff_width, scaled_diff_height
+            canvas.drawImage(self.scaled_mask,
+                             x1+offx, y1+offy, width=(x2-x1), height=(y2-y1),
+                             src_x=x1, src_y=y1, src_width=(x2-x1), src_height=(y2-y1), opacity=0.08)
 
         # Overlap cursor
-        canvas.drawLine(ox1, 0, ox1, canvas.height, color=0, width=1)
-        canvas.drawLine(ox2, 0, ox2, canvas.height, color=0, width=1)
+        canvas.drawLine(xL+offx, 0, xL+offx, canvas.height, color=0, width=1)
+        canvas.drawLine(xR+offx, 0, xR+offx, canvas.height, color=0, width=1)
 
 class PcbDiffView(PUIView):
     def __init__(self, main):
@@ -701,11 +708,7 @@ class DifferUI(Application):
                                 Spacer()
 
                         if not self.state.page_a or not self.state.page_b:
-                            with VBox():
-                                with HBox():
-                                    Label("Select pages to compare")
-                                    Spacer()
-                                Spacer()
+                            Spacer()
                         else:
                             with VBox().layout(weight=1):
                                 SchDiffView(self)
