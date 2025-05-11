@@ -266,10 +266,10 @@ class SchDiffView(PUIView):
         scaled_diff_height = round(self.diff_height * scale)
 
         if self.scaled_params.set(scale):
-            self.scaled_image_a = self.image_a.scale(scaled_diff_width, scaled_diff_height)
-            self.scaled_image_b = self.image_b.scale(scaled_diff_width, scaled_diff_height)
-            self.scaled_darker = self.darker.scale(scaled_diff_width, scaled_diff_height)
-            self.scaled_mask = self.mask.scale(scaled_diff_width, scaled_diff_height)
+            self.scaled_image_a = self.image_a.scale(scaled_diff_width, scaled_diff_height, True, 0)
+            self.scaled_image_b = self.image_b.scale(scaled_diff_width, scaled_diff_height, True, 0)
+            self.scaled_darker = self.darker.scale(scaled_diff_width, scaled_diff_height, True, 0)
+            self.scaled_mask = self.mask.scale(scaled_diff_width, scaled_diff_height, True, 0)
 
         xL = round(min(scaled_diff_width, max(0, scaled_diff_width*(self.state.splitter_x - self.state.overlap))))
         xR = round(max(0, min(scaled_diff_width, scaled_diff_width*(self.state.splitter_x + self.state.overlap))))
@@ -327,6 +327,7 @@ class PcbDiffView(PUIView):
         self.darker = None
         self.mask = None
         self.mousehold = False
+        self.scaled_params = Prop()
 
     def setup(self):
         self.state = State()
@@ -451,96 +452,150 @@ class PcbDiffView(PUIView):
             self.autoScale(canvas.width, canvas.height)
             return
 
+        immediate = False
+
         layers = self.main.state.layers
-
-        changed = self.path_a.set(self.main.state.cached_file_a)
-        if changed:
-            self.image_a = {}
-        for layer in layers:
-            if not self.image_a.get(layer):
-                try:
-                    self.image_a[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_a, "png", f"{layer}.png"))
-                except:
-                    pass
-
-        changed = self.path_b.set(self.main.state.cached_file_b)
-        if changed:
-            self.image_b = {}
-        for layer in layers:
-            if not self.image_b.get(layer):
-                try:
-                    self.image_b[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_b, "png", f"{layer}.png"))
-                except:
-                    pass
-
 
         mtime = [os.path.getmtime(fn) for fn in [os.path.join(self.main.temp_dir, "darker", f"{layer}.png") for layer in layers] if os.path.exists(fn)]
         if mtime and self.darker_mtime.set(max(mtime)):
             self.darker = {}
-            for layer in layers:
-                self.darker[layer] = canvas.loadImage(os.path.join(self.main.temp_dir, "darker", f"{layer}.png"))
-
+        if self.path_a.set(self.main.state.cached_file_a):
+            self.image_a = {}
+        if self.path_b.set(self.main.state.cached_file_b):
+            self.image_b = {}
         path = os.path.join(self.main.temp_dir, "mask.png")
         if self.mask_mtime.set(os.path.getmtime(path)):
-            self.mask = canvas.loadImage(path)
+            self.mask = None
 
-        xL = max(0, self.diff_width*(self.state.splitter_x - self.state.overlap))
-        xR = min(self.diff_width, self.diff_width*(self.state.splitter_x + self.state.overlap))
+        for layer in layers:
+            if not layer in self.darker:
+                try:
+                    self.darker[layer] = canvas.loadImage(os.path.join(self.main.temp_dir, "darker", f"{layer}.png"))
+                    immediate = True
+                    break
+                except:
+                    self.darker[layer] = False
+
+        for layer in layers:
+            if not layer in self.image_a:
+                try:
+                    self.image_a[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_a, "png", f"{layer}.png"))
+                    immediate = True
+                    break
+                except:
+                    self.image_a[layer] = False
+
+        for layer in layers:
+            if not layer in self.image_b:
+                try:
+                    self.image_b[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_b, "png", f"{layer}.png"))
+                    immediate = True
+                    break
+                except:
+                    self.image_b[layer] = False
+
+        if self.mask is None:
+            try:
+                self.mask = canvas.loadImage(path)
+            except:
+                self.mask = False
+
+        offx, offy, scale = self.state.scale
+
+        scaled_diff_width = round(self.diff_width * scale)
+        scaled_diff_height = round(self.diff_height * scale)
+
+        if self.scaled_params.set(scale):
+            self.scaled_image_a = {}
+            self.scaled_image_b = {}
+            self.scaled_darker = {}
+            self.scaled_mask = None
+
+        for layer in self.image_a:
+            if not layer in self.scaled_image_a:
+                self.scaled_image_a[layer] = self.image_a[layer].scale(scaled_diff_width, scaled_diff_height, True, 1)
+                break
+
+        for layer in self.image_b:
+            if not layer in self.scaled_image_b:
+                self.scaled_image_b[layer] = self.image_b[layer].scale(scaled_diff_width, scaled_diff_height, True, 1)
+                break
+
+        for layer in self.darker:
+            if not layer in self.scaled_darker:
+                self.scaled_darker[layer] = self.darker[layer].scale(scaled_diff_width, scaled_diff_height, True, 1)
+                break
+
+        if not self.scaled_mask:
+            self.scaled_mask = self.mask.scale(scaled_diff_width, scaled_diff_height, True, 1)
+
+        xL = round(min(scaled_diff_width, max(0, scaled_diff_width*(self.state.splitter_x - self.state.overlap))))
+        xR = round(max(0, min(scaled_diff_width, scaled_diff_width*(self.state.splitter_x + self.state.overlap))))
+
+        offx = round(offx)
+        offy = round(offy)
 
         # A
         x1, y1 = 0, 0
         x2, y2 = xL, self.diff_height
-        cx1, cy1 = self.toCanvas(x1, y1)
-        cx2, cy2 = self.toCanvas(x2, y2)
         if self.image_a:
             for layer in layers[::-1]:
                 if not self.main.state.show_layers.get(layer, True):
                     continue
-                canvas.drawImage(self.image_a[layer],
-                                cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
+                if not layer in self.scaled_image_a:
+                    immediate = True
+                    continue
+                canvas.drawImage(self.scaled_image_a[layer],
+                                x1+offx, y1+offy, width=(x2-x1 + 1), height=(y2-y1 + 1),
                                 src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.8)
 
         # B
         x1, y1 = xR, 0
         x2, y2 = self.diff_width, self.diff_height
-        cx1, cy1 = self.toCanvas(x1, y1)
-        cx2, cy2 = self.toCanvas(x2, y2)
         if self.image_b:
             for layer in layers[::-1]:
                 if not self.main.state.show_layers.get(layer, True):
                     continue
-                canvas.drawImage(self.image_b[layer],
-                                cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
+                if not layer in self.scaled_image_b:
+                    immediate = True
+                    continue
+                canvas.drawImage(self.scaled_image_b[layer],
+                                x1+offx, y1+offy, width=(x2-x1 + 1), height=(y2-y1 + 1),
                                 src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.8)
 
         # Darker
         x1, y1 = xL, 0
         x2, y2 = xR, self.diff_height
-        cx1, cy1 = self.toCanvas(x1, y1)
-        cx2, cy2 = self.toCanvas(x2, y2)
-        ox1, ox2 = cx1, cx2
         for layer in layers[::-1]:
-            darker = self.darker.get(layer)
+            darker = self.scaled_darker.get(layer)
             if not darker:
                 continue
             if not self.main.state.show_layers.get(layer, True):
                 continue
+            if not layer in self.scaled_darker:
+                immediate = True
+                continue
             canvas.drawImage(darker,
-                                cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
+                                x1+offx, y1+offy, width=(x2-x1 + 1), height=(y2-y1 + 1),
                                 src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.8)
 
         # Mask
         if self.main.state.highlight_changes:
             x1, y1 = 0, 0
             x2, y2 = self.diff_width, self.diff_height
-            cx1, cy1 = self.toCanvas(x1, y1)
-            cx2, cy2 = self.toCanvas(x2, y2)
-            canvas.drawImage(self.mask, cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
-                                src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.3)
+            if not self.scaled_mask:
+                immediate = True
+            else:
+                canvas.drawImage(self.scaled_mask,
+                                    x1+offx, y1+offy, width=(x2-x1 + 1), height=(y2-y1 + 1),
+                                    src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.3)
 
         # Overlap cursor
-        canvas.drawLine(ox1, 0, ox1, canvas.height, color=0x7e8792, width=1)
-        canvas.drawLine(ox2, 0, ox2, canvas.height, color=0x7e8792, width=1)
+        canvas.drawLine(xL+offx, 0, xL+offx, canvas.height, color=0x7e8792, width=1)
+        canvas.drawLine(xR+offx, 0, xR+offx, canvas.height, color=0x7e8792, width=1)
+
+        return immediate
+
 class DifferUI(Application):
     def __init__(self, *argv):
         super().__init__(icon=resource_path("icon.ico"))
