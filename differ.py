@@ -67,9 +67,9 @@ def convert_sch(path, outpath):
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         subprocess.run(cmd, **kwargs)
 
-    if not os.path.exists(os.path.join(outpath, "png")):
+    if not os.path.exists(os.path.join(outpath, "sch")):
         yield f"Exporting PNG for {os.path.basename(path)}..."
-        os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
+        os.makedirs(os.path.join(outpath, "sch"), exist_ok=True)
         pdf = pdfium.PdfDocument(pdfpath)
         for p, page in enumerate(pdf):
             opencv_image = page.render(
@@ -77,7 +77,7 @@ def convert_sch(path, outpath):
                 rotation=0
             ).to_numpy()
             opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGBA2RGB)
-            cv2.imwrite(os.path.join(outpath, "png", f"sch_{p:02d}.png"), opencv_image)
+            cv2.imwrite(os.path.join(outpath, "sch", f"sch_{p:02d}.png"), opencv_image)
 
 def convert_pcb(path, outpath):
     os.makedirs(outpath, exist_ok=True)
@@ -92,9 +92,9 @@ def convert_pcb(path, outpath):
         subprocess.run(cmd, **kwargs)
 
     if os.path.isdir(pdfpath):
-        os.makedirs(os.path.join(outpath, "png"), exist_ok=True)
+        os.makedirs(os.path.join(outpath, "pcb"), exist_ok=True)
         for layer in PCB_LAYERS:
-            png_path = os.path.join(outpath, "png", f"{layer}.png")
+            png_path = os.path.join(outpath, "pcb", f"{layer}.png")
             layerpdfpath = glob.glob(os.path.join(pdfpath, f"*{layer.replace('.', '_')}.pdf"))
             if layerpdfpath:
                 yield f"Exporting {layer} to PNG for {os.path.basename(path)}..."
@@ -129,7 +129,7 @@ class SchDiffView(PUIView):
         self.state.overlap = 0.05
 
     def autoScale(self, canvas_width, canvas_height):
-        mask = os.path.join(self.main.temp_dir, "mask.png")
+        mask = os.path.join(self.main.temp_dir, "sch_mask.png")
         if not os.path.exists(mask):
             return
 
@@ -244,21 +244,25 @@ class SchDiffView(PUIView):
             self.autoScale(canvas.width, canvas.height)
             return
 
-        path = os.path.join(self.main.state.cached_file_a, "png", self.main.state.page_a)
+        path = os.path.join(self.main.state.cached_file_a, "sch", self.main.state.page_a)
         if self.path_a.set(path):
             self.image_a = canvas.loadImage(path)
+            self.scaled_image_a = None
 
-        path = os.path.join(self.main.state.cached_file_b, "png", self.main.state.page_b)
+        path = os.path.join(self.main.state.cached_file_b, "sch", self.main.state.page_b)
         if self.path_b.set(path):
             self.image_b = canvas.loadImage(path)
+            self.scaled_image_b = None
 
-        path = os.path.join(self.main.temp_dir, "darker.png")
+        path = os.path.join(self.main.temp_dir, "sch_darker.png")
         if self.darker_mtime.set(os.path.getmtime(path)):
             self.darker = canvas.loadImage(path)
+            self.scaled_darker = None
 
-        path = os.path.join(self.main.temp_dir, "mask.png")
+        path = os.path.join(self.main.temp_dir, "sch_mask.png")
         if self.mask_mtime.set(os.path.getmtime(path)):
             self.mask = canvas.loadImage(path)
+            self.scaled_mask = None
 
         offx, offy, scale = self.state.scale
 
@@ -266,9 +270,18 @@ class SchDiffView(PUIView):
         scaled_diff_height = round(self.diff_height * scale)
 
         if self.scaled_params.set(scale):
+            self.scaled_image_a = None
+            self.scaled_image_b = None
+            self.scaled_darker = None
+            self.scaled_mask = None
+
+        if self.scaled_image_a is None:
             self.scaled_image_a = self.image_a.scale(scaled_diff_width, scaled_diff_height, True, 1)
+        if self.scaled_image_b is None:
             self.scaled_image_b = self.image_b.scale(scaled_diff_width, scaled_diff_height, True, 1)
+        if self.scaled_darker is None:
             self.scaled_darker = self.darker.scale(scaled_diff_width, scaled_diff_height, True, 1)
+        if self.scaled_mask is None:
             self.scaled_mask = self.mask.scale(scaled_diff_width, scaled_diff_height, True, 1)
 
         xL = round(min(scaled_diff_width, max(0, scaled_diff_width*(self.state.splitter_x - self.state.overlap))))
@@ -340,7 +353,7 @@ class PcbDiffView(PUIView):
         self.state.overlap = 0.05
 
     def autoScale(self, canvas_width, canvas_height):
-        mask = os.path.join(self.main.temp_dir, "mask.png")
+        mask = os.path.join(self.main.temp_dir, "pcb_mask.png")
         if not os.path.exists(mask):
             return
 
@@ -460,14 +473,14 @@ class PcbDiffView(PUIView):
 
         layers = self.main.state.layers
 
-        mtime = [os.path.getmtime(fn) for fn in [os.path.join(self.main.temp_dir, "darker", f"{layer}.png") for layer in layers] if os.path.exists(fn)]
+        mtime = [os.path.getmtime(fn) for fn in [os.path.join(self.main.temp_dir, "pcb_darker", f"{layer}.png") for layer in layers] if os.path.exists(fn)]
         if mtime and self.darker_mtime.set(max(mtime)):
             self.darker = {}
         if self.path_a.set(self.main.state.cached_file_a):
             self.image_a = {}
         if self.path_b.set(self.main.state.cached_file_b):
             self.image_b = {}
-        path = os.path.join(self.main.temp_dir, "mask.png")
+        path = os.path.join(self.main.temp_dir, "pcb_mask.png")
         if self.mask_mtime.set(os.path.getmtime(path)):
             self.mask = None
 
@@ -485,7 +498,7 @@ class PcbDiffView(PUIView):
 
             if not layer in self.darker:
                 try:
-                    self.darker[layer] = canvas.loadImage(os.path.join(self.main.temp_dir, "darker", f"{layer}.png"))
+                    self.darker[layer] = canvas.loadImage(os.path.join(self.main.temp_dir, "pcb_darker", f"{layer}.png"))
                     self.scaled_darker.pop(layer, None)
                     immediate = True
                     break
@@ -494,7 +507,7 @@ class PcbDiffView(PUIView):
 
             if not layer in self.image_a:
                 try:
-                    self.image_a[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_a, "png", f"{layer}.png"))
+                    self.image_a[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_a, "pcb", f"{layer}.png"))
                     self.scaled_image_a.pop(layer, None)
                     immediate = True
                     break
@@ -503,7 +516,7 @@ class PcbDiffView(PUIView):
 
             if not layer in self.image_b:
                 try:
-                    self.image_b[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_b, "png", f"{layer}.png"))
+                    self.image_b[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_b, "pcb", f"{layer}.png"))
                     self.scaled_image_b.pop(layer, None)
                     immediate = True
                     break
@@ -737,6 +750,10 @@ class DifferUI(Application):
                             Label(self.state.loading_a or "").layout(weight=1)
                             Label(self.state.loading_b or "").layout(weight=1)
                     elif self.state.file_a and self.state.file_a:
+                            if os.path.splitext(self.state.file_a)[1].lower() == SCH_SUFFIX:
+                                Button("PCB Diff").click(self.pcb_diff)
+                            elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
+                                Button("SCH Diff").click(self.sch_diff)
                             Label("Ctrl+Wheel to adjust overlap").layout(weight=1)
                             Label(self.state.message).layout(weight=1)
                             Checkbox("Highlight Changes", model=self.state("highlight_changes"))
@@ -756,8 +773,8 @@ class DifferUI(Application):
                             with Scroll().layout(width=250):
                                 with VBox():
                                     if self.state.cached_file_a:
-                                        for i,png in enumerate(os.listdir(os.path.join(self.state.cached_file_a, "png"))):
-                                            Image(os.path.join(self.state.cached_file_a, "png", png)).layout(width=240).click(lambda e, png: self.select_page_a(png), png)
+                                        for i,png in enumerate(os.listdir(os.path.join(self.state.cached_file_a, "sch"))):
+                                            Image(os.path.join(self.state.cached_file_a, "sch", png)).layout(width=240).click(lambda e, png: self.select_page_a(png), png)
                                             if png==self.state.page_a:
                                                 Label(f"* Page {i+1} *")
                                             else:
@@ -775,8 +792,8 @@ class DifferUI(Application):
                             with Scroll().layout(width=250):
                                 with VBox():
                                     if self.state.cached_file_b:
-                                        for i,png in enumerate(os.listdir(os.path.join(self.state.cached_file_b, "png"))):
-                                            Image(os.path.join(self.state.cached_file_b, "png", png)).layout(width=240).click(lambda e, png: self.select_page_b(png), png)
+                                        for i,png in enumerate(os.listdir(os.path.join(self.state.cached_file_b, "sch"))):
+                                            Image(os.path.join(self.state.cached_file_b, "sch", png)).layout(width=240).click(lambda e, png: self.select_page_b(png), png)
                                             if png==self.state.page_b:
                                                 Label(f"* Page {i+1} *")
                                             else:
@@ -809,6 +826,20 @@ class DifferUI(Application):
                                 Label("Drop File Here").style(fontSize=36)
                                 Spacer()
                             Spacer()
+
+    def pcb_diff(self, e):
+        self.state.file_a = os.path.splitext(self.state.file_a)[0] + PCB_SUFFIX
+        self.state.file_b = os.path.splitext(self.state.file_b)[0] + PCB_SUFFIX
+        self.state.cached_file_a = None
+        self.state.cached_file_b = None
+        self.build()
+
+    def sch_diff(self, e):
+        self.state.file_a = os.path.splitext(self.state.file_a)[0] + SCH_SUFFIX
+        self.state.file_b = os.path.splitext(self.state.file_b)[0] + SCH_SUFFIX
+        self.state.cached_file_a = None
+        self.state.cached_file_b = None
+        self.build()
 
     def handleDragEnter(self, event):
         if event.mimeData().hasUrls():
@@ -1002,7 +1033,7 @@ class DifferUI(Application):
                         for l in convert_sch(file_a, path_a):
                             self.state.loading_a = l
                         self.state.cached_file_a = path_a
-                        self.state.page_a = os.listdir(os.path.join(path_a, "png"))[0]
+                        self.state.page_a = os.listdir(os.path.join(path_a, "sch"))[0]
                     if file_a.lower().endswith(PCB_SUFFIX):
                         for l in convert_pcb(file_a, path_a):
                             self.state.loading_a = l
@@ -1030,7 +1061,7 @@ class DifferUI(Application):
                         for l in convert_sch(file_b, path_b):
                             self.state.loading_b = l
                         self.state.cached_file_b = path_b
-                        self.state.page_b = os.listdir(os.path.join(path_b, "png"))[0]
+                        self.state.page_b = os.listdir(os.path.join(path_b, "sch"))[0]
                     if file_b.lower().endswith(PCB_SUFFIX):
                         for l in convert_pcb(file_b, path_b):
                             self.state.loading_b = l
@@ -1050,8 +1081,8 @@ class DifferUI(Application):
                                 self.state.loading_diff = True
 
                                 # Load images
-                                a = cv2.imread(os.path.join(self.state.cached_file_a, "png", page_a))
-                                b = cv2.imread(os.path.join(self.state.cached_file_b, "png", page_b))
+                                a = cv2.imread(os.path.join(self.state.cached_file_a, "sch", page_a))
+                                b = cv2.imread(os.path.join(self.state.cached_file_b, "sch", page_b))
 
                                 # Assuming self.pad_to_same_size exists, here's how it might look in OpenCV
                                 # If you need this function translated too, let me know
@@ -1059,7 +1090,7 @@ class DifferUI(Application):
 
                                 # Create darker image (equivalent to ImageChops.darker)
                                 darker = cv2.min(a, b)
-                                cv2.imwrite(os.path.join(self.temp_dir, "darker.png"), darker)
+                                cv2.imwrite(os.path.join(self.temp_dir, "sch_darker.png"), darker)
 
                                 # Create mask with the same sequence of operations
                                 # 1. Get difference between images
@@ -1083,7 +1114,7 @@ class DifferUI(Application):
                                 mask = cv2.GaussianBlur(extended_mask, (21, 21), 10)
 
                                 # Save mask
-                                cv2.imwrite(os.path.join(self.temp_dir, "mask.png"), mask)
+                                cv2.imwrite(os.path.join(self.temp_dir, "sch_mask.png"), mask)
 
                                 self.state.diff_pair = diff_pair
 
@@ -1094,19 +1125,19 @@ class DifferUI(Application):
                         if self.state.diff_pair != diff_pair:
                             merged_mask = None
 
-                            os.makedirs(os.path.join(self.temp_dir, "darker"), exist_ok=True)
+                            os.makedirs(os.path.join(self.temp_dir, "pcb_darker"), exist_ok=True)
 
                             layers = []
                             for layer in PCB_LAYERS:
-                                png_a = os.path.join(self.state.cached_file_a, "png", f"{layer}.png")
-                                png_b = os.path.join(self.state.cached_file_b, "png", f"{layer}.png")
+                                png_a = os.path.join(self.state.cached_file_a, "pcb", f"{layer}.png")
+                                png_b = os.path.join(self.state.cached_file_b, "pcb", f"{layer}.png")
 
                                 if not os.path.exists(png_a) and not os.path.exists(png_b):
                                     continue
 
                                 self.state.loading_diff = layer
                                 layers.append(layer)
-                                darker_png = os.path.join(self.temp_dir, "darker", f"{layer}.png")
+                                darker_png = os.path.join(self.temp_dir, "pcb_darker", f"{layer}.png")
 
                                 if not os.path.exists(png_a):
                                     shutil.copy(png_b, darker_png)
@@ -1173,7 +1204,7 @@ class DifferUI(Application):
 
                             # Convert merged mask to RGBA
                             merged_mask_rgba = cv2.merge([merged_mask, merged_mask, merged_mask, merged_mask])
-                            cv2.imwrite(os.path.join(self.temp_dir, "mask.png"), merged_mask_rgba)
+                            cv2.imwrite(os.path.join(self.temp_dir, "pcb_mask.png"), merged_mask_rgba)
 
                             self.state.diff_pair = diff_pair
 
