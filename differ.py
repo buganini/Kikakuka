@@ -741,59 +741,110 @@ class DifferUI(Application):
                             Label(self.state.message).layout(weight=1)
                             Checkbox("Highlight Changes", model=self.state("highlight_changes"))
                     else:
+                        Spacer()
                         Label("Select two files to compare")
+                        Spacer()
 
-                if not (self.state.file_a and self.state.file_b):
-                    Spacer()
-                    return
+                if self.state.file_a and self.state.file_b:
+                    if os.path.splitext(self.state.file_a)[1].lower() != os.path.splitext(self.state.file_b)[1].lower():
+                        Label("Files are different types")
+                        Spacer()
+                        return
 
-                if os.path.splitext(self.state.file_a)[1].lower() != os.path.splitext(self.state.file_b)[1].lower():
-                    Label("Files are different types")
-                    Spacer()
-                    return
+                    if os.path.splitext(self.state.file_a)[1].lower() == SCH_SUFFIX and os.path.splitext(self.state.file_b)[1].lower() == SCH_SUFFIX:
+                        with HBox():
+                            with Scroll().layout(width=250):
+                                with VBox():
+                                    if self.state.cached_file_a:
+                                        for i,png in enumerate(os.listdir(os.path.join(self.state.cached_file_a, "png"))):
+                                            Image(os.path.join(self.state.cached_file_a, "png", png)).layout(width=240).click(lambda e, png: self.select_page_a(png), png)
+                                            if png==self.state.page_a:
+                                                Label(f"* Page {i+1} *")
+                                            else:
+                                                Label(f"Page {i+1}")
+                                    else:
+                                        Label("Loading pages...")
+                                    Spacer()
 
-                if os.path.splitext(self.state.file_a)[1].lower() == SCH_SUFFIX:
-                    with HBox():
-                        with Scroll().layout(width=250):
-                            with VBox():
-                                if self.state.cached_file_a:
-                                    for i,png in enumerate(os.listdir(os.path.join(self.state.cached_file_a, "png"))):
-                                        Image(os.path.join(self.state.cached_file_a, "png", png)).layout(width=240).click(lambda e, png: self.select_page_a(png), png)
-                                        if png==self.state.page_a:
-                                            Label(f"* Page {i+1} *")
-                                        else:
-                                            Label(f"Page {i+1}")
-                                else:
-                                    Label("Loading pages...")
+                            if not self.state.page_a or not self.state.page_b:
                                 Spacer()
+                            else:
+                                with VBox().layout(weight=1):
+                                    SchDiffView(self)
 
-                        if not self.state.page_a or not self.state.page_b:
-                            Spacer()
-                        else:
+                            with Scroll().layout(width=250):
+                                with VBox():
+                                    if self.state.cached_file_b:
+                                        for i,png in enumerate(os.listdir(os.path.join(self.state.cached_file_b, "png"))):
+                                            Image(os.path.join(self.state.cached_file_b, "png", png)).layout(width=240).click(lambda e, png: self.select_page_b(png), png)
+                                            if png==self.state.page_b:
+                                                Label(f"* Page {i+1} *")
+                                            else:
+                                                Label(f"Page {i+1}")
+                                    else:
+                                        Label("Loading pages...")
+                                    Spacer()
+                    elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
+                        with HBox():
                             with VBox().layout(weight=1):
-                                SchDiffView(self)
-
-                        with Scroll().layout(width=250):
+                                PcbDiffView(self)
                             with VBox():
-                                if self.state.cached_file_b:
-                                    for i,png in enumerate(os.listdir(os.path.join(self.state.cached_file_b, "png"))):
-                                        Image(os.path.join(self.state.cached_file_b, "png", png)).layout(width=240).click(lambda e, png: self.select_page_b(png), png)
-                                        if png==self.state.page_b:
-                                            Label(f"* Page {i+1} *")
-                                        else:
-                                            Label(f"Page {i+1}")
-                                else:
-                                    Label("Loading pages...")
+                                Label("Display Layers")
+                                for layer in self.state.layers:
+                                    Checkbox(layer, model=self.state.show_layers(layer))
                                 Spacer()
-                elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
+                else:
                     with HBox():
-                        with VBox().layout(weight=1):
-                            PcbDiffView(self)
-                        with VBox():
-                            Label("Display Layers")
-                            for layer in self.state.layers:
-                                Checkbox(layer, model=self.state.show_layers(layer))
+                        with VBox().dragEnter(self.handleDragEnter).drop(self.drop_file_a):
                             Spacer()
+                            with HBox():
+                                Spacer()
+                                Label("Drop File Here").style(fontSize=36)
+                                Spacer()
+                            Spacer()
+                        with VBox().dragEnter(self.handleDragEnter).drop(self.drop_file_b):
+                            Spacer()
+                            with HBox():
+                                Spacer()
+                                Label("Drop File Here").style(fontSize=36)
+                                Spacer()
+                            Spacer()
+
+    def handleDragEnter(self, event):
+        if event.mimeData().hasUrls():
+            if len(event.mimeData().urls()) == 1:
+                fn = event.mimeData().urls()[0].toLocalFile()
+                ext = os.path.splitext(fn)[1].lower()
+                if ext in [SCH_SUFFIX, PCB_SUFFIX]:
+                    event.accept()
+                    return True
+        event.ignore()
+        return False
+
+    def drop_file_a(self, event):
+        if event.mimeData().hasUrls():
+            if len(event.mimeData().urls()) == 1:
+                fn = event.mimeData().urls()[0].toLocalFile()
+                ext = os.path.splitext(fn)[1].lower()
+                if ext in [SCH_SUFFIX, PCB_SUFFIX]:
+                    self.state.file_a = fn
+                    self.build()
+                    event.accept()
+                    return True
+        event.ignore()
+        return False
+
+    def drop_file_b(self, event):
+        if event.mimeData().hasUrls():
+            if len(event.mimeData().urls()) == 1:
+                fn = event.mimeData().urls()[0].toLocalFile()
+                ext = os.path.splitext(fn)[1].lower()
+                if ext in [SCH_SUFFIX, PCB_SUFFIX]:
+                    self.state.file_b = fn
+                    self.build()
+                    event.accept()
+                    return
+        event.ignore()
 
     def change_file_a(self):
         self.state.logs_a = None
