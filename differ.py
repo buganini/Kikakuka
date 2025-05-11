@@ -871,7 +871,7 @@ class DifferUI(Application):
                 ## Checkout
                 if self.state.commit_a:
                     self.state.loading_a = f"Checking out {self.state.commit_a}..."
-                    path_a = os.path.join(self.temp_dir, f"{hex}_{self.state.commit_a}", "workdir")
+                    path_a = os.path.join(self.temp_dir, f"{hex}_{self.state.commit_a}")
                     repo_workdir = os.path.join(path_a, "workdir")
                     if not os.path.exists(path_a):
                         dir = os.path.dirname(file_a)
@@ -899,7 +899,7 @@ class DifferUI(Application):
                 ## Checkout
                 if self.state.commit_b:
                     self.state.loading_b = f"Checking out {self.state.commit_b}..."
-                    path_b = os.path.join(self.temp_dir, f"{hex}_{self.state.commit_b}", "workdir")
+                    path_b = os.path.join(self.temp_dir, f"{hex}_{self.state.commit_b}")
                     repo_workdir = os.path.join(path_b, "workdir")
                     if not os.path.exists(path_b):
                         dir = os.path.dirname(file_b)
