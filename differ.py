@@ -475,6 +475,9 @@ class PcbDiffView(PUIView):
                 self.mask = False
 
         for layer in layers:
+            if not self.main.state.show_layers.get(layer, True):
+                continue
+
             if not layer in self.darker:
                 try:
                     self.darker[layer] = canvas.loadImage(os.path.join(self.main.temp_dir, "darker", f"{layer}.png"))
@@ -517,6 +520,9 @@ class PcbDiffView(PUIView):
             incompleted = True
 
         for layer in layers[::-1]:
+            if not self.main.state.show_layers.get(layer, True):
+                continue
+
             if not layer in self.scaled_darker and self.darker.get(layer):
                 self.scaled_darker[layer] = self.darker[layer].scale(scaled_diff_width, scaled_diff_height, True, 1)
                 break
