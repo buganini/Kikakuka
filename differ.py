@@ -266,10 +266,10 @@ class SchDiffView(PUIView):
         scaled_diff_height = round(self.diff_height * scale)
 
         if self.scaled_params.set(scale):
-            self.scaled_image_a = self.image_a.scale(scaled_diff_width, scaled_diff_height, True, 0)
-            self.scaled_image_b = self.image_b.scale(scaled_diff_width, scaled_diff_height, True, 0)
-            self.scaled_darker = self.darker.scale(scaled_diff_width, scaled_diff_height, True, 0)
-            self.scaled_mask = self.mask.scale(scaled_diff_width, scaled_diff_height, True, 0)
+            self.scaled_image_a = self.image_a.scale(scaled_diff_width, scaled_diff_height, True, 1)
+            self.scaled_image_b = self.image_b.scale(scaled_diff_width, scaled_diff_height, True, 1)
+            self.scaled_darker = self.darker.scale(scaled_diff_width, scaled_diff_height, True, 1)
+            self.scaled_mask = self.mask.scale(scaled_diff_width, scaled_diff_height, True, 1)
 
         xL = round(min(scaled_diff_width, max(0, scaled_diff_width*(self.state.splitter_x - self.state.overlap))))
         xR = round(max(0, min(scaled_diff_width, scaled_diff_width*(self.state.splitter_x + self.state.overlap))))
