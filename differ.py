@@ -529,7 +529,7 @@ class PcbDiffView(PUIView):
             cx1, cy1 = self.toCanvas(x1, y1)
             cx2, cy2 = self.toCanvas(x2, y2)
             canvas.drawImage(self.mask, cx1, cy1, width=(cx2 - cx1 + 1), height=(cy2 - cy1 + 1),
-                                src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.08)
+                                src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.3)
 
         # Overlap cursor
         canvas.drawLine(ox1, 0, ox1, canvas.height, color=0x7e8792, width=1)
