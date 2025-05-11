@@ -17,9 +17,9 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
     * Interactive arrangement with real-time preview
     * Freeform placement not limited to M×N grid configurations
     * Support for multiple different PCBs in a single panel
-    * Automatic or [manual](#manual-tab) tab creation
+    * [Automatic](#auto-tab) or [manual](#manual-tab) tab creation
     * Automatic V-cut/mousebites selection
-    * Enable hole creation in panel substrate for extruded parts
+    * Enable [hole](#substrate-hole) creation in panel substrate for extruded parts
     * No coding skills required
 
 # Workspace Manager
