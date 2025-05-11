@@ -513,26 +513,27 @@ class PcbDiffView(PUIView):
             self.scaled_darker = {}
             self.scaled_mask = None
 
-        incompleted = False
-
         if not self.scaled_mask:
             self.scaled_mask = self.mask.scale(scaled_diff_width, scaled_diff_height, True, 1)
-            incompleted = True
 
-        for layer in layers[::-1]:
+        incompleted = False
+        for layer in layers:
             if not self.main.state.show_layers.get(layer, True):
                 continue
 
             if not layer in self.scaled_darker and self.darker.get(layer):
                 self.scaled_darker[layer] = self.darker[layer].scale(scaled_diff_width, scaled_diff_height, True, 1)
-                break
+                incompleted = True
 
             if not layer in self.scaled_image_a and self.image_a.get(layer):
                 self.scaled_image_a[layer] = self.image_a[layer].scale(scaled_diff_width, scaled_diff_height, True, 1)
-                break
+                incompleted = True
 
             if not layer in self.scaled_image_b and self.image_b.get(layer):
                 self.scaled_image_b[layer] = self.image_b[layer].scale(scaled_diff_width, scaled_diff_height, True, 1)
+                incompleted = True
+
+            if incompleted:
                 break
 
         xL = round(min(scaled_diff_width, max(0, scaled_diff_width*(self.state.splitter_x - self.state.overlap))))
