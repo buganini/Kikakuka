@@ -830,6 +830,8 @@ class DifferUI(Application):
     def pcb_diff(self, e):
         self.state.file_a = os.path.splitext(self.state.file_a)[0] + PCB_SUFFIX
         self.state.file_b = os.path.splitext(self.state.file_b)[0] + PCB_SUFFIX
+        self.state.log_a = None
+        self.state.log_b = None
         self.state.cached_file_a = None
         self.state.cached_file_b = None
         self.build()
@@ -837,6 +839,8 @@ class DifferUI(Application):
     def sch_diff(self, e):
         self.state.file_a = os.path.splitext(self.state.file_a)[0] + SCH_SUFFIX
         self.state.file_b = os.path.splitext(self.state.file_b)[0] + SCH_SUFFIX
+        self.state.log_a = None
+        self.state.log_b = None
         self.state.cached_file_a = None
         self.state.cached_file_b = None
         self.build()
@@ -859,6 +863,7 @@ class DifferUI(Application):
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in [SCH_SUFFIX, PCB_SUFFIX]:
                     self.state.file_a = fn
+                    self.state.log_a = None
                     self.build()
                     event.accept()
                     return True
@@ -872,6 +877,7 @@ class DifferUI(Application):
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in [SCH_SUFFIX, PCB_SUFFIX]:
                     self.state.file_b = fn
+                    self.state.log_b = None
                     self.build()
                     event.accept()
                     return True
@@ -892,15 +898,13 @@ class DifferUI(Application):
         fn = OpenFile("Open File A", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb|KiCad SCH (*.kicad_sch)|*.kicad_sch")
         if fn:
             self.state.file_a = fn
-            self.build()
+            self.change_file_a()
 
     def open_file_b(self, e):
         fn = OpenFile("Open File B", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb|KiCad SCH (*.kicad_sch)|*.kicad_sch")
         if fn:
             self.state.file_b = fn
-            self.state.logs_b = None
-            self.state.cached_file_b = ""
-            self.build()
+            self.change_file_b()
 
     def select_page_a(self, png):
         self.state.page_a = png
@@ -993,7 +997,7 @@ class DifferUI(Application):
                     self.repo_a = git.repo(file_a)
                     if self.repo_a:
                         self.state.commit_a = ""
-                        self.state.logs_a = [(hex, msg) for hex,msg in git.log(self.repo_a, file_a)]
+                        self.state.logs_a = [(hex, msg) for hex,msg in git.log(self.repo_a)]
                     else:
                         self.state.logs_a = False
 
@@ -1001,7 +1005,7 @@ class DifferUI(Application):
                     self.repo_b = git.repo(file_b)
                     if self.repo_b:
                         self.state.commit_b = ""
-                        self.state.logs_b = [(hex, msg) for hex,msg in git.log(self.repo_b, file_b)]
+                        self.state.logs_b = [(hex, msg) for hex,msg in git.log(self.repo_b)]
                     else:
                         self.state.logs_b = False
 
