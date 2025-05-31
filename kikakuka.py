@@ -8,8 +8,8 @@ if inputs:
     if inputs[0] == "--differ":
         ui = DifferUI(*inputs[1:])
         ui.run()
-    elif inputs[0].endswith(WORKSPACE_SUFFIX):
-        ui = WorkspaceUI(inputs[0])
+    elif all([input.endswith(WORKSPACE_SUFFIX) for input in inputs]):
+        ui = WorkspacesUI(inputs)
         ui.run()
     elif inputs[0].endswith(PNL_SUFFIX):
         ui = PanelizerUI()
@@ -33,5 +33,5 @@ else:
         ui = PanelizerUI()
         ui.run()
     else:
-        ui = WorkspaceUI()
+        ui = WorkspacesUI()
         ui.run()

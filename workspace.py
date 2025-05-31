@@ -218,21 +218,27 @@ def macos_bring_pid_to_front(pid):
         print(f"Failed to bring application to front. Process with PID {pid} may not have a GUI window")
         return False
 
-class WorkspaceUI(Application):
-    def __init__(self, filepath=None):
-        super().__init__(icon=resource_path("icon.ico"))
+class WorkspaceUI(PUIView):
+    def __init__(self, filepath):
+        super().__init__()
+        self.filepath = filepath
+
+    def setup(self):
         self.state = State()
-        self.state.filepath = filepath
+        self.state.filepath = self.filepath
         self.state.focus = None
         self.state.workspace = {"projects": []}
         self.state.editingDesc = False
         self.state.edit = ""
 
         self.pidmap = {}
-
-    def setup(self):
-        if self.state.filepath:
+        if os.path.exists(self.state.filepath):
             self.loadFile()
+        else:
+            self.state.root = os.path.dirname(os.path.abspath(self.state.filepath))
+            self.state.workspace = {"projects": []}
+            findFiles(self.state.workspace, self.state.root)
+            self.saveFile()
 
     def loadFile(self):
         if not os.path.exists(self.state.filepath):
@@ -261,73 +267,52 @@ class WorkspaceUI(Application):
             json.dump(workspace, f, indent=4)
 
     def content(self):
-        title = f"Kikakuka v{VERSION} Workspace (PUI {PUI.__version__} {PUI_BACKEND})"
-        with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
-            with VBox():
-                if self.state.filepath is None:
+        with VBox():
+            with HBox():
+                Button("Add Project/Panelization").click(lambda e: self.addFileDialog())
+                Button("New Panelization").click(lambda e: self.newPanelization())
+                Button("Differ").click(lambda e: self.openDiffer())
+                Spacer()
+
+            with HBox():
+                with (Tree().layout(weight=1).expandAll().expandable(False)
+                    .dragEnter(self.handleDragEnter).drop(self.handleDrop)):
+                    for project in self.state.workspace["projects"]:
+                        with (TreeNode(os.path.basename(project["path"]))
+                                .click(lambda e, project: self.selectFile(project), project)
+                                .dblclick(lambda e, project: self.openFile(project["path"]), project)):
+                            for file in project["files"]:
+                                (TreeNode(os.path.basename(file["path"]))
+                                    .click(lambda e, file: self.selectFile(file), file)
+                                    .dblclick(lambda e, file: self.openFile(file["path"]), file))
+
+                with VBox().layout(weight=1):
                     with HBox():
-                        Label("Workspace")
-                        Button("New").click(lambda e: self.newWorkspace())
-                        Button("Open").click(lambda e: self.openWorkspace())
-                        Spacer()
-                    with HBox():
-                        Label("Panelization")
-                        Button("New").click(lambda e: self.newPanelization())
-                        Button("Open").click(lambda e: self.openPanelizationAndClose())
-                        Spacer()
-                    with HBox():
-                        Label("Differ")
-                        Button("Open").click(lambda e: self.openDiffer())
-                        Spacer()
-
-                    Spacer()
-                    return
-
-                with HBox():
-                    Button("Add Project/Panelization").click(lambda e: self.addFileDialog())
-                    Button("New Panelization").click(lambda e: self.newPanelization())
-                    Button("Differ").click(lambda e: self.openDiffer())
-                    Spacer()
-
-                with HBox():
-                    with (Tree().layout(weight=1).expandAll().expandable(False)
-                        .dragEnter(self.handleDragEnter).drop(self.handleDrop)):
-                        for project in self.state.workspace["projects"]:
-                            with (TreeNode(os.path.basename(project["path"]))
-                                  .click(lambda e, project: self.selectFile(project), project)
-                                  .dblclick(lambda e, project: self.openFile(project["path"]), project)):
-                                for file in project["files"]:
-                                    (TreeNode(os.path.basename(file["path"]))
-                                     .click(lambda e, file: self.selectFile(file), file)
-                                     .dblclick(lambda e, file: self.openFile(file["path"]), file))
-
-                    with VBox().layout(weight=1):
-                        with HBox():
-                            Label("File:")
-                            if self.state.focus is not None:
-                                Label(os.path.basename(self.state.focus["project_path"]))
-                                Button("Open File Location").click(lambda e, location: self.openFolder(location), os.path.dirname(self.state.focus["project_path"]))
-                                Spacer()
-                                Button("Remove").click(lambda e: self.removeFile())
-                            else:
-                                Spacer()
-
-                        with HBox():
-                            Label("Description:")
-                            if self.state.focus is not None:
-                                if self.state.editingDesc:
-                                    TextField(self.state("edit")).layout(weight=1)
-                                    Button("Save").click(lambda e: self.saveDescription())
-                                else:
-                                    if "description" in self.state.focus:
-                                        desc = self.state.focus["description"]
-                                    else:
-                                        desc = self.state.focus["parent"]["description"]
-                                    Label(desc)
-                                    Button("Edit").click(lambda e: self.editDescription())
+                        Label("File:")
+                        if self.state.focus is not None:
+                            Label(os.path.basename(self.state.focus["project_path"]))
+                            Button("Open File Location").click(lambda e, location: self.openFolder(location), os.path.dirname(self.state.focus["project_path"]))
+                            Spacer()
+                            Button("Remove").click(lambda e: self.removeFile())
+                        else:
                             Spacer()
 
+                    with HBox():
+                        Label("Description:")
+                        if self.state.focus is not None:
+                            if self.state.editingDesc:
+                                TextField(self.state("edit")).layout(weight=1)
+                                Button("Save").click(lambda e: self.saveDescription())
+                            else:
+                                if "description" in self.state.focus:
+                                    desc = self.state.focus["description"]
+                                else:
+                                    desc = self.state.focus["parent"]["description"]
+                                Label(desc)
+                                Button("Edit").click(lambda e: self.editDescription())
                         Spacer()
+
+                    Spacer()
 
     def editDescription(self):
         if "description" in self.state.focus:
@@ -366,23 +351,6 @@ class WorkspaceUI(Application):
             event.accept()
         else:
             event.ignore()
-
-    def newWorkspace(self):
-        filepath = SaveFile("New Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
-        if filepath:
-            if not filepath.endswith(".kkkk"):
-                filepath = filepath + ".kkkk"
-            self.state.filepath = filepath
-            self.state.root = os.path.dirname(os.path.abspath(filepath))
-            self.state.workspace = {"projects": []}
-            findFiles(self.state.workspace, self.state.root)
-            self.saveFile()
-
-    def openWorkspace(self):
-        filepath = OpenFile("Open Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
-        if filepath:
-            self.state.filepath = filepath
-            self.loadFile()
 
     def openDiffer(self):
         if self.bringToFront(":differ"):
@@ -535,3 +503,67 @@ class WorkspaceUI(Application):
             return windows_bring_pid_to_front(pid)
         else:
             return False
+
+class WorkspacesUI(Application):
+    def __init__(self, filepaths=None):
+        if filepaths is None:
+            filepaths = []
+        filepaths = [os.path.abspath(filepath) for filepath in filepaths]
+        dedup = []
+        for l in filepaths:
+            if l not in dedup:
+                dedup.append(l)
+        filepaths = dedup
+        super().__init__(icon=resource_path("icon.ico"))
+        self.state = State()
+        self.state.workspaces = filepaths
+
+    def content(self):
+        title = f"Kikakuka v{VERSION} Workspace (PUI {PUI.__version__} {PUI_BACKEND})"
+        with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
+            with VBox():
+                if not self.state.workspaces:
+                    with HBox():
+                        Label("Workspace")
+                        Button("New").click(lambda e: self.newWorkspace())
+                        Button("Open").click(lambda e: self.openWorkspace())
+                        Spacer()
+                    with HBox():
+                        Label("Panelization")
+                        Button("New").click(lambda e: self.newPanelization())
+                        Button("Open").click(lambda e: self.openPanelizationAndClose())
+                        Spacer()
+                    with HBox():
+                        Label("Differ")
+                        Button("Open").click(lambda e: self.openDiffer())
+                        Spacer()
+
+                    Spacer()
+                    return
+
+                with HBox():
+                    Button("New Workspace").click(lambda e: self.newWorkspace())
+                    Button("Open Workspace").click(lambda e: self.openWorkspace())
+                    Spacer()
+
+                with Tabs():
+                    for workspace in self.state.workspaces:
+                        with Tab(os.path.splitext(os.path.basename(workspace))[0]):
+                            WorkspaceUI(workspace).id(workspace)
+
+    def newWorkspace(self):
+        filepath = SaveFile("New Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
+        if filepath:
+            if not filepath.endswith(".kkkk"):
+                filepath = filepath + ".kkkk"
+            filepath = os.path.abspath(filepath)
+            if filepath not in self.state.workspaces:
+                self.state.workspaces.append(filepath)
+
+    def openWorkspace(self):
+        filepath = OpenFile("Open Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
+        if filepath:
+            filepath = os.path.abspath(filepath)
+            if filepath not in self.state.workspaces:
+                self.state.workspaces.append(filepath)
+
