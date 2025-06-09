@@ -600,6 +600,21 @@ class MainUI(Application):
             self.openPanelizer(filepath)
             self.quit()
 
+    def openPanelizer(self, filepath):
+        if bringToFront(self.pidmap.get(filepath)):
+            return
+        Thread(target=self._openPanelizer, args=[filepath], daemon=True).start()
+
+    def _openPanelizer(self, filepath):
+        kwargs = {}
+        if platform.system() == "Windows":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        p = subprocess.Popen([*ARGV0, filepath], **kwargs)
+        pid = p.pid
+        self.pidmap[filepath] = pid
+        p.wait()
+        self.pidmap.pop(filepath, None)
+
     def openDiffer(self):
         if bringToFront(self.pidmap.get(":differ")):
             return
