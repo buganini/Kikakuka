@@ -497,21 +497,41 @@ class WorkspaceUI(PUIView):
 
     def close(self):
         self.main.state.workspaces = [f for f in self.main.state.workspaces if f != self.filepath]
+        self.main.commit()
 
 class MainUI(Application):
     def __init__(self, filepaths=None):
-        if filepaths is None:
-            filepaths = []
-        filepaths = [os.path.abspath(filepath) for filepath in filepaths]
+        workspaces = []
+
+        from pathlib import Path
+        cfgfile = Path.home() / ".kikakuka"
+        if os.path.exists(cfgfile):
+            try:
+                cfg = json.load(open(cfgfile))
+                workspaces.extend(cfg["workspaces"])
+            except Exception:
+                pass
+
+        if filepaths is not None:
+            workspaces.extend([os.path.abspath(filepath) for filepath in filepaths])
         dedup = []
-        for l in filepaths:
+        for l in workspaces:
             if l not in dedup:
                 dedup.append(l)
-        filepaths = dedup
+        workspaces = dedup
         super().__init__(icon=resource_path("icon.ico"))
         self.state = State()
-        self.state.workspaces = filepaths
+        self.state.workspaces = workspaces
+        self.commit()
         self.pidmap = {}
+
+    def commit(self):
+        from pathlib import Path
+        f = open(Path.home() / ".kikakuka", "w")
+        json.dump({
+            "workspaces": list(self.state.workspaces)
+        }, f)
+        f.close()
 
     def content(self):
         title = f"Kikakuka v{VERSION} Workspace (PUI {PUI.__version__} {PUI_BACKEND})"
@@ -556,6 +576,7 @@ class MainUI(Application):
             filepath = os.path.abspath(filepath)
             if filepath not in self.state.workspaces:
                 self.state.workspaces.append(filepath)
+                self.commit()
 
     def openWorkspace(self):
         filepath = OpenFile("Open Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
@@ -563,6 +584,7 @@ class MainUI(Application):
             filepath = os.path.abspath(filepath)
             if filepath not in self.state.workspaces:
                 self.state.workspaces.append(filepath)
+                self.commit()
 
 
     def newPanelization(self):
