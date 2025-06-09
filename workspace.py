@@ -603,16 +603,13 @@ class MainUI(Application):
     def openDiffer(self):
         if bringToFront(self.pidmap.get(":differ")):
             return
-        Thread(target=self._openDiffer, args=[self.state.filepath], daemon=True).start()
+        Thread(target=self._openDiffer, daemon=True).start()
 
-    def _openDiffer(self, filepath):
+    def _openDiffer(self):
         kwargs = {}
         if platform.system() == "Windows":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        p = subprocess.Popen([*ARGV0, "--differ", *([filepath] if filepath else [])], **kwargs)
-        if not filepath:
-            self.quit()
-            return
+        p = subprocess.Popen([*ARGV0, "--differ"], **kwargs)
         pid = p.pid
         self.pidmap[":differ"] = pid
         p.wait()
