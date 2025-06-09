@@ -218,9 +218,20 @@ def macos_bring_pid_to_front(pid):
         print(f"Failed to bring application to front. Process with PID {pid} may not have a GUI window")
         return False
 
+def bringToFront(pid):
+    if not pid:
+        return False
+    import platform
+    if platform.system() == 'Darwin':
+        return macos_bring_pid_to_front(pid)
+    elif platform.system() == 'Windows':
+        return windows_bring_pid_to_front(pid)
+    else:
+        return False
 class WorkspaceUI(PUIView):
-    def __init__(self, filepath):
+    def __init__(self, main, filepath):
         super().__init__()
+        self.main = main
         self.filepath = filepath
 
     def setup(self):
@@ -273,6 +284,7 @@ class WorkspaceUI(PUIView):
                 Button("New Panelization").click(lambda e: self.newPanelization())
                 Button("Differ").click(lambda e: self.openDiffer())
                 Spacer()
+                Button("Close").click(lambda e: self.close())
 
             with HBox():
                 with (Tree().layout(weight=1).expandAll().expandable(False)
@@ -353,7 +365,7 @@ class WorkspaceUI(PUIView):
             event.ignore()
 
     def openDiffer(self):
-        if self.bringToFront(":differ"):
+        if bringToFront(self.pidmap.get(":differ")):
             return
         Thread(target=self._openDiffer, args=[self.state.filepath], daemon=True).start()
 
@@ -420,12 +432,6 @@ class WorkspaceUI(PUIView):
                 self.saveFile()
             self.openPanelizer(filepath)
 
-    def openPanelizationAndClose(self):
-        filepath = OpenFile("Open Panelization", types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
-        if filepath:
-            self.openPanelizer(filepath)
-        self.quit()
-
     def openFile(self, path):
         if path.lower().endswith(PNL_SUFFIX):
             self.openPanelizer(path)
@@ -433,7 +439,7 @@ class WorkspaceUI(PUIView):
         if path.lower().endswith(STEP_SUFFIX):
             self.openStep(path)
             return
-        if self.bringToFront(path):
+        if bringToFront(self.pidmap.get(path)):
             return
         Thread(target=self._openFile, args=[path], daemon=True).start()
 
@@ -460,7 +466,7 @@ class WorkspaceUI(PUIView):
             subprocess.run(["xdg-open", location])
 
     def openPanelizer(self, filepath):
-        if self.bringToFront(filepath):
+        if bringToFront(self.pidmap.get(filepath)):
             return
         Thread(target=self._openPanelizer, args=[filepath], daemon=True).start()
 
@@ -475,7 +481,7 @@ class WorkspaceUI(PUIView):
         self.pidmap.pop(filepath, None)
 
     def openStep(self, filepath):
-        if self.bringToFront(filepath):
+        if bringToFront(self.pidmap.get(filepath)):
             return
         Thread(target=self._openStep, args=[filepath], daemon=True).start()
 
@@ -489,22 +495,10 @@ class WorkspaceUI(PUIView):
             if pid:
                 self.pidmap[filepath] = pid
 
-    def bringToFront(self, path):
-        import platform
-        if platform.system() == 'Darwin':
-            pid = self.pidmap.get(path)
-            if not pid:
-                return False
-            return macos_bring_pid_to_front(pid)
-        elif platform.system() == 'Windows':
-            pid = self.pidmap.get(path)
-            if not pid:
-                return False
-            return windows_bring_pid_to_front(pid)
-        else:
-            return False
+    def close(self):
+        self.main.state.workspaces = [f for f in self.main.state.workspaces if f != self.filepath]
 
-class WorkspacesUI(Application):
+class MainUI(Application):
     def __init__(self, filepaths=None):
         if filepaths is None:
             filepaths = []
@@ -517,6 +511,7 @@ class WorkspacesUI(Application):
         super().__init__(icon=resource_path("icon.ico"))
         self.state = State()
         self.state.workspaces = filepaths
+        self.pidmap = {}
 
     def content(self):
         title = f"Kikakuka v{VERSION} Workspace (PUI {PUI.__version__} {PUI_BACKEND})"
@@ -545,11 +540,13 @@ class WorkspacesUI(Application):
                     Button("New Workspace").click(lambda e: self.newWorkspace())
                     Button("Open Workspace").click(lambda e: self.openWorkspace())
                     Spacer()
+                    Button("New Panelization").click(lambda e: self.newPanelization())
+                    Button("Open Panelization").click(lambda e: self.openPanelizationAndClose())
 
                 with Tabs():
                     for workspace in self.state.workspaces:
                         with Tab(os.path.splitext(os.path.basename(workspace))[0]):
-                            WorkspaceUI(workspace).id(workspace)
+                            WorkspaceUI(self, workspace).id(workspace)
 
     def newWorkspace(self):
         filepath = SaveFile("New Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
@@ -567,3 +564,34 @@ class WorkspacesUI(Application):
             if filepath not in self.state.workspaces:
                 self.state.workspaces.append(filepath)
 
+
+    def newPanelization(self):
+        filepath = SaveFile("New Panelization", types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
+        if filepath:
+            if not filepath.endswith(".kikit_pnl"):
+                filepath = filepath + ".kikit_pnl"
+            self.openPanelizer(filepath)
+
+    def openPanelizationAndClose(self):
+        filepath = OpenFile("Open Panelization", types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
+        if filepath:
+            self.openPanelizer(filepath)
+            self.quit()
+
+    def openDiffer(self):
+        if bringToFront(self.pidmap.get(":differ")):
+            return
+        Thread(target=self._openDiffer, args=[self.state.filepath], daemon=True).start()
+
+    def _openDiffer(self, filepath):
+        kwargs = {}
+        if platform.system() == "Windows":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        p = subprocess.Popen([*ARGV0, "--differ", *([filepath] if filepath else [])], **kwargs)
+        if not filepath:
+            self.quit()
+            return
+        pid = p.pid
+        self.pidmap[":differ"] = pid
+        p.wait()
+        self.pidmap.pop(":differ", None)

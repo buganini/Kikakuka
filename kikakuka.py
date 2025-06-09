@@ -9,7 +9,7 @@ if inputs:
         ui = DifferUI(*inputs[1:])
         ui.run()
     elif all([input.endswith(WORKSPACE_SUFFIX) for input in inputs]):
-        ui = WorkspacesUI(inputs)
+        ui = MainUI(inputs)
         ui.run()
     elif inputs[0].endswith(PNL_SUFFIX):
         ui = PanelizerUI()
@@ -33,5 +33,5 @@ else:
         ui = PanelizerUI()
         ui.run()
     else:
-        ui = WorkspacesUI()
+        ui = MainUI()
         ui.run()
