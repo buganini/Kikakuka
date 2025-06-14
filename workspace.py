@@ -446,11 +446,11 @@ class WorkspaceUI(PUIView):
     def _openFile(self, filepath):
         import subprocess, platform
         if platform.system() == 'Darwin':
-            pid = macos_open_file(filepath, ["pcbnew", "eeschema"], "-n", "-W")
+            pid = macos_open_file(filepath, ["kicad", "pcbnew", "eeschema"], "-n", "-W")
             if pid:
                 self.pidmap[filepath] = pid
         elif platform.system() == 'Windows':
-            pid = windows_open_file(filepath, ["pcbnew", "eeschema", "freecad"])
+            pid = windows_open_file(filepath, ["kicad", "pcbnew", "eeschema", "freecad"])
             if pid:
                 self.pidmap[filepath] = pid
         else:
