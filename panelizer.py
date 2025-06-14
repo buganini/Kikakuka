@@ -767,8 +767,10 @@ class PanelizerUI(Application):
                 poly = hole.polygon
                 frameBody = frameBody.difference(poly)
 
+            # remove islands
             if isinstance(frameBody, MultiPolygon):
                 frameBody = frameBody.geoms[0]
+
             panel.appendSubstrate(frameBody)
 
         dbg_points = []
