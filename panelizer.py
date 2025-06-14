@@ -961,14 +961,17 @@ class PanelizerUI(Application):
                     conflicts.append(out_of_frame)
             except:
                 pass
+        frames = []
         if frame_top_polygon:
-            shapes.append(frame_top_polygon)
+            frames.append(frame_top_polygon)
         if frame_bottom_polygon:
-            shapes.append(frame_bottom_polygon)
+            frames.append(frame_bottom_polygon)
         if frame_left_polygon:
-            shapes.append(frame_left_polygon)
+            frames.append(frame_left_polygon)
         if frame_right_polygon:
-            shapes.append(frame_right_polygon)
+            frames.append(frame_right_polygon)
+        if frames:
+            shapes.append(shapely.union_all(frames))
         for i,a in enumerate(shapes):
             for b in shapes[i+1:]:
                 conflict = shapely.intersection(a, b)
