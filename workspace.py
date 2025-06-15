@@ -430,6 +430,7 @@ class WorkspaceUI(PUIView):
                 self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
                 findFiles(self.state.workspace, self.state.root)
                 self.saveFile()
+                self.state()
             self.openPanelizer(filepath)
 
     def openFile(self, path):
