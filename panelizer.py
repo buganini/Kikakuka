@@ -1686,6 +1686,7 @@ class PanelizerUI(Application):
                     self.state.mb_diameter
                     self.state.mb_spacing
                     self.state.mousepos
+                    self.state.focus_tab
                     (Canvas(self.painter)
                         .dblclick(self.dblclicked)
                         .mousedown(self.mousedown)
