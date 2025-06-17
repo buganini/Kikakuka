@@ -1564,12 +1564,10 @@ class PanelizerUI(Application):
                 geoms = []
             for polygon in geoms:
                 coords = transform(polygon.exterior, lambda p:p-(self.off_x, self.off_y)).coords
-                for i in range(1, len(coords)):
-                    self.drawLine(canvas, coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1], color=0x777777)
+                self.drawPolygon(canvas, coords, stroke=0x777777)
                 for interior in polygon.interiors:
                     coords = transform(interior, lambda p:p-(self.off_x, self.off_y)).coords
-                    for i in range(1, len(coords)):
-                        self.drawLine(canvas, coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1], color=0x777777)
+                    self.drawPolygon(canvas, coords, stroke=0x777777)
 
         if self.state.show_hole:
             for hole in self.state.holes:
