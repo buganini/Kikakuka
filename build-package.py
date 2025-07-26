@@ -11,6 +11,11 @@ kikit_base = os.path.dirname(kikit.__file__)
 
 from differ import kicad_cli
 
+
+# macOS
+## brew install create-dmg
+## xcrun notarytool store-credentials notarytool-creds  --apple-id your@apple.id --team-id "XXXXXXXXXX" --password "xxxx-xxxx-xxxx-xxxx"
+
 create_dmg = False
 codesign_identity = None
 
