@@ -436,9 +436,8 @@ class PanelizerUI(Application):
             try:
                 p = PCB(self, boardfile)
                 self._addPCB(p)
-            except:
-                import traceback
-                Critical(traceback.format_exc(), "Error loading PCB")
+            except Exception as e:
+                Critical("Error loading PCB: {}".format(e), "Error loading PCB")
 
     def _addPCB(self, pcb):
         if len(self.state.pcb) > 0:
@@ -622,14 +621,14 @@ class PanelizerUI(Application):
     def build(self, e=None, export=False):
         try:
             self.state.netRenamePattern.format(n=0, orig="test")
-        except:
-            Critical(traceback.format_exc(), "Invalid net rename pattern")
+        except Exception as e:
+            Critical("Invalid net rename pattern: {}".format(e), "Invalid net rename pattern")
             return
 
         try:
             self.state.refRenamePattern.format(n=0, orig="test")
-        except:
-            Critical(traceback.format_exc(), "Invalid ref rename pattern")
+        except Exception as e:
+            Critical("Invalid ref rename pattern: {}".format(e), "Invalid ref rename pattern")
             return
 
 
