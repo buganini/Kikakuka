@@ -24,7 +24,7 @@ if inputs:
         ui = PanelizerUI()
         for boardfile in inputs:
             if boardfile.endswith(PCB_SUFFIX):
-                ui._addPCB(PCB(boardfile))
+                ui._addPCB(PCB(ui, boardfile))
 
         ui.build()
         ui.run()
