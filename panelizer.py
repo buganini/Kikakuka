@@ -433,8 +433,12 @@ class PanelizerUI(Application):
     def addPCB(self, e):
         boardfile = OpenFile("Open PCB", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
         if boardfile:
-            p = PCB(self, boardfile)
-            self._addPCB(p)
+            try:
+                p = PCB(self, boardfile)
+                self._addPCB(p)
+            except:
+                import traceback
+                Critical(traceback.format_exc(), "Error loading PCB")
 
     def _addPCB(self, pcb):
         if len(self.state.pcb) > 0:
