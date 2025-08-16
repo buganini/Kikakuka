@@ -620,6 +620,19 @@ class PanelizerUI(Application):
             self.build()
 
     def build(self, e=None, export=False):
+        try:
+            self.state.netRenamePattern.format(n=0, orig="test")
+        except:
+            Critical(traceback.format_exc(), "Invalid net rename pattern")
+            return
+
+        try:
+            self.state.refRenamePattern.format(n=0, orig="test")
+        except:
+            Critical(traceback.format_exc(), "Invalid ref rename pattern")
+            return
+
+
         pcbs = self.state.pcb
         if len(pcbs) == 0:
             return
