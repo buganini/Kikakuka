@@ -384,8 +384,8 @@ class PanelizerUI(Application):
         self.state.vc_layer = "Cmts.User"
         self.state.merge_vcuts = True
         self.state.merge_vcuts_threshold = 0.4
-        self.state.frame_width = 100
-        self.state.frame_height = 100
+        self.state.frame_width = 300
+        self.state.frame_height = 300
         self.state.frame_top = 5
         self.state.frame_bottom = 5
         self.state.frame_left = 0
