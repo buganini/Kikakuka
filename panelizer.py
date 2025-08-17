@@ -438,6 +438,7 @@ class PanelizerUI(Application):
                 self._addPCB(p)
             except Exception as e:
                 Critical("Error loading PCB: {}".format(e), "Error loading PCB")
+                self.state.pcb.pop()
 
     def _addPCB(self, pcb):
         if len(self.state.pcb) > 0:
