@@ -1810,7 +1810,7 @@ class PanelizerUI(Application):
                                 TextField(self.state("frame_height")).change(self.build)
 
                             with HBox():
-                                Label("Frame Width")
+                                Label("Edge Rail")
                                 Label("Top")
                                 TextField(self.state("frame_top")).change(self.build)
                                 Label("Bottom")
