@@ -1777,6 +1777,7 @@ class PanelizerUI(Application):
                             RadioButton("Mousebites", "mb", self.state("cut_method")).click(self.build)
                             # RadioButton("V-Cut", "vc", self.state("cut_method")).click(self.build)
                             RadioButton("None", "none", self.state("cut_method")).click(self.build)
+                            Spacer()
 
 
                         with HBox():
@@ -1828,10 +1829,11 @@ class PanelizerUI(Application):
 
                         with HBox():
                             Label("Align")
-                            Button("⤒").click(self.align_top)
-                            Button("⤓").click(self.align_bottom)
-                            Button("⇤").click(self.align_left)
-                            Button("⇥").click(self.align_right)
+                            Button("⤒ Top").click(self.align_top)
+                            Button("⤓ Bottom").click(self.align_bottom)
+                            Button("⇤ Left").click(self.align_left)
+                            Button("⇥ Right").click(self.align_right)
+                            Spacer()
 
                         if self.state.pcb:
                             with Scroll().layout(weight=1):
@@ -1860,10 +1862,10 @@ class PanelizerUI(Application):
 
                                             Label("Align").grid(row=r, column=0)
                                             with HBox().grid(row=r, column=1):
-                                                Button("⤒").click(self.align_top, pcb=self.state.focus)
-                                                Button("⤓").click(self.align_bottom, pcb=self.state.focus)
-                                                Button("⇤").click(self.align_left, pcb=self.state.focus)
-                                                Button("⇥").click(self.align_right, pcb=self.state.focus)
+                                                Button("⤒ Top").click(self.align_top, pcb=self.state.focus)
+                                                Button("⤓ Bottom").click(self.align_bottom, pcb=self.state.focus)
+                                                Button("⇤ Left").click(self.align_left, pcb=self.state.focus)
+                                                Button("⇥ Right").click(self.align_right, pcb=self.state.focus)
                                                 Spacer()
                                             r += 1
 
