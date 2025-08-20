@@ -280,7 +280,7 @@ class WorkspaceUI(PUIView):
     def content(self):
         with VBox():
             with HBox():
-                Button("Add Project/Panelization").click(lambda e: self.addFileDialog())
+                Button("Import Project/Panelization").click(lambda e: self.addFileDialog())
                 Button("New Panelization").click(lambda e: self.newPanelization())
                 Button("Differ").click(lambda e: self.openDiffer())
                 Spacer()
