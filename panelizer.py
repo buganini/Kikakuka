@@ -358,7 +358,7 @@ class PanelizerUI(Application):
         self.state.focus_tab = None
 
         self.state.netRenamePattern = "Board_{n}-{orig}"
-        self.state.refRenamePattern = "{orig}"
+        self.state.refRenamePattern = "Board_{n}-{orig}"
 
         self.state.vcuts = []
         self.state.bites = []
