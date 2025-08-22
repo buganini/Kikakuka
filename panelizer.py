@@ -731,7 +731,8 @@ class PanelizerUI(Application):
                 sub.union(frame_right_polygon)
                 boundarySubstrates.append(sub)
 
-        for pcb in pcbs:
+        for i, pcb in enumerate(pcbs):
+            self.refMap = {}
             panel.appendBoard(
                 pcb.file,
                 pcbnew.VECTOR2I(round(pcb.off_x + pcb.x), round(pcb.off_y + pcb.y)),
@@ -742,6 +743,27 @@ class PanelizerUI(Application):
                 netRenamer=self.netRenamer,
                 refRenamer=self.refRenamer
             )
+
+            # Preserve silkscreen text regardless of reference renaming
+            # https://github.com/yaqwsx/KiKit/pull/845
+            for fp in panel.board.GetFootprints():
+                ref = fp.Reference()
+                t = ref.GetText()
+
+                if ref.IsVisible() and t != self.refMap.get(t, t):
+                    text = pcbnew.PCB_TEXT(panel.board)
+                    text.SetText(self.refMap.get(t, t))
+                    text.SetTextX(ref.GetTextPos()[0])
+                    text.SetTextY(ref.GetTextPos()[1])
+                    text.SetTextThickness(ref.GetTextThickness())
+                    text.SetTextSize(ref.GetTextSize())
+                    text.SetHorizJustify(ref.GetHorizJustify())
+                    text.SetVertJustify(ref.GetVertJustify())
+                    text.SetTextAngle(ref.GetTextAngle())
+                    text.SetLayer(ref.GetLayer())
+                    text.SetMirrored(ref.IsMirrored())
+                    panel.board.Add(text)
+                    ref.SetVisible(False)
 
         if self.state.hide_outside_reference_value and export:
             for fp in panel.board.GetFootprints():
@@ -1686,9 +1708,12 @@ class PanelizerUI(Application):
 
     def refRenamer(self, n, orig):
         try:
-            return self.state.refRenamePattern.format(n=n, orig=orig)
+            ret = self.state.refRenamePattern.format(n=n, orig=orig)
         except:
-            return orig
+            ret = orig
+
+        self.refMap[ret] = orig
+        return ret
 
     def content(self):
         title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
