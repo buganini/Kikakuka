@@ -431,7 +431,12 @@ class PanelizerUI(Application):
         self.state.scale = (offx, offy, scale)
 
     def addPCB(self, e):
-        boardfile = OpenFile("Open PCB", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
+        dir = None
+        if self.state.target_path:
+            dir = os.path.dirname(self.state.target_path)
+        elif self.state.pcb:
+            dir = os.path.dirname(self.state.pcb[0].file)
+        boardfile = OpenFile("Open PCB", dir=dir, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
         if boardfile:
             try:
                 p = PCB(self, boardfile)

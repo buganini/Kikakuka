@@ -391,7 +391,10 @@ class WorkspaceUI(PUIView):
         self.state.focus = node
 
     def addFileDialog(self):
-        filepath = OpenFile("Open Project/Panelization", types=f"KiCad Project/Panelization (*.kicad_pro *.kikit_pnl)|*.kicad_pro|*.kikit_pnl")
+        dir = None
+        if self.state.filepath:
+            dir = os.path.dirname(self.state.filepath)
+        filepath = OpenFile("Open Project/Panelization", dir=dir, types=f"KiCad Project/Panelization (*.kicad_pro *.kikit_pnl)|*.kicad_pro|*.kikit_pnl")
         if filepath:
             self.addFile(filepath)
 
