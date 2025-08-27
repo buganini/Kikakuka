@@ -1905,10 +1905,10 @@ class PanelizerUI(Application):
                                                 Spacer()
                                             r += 1
 
-                                            Label("Align").grid(row=r, column=0)
+                                            Label("Move").grid(row=r, column=0)
                                             with HBox().grid(row=r, column=1):
-                                                Button("⤒ Top").click(self.align_top, pcb=self.state.focus)
-                                                Button("⤓ Bottom").click(self.align_bottom, pcb=self.state.focus)
+                                                Button("⤒ Up").click(self.align_top, pcb=self.state.focus)
+                                                Button("⤓ Down").click(self.align_bottom, pcb=self.state.focus)
                                                 Button("⇤ Left").click(self.align_left, pcb=self.state.focus)
                                                 Button("⇥ Right").click(self.align_right, pcb=self.state.focus)
                                                 Spacer()
