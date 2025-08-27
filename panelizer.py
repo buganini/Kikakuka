@@ -369,6 +369,7 @@ class PanelizerUI(Application):
         self.state.substrates = []
         self.state.holes = []
         self.state.conflicts = []
+        self.state.errors = []
 
         self.state.use_frame = True
         self.state.tight = True
@@ -992,7 +993,10 @@ class PanelizerUI(Application):
             except:
                 traceback.print_exc()
 
+        errors = []
         conflicts = []
+
+        # frame boundary
         shapes = [shapely.union_all(p.shapes) for p in pcbs]
         if self.state.use_frame:
             frame = Polygon([
@@ -1005,6 +1009,7 @@ class PanelizerUI(Application):
                 out_of_frame = GeometryCollection(shapes).difference(frame)
                 if not out_of_frame.is_empty:
                     conflicts.append(out_of_frame)
+                    errors.append("PCB placement exceeds frame boundaries")
             except:
                 pass
         frames = []
@@ -1018,11 +1023,17 @@ class PanelizerUI(Application):
             frames.append(frame_right_polygon)
         if frames:
             shapes.append(shapely.union_all(frames))
+
+        # frame edge
+        overlapped = False
         for i,a in enumerate(shapes):
             for b in shapes[i+1:]:
                 conflict = shapely.intersection(a, b)
                 if not conflict.is_empty and conflict.area > 0:
                     conflicts.append(conflict)
+                    overlapped = True
+        if overlapped:
+            errors.append("PCB overlaps with other PCB or frame edges")
 
         for pcb in pcbs:
             shapes = pcb.shapes
@@ -1033,6 +1044,7 @@ class PanelizerUI(Application):
             panel.addMillFillets(self.state.mill_fillets*self.unit)
 
         if not export:
+            self.state.errors = errors
             self.state.conflicts = conflicts
             self.state.dbg_points = dbg_points
             self.state.dbg_rects = dbg_rects
@@ -1699,6 +1711,9 @@ class PanelizerUI(Application):
                     x2, y2 = self.toCanvas(x2-self.off_x, y2-self.off_y)
                     canvas.drawEllipse(x2, y2, 3, 3, stroke=0xFF0000)
                     canvas.drawLine(x1, y1, x2, y2, color=0xFFFF00)
+
+        for i, error in enumerate(self.state.errors):
+            canvas.drawText(10, 10+i*15, error, color=0xFF0000)
 
         if drawCross and self.state.mousepos:
             x, y = self.state.mousepos[0], self.state.mousepos[1]
