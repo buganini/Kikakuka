@@ -512,7 +512,9 @@ class MainUI(Application):
         if os.path.exists(cfgfile):
             try:
                 cfg = json.load(open(cfgfile))
-                workspaces.extend(cfg["workspaces"])
+                for workspace in cfg["workspaces"]:
+                    if os.path.exists(workspace):
+                        workspaces.append(workspace)
             except Exception:
                 pass
 
