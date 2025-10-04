@@ -290,7 +290,10 @@ class WorkspaceUI(PUIView):
                 with (Tree().layout(weight=1).expandAll().expandable(False)
                     .dragEnter(self.handleDragEnter).drop(self.handleDrop)):
                     for project in self.state.workspace["projects"]:
-                        with (TreeNode(os.path.basename(project["path"]))
+                        folder = os.path.basename(os.path.dirname(project["path"]))
+                        file = os.path.basename(project["path"])
+                        folder_file = f"{folder}/{file}"
+                        with (TreeNode(folder_file)
                                 .click(lambda e, project: self.selectFile(project), project)
                                 .dblclick(lambda e, project: self.openFile(project["path"]), project)):
                             for file in project["files"]:
