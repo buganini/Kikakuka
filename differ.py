@@ -685,7 +685,10 @@ class DifferUI(Application):
                                         if project["path"].lower().endswith(PNL_SUFFIX):
                                             continue
                                         for file in project["files"]:
-                                            ComboBoxItem(os.path.basename(file["path"]), file["path"])
+                                            folder_name = os.path.basename(os.path.dirname(file["path"]))
+                                            file_name = os.path.basename(file["path"])
+                                            folder_file = f"{folder_name}/{file_name}"
+                                            ComboBoxItem(folder_file, file["path"])
 
                             with HBox():
                                 Label("File B")
@@ -694,7 +697,10 @@ class DifferUI(Application):
                                         if project["path"].lower().endswith(PNL_SUFFIX):
                                             continue
                                         for file in project["files"]:
-                                            ComboBoxItem(os.path.basename(file["path"]), file["path"])
+                                            folder_name = os.path.basename(os.path.dirname(file["path"]))
+                                            file_name = os.path.basename(file["path"])
+                                            folder_file = f"{folder_name}/{file_name}"
+                                            ComboBoxItem(folder_file, file["path"])
                     else:
                         with HBox():
                             Label("File A")
