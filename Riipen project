@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""
+svg_inlay_integration.py
+
+Usage:
+    python svg_inlay_integration.py \
+      --hydro hydro.svg \
+      --nft nft.svg \
+      --out integrated.svg \
+      --pocket-outset 1.0 \
+      --scale 1.0 \
+      --tx 0 --ty 0 \
+      --samples 200
+
+What it does (high level):
+ - Loads simple path shapes from hydro.svg and nft.svg
+ - Samples each path into points (approximate curves)
+ - Builds Shapely polygons from sampled paths
+ - Optionally scales/translates NFT, then buffers (outset) the NFT polygon to make a pocket
+ - Subtracts pocket from hydro polygon (Difference)
+ - Writes out several helpful SVGs for preview and the integrated result
+
+Limitations:
+ - Expects closed paths suitable for polygon creation
+ - Doesn't preserve stroke styles, colors; outputs simple fills
+ - Complex SVG features (text, gradients, transforms) may require manual preprocessing
+"""
+
+import argparse
+import math
+from svgpathtools import svg2paths2, Path, Line, CubicBezier, QuadraticBezier, Arc
+from shapely.geometry import Polygon, MultiPolygon, LinearRing
+from shapely.ops import unary_union
+import svgwrite
+import numpy as np
+import os
+import sys
+
+def sample_path(path_obj: Path, num_samples: int = 200):
+    """
+    Sample points along an svgpathtools Path (which may contain multiple segments)
+    Returns list of (x,y) tuples.
+    """
+    points = []
+    length = path_obj.length(error=1e-5)
+    if length == 0:
+        return points
+    # sample by equal distance
+    for i in range(num_samples):
+        t = (i / (num_samples - 1)) if num_samples > 1 else 0
+        try:
+            pt = path_obj.point(t)
+        except Exception:
+            # fallback: sample by scaled arc length proportion
+            pt = path_obj.point(t)
+        points.append((pt.real, pt.imag))
+    return points
+
+def paths_to_polygons(svg_path, samples_per_path=200):
+    """
+    Parse an SVG file and return a list of shapely polygons built from its paths.
+    Only uses path elements — ignores shapes such as rect/circle unless converted to paths first.
+    """
+    paths, attributes, svg_attr = svg2paths2(svg_path)
+    polygons = []
+    for p, attr in zip(paths, attributes):
+        # only consider if path likely closed (Z or last point equals first)
+        pts = sample_path(p, num_samples=samples_per_path)
+        if not pts:
+            continue
+        # Attempt to close
+        if (pts[0][0], pts[0][1]) != (pts[-1][0], pts[-1][1]):
+            pts.append(pts[0])
+        try:
+            ring = LinearRing(pts)
+            if ring.is_valid and ring.length > 0:
+                poly = Polygon(pts)
+                if poly.is_valid and poly.area > 0:
+                    polygons.append(poly)
+        except Exception:
+            continue
+    # merge near polygons if needed
+    if not polygons:
+        return []
+    merged = unary_union(polygons)
+    # return as list
+    if isinstance(merged, (Polygon,)):
+        return [merged]
+    elif isinstance(merged, MultiPolygon):
+        return list(merged)
+    else:
+        return []
+
+def transform_polygon(poly, sx=1.0, sy=1.0, tx=0.0, ty=0.0):
+    """Scale and translate a shapely polygon"""
+    def xf(x, y):
+        return (x * sx + tx, y * sy + ty)
+    exterior = [xf(x,y) for x,y in poly.exterior.coords]
+    interiors = []
+    for interior in poly.interiors:
+        interiors.append([xf(x,y) for x,y in interior.coords])
+    return Polygon(exterior, interiors)
+
+def write_polygons_to_svg(polys, filename, canvas_size=None, fill='#cccccc', stroke='#000000'):
+    """
+    Write polygons (list) to an SVG file for preview.
+    canvas_size: (width, height) in same units as polygon coords; if None, auto-fit bounding box.
+    """
+    if not polys:
+        print("No polygons to write for", filename)
+        return
+    # compute bounds to set viewBox
+    minx = min(poly.bounds[0] for poly in polys)
+    miny = min(poly.bounds[1] for poly in polys)
+    maxx = max(poly.bounds[2] for poly in polys)
+    maxy = max(poly.bounds[3] for poly in polys)
+    width = maxx - minx
+    height = maxy - miny
+    if canvas_size:
+        w,h = canvas_size
+    else:
+        w,h = (width if width>0 else 100, height if height>0 else 100)
+    dwg = svgwrite.Drawing(filename=filename, size=(f"{w}px", f"{h}px"),
+                           viewBox=f"{minx} {miny} {width} {height}")
+    for poly in polys:
+        if poly.is_empty:
+            continue
+        exterior = list(poly.exterior.coords)
+        path_data = "M " + " L ".join(f"{x},{y}" for x,y in exterior) + " Z"
+        # include holes
+        for interior in poly.interiors:
+            path_data += " M " + " L ".join(f"{x},{y}" for x,y in interior.coords) + " Z"
+        dwg.add(dwg.path(d=path_data, fill=fill, stroke=stroke, stroke_width=0.5))
+    dwg.save()
+    print("Wrote", filename)
+
+def polygon_to_svg_path(poly):
+    """Return an SVG path 'd' string for a shapely polygon (including holes)."""
+    if poly.is_empty:
+        return ''
+    parts = []
+    exterior = list(poly.exterior.coords)
+    parts.append("M " + " L ".join(f"{x},{y}" for x,y in exterior) + " Z")
+    for interior in poly.interiors:
+        coords = list(interior.coords)
+        parts.append("M " + " L ".join(f"{x},{y}" for x,y in coords) + " Z")
+    return " ".join(parts)
+
+def write_combined_svg(base_poly, nft_poly, out_file):
+    """Write a combined svg with the base (pocket) and the NFT placed inside."""
+    # determine viewbox
+    polys = [p for p in ([base_poly] if base_poly is not None else []) + ([nft_poly] if nft_poly is not None else []) if p is not None]
+    if not polys:
+        print("Nothing to write for combined")
+        return
+    minx = min(p.bounds[0] for p in polys)
+    miny = min(p.bounds[1] for p in polys)
+    maxx = max(p.bounds[2] for p in polys)
+    maxy = max(p.bounds[3] for p in polys)
+    width = maxx - minx
+    height = maxy - miny
+    dwg = svgwrite.Drawing(filename=out_file, size=(f"{width}px", f"{height}px"),
+                           viewBox=f"{minx} {miny} {width} {height}")
+    # base shape (hydro with pocket)
+    if base_poly:
+        d = polygon_to_svg_path(base_poly)
+        dwg.add(dwg.path(d=d, fill="#f7f7f7", stroke="#333", stroke_width=0.6))
+    # nft shape on top
+    if nft_poly:
+        d2 = polygon_to_svg_path(nft_poly)
+        dwg.add(dwg.path(d=d2, fill="#d95f5f", stroke="#000", stroke_width=0.4))
+    dwg.save()
+    print("Wrote", out_file)
+
+def main():
+    parser = argparse.ArgumentParser(description="Create an inlay pocket: subtract NFT (outset) from HydroLodge.")
+    parser.add_argument('--hydro', required=True, help="HydroLodge SVG file (path shapes)")
+    parser.add_argument('--nft', required=True, help="NFT SVG file (path shapes)")
+    parser.add_argument('--out', default='integrated.svg', help="Output filename for hydro with pocket subtracted")
+    parser.add_argument('--pocket-outset', type=float, default=1.0, help="Outset (buffer) distance to expand NFT to make pocket (same units as SVG coords)")
+    parser.add_argument('--scale', type=float, default=1.0, help="Scale NFT by this factor before applying pocket")
+    parser.add_argument('--tx', type=float, default=0.0, help="Translate NFT x (units)")
+    parser.add_argument('--ty', type=float, default=0.0, help="Translate NFT y (units)")
+    parser.add_argument('--samples', type=int, default=200, help="Samples per path for curve approximation")
+    parser.add_argument('--debug-prefix', default='out', help="prefix for debug output files")
+    args = parser.parse_args()
+
+    # load polygons
+    hydro_polys = paths_to_polygons(args.hydro, samples_per_path=args.samples)
+    nft_polys = paths_to_polygons(args.nft, samples_per_path=args.samples)
+
+    if not hydro_polys:
+        print("No hydro polygons found in", args.hydro)
+        sys.exit(1)
+    if not nft_polys:
+        print("No nft polygons found in", args.nft)
+        sys.exit(1)
+
+    # union hydro into single polygon
+    hydro_union = unary_union(hydro_polys)
+
+    # union nft into single polygon and apply transform
+    nft_union = unary_union(nft_polys)
+    nft_transformed = transform_polygon(nft_union, sx=args.scale, sy=args.scale, tx=args.tx, ty=args.ty)
+
+    # create pocket by buffering (outset = positive buffer)
+    pocket = nft_transformed.buffer(args.pocket_outset, join_style=2)  # join_style=2 -> round corners; 1=mitre
+    # write pocket debug
+    pocket_file = f"{args.debug_prefix}_pocket.svg"
+    write_polygons_to_svg([pocket], pocket_file, fill='#ffeeee', stroke='#cc0000')
+
+    # subtract pocket from hydro
+    hydro_with_pocket = hydro_union.difference(pocket)
+    if hydro_with_pocket.is_empty:
+        print("Warning: hydro minus pocket resulted in empty geometry (pocket larger than hydro or mispositioned).")
+    # write hydro with pocket debug
+    hydro_file = f"{args.debug_prefix}_hydro_with_pocket.svg"
+    write_polygons_to_svg([hydro_with_pocket] if not hydro_with_pocket.is_empty else [], hydro_file, fill='#e0f7ff', stroke='#0066aa')
+
+    # placed NFT preview (duplicate position)
+    placed_nft_file = f"{args.debug_prefix}_placed_nft.svg"
+    write_polygons_to_svg([nft_transformed], placed_nft_file, fill='#d95f5f', stroke='#000')
+
+    # combined visual
+    combined_file = f"{args.debug_prefix}_combined.svg"
+    write_combined_svg(hydro_with_pocket, nft_transformed, combined_file)
+
+    # save the requested out filename (hydro with pocket)
+    # just copy combined hydro visual into args.out for convenience
+    try:
+        os.replace(hydro_file, args.out)
+        print("Saved final hydro-with-pocket as", args.out)
+    except Exception:
+        print("Could not rename file to", args.out, "— saved debug as", hydro_file)
+
+if __name__ == "__main__":
+    main()
