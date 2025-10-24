@@ -473,8 +473,11 @@ class PanelizerUI(Application):
     def highlight_tab(self, e, i):
         self.state.focus_tab = i
 
-    def remove_tab(self, e, i):
-        self.state.focus._tabs.pop(i)
+    def remove_tab(self, e, tab):
+        try:
+            self.state.focus._tabs.remove(tab)
+        except ValueError:
+            pass
         self.state.focus_tab = None
         self.build()
 
@@ -1926,7 +1929,7 @@ class PanelizerUI(Application):
                                                 Label(f"Tab {i+1}").grid(row=r, column=0)
                                                 with HBox().grid(row=r, column=1):
                                                     Button("Highlight").click(self.highlight_tab, i)
-                                                    Button("Remove").click(self.remove_tab, i)
+                                                    Button("Remove").click(self.remove_tab, self.state.focus._tabs[i])
                                                     Spacer()
                                                 r += 1
 
