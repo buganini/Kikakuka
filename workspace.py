@@ -511,10 +511,10 @@ class MainUI(Application):
         workspaces = []
 
         from pathlib import Path
-        cfgfile = Path.home() / ".kikakuka"
-        if os.path.exists(cfgfile):
+        self.cfgfile = Path.home() / ".kikakuka"
+        if os.path.exists(self.cfgfile):
             try:
-                cfg = json.load(open(cfgfile))
+                cfg = json.load(open(self.cfgfile))
                 for workspace in cfg["workspaces"]:
                     if os.path.exists(workspace):
                         workspaces.append(workspace)
@@ -535,8 +535,7 @@ class MainUI(Application):
         self.pidmap = {}
 
     def commit(self):
-        from pathlib import Path
-        f = open(Path.home() / ".kikakuka", "w")
+        f = open(self.cfgfile, "w")
         json.dump({
             "workspaces": list(self.state.workspaces)
         }, f)
