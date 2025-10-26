@@ -513,7 +513,7 @@ class PanelizerUI(Application):
                 "y": pcb.y,
                 "rotate": pcb.rotate,
                 "disable_auto_tab": pcb.disable_auto_tab,
-                "tabs": pcb._tabs,
+                "tabs": [dict(tab) for tab in pcb._tabs],
             })
         data = {
             "export_path": self.state.export_path,

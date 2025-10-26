@@ -12,6 +12,8 @@
     "mb_offset": 0.0,
     "tab_width": 3.6,
     "vc_layer": "Cmts.User",
+    "merge_vcuts": true,
+    "merge_vcuts_threshold": 0.4,
     "frame_width": 100,
     "frame_height": 100,
     "frame_top": 5,
@@ -24,63 +26,68 @@
     "refRenamePattern": "Board_{n}-{orig}",
     "pcb": [
         {
-            "file": "./circle.kicad_pcb",
+            "file": "circle.kicad_pcb",
             "x": 37151452,
             "y": 21644498.0,
             "rotate": 0,
             "disable_auto_tab": false,
             "tabs": [
-                [
-                    8500013.333333328,
-                    20566682.0
-                ]
+                {
+                    "x": 8500013.333333328,
+                    "y": 20566682.0,
+                    "width": 3.6
+                }
             ]
         },
         {
-            "file": "./25x12.kicad_pcb",
+            "file": "25x12.kicad_pcb",
             "x": 56251849.548048876,
             "y": 65338404.41935304,
             "rotate": 45,
             "disable_auto_tab": false,
             "tabs": [
-                [
-                    13967626.293177623,
-                    8775026.650459202
-                ]
+                {
+                    "x": 13967626.293177623,
+                    "y": 8775026.650459202,
+                    "width": 6.0
+                }
             ]
         },
         {
-            "file": "./rounded.kicad_pcb",
+            "file": "rounded.kicad_pcb",
             "x": 13758506,
             "y": 54886391.323255286,
             "rotate": 0,
             "disable_auto_tab": false,
             "tabs": [
-                [
-                    26511202.62346518,
-                    17014128.158511803
-                ]
+                {
+                    "x": 26511202.62346518,
+                    "y": 17014128.158511803,
+                    "width": 3.6
+                }
             ]
         },
         {
-            "file": "./25x12.kicad_pcb",
+            "file": "25x12.kicad_pcb",
             "x": 7748126.451951146,
             "y": 80556849.24554272,
             "rotate": 0,
             "disable_auto_tab": false,
             "tabs": [
-                [
-                    13967626.293177623,
-                    8775026.650459202
-                ],
-                [
-                    2418541.548048854,
-                    6109815.421123952
-                ]
+                {
+                    "x": 13967626.293177623,
+                    "y": 8775026.650459202,
+                    "width": 3.6
+                },
+                {
+                    "x": 2418541.548048854,
+                    "y": 6109815.421123952,
+                    "width": 3.6
+                }
             ]
         },
         {
-            "file": "./25x12.kicad_pcb",
+            "file": "25x12.kicad_pcb",
             "x": 67869814,
             "y": 8024291.24554272,
             "rotate": 0,
