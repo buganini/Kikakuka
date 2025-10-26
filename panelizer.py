@@ -119,8 +119,8 @@ class PCB(StateObject):
         Return tab anchors in global coordinate system
         """
         ret = []
-        for p in self._tabs:
-            p = affinity.rotate(Point(*p), self.rotate*-1, origin=(0,0))
+        for tab in self._tabs:
+            p = affinity.rotate(Point(tab["x"], tab["y"]), self.rotate*-1, origin=(0,0))
             p = transform(p, lambda x: x+[self.x+self.off_x, self.y+self.off_y])
             shortest = None
             for shape in self.shapes:
@@ -131,14 +131,20 @@ class PCB(StateObject):
             if shortest:
                 t0 = shortest.coords[0]
                 t1 = shortest.coords[1]
-                ret.append((*t0, *t1))
+                ret.append({
+                    "x1": t0[0],
+                    "y1": t0[1],
+                    "x2": t1[0],
+                    "y2": t1[1],
+                    "width": tab["width"],
+                })
         return ret
 
     def clone(self):
         pcb = PCB(self.main, self.file)
         pcb.rotate = self.rotate
         pcb.disable_auto_tab = self.disable_auto_tab
-        pcb._tabs = list(self._tabs)
+        pcb._tabs = [StateDict({**tab}) for tab in self._tabs]
         return pcb
 
     def contains(self, p):
@@ -228,7 +234,11 @@ class PCB(StateObject):
 
     def addTab(self, x, y):
         p = affinity.rotate(Point(x - self.x - self.off_x, y - self.y - self.off_y), self.rotate*1, origin=(0,0))
-        self._tabs.append((p.x, p.y))
+        self._tabs.append({
+            "x": p.x,
+            "y": p.y,
+            "width": self.state.tab_width,
+        })
 
 class Hole(StateObject):
     def __init__(self, coords):
@@ -623,7 +633,15 @@ class PanelizerUI(Application):
                 pcb.y = p["y"]
                 pcb.rotate = p["rotate"]
                 pcb.disable_auto_tab = p.get("disable_auto_tab", False)
-                pcb._tabs = p.get("tabs", [])
+                tabs = p.get("tabs", [])
+                for i in range(len(tabs)):
+                    if isinstance(tabs[i], list):
+                        tabs[i] = StateDict({
+                            "x": tabs[i][0],
+                            "y": tabs[i][1],
+                            "width": self.state.tab_width,
+                        })
+                pcb._tabs = tabs
                 self.state.pcb.append(pcb)
             self.state.scale = None
             self.build()
@@ -832,11 +850,16 @@ class PanelizerUI(Application):
 
         # manual tab
         for pcb in pcbs:
-            for x1, y1, x2, y2 in pcb.tabs():
+            for tab in pcb.tabs():
+                x1 = tab["x1"]
+                y1 = tab["y1"]
+                x2 = tab["x2"]
+                y2 = tab["y2"]
+                width = tab["width"]
                 tx, ty = extrapolate(x1, y1, x2, y2, 1, spacing/2*self.unit)
 
                 # outward
-                tab = autotab(panel.boardSubstrate, (tx, ty), (tx-x2, ty-y2), tab_width*self.unit)
+                tab = autotab(panel.boardSubstrate, (tx, ty), (tx-x2, ty-y2), width*self.unit)
                 if tab:
                     tab_substrates.append(tab[0])
                     for pcb in pcbs:
@@ -846,7 +869,7 @@ class PanelizerUI(Application):
                             break
 
                     # inward
-                    tab = autotab(panel.boardSubstrate, (tx, ty), (x2-tx, y2-ty), tab_width*self.unit)
+                    tab = autotab(panel.boardSubstrate, (tx, ty), (x2-tx, y2-ty), width*self.unit)
                     if tab: # tab, tabface
                         tab_substrates.append(tab[0])
                         cuts.append(tab[1])
@@ -1532,7 +1555,11 @@ class PanelizerUI(Application):
         x, y = self.toCanvas(pcb.x+p.x, pcb.y+p.y)
         canvas.drawText(x, y, f"{index}. {pcb.ident}\n{pcb.width/self.unit:.2f}*{pcb.height/self.unit:.2f}", rotate=pcb.rotate*-1, color=0xFFFFFF)
 
-        for i, (x1, y1, x2, y2) in enumerate(pcb.tabs()):
+        for i, tab in enumerate(pcb.tabs()):
+            x1 = tab["x1"]
+            y1 = tab["y1"]
+            x2 = tab["x2"]
+            y2 = tab["y2"]
             x2, y2 = extrapolate(x1, y1, x2, y2, 1, self.state.spacing/2*self.unit)
             x1, y1 = self.toCanvas(x1-self.off_x, y1-self.off_y)
             x2, y2 = self.toCanvas(x2-self.off_x, y2-self.off_y)
@@ -1930,6 +1957,8 @@ class PanelizerUI(Application):
                                                 with HBox().grid(row=r, column=1):
                                                     Button("Highlight").click(self.highlight_tab, i)
                                                     Button("Remove").click(self.remove_tab, self.state.focus._tabs[i])
+                                                    Label("Width")
+                                                    TextField(self.state.focus._tabs[i]("width")).change(self.build)
                                                     Spacer()
                                                 r += 1
 
