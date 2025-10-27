@@ -641,6 +641,8 @@ class PanelizerUI(Application):
                             "y": tabs[i][1],
                             "width": self.state.tab_width,
                         })
+                    else:
+                        tabs[i] = StateDict(tabs[i])
                 pcb._tabs = tabs
                 self.state.pcb.append(pcb)
             self.state.scale = None
