@@ -102,6 +102,11 @@ class PCB(StateObject):
         self.rotate = 0
         self._tabs = []
 
+    def transform(self, shape):
+        shape = affinity.rotate(shape, self.rotate*-1, origin=(0,0))
+        shape = transform(shape, lambda x: x+[self.x+self.off_x, self.y+self.off_y])
+        return shape
+
     @property
     def shapes(self):
         """
@@ -109,9 +114,7 @@ class PCB(StateObject):
         """
         ret = []
         for shape in self._shapes:
-            shape = affinity.rotate(shape, self.rotate*-1, origin=(0,0))
-            shape = transform(shape, lambda x: x+[self.x+self.off_x, self.y+self.off_y])
-            ret.append(shape)
+            ret.append(self.transform(shape))
         return ret
 
     def tabs(self):
@@ -137,6 +140,7 @@ class PCB(StateObject):
                     "x2": t1[0],
                     "y2": t1[1],
                     "width": tab["width"],
+                    "o": tab,
                 })
         return ret
 
@@ -234,11 +238,11 @@ class PCB(StateObject):
 
     def addTab(self, x, y):
         p = affinity.rotate(Point(x - self.x - self.off_x, y - self.y - self.off_y), self.rotate*1, origin=(0,0))
-        self._tabs.append({
+        self._tabs.append(StateDict({
             "x": p.x,
             "y": p.y,
-            "width": self.state.tab_width,
-        })
+            "width": self.main.state.tab_width,
+        }))
 
 class Hole(StateObject):
     def __init__(self, coords):
@@ -480,12 +484,12 @@ class PanelizerUI(Application):
         self.state.focus = None
         self.build()
 
-    def highlight_tab(self, e, i):
-        self.state.focus_tab = i
+    def select_tab(self, e, tab):
+        self.state.focus_tab = tab["o"]
 
     def remove_tab(self, e, tab):
         try:
-            self.state.focus._tabs.remove(tab)
+            self.state.focus._tabs.remove(tab["o"])
         except ValueError:
             pass
         self.state.focus_tab = None
@@ -1509,16 +1513,28 @@ class PanelizerUI(Application):
             x2, y2 = self.fromCanvas(e.x, e.y)
             dx = x2 - x1
             dy = y2 - y1
-            self.state.focus = self.mouse_dragging
 
-            if self.mouse_dragging:
-                self.mouse_dragging.x += int(dx)
-                self.mouse_dragging.y += int(dy)
+            if self.state.focus_tab is not None:
+                p = affinity.rotate(Point(dx, dy), self.state.focus.rotate*1, origin=(0,0))
+
+                mx = self.state.focus_tab["x"] + int(p.x)
+                my = self.state.focus_tab["y"] + int(p.y)
+
+                if self.state.focus.contains(self.state.focus.transform(Point(mx, my))):
+                    self.state.focus_tab["x"] = mx
+                    self.state.focus_tab["y"] = my
+                    self.build()
             else:
-                offx, offy, scale = self.state.scale
-                offx += pdx
-                offy += pdy
-                self.state.scale = offx, offy, scale
+                self.state.focus = self.mouse_dragging
+
+                if self.mouse_dragging:
+                    self.mouse_dragging.x += int(dx)
+                    self.mouse_dragging.y += int(dy)
+                else:
+                    offx, offy, scale = self.state.scale
+                    offx += pdx
+                    offy += pdy
+                    self.state.scale = offx, offy, scale
         self.state.mousepos = e.x, e.y
 
     def wheel(self, e):
@@ -1565,7 +1581,7 @@ class PanelizerUI(Application):
             x2, y2 = extrapolate(x1, y1, x2, y2, 1, self.state.spacing/2*self.unit)
             x1, y1 = self.toCanvas(x1-self.off_x, y1-self.off_y)
             x2, y2 = self.toCanvas(x2-self.off_x, y2-self.off_y)
-            if i == self.state.focus_tab and pcb is self.state.focus:
+            if tab["o"] == self.state.focus_tab and pcb is self.state.focus:
                 width = 3
             else:
                 width = 1
@@ -1955,10 +1971,12 @@ class PanelizerUI(Application):
                                             r += 1
 
                                             for i, tab in enumerate(self.state.focus.tabs()):
-                                                Label(f"Tab {i+1}").grid(row=r, column=0)
+                                                selected = (self.state.focus_tab is tab["o"])
+                                                prefix = "*" if selected else " "
+                                                Label(f"{prefix} Tab {i+1}").grid(row=r, column=0)
                                                 with HBox().grid(row=r, column=1):
-                                                    Button("Highlight").click(self.highlight_tab, i)
-                                                    Button("Remove").click(self.remove_tab, self.state.focus._tabs[i])
+                                                    Button("Select").click(self.select_tab, tab)
+                                                    Button("Remove").click(self.remove_tab, tab)
                                                     Label("Width")
                                                     TextField(self.state.focus._tabs[i]("width")).change(self.build)
                                                     Spacer()
