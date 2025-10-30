@@ -669,7 +669,7 @@ class DifferUI(Application):
             shutil.rmtree(self.temp_dir)
 
     def content(self):
-        title = f"Kikakuka v{VERSION} Differ (KiCad CLI {kicad_cli_version}, Pypdfium2 {pdfium.V_PYPDFIUM2}, OpenCV {cv2.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
+        title = f"Kikakuka v{VERSION} Differ (KiCad CLI {kicad_cli_version}, Pypdfium2 {pdfium.version.PYPDFIUM_INFO}, OpenCV {cv2.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")):
             with VBox():
                 if not os.path.exists(kicad_cli):
