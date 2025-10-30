@@ -1472,8 +1472,6 @@ class PanelizerUI(Application):
             pass
         elif self.tool == Tool.END:
             self.tool = Tool.NONE
-        elif self.state.focus_tab is not None:
-            self.build()
         else:
             if self.mousemoved < 5:
                 found = False
@@ -1500,6 +1498,8 @@ class PanelizerUI(Application):
                                 self.state.focus_tab = None
                 if not found and (self.state.focus and not self.state.focus.contains(p)):
                     self.state.focus = None
+                if self.state.focus_tab is not None:
+                    self.build()
             else:
                 self.build()
 
