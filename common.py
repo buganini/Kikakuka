@@ -2,7 +2,7 @@ import os
 import sys
 import re
 
-VERSION = "4.6"
+VERSION = "4.6.1"
 
 WORKSPACE_SUFFIX = ".kkkk"
 PNL_SUFFIX = ".kikit_pnl"
