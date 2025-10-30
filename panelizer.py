@@ -1966,8 +1966,8 @@ class PanelizerUI(Application):
                                             Label("Tabs").grid(row=r, column=0)
                                             with HBox().grid(row=r, column=1):
                                                 Button("Add").click(self.add_tab)
-                                                if not self.state.focus.tabs():
-                                                    Checkbox("Disable auto tab", self.state.focus("disable_auto_tab")).click(self.build)
+                                                # if not self.state.focus.tabs():
+                                                #     Checkbox("Disable auto tab", self.state.focus("disable_auto_tab")).click(self.build)
                                                 Spacer()
                                             r += 1
 
