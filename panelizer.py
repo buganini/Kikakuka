@@ -1472,6 +1472,8 @@ class PanelizerUI(Application):
             pass
         elif self.tool == Tool.END:
             self.tool = Tool.NONE
+        elif self.state.focus_tab is not None:
+            self.build()
         else:
             if self.mousemoved < 5:
                 found = False
@@ -1496,7 +1498,7 @@ class PanelizerUI(Application):
                             else:
                                 self.state.focus = pcb
                                 self.state.focus_tab = None
-                if not found:
+                if not found and (self.state.focus and not self.state.focus.contains(p)):
                     self.state.focus = None
             else:
                 self.build()
@@ -1523,7 +1525,6 @@ class PanelizerUI(Application):
                 if self.state.focus.contains(self.state.focus.transform(Point(mx, my))):
                     self.state.focus_tab["x"] = mx
                     self.state.focus_tab["y"] = my
-                    self.build()
             else:
                 self.state.focus = self.mouse_dragging
 
