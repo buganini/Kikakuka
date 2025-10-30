@@ -90,7 +90,7 @@ class PCB(StateObject):
             name = os.path.join(folder, name)
         self.ident = name
 
-        self.disable_auto_tab = False
+        # self.disable_auto_tab = False
 
         self.off_x = 0
         self.off_y = 0
@@ -147,7 +147,7 @@ class PCB(StateObject):
     def clone(self):
         pcb = PCB(self.main, self.file)
         pcb.rotate = self.rotate
-        pcb.disable_auto_tab = self.disable_auto_tab
+        # pcb.disable_auto_tab = self.disable_auto_tab
         pcb._tabs = [StateDict({**tab}) for tab in self._tabs]
         return pcb
 
@@ -516,7 +516,7 @@ class PanelizerUI(Application):
                 "x": pcb.x,
                 "y": pcb.y,
                 "rotate": pcb.rotate,
-                "disable_auto_tab": pcb.disable_auto_tab,
+                # "disable_auto_tab": pcb.disable_auto_tab,
                 "tabs": [dict(tab) for tab in pcb._tabs],
             })
         data = {
@@ -636,7 +636,7 @@ class PanelizerUI(Application):
                 pcb.x = p["x"]
                 pcb.y = p["y"]
                 pcb.rotate = p["rotate"]
-                pcb.disable_auto_tab = p.get("disable_auto_tab", False)
+                # pcb.disable_auto_tab = p.get("disable_auto_tab", False)
                 tabs = p.get("tabs", [])
                 for i in range(len(tabs)):
                     if isinstance(tabs[i], list):
@@ -894,8 +894,8 @@ class PanelizerUI(Application):
 
         if self.state.auto_tab and max_tab_spacing > 0:
             for pcb in pcbs:
-                if pcb.disable_auto_tab:
-                    continue
+                # if pcb.disable_auto_tab:
+                #     continue
                 if pcb.tabs():
                     continue
                 bboxes = [p.bbox for p in pcbs if p is not pcb]
