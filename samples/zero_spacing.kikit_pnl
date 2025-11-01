@@ -1,0 +1,58 @@
+{
+    "export_path": "",
+    "hide_outside_reference_value": true,
+    "use_frame": true,
+    "tight": true,
+    "auto_tab": true,
+    "spacing": 0.0,
+    "max_tab_spacing": 50.0,
+    "cut_method": "vc_or_mb",
+    "mb_diameter": 0.6,
+    "mb_spacing": 0.9,
+    "mb_offset": 0.0,
+    "tab_width": 3.6,
+    "vc_layer": "Cmts.User",
+    "merge_vcuts": true,
+    "merge_vcuts_threshold": 0.4,
+    "frame_width": 100,
+    "frame_height": 100,
+    "frame_top": 5,
+    "frame_bottom": 5,
+    "frame_left": 5,
+    "frame_right": 5,
+    "mill_fillets": 0.5,
+    "export_mill_fillets": false,
+    "netRenamePattern": "B{n}-{orig}",
+    "refRenamePattern": "B{n}-{orig}",
+    "pcb": [
+        {
+            "file": "50x18.kicad_pcb",
+            "x": 5000000.0,
+            "y": 55000000.0,
+            "rotate": 90,
+            "tabs": []
+        },
+        {
+            "file": "50x18.kicad_pcb",
+            "x": 59000000.0,
+            "y": 55000000.0,
+            "rotate": 90,
+            "tabs": []
+        },
+        {
+            "file": "50x18.kicad_pcb",
+            "x": 23000000.0,
+            "y": 55000000.0,
+            "rotate": 90,
+            "tabs": []
+        },
+        {
+            "file": "50x18.kicad_pcb",
+            "x": 41000000.0,
+            "y": 55000000.0,
+            "rotate": 90,
+            "tabs": []
+        }
+    ],
+    "hole": []
+}
