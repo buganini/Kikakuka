@@ -814,7 +814,7 @@ class PanelizerUI(Application):
                 else:
                     value.SetVisible(False)
 
-        if self.state.tight:
+        if self.state.use_frame and self.state.tight:
             x1, y1, x2, y2 = pcbs[0].bbox
 
             if self.state.use_frame:
@@ -1019,15 +1019,38 @@ class PanelizerUI(Application):
                     cuts.append(tab[1])
 
         if spacing == 0:
-            for pcb in pcbs:
-                for polygon in pcb.shapes:
-                    n = len(polygon.exterior.coords)
-                    for i in range(n):
-                        p1 = polygon.exterior.coords[i]
-                        p2 = polygon.exterior.coords[(i+1)%n]
-                        if p1 == p2:
-                            continue
-                        cuts.append(LineString([p1, p2]))
+            if self.state.use_frame:
+                for pcb in pcbs:
+                    for polygon in pcb.shapes:
+                        n = len(polygon.exterior.coords)
+                        for i in range(n):
+                            p1 = polygon.exterior.coords[i]
+                            p2 = polygon.exterior.coords[(i+1)%n]
+                            if p1 == p2:
+                                continue
+                            cuts.append(LineString([p1, p2]))
+            else:
+                edges = []
+
+                for pcb in pcbs:
+                    for polygon in pcb.shapes:
+                        n = len(polygon.exterior.coords)
+                        for i in range(n):
+                            p1 = polygon.exterior.coords[i]
+                            p2 = polygon.exterior.coords[(i+1)%n]
+                            if p1 == p2:
+                                continue
+                            adjacent = False
+
+                            ls = LineString([p1, p2])
+                            for edge in edges:
+                                intersection = edge.intersection(ls)
+                                if not intersection.is_empty and isinstance(intersection, LineString):
+                                    adjacent = True
+                                    break
+                            if adjacent:
+                                cuts.append(ls)
+                            edges.append(ls)
 
         for t in tab_substrates:
             dbg_polygons.append(t.exterior.coords)
@@ -1858,7 +1881,8 @@ class PanelizerUI(Application):
 
                         with HBox():
                             Checkbox("Use Frame", self.state("use_frame")).click(self.build)
-                            Checkbox("Tight", self.state("tight")).click(self.build)
+                            if self.state.use_frame:
+                                Checkbox("Tight", self.state("tight")).click(self.build)
                             Checkbox("Auto Tab", self.state("auto_tab")).click(self.build)
                             Label("Max Tab Spacing")
                             TextField(self.state("max_tab_spacing")).layout(width=50).change(self.build)
