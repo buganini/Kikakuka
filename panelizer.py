@@ -1018,6 +1018,15 @@ class PanelizerUI(Application):
                     tab_substrates.append(tab[0])
                     cuts.append(tab[1])
 
+        if spacing == 0:
+            for pcb in pcbs:
+                for polygon in pcb.shapes:
+                    n = len(polygon.exterior.coords)
+                    for i in range(n):
+                        p1 = polygon.exterior.coords[i]
+                        p2 = polygon.exterior.coords[(i+1)%n]
+                        cuts.append(LineString([p1, p2]))
+
         for t in tab_substrates:
             dbg_polygons.append(t.exterior.coords)
             try:
