@@ -1025,6 +1025,8 @@ class PanelizerUI(Application):
                     for i in range(n):
                         p1 = polygon.exterior.coords[i]
                         p2 = polygon.exterior.coords[(i+1)%n]
+                        if p1 == p2:
+                            continue
                         cuts.append(LineString([p1, p2]))
 
         for t in tab_substrates:
