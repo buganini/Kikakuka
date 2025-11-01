@@ -32,7 +32,7 @@ import platform
 import tempfile
 import atexit
 import shutil
-MIN_SPACING = 0.1
+MIN_SPACING = 0.0
 VC_EXTENT = 3
 
 class Tool(Enum):
