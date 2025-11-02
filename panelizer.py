@@ -1862,18 +1862,14 @@ class PanelizerUI(Application):
         return ret
 
     def fit_frame(self, *args):
-        min_x = None
-        min_y = None
         max_x = None
         max_y = None
         for pcb in self.state.pcb:
             bbox = pcb.bbox
-            min_x = bbox[0] if min_x is None else  min(min_x, bbox[0])
-            min_y = bbox[1] if min_y is None else  min(min_y, bbox[1])
-            max_x = bbox[2] if max_x is None else  max(max_x, bbox[2])
-            max_y = bbox[3] if max_y is None else  max(max_y, bbox[3])
-        self.state.frame_width = round((max_x - min_x) / self.unit + self.state.frame_left + self.state.frame_right, 3)
-        self.state.frame_height = round((max_y - min_y) / self.unit + self.state.frame_top + self.state.frame_bottom, 3)
+            max_x = bbox[2] if max_x is None else max(max_x, bbox[2])
+            max_y = bbox[3] if max_y is None else max(max_y, bbox[3])
+        self.state.frame_width = round((max_x-self.off_x) / self.unit + self.state.frame_left + self.state.frame_right, 3)
+        self.state.frame_height = round((max_y-self.off_y) / self.unit + self.state.frame_top + self.state.frame_bottom, 3)
         self.build()
 
     def content(self):
