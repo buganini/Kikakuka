@@ -862,7 +862,7 @@ class PanelizerUI(Application):
                 x2 = tab["x2"]
                 y2 = tab["y2"]
                 width = tab["width"]
-                tx, ty = extrapolate(x1, y1, x2, y2, 1, spacing/2*self.unit)
+                tx, ty = extrapolate(x1, y1, x2, y2, 1, spacing/2*self.unit if spacing > 0 else SHP_EPSILON*2)
 
                 # outward
                 tab = autotab(panel.boardSubstrate, (tx, ty), (tx-x2, ty-y2), width*self.unit)
