@@ -99,6 +99,10 @@ class PCB(StateObject):
         self.y = 0
         self.width = bbox[2] - bbox[0]
         self.height = bbox[3] - bbox[1]
+        self.margin_left = 0
+        self.margin_right = 0
+        self.margin_top = 0
+        self.margin_bottom = 0
         self.rotate = 0
         self._tabs = []
 
@@ -515,6 +519,10 @@ class PanelizerUI(Application):
                 "file": relpath(pcb.file, os.path.dirname(target)),
                 "x": pcb.x,
                 "y": pcb.y,
+                "margin_left": pcb.margin_left,
+                "margin_right": pcb.margin_right,
+                "margin_top": pcb.margin_top,
+                "margin_bottom": pcb.margin_bottom,
                 "rotate": pcb.rotate,
                 # "disable_auto_tab": pcb.disable_auto_tab,
                 "tabs": [dict(tab) for tab in pcb._tabs],
@@ -635,6 +643,10 @@ class PanelizerUI(Application):
                 pcb.off_y = self.off_y
                 pcb.x = p["x"]
                 pcb.y = p["y"]
+                pcb.margin_left = p.get("margin_left", 0)
+                pcb.margin_right = p.get("margin_right", 0)
+                pcb.margin_top = p.get("margin_top", 0)
+                pcb.margin_bottom = p.get("margin_bottom", 0)
                 pcb.rotate = p["rotate"]
                 # pcb.disable_auto_tab = p.get("disable_auto_tab", False)
                 tabs = p.get("tabs", [])
@@ -1277,31 +1289,34 @@ class PanelizerUI(Application):
         for i, p in enumerate(todo[start:end], start):
             ax1, ay1, ax2, ay2 = p.bbox
             top = None
+            margin = 0
             for d in todo[:i]:
                 dist = p.directional_distance(d, (0, -1))
                 if dist is not None:
                     t = ay1 - dist
                     if top is None or t > top:
                         top = t
+                        margin = d.margin_bottom
 
+            margin = max(margin, p.margin_top) * self.unit
             if pcb:
                 if top is None:
-                    p.setTop(([y for y in ys if y < ay1] or [ys[0]])[-1])
+                    p.setTop(([y for y in ys if y < ay1] or [ys[0]])[-1] + margin)
                 else:
-                    p.setTop(([y for y in ys if y < ay1 and y>=top] or [top])[-1])
+                    p.setTop(([y for y in ys if y < ay1 and y>=top] or [top])[-1] + margin)
             else:
                 if top is None:
                     # move objects behind together to prevent overlapping
                     offset = topmost - ay1
                     for o in todo[i+1:]:
                         if o.directional_distance(p, (0, -1)):
-                            o.setTop(o.bbox[1]+offset)
-                    p.setTop(topmost)
+                            o.setTop(o.bbox[1]+offset + margin)
+                    p.setTop(topmost + margin)
                 else:
                     p.setTop(max(
                         top + self.state.spacing*self.unit,
                         topmost
-                    ))
+                    ) + margin)
         self.state.scale = None
         self.build()
 
@@ -1329,31 +1344,34 @@ class PanelizerUI(Application):
         for i, p in enumerate(todo[start:end], start):
             ax1, ay1, ax2, ay2 = p.bbox
             bottom = None
+            margin = 0
             for d in todo[:i]:
                 dist = p.directional_distance(d, (0, 1))
                 if dist is not None:
                     b = ay2 + dist
                     if bottom is None or b < bottom:
                         bottom = b
+                        margin = d.margin_top
 
+            margin = max(margin, p.margin_bottom) * self.unit
             if pcb:
                 if bottom is None:
-                    p.setBottom(([y for y in ys if y > ay2] or [ys[-1]])[0])
+                    p.setBottom(([y for y in ys if y > ay2] or [ys[-1]])[0] - margin)
                 else:
-                    p.setBottom(([y for y in ys if y > ay2 and y<=bottom] or [bottom])[0])
+                    p.setBottom(([y for y in ys if y > ay2 and y<=bottom] or [bottom])[0] - margin)
             else:
                 if bottom is None:
                     # move objects behind together to prevent overlapping
                     offset = bottommost - ay2
                     for o in todo[i+1:]:
                         if o.directional_distance(p, (0, 1)):
-                            o.setBottom(o.bbox[3]+offset)
-                    p.setBottom(bottommost)
+                            o.setBottom(o.bbox[3]+offset - margin)
+                    p.setBottom(bottommost - margin)
                 else:
                     p.setBottom(min(
                         bottom - self.state.spacing*self.unit,
                         bottommost
-                    ))
+                    ) - margin)
         self.state.scale = None
         self.build()
 
@@ -1381,31 +1399,34 @@ class PanelizerUI(Application):
         for i, p in enumerate(todo[start:end], start):
             ax1, ay1, ax2, ay2 = p.bbox
             left = None
+            margin = 0
             for d in todo[:i]:
                 dist = p.directional_distance(d, (-1, 0))
                 if dist is not None:
                     l = ax1 - dist
                     if left is None or l > left:
                         left = l
+                        margin = d.margin_right
 
+            margin = max(margin, p.margin_left) * self.unit
             if pcb:
                 if left is None:
-                    p.setLeft(([x for x in xs if x < ax1] or [xs[0]])[-1])
+                    p.setLeft(([x for x in xs if x < ax1] or [xs[0]])[-1] + margin)
                 else:
-                    p.setLeft(([x for x in xs if x < ax1 and x>=left] or [left])[-1])
+                    p.setLeft(([x for x in xs if x < ax1 and x>=left] or [left])[-1] + margin)
             else:
                 if left is None:
                     # move objects behind together to prevent overlapping
                     offset = leftmost - ax1
                     for o in todo[i+1:]:
                         if o.directional_distance(p, (-1, 0)):
-                            o.setLeft(o.bbox[0]+offset)
-                    p.setLeft(leftmost)
+                            o.setLeft(o.bbox[0]+offset + margin)
+                    p.setLeft(leftmost + margin)
                 else:
                     p.setLeft(max(
                         left + self.state.spacing*self.unit,
                         leftmost
-                    ))
+                    ) + margin)
         self.state.scale = None
         self.build()
 
@@ -1433,31 +1454,34 @@ class PanelizerUI(Application):
         for i, p in enumerate(todo[start:end], start):
             ax1, ay1, ax2, ay2 = p.bbox
             right = None
+            margin = 0
             for d in todo[:i]:
                 dist = p.directional_distance(d, (1, 0))
                 if dist is not None:
                     r = ax2 + dist
                     if right is None or r < right:
                         right = r
+                        margin = d.margin_left
 
+            margin = max(margin, p.margin_right) * self.unit
             if pcb:
                 if right is None:
-                    p.setRight(([x for x in xs if x > ax2] or [xs[-1]])[0])
+                    p.setRight(([x for x in xs if x > ax2] or [xs[-1]])[0] - margin)
                 else:
-                    p.setRight(([x for x in xs if x > ax2 and x<=right] or [right])[0])
+                    p.setRight(([x for x in xs if x > ax2 and x<=right] or [right])[0] - margin)
             else:
                 if right is None:
                     # move objects behind together to prevent overlapping
                     offset = rightmost - ax2
                     for o in todo[i+1:]:
                         if o.directional_distance(p, (1, 0)):
-                            o.setRight(o.bbox[2]+offset)
-                    p.setRight(rightmost)
+                            o.setRight(o.bbox[2]+offset - margin)
+                    p.setRight(rightmost - margin)
                 else:
                     p.setRight(min(
                         right - self.state.spacing*self.unit,
                         rightmost
-                    ))
+                    ) - margin)
         self.state.scale = None
         self.build()
 
@@ -2015,6 +2039,18 @@ class PanelizerUI(Application):
 
                                         with Grid():
                                             r = 0
+
+                                            Label("Margin").grid(row=r, column=0)
+                                            with HBox().grid(row=r, column=1):
+                                                Label("Top")
+                                                TextField(self.state.focus("margin_top")).change(self.build)
+                                                Label("Bottom")
+                                                TextField(self.state.focus("margin_bottom")).change(self.build)
+                                                Label("Left")
+                                                TextField(self.state.focus("margin_left")).change(self.build)
+                                                Label("Right")
+                                                TextField(self.state.focus("margin_right")).change(self.build)
+                                            r += 1
 
                                             Label("Rotate").grid(row=r, column=0)
                                             with HBox().grid(row=r, column=1):
