@@ -414,6 +414,7 @@ class PanelizerUI(Application):
 
         self.state.boardSubstrate = None
 
+        self.state.move = 0
         self.state.mousepos = None
         self.mouse_dragging = None
         self.mousehold = False
@@ -1485,6 +1486,30 @@ class PanelizerUI(Application):
         self.state.scale = None
         self.build()
 
+    def move_up(self, e):
+        pcb = self.state.focus
+        if pcb:
+            pcb.y -= self.state.move * self.unit
+            self.build()
+
+    def move_down(self, e):
+        pcb = self.state.focus
+        if pcb:
+            pcb.y += self.state.move * self.unit
+            self.build()
+
+    def move_left(self, e):
+        pcb = self.state.focus
+        if pcb:
+            pcb.x -= self.state.move * self.unit
+            self.build()
+
+    def move_right(self, e):
+        pcb = self.state.focus
+        if pcb:
+            pcb.x += self.state.move * self.unit
+            self.build()
+
     def rotateBy(self, e, deg=90):
         pcb = self.state.focus
         if pcb:
@@ -2060,6 +2085,16 @@ class PanelizerUI(Application):
                                             r += 1
 
                                             Label("Move").grid(row=r, column=0)
+                                            with HBox().grid(row=r, column=1):
+                                                TextField(self.state("move")).change(self.build)
+                                                Button("⤒ Up").click(self.move_up)
+                                                Button("⤓ Down").click(self.move_down)
+                                                Button("⇤ Left").click(self.move_left)
+                                                Button("⇥ Right").click(self.move_right)
+                                                Spacer()
+                                            r += 1
+
+                                            Label("Move to align").grid(row=r, column=0)
                                             with HBox().grid(row=r, column=1):
                                                 Button("⤒ Up").click(self.align_top, pcb=self.state.focus)
                                                 Button("⤓ Down").click(self.align_bottom, pcb=self.state.focus)
