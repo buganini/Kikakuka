@@ -1018,6 +1018,7 @@ class PanelizerUI(Application):
                     tab_substrates.append(tab[0])
                     cuts.append(tab[1])
 
+        # https://github.com/buganini/Kikakuka/issues/22
         if spacing == 0:
             if self.state.use_frame and self.state.tight:
                 for pcb in pcbs:
@@ -1170,7 +1171,8 @@ class PanelizerUI(Application):
                     if do_vc:
                         vcuts.append(cut)
                 else:
-                    bites.append(cut)
+                    if cut_method != "vc_or_skip":
+                        bites.append(cut)
 
         if bites:
             panel.makeMouseBites(bites, diameter=mb_diameter * self.unit, spacing=mb_spacing * self.unit - SHP_EPSILON, offset=mb_offset * self.unit, prolongation=0 * self.unit)
