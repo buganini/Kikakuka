@@ -1019,7 +1019,7 @@ class PanelizerUI(Application):
                     cuts.append(tab[1])
 
         if spacing == 0:
-            if self.state.use_frame:
+            if self.state.use_frame and self.state.tight:
                 for pcb in pcbs:
                     for polygon in pcb.shapes:
                         n = len(polygon.exterior.coords)
