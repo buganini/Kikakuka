@@ -1044,11 +1044,28 @@ class PanelizerUI(Application):
                             adjacent = False
 
                             ls = LineString([p1, p2])
-                            for edge in edges:
-                                intersection = edge.intersection(ls)
+                            if frame_top_polygon:
+                                intersection = ls.intersection(frame_top_polygon)
                                 if not intersection.is_empty and isinstance(intersection, LineString):
                                     adjacent = True
-                                    break
+                            if frame_bottom_polygon:
+                                intersection = ls.intersection(frame_bottom_polygon)
+                                if not intersection.is_empty and isinstance(intersection, LineString):
+                                    adjacent = True
+                            if frame_left_polygon:
+                                intersection = ls.intersection(frame_left_polygon)
+                                if not intersection.is_empty and isinstance(intersection, LineString):
+                                    adjacent = True
+                            if frame_right_polygon:
+                                intersection = ls.intersection(frame_right_polygon)
+                                if not intersection.is_empty and isinstance(intersection, LineString):
+                                    adjacent = True
+                            if not adjacent:
+                                for edge in edges:
+                                    intersection = edge.intersection(ls)
+                                    if not intersection.is_empty and isinstance(intersection, LineString):
+                                        adjacent = True
+                                        break
                             if adjacent:
                                 cuts.append(ls)
                             edges.append(ls)
