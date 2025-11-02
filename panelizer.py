@@ -1133,9 +1133,9 @@ class PanelizerUI(Application):
 
         if cut_method == "mb":
             bites.extend(cuts)
-        elif cut_method == "vc":
+        elif cut_method == "vc_unsafe":
             vcuts.extend(cuts)
-        elif cut_method == "vc_or_mb" or cut_method == "vc_and_mb":
+        elif cut_method in ("vc_or_mb", "vc_and_mb", "vc_or_skip"):
             for cut in cuts:
                 p1 = cut.coords[0]
                 p2 = cut.coords[-1]
@@ -1148,7 +1148,7 @@ class PanelizerUI(Application):
                             break
 
                     do_vc = vc_ok
-                    do_mb = not vc_ok or cut_method == "vc_and_mb"
+                    do_mb = (not vc_ok or cut_method == "vc_and_mb") and cut_method != "vc_or_skip"
 
                     if do_mb:
                         bites.append(cut)
@@ -1163,7 +1163,7 @@ class PanelizerUI(Application):
                             break
 
                     do_vc = vc_ok
-                    do_mb = not vc_ok or cut_method == "vc_and_mb"
+                    do_mb = (not vc_ok or cut_method == "vc_and_mb") and cut_method != "vc_or_skip"
 
                     if do_mb:
                         bites.append(cut)
@@ -1904,7 +1904,8 @@ class PanelizerUI(Application):
                             RadioButton("V-Cuts or Mousebites", "vc_or_mb", self.state("cut_method")).click(self.build)
                             RadioButton("V-Cuts and Mousebites", "vc_and_mb", self.state("cut_method")).click(self.build)
                             RadioButton("Mousebites", "mb", self.state("cut_method")).click(self.build)
-                            # RadioButton("V-Cut", "vc", self.state("cut_method")).click(self.build)
+                            RadioButton("V-Cut", "vc_or_skip", self.state("cut_method")).click(self.build)
+                            RadioButton("V-Cut (Unsafe)", "vc_unsafe", self.state("cut_method")).click(self.build)
                             RadioButton("None", "none", self.state("cut_method")).click(self.build)
                             Spacer()
 
