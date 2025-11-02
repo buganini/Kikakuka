@@ -1837,6 +1837,21 @@ class PanelizerUI(Application):
         self.refMap[ret] = orig
         return ret
 
+    def fit_frame(self, *args):
+        min_x = None
+        min_y = None
+        max_x = None
+        max_y = None
+        for pcb in self.state.pcb:
+            bbox = pcb.bbox
+            min_x = bbox[0] if min_x is None else  min(min_x, bbox[0])
+            min_y = bbox[1] if min_y is None else  min(min_y, bbox[1])
+            max_x = bbox[2] if max_x is None else  max(max_x, bbox[2])
+            max_y = bbox[3] if max_y is None else  max(max_y, bbox[3])
+        self.state.frame_width = (max_x - min_x) / self.unit + self.state.frame_left + self.state.frame_right
+        self.state.frame_height = (max_y - min_y) / self.unit + self.state.frame_top + self.state.frame_bottom
+        self.build()
+
     def content(self):
         title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
@@ -1957,6 +1972,8 @@ class PanelizerUI(Application):
                                 TextField(self.state("frame_width")).change(self.build)
                                 Label("Height")
                                 TextField(self.state("frame_height")).change(self.build)
+
+                                Button("Fit").click(self.fit_frame)
 
                             with HBox():
                                 Label("Edge Rail")
