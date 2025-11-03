@@ -754,28 +754,14 @@ class PanelizerUI(Application):
         else:
             frame_right_polygon = None
 
-        boundarySubstrates = []
-        if self.state.use_frame and not self.state.tight:
-            if frame_top_polygon:
-                panel.appendSubstrate(frame_top_polygon)
-                sub = substrate.Substrate([])
-                sub.union(frame_top_polygon)
-                boundarySubstrates.append(sub)
-            if frame_bottom_polygon:
-                panel.appendSubstrate(frame_bottom_polygon)
-                sub = substrate.Substrate([])
-                sub.union(frame_bottom_polygon)
-                boundarySubstrates.append(sub)
-            if frame_left_polygon:
-                panel.appendSubstrate(frame_left_polygon)
-                sub = substrate.Substrate([])
-                sub.union(frame_left_polygon)
-                boundarySubstrates.append(sub)
-            if frame_right_polygon:
-                panel.appendSubstrate(frame_right_polygon)
-                sub = substrate.Substrate([])
-                sub.union(frame_right_polygon)
-                boundarySubstrates.append(sub)
+        if frame_top_polygon:
+            panel.appendSubstrate(frame_top_polygon)
+        if frame_bottom_polygon:
+            panel.appendSubstrate(frame_bottom_polygon)
+        if frame_left_polygon:
+            panel.appendSubstrate(frame_left_polygon)
+        if frame_right_polygon:
+            panel.appendSubstrate(frame_right_polygon)
 
         for i, pcb in enumerate(pcbs):
             self.refMap = {}
@@ -830,11 +816,10 @@ class PanelizerUI(Application):
         if self.state.use_frame and self.state.tight:
             x1, y1, x2, y2 = pcbs[0].bbox
 
-            if self.state.use_frame:
-                x1 = min(x1, self.off_x)
-                y1 = min(y1, self.off_y)
-                x2 = max(x2, self.off_x + self.state.frame_width*self.unit)
-                y2 = max(y2, self.off_y + self.state.frame_height*self.unit)
+            x1 = min(x1, self.off_x)
+            y1 = min(y1, self.off_y)
+            x2 = max(x2, self.off_x + self.state.frame_width*self.unit)
+            y2 = max(y2, self.off_y + self.state.frame_height*self.unit)
 
             for pcb in pcbs[1:]:
                 bbox = pcb.bbox
