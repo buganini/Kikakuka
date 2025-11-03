@@ -107,7 +107,7 @@ class PCB(StateObject):
         self._tabs = []
 
     def transform(self, shape):
-        shape = affinity.rotate(shape, self.rotate*-1, origin=(0,0))
+        shape = affinity.rotate(shape, (self.rotate % 360)*-1, origin=(0,0))
         shape = transform(shape, lambda x: x+[self.x+self.off_x, self.y+self.off_y])
         return shape
 
