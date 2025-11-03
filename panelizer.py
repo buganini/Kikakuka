@@ -1727,11 +1727,17 @@ class PanelizerUI(Application):
 
         pcbs = self.state.pcb
 
-        # frame area
-        if self.state.use_frame:
-            x1, y1 = self.toCanvas(0, 0)
-            x2, y2 = self.toCanvas(self.state.frame_width*self.unit, self.state.frame_height*self.unit)
-            canvas.drawRect(x1, y1, x2, y2, fill=0x151515)
+        boardSubstrate = self.state.boardSubstrate
+        if boardSubstrate:
+            if isinstance(boardSubstrate.substrates, MultiPolygon):
+                geoms = boardSubstrate.substrates.geoms
+            elif isinstance(boardSubstrate.substrates, Polygon):
+                geoms = [boardSubstrate.substrates]
+            else:
+                geoms = []
+            for polygon in geoms:
+                polygon = transform(polygon, lambda p:p-(self.off_x, self.off_y))
+                self.drawShapely(canvas, polygon, fill=0x151515, stroke=0x777777)
 
         if self.state.show_pcb:
             # pcb areas
@@ -1746,41 +1752,15 @@ class PanelizerUI(Application):
                     continue
                 self.drawPCB(canvas, i, pcb, True)
 
-        boardSubstrate = self.state.boardSubstrate
-        if boardSubstrate:
-            if isinstance(boardSubstrate.substrates, MultiPolygon):
-                geoms = boardSubstrate.substrates.geoms
-            elif isinstance(boardSubstrate.substrates, Polygon):
-                geoms = [boardSubstrate.substrates]
-            else:
-                geoms = []
-            for polygon in geoms:
-                coords = transform(polygon.exterior, lambda p:p-(self.off_x, self.off_y)).coords
-                self.drawPolygon(canvas, coords, stroke=0x777777)
-                for interior in polygon.interiors:
-                    coords = transform(interior, lambda p:p-(self.off_x, self.off_y)).coords
-                    self.drawPolygon(canvas, coords, stroke=0x777777)
-
         if self.state.show_hole:
             for hole in self.state.holes:
-                self.drawPolygon(canvas, transform(hole.polygon.exterior, lambda p:p-(self.off_x, self.off_y)).coords, stroke=0xFFCF55 if hole is self.state.focus else 0xFF6E00)
+                self.drawShapely(canvas, transform(hole.polygon, lambda p:p-(self.off_x, self.off_y)), stroke=0xFFCF55 if hole is self.state.focus else 0xFF6E00)
 
         if self.state.show_conflicts:
             for conflict in self.state.conflicts:
                 try:
-                    if isinstance(conflict, Polygon):
-                        coords = transform(conflict.exterior, lambda p:p-(self.off_x, self.off_y)).coords
-                        self.drawPolygon(canvas, coords, fill=0xFF0000)
-                    elif isinstance(conflict, LineString):
-                        coords = transform(conflict, lambda p:p-(self.off_x, self.off_y)).coords
-                        for i in range(1, len(coords)):
-                            self.drawLine(canvas, coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1], color=0xFF0000)
-                    elif isinstance(conflict, MultiPolygon):
-                        for p in conflict.geoms:
-                            coords = transform(p.exterior, lambda p:p-(self.off_x, self.off_y)).coords
-                            self.drawPolygon(canvas, coords, fill=0xFF0000)
-                    else:
-                        print("Unhandled conflict type", conflict)
+                    conflict = transform(conflict, lambda p:p-(self.off_x, self.off_y))
+                    self.drawShapely(canvas, conflict, fill=0xFF0000)
                 except:
                     traceback.print_exc()
 
