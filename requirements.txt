@@ -7,3 +7,4 @@ opencv-python
 psutil
 pywin32; platform_system == "Windows"
 pygit2
+parsimonious
