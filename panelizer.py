@@ -1033,8 +1033,7 @@ class PanelizerUI(Application):
                             adjacent = True
                             ls = LineString([p1, p2])
                             for hole in self.state.holes:
-                                intersection = hole.polygon.intersection(ls)
-                                if not intersection.is_empty:
+                                if hole.polygon.exterior.contains(ls):
                                     adjacent = False
                                     break
 
