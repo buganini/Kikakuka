@@ -8,7 +8,7 @@
 * Add vcut_or_skip and hidden vcut_unsafe cut methods
 * Workspace Manager:
     * Display libraries
-    * "Convert to relative path" button
+    * "Convert to relative path" button (related to KIPRJMOD)
 
 # 4.6.1
 * Fix compatibility with pypdfmium2 v5.0.0 #21
