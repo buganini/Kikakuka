@@ -24,6 +24,7 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
 
 # Workspace Manager
 The `.kkkk` file saves workspace information in JSON format.
+![Workspace Manager](screenshots/workspace.png)
 
 # Differ
 ## Schematics Differ
