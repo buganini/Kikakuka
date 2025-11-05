@@ -305,7 +305,7 @@ class WorkspaceUI(PUIView):
                     with HBox():
                         Label("File:")
                         if self.state.focus is not None:
-                            Label(os.path.basename(self.state.focus["path"]))
+                            Label(os.path.basename(self.state.focus["path"]), selectable=True)
                             Button("Open File Location").click(lambda e, location: self.openFolder(location), os.path.dirname(self.state.focus["project_path"]))
                             Spacer()
                             Button("Remove").click(lambda e: self.removeFile())
@@ -323,7 +323,7 @@ class WorkspaceUI(PUIView):
                                     desc = self.state.focus["description"]
                                 else:
                                     desc = self.state.focus["parent"]["description"]
-                                Label(desc)
+                                Label(desc, selectable=True)
                                 Button("Edit").click(lambda e: self.editDescription())
                         Spacer()
 
@@ -350,8 +350,8 @@ class WorkspaceUI(PUIView):
                                     r += 1
 
                                     for lib in focus_project["sym_lib_table"]:
-                                        Label(lib["name"]).grid(row=r, column=0)
-                                        Label(lib["path"]).grid(row=r, column=1)
+                                        Label(lib["name"], selectable=True).grid(row=r, column=0)
+                                        Label(lib["path"], selectable=True).grid(row=r, column=1)
                                         r += 1
 
                                     Label("").grid(row=r, column=0)
@@ -365,8 +365,8 @@ class WorkspaceUI(PUIView):
                                     r += 1
 
                                     for lib in focus_project["fp_lib_table"]:
-                                        Label(lib["name"]).grid(row=r, column=0)
-                                        Label(lib["path"]).grid(row=r, column=1)
+                                        Label(lib["name"], selectable=True).grid(row=r, column=0)
+                                        Label(lib["path"], selectable=True).grid(row=r, column=1)
                                         r += 1
 
                                 Spacer()
