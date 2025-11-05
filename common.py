@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import sexpr
 
 VERSION = "4.6.1"
 
@@ -37,7 +38,7 @@ def relpath(path, base):
     except ValueError:
         return path
 
-def findFiles(workspace, root, types=None):
+def populateWorkspace(workspace, root, types=None):
     if types is None:
         types = [SCH_SUFFIX, PCB_SUFFIX, STEP_SUFFIX]
     for project in workspace["projects"]:
@@ -58,3 +59,45 @@ def findFiles(workspace, root, types=None):
                         "parent": project,
                         "files": [],
                     })
+
+            project["fp_lib_table"] = []
+            project["sym_lib_table"] = []
+
+            KIPRJMOD = os.path.dirname(project["path"])
+            fp_lib_table_path = os.path.join(KIPRJMOD, "fp-lib-table")
+            if os.path.exists(fp_lib_table_path):
+                # print("fp_lib_table_path", fp_lib_table_path)
+                try:
+                    fp_lib_table = sexpr.parse(open(fp_lib_table_path).read())
+                    # print(fp_lib_table)
+                    for libnode in fp_lib_table.get_all("lib"):
+                        # print(libnode)
+                        lib = {
+                            "name": libnode.get("name").value,
+                            "path": libnode.get("uri").value,
+                        }
+                        # print(lib)
+                        project["fp_lib_table"].append(lib)
+                except:
+                    import traceback
+                    traceback.print_exc()
+                    sys.exit(1)
+
+            sym_lib_table_path = os.path.join(KIPRJMOD, "sym-lib-table")
+            if os.path.exists(sym_lib_table_path):
+                # print("sym_lib_table_path", sym_lib_table_path)
+                try:
+                    sym_lib_table = sexpr.parse(open(sym_lib_table_path).read())
+                    # print(sym_lib_table)
+                    for libnode in sym_lib_table.get_all("lib"):
+                        # print(libnode)
+                        lib = {
+                            "name": libnode.get("name").value,
+                            "path": libnode.get("uri").value,
+                        }
+                        # print(lib)
+                        project["sym_lib_table"].append(lib)
+                except:
+                    import traceback
+                    traceback.print_exc()
+                    sys.exit(1)

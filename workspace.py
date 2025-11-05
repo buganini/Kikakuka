@@ -248,7 +248,7 @@ class WorkspaceUI(PUIView):
         else:
             self.state.root = os.path.dirname(os.path.abspath(self.state.filepath))
             self.state.workspace = {"projects": []}
-            findFiles(self.state.workspace, self.state.root)
+            populateWorkspace(self.state.workspace, self.state.root)
             self.saveFile()
 
     def loadFile(self):
@@ -260,7 +260,7 @@ class WorkspaceUI(PUIView):
             for project in self.state.workspace["projects"]:
                 if not os.path.isabs(project["path"]):
                     project["path"] = os.path.join(self.state.root, project["path"])
-        findFiles(self.state.workspace, self.state.root)
+        populateWorkspace(self.state.workspace, self.state.root)
 
     def saveFile(self):
         if self.state.filepath is None:
@@ -327,7 +327,45 @@ class WorkspaceUI(PUIView):
                                 Button("Edit").click(lambda e: self.editDescription())
                         Spacer()
 
-                    Spacer()
+                    if self.state.focus is not None:
+                        with Scroll().layout(weight=1):
+                            with VBox():
+                                focus_project = self.state.focus
+                                if focus_project["parent"]:
+                                    focus_project = focus_project["parent"]
+                                with Grid():
+                                    r = 0
+
+                                    Label("Symbol Libraries:").grid(row=r, column=0)
+                                    r += 1
+
+                                    Label("Name").grid(row=r, column=0)
+                                    Label("Path").grid(row=r, column=1)
+                                    r += 1
+
+                                    for lib in focus_project["sym_lib_table"]:
+                                        Label(lib["name"]).grid(row=r, column=0)
+                                        Label(lib["path"]).grid(row=r, column=1)
+                                        r += 1
+
+                                    Label("").grid(row=r, column=0)
+                                    r += 1
+
+                                    Label("Footprint Libraries:").grid(row=r, column=0)
+                                    r += 1
+
+                                    Label("Name").grid(row=r, column=0)
+                                    Label("Path").grid(row=r, column=1)
+                                    r += 1
+
+                                    for lib in focus_project["fp_lib_table"]:
+                                        Label(lib["name"]).grid(row=r, column=0)
+                                        Label(lib["path"]).grid(row=r, column=1)
+                                        r += 1
+
+                                Spacer()
+                    else:
+                        Spacer()
 
     def editDescription(self):
         if "description" in self.state.focus:
@@ -412,14 +450,14 @@ class WorkspaceUI(PUIView):
             "description": "",
         })
         self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
-        findFiles(self.state.workspace, self.state.root)
+        populateWorkspace(self.state.workspace, self.state.root)
         self.saveFile()
         self.state()
 
     def removeFile(self):
         if Confirm("Are you sure you want to remove this file from the workspace?", "Remove file"):
             self.state.workspace["projects"] = [p for p in self.state.workspace["projects"] if p["project_path"] != self.state.focus["project_path"]]
-            findFiles(self.state.workspace, self.state.root)
+            populateWorkspace(self.state.workspace, self.state.root)
             self.saveFile()
             self.state()
 
@@ -434,7 +472,7 @@ class WorkspaceUI(PUIView):
                     "description": "",
                 })
                 self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
-                findFiles(self.state.workspace, self.state.root)
+                populateWorkspace(self.state.workspace, self.state.root)
                 self.saveFile()
                 self.state()
             self.openPanelizer(filepath)

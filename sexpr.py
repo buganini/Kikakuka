@@ -12,7 +12,12 @@ class SNode():
         for child in self.children:
             if child.tag == key:
                 return child
+        if default is None:
+            return SNode("Empty", None, [])
         return default
+
+    def get_all(self, key):
+        return [child for child in self.children if child.tag == key]
 
     def __str__(self):
         return self.__repr__()
@@ -37,10 +42,13 @@ String = ~r'"(?:[^"\\]|\\.)*"' / ~r"'(?:[^'\\]|\\.)*'"
 
 class SExprVisitor(NodeVisitor):
     def visit_Node(self, node, visited_children):
+        # print("visit_Node", visited_children)
         tag = visited_children[3]
         value = None
         children = visited_children[5]
-        if len(children) == 1 and not isinstance(children[0], SNode):
+        if isinstance(children, SNode):
+            children = [children]
+        elif len(children) == 1 and not isinstance(children[0], SNode):
             value = children[0]
             children = []
         # print("SNode", tag, value, children)
@@ -72,6 +80,10 @@ class SExprVisitor(NodeVisitor):
         if len(visited_children) == 1 and node.children[0].expr_name == "Node":
             return visited_children[0]
         return visited_children
+
+def parse(text):
+    ast = grammar.parse(text)
+    return SExprVisitor().visit(ast)
 
 if __name__ == "__main__":
     import sys
