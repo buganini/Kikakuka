@@ -665,7 +665,10 @@ class PanelizerUI(Application):
             self.state.scale = None
             self.build()
 
-    def build(self, e=None, export=False):
+    def generate_holes(self, e):
+        self.build(generate_holes=True)
+
+    def build(self, e=None, export=False, generate_holes=False):
         try:
             self.state.netRenamePattern.format(n=0, orig="test")
         except Exception as e:
@@ -712,7 +715,6 @@ class PanelizerUI(Application):
             "Edge.Cuts": Layer.Edge_Cuts,
             "User.1": Layer.User_1,
         }.get(self.state.vc_layer, Layer.Cmts_User)
-
 
         if self.state.use_frame and self.state.frame_top > 0:
             frame_top_polygon = Polygon([
@@ -1027,7 +1029,17 @@ class PanelizerUI(Application):
                             p2 = polygon.exterior.coords[(i+1)%n]
                             if p1 == p2:
                                 continue
-                            cuts.append(LineString([p1, p2]))
+
+                            adjacent = True
+                            ls = LineString([p1, p2])
+                            for hole in self.state.holes:
+                                intersection = hole.polygon.intersection(ls)
+                                if not intersection.is_empty:
+                                    adjacent = False
+                                    break
+
+                            if adjacent:
+                                cuts.append(LineString([p1, p2]))
             else:
                 edges = []
 
@@ -1039,8 +1051,8 @@ class PanelizerUI(Application):
                             p2 = polygon.exterior.coords[(i+1)%n]
                             if p1 == p2:
                                 continue
-                            adjacent = False
 
+                            adjacent = False
                             ls = LineString([p1, p2])
                             if frame_top_polygon:
                                 intersection = ls.intersection(frame_top_polygon)
@@ -1064,9 +1076,10 @@ class PanelizerUI(Application):
                                     if not intersection.is_empty and isinstance(intersection, LineString):
                                         adjacent = True
                                         break
+                            edges.append(ls)
+
                             if adjacent:
                                 cuts.append(ls)
-                            edges.append(ls)
 
         for t in tab_substrates:
             dbg_polygons.append(t.exterior.coords)
@@ -1121,6 +1134,25 @@ class PanelizerUI(Application):
             shapes = pcb.shapes
             for s in shapes:
                 dbg_rects.append(s.bounds)
+
+        if generate_holes:
+            substrates = [frame_top_polygon, frame_bottom_polygon, frame_left_polygon, frame_right_polygon]
+            for pcb in self.state.pcb:
+                for polygon in pcb.shapes:
+                    substrates.append(polygon)
+            subsrates = [s for s in substrates if s is not None]
+            loose_substrates = shapely.union_all(substrates)
+            board_substrates = shapely.union_all(panel.boardSubstrate.substrates)
+            diffs = board_substrates.difference(loose_substrates)
+            if isinstance(diffs, MultiPolygon):
+                diffs = diffs.geoms
+            else:
+                diffs = [diffs]
+            for diff in diffs:
+                self.state.holes.append(Hole(diff.exterior.coords))
+
+            self.build()
+            return
 
         if not export or self.state.export_mill_fillets:
             panel.addMillFillets(self.state.mill_fillets*self.unit)
@@ -1928,6 +1960,8 @@ class PanelizerUI(Application):
                             Checkbox("Use Frame", self.state("use_frame")).click(self.build)
                             if self.state.use_frame:
                                 Checkbox("Tight", self.state("tight")).click(self.build)
+                                if self.state.tight and self.state.spacing == 0:
+                                    Button("Generate Holes").click(self.generate_holes)
                             Checkbox("Auto Tab", self.state("auto_tab")).click(self.build)
                             Label("Max Tab Spacing")
                             TextField(self.state("max_tab_spacing")).layout(width=50).change(self.build)
