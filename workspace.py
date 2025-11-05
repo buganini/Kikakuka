@@ -228,6 +228,122 @@ def bringToFront(pid):
         return windows_bring_pid_to_front(pid)
     else:
         return False
+
+
+def populateProject(project, root, types=None):
+    if types is None:
+        types = [SCH_SUFFIX, PCB_SUFFIX, STEP_SUFFIX]
+    project["files"] = []
+    project["parent"] = None
+    project["project_path"] = project["path"]
+    if project["path"].endswith(".kikit_pnl"):
+        return
+    if project["path"].endswith(".kicad_pro"):
+        for ext in types:
+            fpath = re.sub(r"\.kicad_pro$", ext, project["path"])
+            if not os.path.isabs(fpath):
+                fpath = os.path.join(root, fpath)
+            if os.path.exists(fpath):
+                project["files"].append({
+                    "project_path": project["path"],
+                    "path": fpath,
+                    "parent": project,
+                    "files": [],
+                })
+
+        project["fp_lib_table"] = {
+            "version": None,
+            "lib": [],
+        }
+        project["sym_lib_table"] = {
+            "version": None,
+            "lib": [],
+        }
+
+        KIPRJMOD = os.path.dirname(project["path"])
+        fp_lib_table_path = os.path.join(KIPRJMOD, "fp-lib-table")
+        if os.path.exists(fp_lib_table_path):
+            # print("fp_lib_table_path", fp_lib_table_path)
+            try:
+                fp_lib_table = sexpr.parse(open(fp_lib_table_path).read())
+                project["fp_lib_table"]["version"] = fp_lib_table.get("version").value
+                # print(fp_lib_table)
+                for libnode in fp_lib_table.get_all("lib"):
+                    # print(libnode)
+                    lib = StateDict({
+                        "name": libnode.get("name").value,
+                        "uri": libnode.get("uri").value,
+                        "type": libnode.get("type").value,
+                        "options": libnode.get("options").value,
+                        "descr": libnode.get("descr").value,
+                    })
+                    # print(lib)
+                    project["fp_lib_table"]["lib"].append(lib)
+            except:
+                import traceback
+                traceback.print_exc()
+
+        sym_lib_table_path = os.path.join(KIPRJMOD, "sym-lib-table")
+        if os.path.exists(sym_lib_table_path):
+            # print("sym_lib_table_path", sym_lib_table_path)
+            try:
+                sym_lib_table = sexpr.parse(open(sym_lib_table_path).read())
+                project["sym_lib_table"]["version"] = sym_lib_table.get("version").value
+                # print(sym_lib_table)
+                for libnode in sym_lib_table.get_all("lib"):
+                    # print(libnode)
+                    lib = StateDict({
+                        "name": libnode.get("name").value,
+                        "uri": libnode.get("uri").value,
+                        "type": libnode.get("type").value,
+                        "options": libnode.get("options").value,
+                        "descr": libnode.get("descr").value,
+                    })
+                    # print(lib)
+                    project["sym_lib_table"]["lib"].append(lib)
+            except:
+                import traceback
+                traceback.print_exc()
+
+def populateWorkspace(workspace, root, types=None):
+    for project in workspace["projects"]:
+        populateProject(project, root, types)
+
+def commitLibTable(project, root):
+    with open(os.path.join(os.path.dirname(project["project_path"]), "fp-lib-table"), "w") as f:
+        f.write("(fp_lib_table\n")
+        f.write(f"  (version {project['fp_lib_table']['version']})\n")
+        for lib in project["fp_lib_table"]["lib"]:
+            f.write(f"  (lib (name {json.dumps(lib['name'])}) (uri {json.dumps(lib['uri'])}) (type {json.dumps(lib['type'])}) (options {json.dumps(lib['options'])}) (descr {json.dumps(lib['descr'])}))\n")
+        f.write(")\n")
+    with open(os.path.join(os.path.dirname(project["project_path"]), "sym-lib-table"), "w") as f:
+        f.write("(sym_lib_table\n")
+        f.write(f"  (version {project['sym_lib_table']['version']})\n")
+        for lib in project["sym_lib_table"]["lib"]:
+            f.write(f"  (lib (name {json.dumps(lib['name'])}) (uri {json.dumps(lib['uri'])}) (type {json.dumps(lib['type'])}) (options {json.dumps(lib['options'])}) (descr {json.dumps(lib['descr'])}))\n")
+        f.write(")\n")
+
+    populateProject(project, root)
+
+def convertToRelativePath(project, root):
+    for lib in project["sym_lib_table"]["lib"]:
+        if os.path.isabs(lib["uri"]):
+            # print(lib, os.path.dirname(project["project_path"]))
+            reluri = relpath(lib["uri"], os.path.dirname(project["project_path"]), allow_outside=True)
+            reluri = "${KIPRJMOD}/" + reluri
+            print(lib["uri"], "->", reluri)
+            lib["uri"] = reluri
+    for lib in project["fp_lib_table"]["lib"]:
+        if os.path.isabs(lib["uri"]):
+            # print(lib, os.path.dirname(project["project_path"]))
+            reluri = relpath(lib["uri"], os.path.dirname(project["project_path"]), allow_outside=True)
+            reluri = "${KIPRJMOD}/" + reluri
+            print(lib["uri"], "->", reluri)
+            lib["uri"] = reluri
+    commitLibTable(project, root)
+
+
+
 class WorkspaceUI(PUIView):
     def __init__(self, main, filepath):
         super().__init__()
@@ -338,35 +454,38 @@ class WorkspaceUI(PUIView):
                                     Label("Project Specific Libraries:")
                                     Button("Refresh").click(lambda e: populateProject(focus_project, self.state.root))
                                     Spacer()
+                                    Button("Conver to relative path").click(lambda e: convertToRelativePath(focus_project, self.state.root))
 
                                 with Grid():
                                     r = 0
 
                                     Label("Symbol:").grid(row=r, column=0)
+                                    # Label(f"Version={focus_project['sym_lib_table']['version']}").grid(row=r, column=1)
                                     r += 1
 
                                     Label("Name").grid(row=r, column=0)
                                     Label("Path").grid(row=r, column=1)
                                     r += 1
 
-                                    for lib in focus_project["sym_lib_table"]:
+                                    for lib in focus_project["sym_lib_table"]["lib"]:
                                         Label(lib["name"], selectable=True).grid(row=r, column=0)
-                                        Label(lib["path"], selectable=True).grid(row=r, column=1)
+                                        Label(lib["uri"], selectable=True).grid(row=r, column=1)
                                         r += 1
 
                                     Label("").grid(row=r, column=0)
                                     r += 1
 
                                     Label("Footprint:").grid(row=r, column=0)
+                                    # Label(f"Version={focus_project['fp_lib_table']['version']}").grid(row=r, column=1)
                                     r += 1
 
                                     Label("Name").grid(row=r, column=0)
                                     Label("Path").grid(row=r, column=1)
                                     r += 1
 
-                                    for lib in focus_project["fp_lib_table"]:
+                                    for lib in focus_project["fp_lib_table"]["lib"]:
                                         Label(lib["name"], selectable=True).grid(row=r, column=0)
-                                        Label(lib["path"], selectable=True).grid(row=r, column=1)
+                                        Label(lib["uri"], selectable=True).grid(row=r, column=1)
                                         r += 1
 
                                 Spacer()

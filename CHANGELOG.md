@@ -6,6 +6,9 @@
 * Wrap rotation to 360 deg to work around numerical errors #22
 * Update the render function to improve the display of the substrate area.
 * Add vcut_or_skip and hidden vcut_unsafe cut methods
+* Workspace Manager:
+    * Display libraries
+    * "Convert to relative path" button
 
 # 4.6.1
 * Fix compatibility with pypdfmium2 v5.0.0 #21
