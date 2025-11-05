@@ -1,11 +1,13 @@
 # Next
-* Support spacing=0 #22
-* Add frame size "Fit" button #22
-* Add pcb clearance setting #22
-* Add "move by distance" function
-* Wrap rotation to 360 deg to work around numerical errors #22
-* Update the render function to improve the display of the substrate area.
-* Add vcut_or_skip and hidden vcut_unsafe cut methods
+* Panelizer
+    * Support spacing=0 #22
+    * Add frame size "Fit" button #22
+    * Add pcb clearance setting #22
+    * Add "move by distance" function
+    * Wrap rotation to 360 deg to work around numerical errors #22
+    * Update the render function to improve the display of the substrate area.
+    * Add vcut_or_skip and hidden vcut_unsafe cut methods
+    * Add "Generate Holes" for user to determine which area should be holes/fills in tight frame + zero-spacing scenario #22
 * Workspace Manager:
     * Display libraries
     * "Convert to relative path" button (related to KIPRJMOD)
