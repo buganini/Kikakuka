@@ -305,7 +305,7 @@ class WorkspaceUI(PUIView):
                     with HBox():
                         Label("File:")
                         if self.state.focus is not None:
-                            Label(os.path.basename(self.state.focus["project_path"]))
+                            Label(os.path.basename(self.state.focus["path"]))
                             Button("Open File Location").click(lambda e, location: self.openFolder(location), os.path.dirname(self.state.focus["project_path"]))
                             Spacer()
                             Button("Remove").click(lambda e: self.removeFile())
@@ -327,16 +327,22 @@ class WorkspaceUI(PUIView):
                                 Button("Edit").click(lambda e: self.editDescription())
                         Spacer()
 
-                    if self.state.focus is not None:
+                    focus_project = self.state.focus
+                    if focus_project and focus_project["parent"]:
+                        focus_project = focus_project["parent"]
+                    if focus_project is not None and focus_project["path"].endswith(".kicad_pro"):
                         with Scroll().layout(weight=1):
                             with VBox():
-                                focus_project = self.state.focus
-                                if focus_project["parent"]:
-                                    focus_project = focus_project["parent"]
+
+                                with HBox():
+                                    Label("Project Specific Libraries:")
+                                    Button("Refresh").click(lambda e: populateProject(focus_project, self.state.root))
+                                    Spacer()
+
                                 with Grid():
                                     r = 0
 
-                                    Label("Symbol Libraries:").grid(row=r, column=0)
+                                    Label("Symbol:").grid(row=r, column=0)
                                     r += 1
 
                                     Label("Name").grid(row=r, column=0)
@@ -351,7 +357,7 @@ class WorkspaceUI(PUIView):
                                     Label("").grid(row=r, column=0)
                                     r += 1
 
-                                    Label("Footprint Libraries:").grid(row=r, column=0)
+                                    Label("Footprint:").grid(row=r, column=0)
                                     r += 1
 
                                     Label("Name").grid(row=r, column=0)
