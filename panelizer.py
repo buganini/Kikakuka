@@ -1785,7 +1785,7 @@ class PanelizerUI(Application):
 
         if self.state.show_hole:
             for hole in self.state.holes:
-                self.drawShapely(canvas, transform(hole.polygon, lambda p:p-(self.off_x, self.off_y)), stroke=0xFFCF55 if hole is self.state.focus else 0xFF6E00)
+                self.drawShapely(canvas, transform(hole.polygon, lambda p:p-(self.off_x, self.off_y)), stroke=0xFFCF55 if hole is self.state.focus else 0xFF6E00, fill=0x261000 if hole is self.state.focus else None)
 
         if self.state.show_conflicts:
             for conflict in self.state.conflicts:
