@@ -314,13 +314,13 @@ def commitLibTable(project, root):
         f.write("(fp_lib_table\n")
         f.write(f"  (version {project['fp_lib_table']['version']})\n")
         for lib in project["fp_lib_table"]["lib"]:
-            f.write(f"  (lib (name {json.dumps(lib['name'])}) (uri {json.dumps(lib['uri'])}) (type {json.dumps(lib['type'])}) (options {json.dumps(lib['options'])}) (descr {json.dumps(lib['descr'])}))\n")
+            f.write(f"  (lib (name {json.dumps(lib['name'])})(type {json.dumps(lib['type'])})(uri {json.dumps(lib['uri'])})(options {json.dumps(lib['options'])})(descr {json.dumps(lib['descr'])}))\n")
         f.write(")\n")
     with open(os.path.join(os.path.dirname(project["project_path"]), "sym-lib-table"), "w") as f:
         f.write("(sym_lib_table\n")
         f.write(f"  (version {project['sym_lib_table']['version']})\n")
         for lib in project["sym_lib_table"]["lib"]:
-            f.write(f"  (lib (name {json.dumps(lib['name'])}) (uri {json.dumps(lib['uri'])}) (type {json.dumps(lib['type'])}) (options {json.dumps(lib['options'])}) (descr {json.dumps(lib['descr'])}))\n")
+            f.write(f"  (lib (name {json.dumps(lib['name'])})(type {json.dumps(lib['type'])})(uri {json.dumps(lib['uri'])})(options {json.dumps(lib['options'])})(descr {json.dumps(lib['descr'])}))\n")
         f.write(")\n")
 
     populateProject(project, root)
