@@ -500,6 +500,9 @@ class PanelizerUI(Application):
         self.state.focus_tab = None
         self.build()
 
+    def select_hole(self, e, hole):
+        self.state.focus = hole
+
     def save(self, e, target=None):
         if target is None:
             target = SaveFile(self.state.target_path, types="KiKit Panelization (*.kikit_pnl)|*.kikit_pnl")
@@ -2121,13 +2124,17 @@ class PanelizerUI(Application):
                                                     Spacer()
                                                 r += 1
 
-                                    elif self.state.focus:
-                                        with HBox():
-                                            Label("Selected Hole")
+                                    elif self.state.holes:
+                                        Label("Holes")
+                                        for i, hole in enumerate(self.state.holes):
+                                            selected = (self.state.focus is hole)
+                                            prefix = "*" if selected else " "
 
-                                            Spacer()
-
-                                            Button("Remove").click(self.remove, self.state.focus)
+                                            with HBox():
+                                                Label(f"{prefix} Hole {i+1}")
+                                                Button("Select").click(self.select_hole, hole)
+                                                Button("Remove").click(self.remove, hole)
+                                                Spacer()
 
                                     Spacer()
                         else:
