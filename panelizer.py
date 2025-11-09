@@ -1732,6 +1732,7 @@ class PanelizerUI(Application):
         x, y = self.toCanvas(pcb.x+p.x, pcb.y+p.y)
         canvas.drawText(x, y, f"{index}. {pcb.ident}\n{pcb.width/self.unit:.2f}*{pcb.height/self.unit:.2f}", rotate=pcb.rotate*-1, color=0xFFFFFF)
 
+        offx, offy, scale = self.state.scale
         for i, tab in enumerate(pcb.tabs()):
             x1 = tab["x1"]
             y1 = tab["y1"]
@@ -1744,6 +1745,10 @@ class PanelizerUI(Application):
                 width = 3
             else:
                 width = 1
+            ln = LineString([(x2, y2), (x1, y1)])
+            ln1 = ln.parallel_offset(tab["width"]*self.unit*scale/2, "left")
+            ln2 = ln.parallel_offset(tab["width"]*self.unit*scale/2, "right")
+            canvas.drawLine(ln1.coords[0][0], ln1.coords[0][1], ln2.coords[0][0], ln2.coords[0][1], color=0xFFFF00)
             canvas.drawLine(x1, y1, x2, y2, color=0xFFFF00, width=width)
             canvas.drawEllipse(x2, y2, 3, 3, stroke=0xFF0000)
 
