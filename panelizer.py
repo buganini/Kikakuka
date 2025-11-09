@@ -127,17 +127,31 @@ class PCB(StateObject):
         """
         ret = []
         for tab in self._tabs:
-            p = affinity.rotate(Point(tab["x"], tab["y"]), self.rotate*-1, origin=(0,0))
+            p = affinity.rotate(Point(tab["x"], tab["y"]), (self.rotate % 360)*-1, origin=(0,0))
             p = transform(p, lambda x: x+[self.x+self.off_x, self.y+self.off_y])
-            shortest = None
-            for shape in self.shapes:
-                s = shapely.shortest_line(p, shape.exterior)
-                if shortest is None or s.length < shortest.length:
-                    shortest = s
+            arrow = None
 
-            if shortest:
-                t0 = shortest.coords[0]
-                t1 = shortest.coords[1]
+            if tab["closest"]:
+                for shape in self.shapes:
+                    s = shapely.shortest_line(p, shape.exterior)
+                    if arrow is None or s.length < arrow.length:
+                        arrow = s
+            else:
+                touch = shoot(
+                    p,
+                    shapely.union_all(self.shapes),
+                    affinity.rotate(
+                        LineString([(0,0), (0, -1)]),
+                        tab["direction"],
+                        origin=(0,0)
+                    ).coords[1],
+                    arrow_size=0
+                )[0]
+                arrow = LineString([p, touch])
+
+            if arrow:
+                t0 = arrow.coords[0]
+                t1 = arrow.coords[1]
                 ret.append({
                     "x1": t0[0],
                     "y1": t0[1],
@@ -246,6 +260,8 @@ class PCB(StateObject):
             "x": p.x,
             "y": p.y,
             "width": self.main.state.tab_width,
+            "closest": True,
+            "direction": 0.0,
         }))
 
 class Hole(StateObject):
@@ -419,6 +435,7 @@ class PanelizerUI(Application):
         self.mouse_dragging = None
         self.mousehold = False
         self.mousemoved = 0
+        self.mouse_action_from_inside = False
         self.tool = Tool.NONE
         self.state.edit_polygon = None
 
@@ -660,9 +677,17 @@ class PanelizerUI(Application):
                             "x": tabs[i][0],
                             "y": tabs[i][1],
                             "width": self.state.tab_width,
+                            "closest": True,
+                            "direction": 0.0 ,
                         })
                     else:
-                        tabs[i] = StateDict(tabs[i])
+                        tabs[i] = StateDict({
+                            "x": tabs[i]["x"],
+                            "y": tabs[i]["y"],
+                            "width": tabs[i].get("width", self.state.tab_width),
+                            "closest": tabs[i].get("closest", True),
+                            "direction": tabs[i].get("direction", 0.0),
+                        })
                 pcb._tabs = tabs
                 self.state.pcb.append(pcb)
             self.state.scale = None
@@ -1566,6 +1591,7 @@ class PanelizerUI(Application):
         self.state.mousepos = e.x, e.y
         self.mousehold = True
         self.mousemoved = 0
+        self.mouse_action_from_inside = False
 
         if self.tool == Tool.TAB:
             pass
@@ -1579,6 +1605,7 @@ class PanelizerUI(Application):
             self.mouse_dragging = None
             if self.state.focus and self.state.focus.contains(p):
                 self.mouse_dragging = self.state.focus
+                self.mouse_action_from_inside = True
 
 
     def mouseup(self, e):
@@ -1638,14 +1665,24 @@ class PanelizerUI(Application):
             dy = y2 - y1
 
             if self.state.focus_tab is not None:
-                p = affinity.rotate(Point(dx, dy), self.state.focus.rotate*1, origin=(0,0))
+                if self.mouse_action_from_inside:
+                    p = affinity.rotate(Point(dx, dy), self.state.focus.rotate*1, origin=(0,0))
 
-                mx = self.state.focus_tab["x"] + int(p.x)
-                my = self.state.focus_tab["y"] + int(p.y)
+                    mx = self.state.focus_tab["x"] + int(p.x)
+                    my = self.state.focus_tab["y"] + int(p.y)
 
-                if self.state.focus.contains(self.state.focus.transform(Point(mx, my))):
-                    self.state.focus_tab["x"] = mx
-                    self.state.focus_tab["y"] = my
+                    if self.state.focus.contains(self.state.focus.transform(Point(mx, my))):
+                        self.state.focus_tab["x"] = mx
+                        self.state.focus_tab["y"] = my
+                else:
+                    p = affinity.rotate(Point(self.state.focus_tab["x"], self.state.focus_tab["y"]), (self.state.focus.rotate % 360)*-1, origin=(0,0))
+                    p = transform(p, lambda x: x + [self.state.focus.x + self.state.focus.off_x, self.state.focus.y + self.state.focus.off_y])
+
+                    dy = y2 + self.off_y - p.y
+                    dx = x2 + self.off_x - p.x
+                    angle = math.atan2(dy, dx)
+                    angle = round(angle * 180 / math.pi + 90, 2)
+                    self.state.focus_tab["direction"] = angle % 360
             else:
                 self.state.focus = self.mouse_dragging
 
@@ -2121,6 +2158,10 @@ class PanelizerUI(Application):
                                                     Button("Remove").click(self.remove_tab, tab)
                                                     Label("Width")
                                                     TextField(self.state.focus._tabs[i]("width")).change(self.build)
+                                                    Checkbox("To the closest point on the edge", self.state.focus._tabs[i]("closest")).change(self.build)
+                                                    if not self.state.focus._tabs[i]["closest"]:
+                                                        Label("Direction")
+                                                        TextField(self.state.focus._tabs[i]("direction")).change(self.build)
                                                     Spacer()
                                                 r += 1
 
