@@ -1681,8 +1681,8 @@ class PanelizerUI(Application):
                     dy = y2 + self.off_y - p.y
                     dx = x2 + self.off_x - p.x
                     angle = math.atan2(dy, dx)
-                    angle = round(angle * 180 / math.pi + 90, 2)
-                    self.state.focus_tab["direction"] = angle % 360
+                    angle = angle * 180 / math.pi + 90
+                    self.state.focus_tab["direction"] = round(angle % 360, 2)
             else:
                 self.state.focus = self.mouse_dragging
 
