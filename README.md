@@ -69,8 +69,8 @@ In the image below with debug mode on, small red dots are tab position candidate
 ![Auto Tab](screenshots/auto_tab.png)
 
 ## Manual Tab
-Auto tab is off for PCB with manual tabs, if you need more control you can try
-`Global Settings -> Auto Tab` or `Disable auto tab` for individual PCB.
+Auto tab is off for PCB with manual tabs.
+Drag inside the PCB for moving selected tab, drag outside the PCB for changing the direction for the selected tab.
 ![Manual Tab](screenshots/manual_tab.gif)
 
 # Run from source (Linux/macOS)
