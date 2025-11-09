@@ -1170,13 +1170,6 @@ class PanelizerUI(Application):
 
         cuts = sorted(cuts,key=lambda cut: cut.bounds)
 
-        # normalize linestring direction
-        for i in range(len(cuts)):
-            if cuts[i].coords[0][1] > cuts[i].coords[1][1]:
-                cuts[i] = shapely.reverse(cuts[i])
-            if cuts[i].coords[0][0] > cuts[i].coords[1][0]:
-                cuts[i] = shapely.reverse(cuts[i])
-
         vcuts = []
         bites = []
         cut_method = self.state.cut_method
@@ -1225,6 +1218,13 @@ class PanelizerUI(Application):
 
         if bites:
             panel.makeMouseBites(bites, diameter=mb_diameter * self.unit, spacing=mb_spacing * self.unit - SHP_EPSILON, offset=mb_offset * self.unit, prolongation=0 * self.unit)
+
+        # normalize linestring direction
+        for i in range(len(vcuts)):
+            if vcuts[i].coords[0][1] > vcuts[i].coords[1][1]:
+                vcuts[i] = shapely.reverse(vcuts[i])
+            if vcuts[i].coords[0][0] > vcuts[i].coords[1][0]:
+                vcuts[i] = shapely.reverse(vcuts[i])
 
         merge_vcuts = self.state.merge_vcuts
         merge_threshold = self.state.merge_vcuts_threshold * self.unit
