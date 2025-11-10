@@ -8,6 +8,10 @@
     * Update the render function to improve the display of the substrate area.
     * Add vcut_or_skip and hidden vcut_unsafe cut methods
     * Add "Generate Holes" for user to determine which area should be holes/fills in tight frame + zero-spacing scenario #22
+    * Fix mousebites offset by preserving cut line direction #23
+    * Add configurable angle setting for manual tabs #24
+    * Tabs: better handling of non-perpendicular approaching angle #24
+
 * Workspace Manager:
     * Display libraries
     * "Convert to relative path" button (related to KIPRJMOD)
