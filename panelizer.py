@@ -1827,13 +1827,16 @@ class PanelizerUI(Application):
         offx, offy, scale = self.state.scale
         mb_diameter = self.state.mb_diameter
         mb_spacing = self.state.mb_spacing
+        if mb_spacing == 0:
+            return
         i = 0
         line = line.parallel_offset(self.state.mb_offset * self.unit, "left")
-        while i * mb_spacing * self.unit <= line.length + SHP_EPSILON:
-            p = line.interpolate(i * mb_spacing * self.unit)
+        n = int((line.length - SHP_EPSILON) // (mb_spacing * self.unit))
+        spacing = line.length / n
+        for i in range(n + 1):
+            p = line.interpolate(i * spacing)
             x, y = self.toCanvas(p.x-self.off_x, p.y-self.off_y)
             canvas.drawEllipse(x, y, mb_diameter*self.unit/2*scale, mb_diameter*self.unit/2*scale, stroke=0xFFFF00)
-            i += 1
 
     def painter(self, canvas):
         if self.state.scale is None:
