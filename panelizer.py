@@ -32,6 +32,8 @@ import platform
 import tempfile
 import atexit
 import shutil
+
+MAX_BOARD_SIZE = 10000*mm
 MIN_SPACING = 0.0
 VC_EXTENT = 3
 
@@ -196,7 +198,7 @@ class PCB(StateObject):
         else:
             objs = [obj]
         for shape, obj in itertools.product(self.shapes, objs):
-            c = collision(shape, obj, direction, arrow_size=10000*mm)
+            c = collision(shape, obj, direction, arrow_size=MAX_BOARD_SIZE)
             if c:
                 dist = LineString(c).length
                 if mdist is None:
@@ -282,10 +284,40 @@ class Hole(StateObject):
     def contains(self, p):
         return self.polygon.contains(p)
 
+def makeSpanningPoints(boardSubstrate, base_shape, origin, outward_direction, width):
+    if boardSubstrate.substrates.contains(Point(origin)) and not boardSubstrate.substrates.boundary.contains(Point(origin)):
+        print(origin, outward_direction, ["Tab annotation is placed inside the board. It has to be on edge or outside the board."])
+        return None
+
+    boardSubstrate.orient()
+
+    outward_direction = normalize(outward_direction)
+    direction_epsilon = outward_direction * float(SHP_EPSILON)
+    origin -= direction_epsilon
+    sideOriginA = origin + makePerpendicular(outward_direction) * width / 2
+    sideOriginB = origin - makePerpendicular(outward_direction) * width / 2
+
+    # snap to board edge
+    borderA = LineString([sideOriginA - outward_direction * MAX_BOARD_SIZE / 2, sideOriginA + outward_direction * MAX_BOARD_SIZE / 2])
+    borderB = LineString([sideOriginB - outward_direction * MAX_BOARD_SIZE / 2, sideOriginB + outward_direction * MAX_BOARD_SIZE / 2])
+    pointsOnBorderA = intersection(borderA, base_shape.exterior)
+    if pointsOnBorderA.is_empty:
+        print("Points on border A is empty")
+        return None
+    pointsOnBorderB = intersection(borderB, base_shape.exterior)
+    if pointsOnBorderB.is_empty:
+        print("Points on border B is empty")
+        return None
+    origin = Point(*origin)
+    sideOriginA = shapely.shortest_line(pointsOnBorderA, origin).coords[0] + direction_epsilon * 2
+    sideOriginB = shapely.shortest_line(pointsOnBorderB, origin).coords[0] + direction_epsilon * 2
+    return sideOriginA, sideOriginB
+
 # Modified from tab() in kikit:
 # 1. Don't stop at first hit substrate, it may not be the closest one
 # 2. Fix origin inside a hole
-def autotabs(boardSubstrate, origin, direction, width,
+# 3. Better handling of non-perpendicular approaching angle
+def autotabs(boardSubstrate, sideOriginA, sideOriginB, direction,
             maxHeight=pcbnew.FromMM(50), fillet=0):
     """
     Create a tab for the substrate. The tab starts at the specified origin
@@ -304,20 +336,15 @@ def autotabs(boardSubstrate, origin, direction, width,
     Returns a pair tab and cut outline. Add the tab it via union - batch
     adding of geometry is more efficient.
     """
+
     boardSubstrate.orient()
 
-    if boardSubstrate.substrates.contains(Point(origin)) and not boardSubstrate.substrates.boundary.contains(Point(origin)):
-        print(origin, direction, ["Tab annotation is placed inside the board. It has to be on edge or outside the board."])
-        return []
+    direction = normalize(direction)
+    direction_epsilon = direction * float(SHP_EPSILON)
 
-    origin = np.array(origin)
-    direction = np.around(normalize(direction), 4)
-    epsilon = direction * float(SHP_EPSILON)
-    origin -= epsilon
     tabs = []
+
     for geom in listGeometries(boardSubstrate.substrates):
-        sideOriginA = origin + makePerpendicular(direction) * width / 2
-        sideOriginB = origin - makePerpendicular(direction) * width / 2
         try:
             boundary = geom.exterior
             splitPointA = closestIntersectionPoint(sideOriginA, direction,
@@ -326,7 +353,7 @@ def autotabs(boardSubstrate, origin, direction, width,
                 boundary, maxHeight)
             tabFace = biteBoundary(boundary, splitPointB, splitPointA)
 
-            tab = Polygon([p + epsilon for p in tabFace.coords] + [sideOriginA, sideOriginB])
+            tab = Polygon([p + direction_epsilon for p in tabFace.coords] + [sideOriginA, sideOriginB])
             tabs.append(boardSubstrate._makeTabFillet(tab, tabFace, fillet))
         except NoIntersectionError as e:
             pass
@@ -341,7 +368,7 @@ def autotabs(boardSubstrate, origin, direction, width,
                     boundary, maxHeight)
                 tabFace = biteBoundary(boundary, splitPointB, splitPointA)
 
-                tab = Polygon([p + epsilon for p in tabFace.coords] + [sideOriginA, sideOriginB])
+                tab = Polygon([p + direction_epsilon for p in tabFace.coords] + [sideOriginA, sideOriginB])
                 tabs.append(boardSubstrate._makeTabFillet(tab, tabFace, fillet))
             except NoIntersectionError as e:
                 pass
@@ -349,9 +376,9 @@ def autotabs(boardSubstrate, origin, direction, width,
                 pass
     return tabs
 
-def autotab(boardSubstrate, origin, direction, width,
+def autotab(boardSubstrate, sideOriginA, sideOriginB, direction,
             maxHeight=pcbnew.FromMM(50), fillet=0):
-    tabs = autotabs(boardSubstrate, origin, direction, width, maxHeight, fillet)
+    tabs = autotabs(boardSubstrate, sideOriginA, sideOriginB, direction, maxHeight, fillet)
     if tabs:
         tabs = [(tab[0].area, tab) for tab in tabs]
         tabs.sort(key=lambda t: t[0])
@@ -375,7 +402,10 @@ class PanelizerUI(Application):
 
         self.state = State()
         self.state.hide_outside_reference_value = True
+
         self.state.debug = False
+        self.state.debug_bbox = True
+
         self.state.show_conflicts = True
         self.state.show_pcb = True
         self.state.show_hole = True
@@ -877,34 +907,39 @@ class PanelizerUI(Application):
         dbg_rects = []
         dbg_polygons = []
         dbg_text = []
-        tabs = []
         cuts = []
 
         tab_substrates = []
 
         # manual tab
         for pcb in pcbs:
-            for tab in pcb.tabs():
+            for i, tab in enumerate(pcb.tabs()):
                 x1 = tab["x1"]
                 y1 = tab["y1"]
                 x2 = tab["x2"]
                 y2 = tab["y2"]
                 width = tab["width"]
-                tx, ty = extrapolate(x1, y1, x2, y2, 1, spacing/2*self.unit if spacing > 0 else SHP_EPSILON*2)
+                tx, ty = extrapolate(x1, y1, x2, y2, 1, SHP_EPSILON * 2)
+
+                sideOrigin = makeSpanningPoints(panel.boardSubstrate, shapely.union_all(pcb.shapes), (tx, ty), (x2-x1, y2-y1), width*self.unit)
+                if sideOrigin is None:
+                    continue
+
+                sideOriginA, sideOriginB = sideOrigin
 
                 # outward
-                tab = autotab(panel.boardSubstrate, (tx, ty), (tx-x2, ty-y2), width*self.unit)
-                if tab:
+                tab = autotab(panel.boardSubstrate, sideOriginA, sideOriginB, (x2-x1, y2-y1))
+                if tab: # (tab, tabface)
                     tab_substrates.append(tab[0])
-                    for pcb in pcbs:
-                        dist = pcb.distance(tab[1])
+                    for p in pcbs:
+                        dist = p.distance(tab[1])
                         if dist == 0:
                             cuts.append(tab[1])
                             break
 
                     # inward
-                    tab = autotab(panel.boardSubstrate, (tx, ty), (x2-tx, y2-ty), width*self.unit)
-                    if tab: # tab, tabface
+                    tab = autotab(panel.boardSubstrate, sideOriginB, sideOriginA, (x1-x2, y1-y2))
+                    if tab: # (tab, tabface)
                         tab_substrates.append(tab[0])
                         cuts.append(tab[1])
 
@@ -950,7 +985,7 @@ class PanelizerUI(Application):
                     for i in range(1,n):
                         p = (x1 + (x2-x1)*i/n, y1 - spacing/2*self.unit)
                         partition = len([x for x in x_parts if x < p[0]])
-                        tab_candidates.append((p, (0,1), partition, (x2-x1)/n))
+                        tab_candidates.append((pcb, p, (0,1), partition, (x2-x1)/n))
 
                 # bottom
                 if col_bboxes and y2 != max([b[1] for b in col_bboxes]):
@@ -958,7 +993,7 @@ class PanelizerUI(Application):
                     for i in range(1,n):
                         p = (x1 + (x2-x1)*i/n, y2 + spacing/2*self.unit)
                         partition = len([x for x in x_parts if x < p[0]])
-                        tab_candidates.append((p, (0,-1), partition, (x2-x1)/n))
+                        tab_candidates.append((pcb, p, (0,-1), partition, (x2-x1)/n))
 
                 # left
                 if row_bboxes and x1 != min([b[0] for b in row_bboxes]):
@@ -966,7 +1001,7 @@ class PanelizerUI(Application):
                     for i in range(1,n):
                         p = (x1 - spacing/2*self.unit , y1 + (y2-y1)*i/n)
                         partition = len([y for y in y_parts if y < p[1]])
-                        tab_candidates.append((p, (1,0), partition, (y2-y1)/n))
+                        tab_candidates.append((pcb, p, (1,0), partition, (y2-y1)/n))
 
                 # right
                 if row_bboxes and x2 != max([b[1] for b in row_bboxes]):
@@ -974,12 +1009,12 @@ class PanelizerUI(Application):
                     for i in range(1,n):
                         p = (x2 + spacing/2*self.unit , y1 + (y2-y1)*i/n)
                         partition = len([y for y in y_parts if y < p[1]])
-                        tab_candidates.append((p, (-1,0), partition, (y2-y1)/n))
+                        tab_candidates.append((pcb, p, (-1,0), partition, (y2-y1)/n))
 
         tab_candidates.sort(key=lambda t: t[3]) # sort by divided edge length
 
         filtered_cands = []
-        for p, inward_direction, partition, score_divider in tab_candidates:
+        for pcb, p, inward_direction, partition, score_divider in tab_candidates:
             skip = False
             for hole in self.state.holes:
                 shape = hole.polygon
@@ -988,14 +1023,14 @@ class PanelizerUI(Application):
                     break
             if skip:
                 continue
-            filtered_cands.append((p, inward_direction, partition, score_divider))
+            filtered_cands.append((pcb, p, inward_direction, partition, score_divider))
             dbg_points.append((p, 1))
         tab_candidates = filtered_cands
 
         # x, y, abs(direction), partition index
         tabs = []
         tab_dist = max_tab_spacing * self.unit / 3
-        for p, inward_direction, partiion, score_divider in tab_candidates:
+        for pcb, p, inward_direction, partiion, score_divider in tab_candidates:
             # prevent overlapping tabs
             if spacing <= mb_diameter and len([t for t in tabs if
                     (abs(inward_direction[0]), abs(inward_direction[1]))==(abs(t[2][0]), abs(t[2][1])) # same axis
@@ -1024,15 +1059,15 @@ class PanelizerUI(Application):
                 continue
             dbg_points.append((p, 5))
 
+            outward_direction = (inward_direction[0]*-1,inward_direction[1]*-1)
+            sideOrigin = makeSpanningPoints(panel.boardSubstrate, shapely.union_all(pcb.shapes), p, outward_direction, tab_width*self.unit)
+            if sideOrigin is None:
+                continue
+            sideOriginA, sideOriginB = sideOrigin
+
             # outward
-            tab = autotab(panel.boardSubstrate, p, (inward_direction[0]*-1,inward_direction[1]*-1), tab_width*self.unit)
-            if tab: # tab, tabface
-                tabs.append((
-                    p[0],
-                    p[1],
-                    (abs(inward_direction[0]), abs(inward_direction[1])),
-                    partiion,
-                ))
+            tab = autotab(panel.boardSubstrate, sideOriginA, sideOriginB, outward_direction)
+            if tab: # (tab, tabface)
                 tab_substrates.append(tab[0])
                 for pcb in pcbs:
                     dist = pcb.distance(tab[1])
@@ -1041,8 +1076,8 @@ class PanelizerUI(Application):
                         break
 
                 # inward
-                tab = autotab(panel.boardSubstrate, p, inward_direction, tab_width*self.unit)
-                if tab: # tab, tabface
+                tab = autotab(panel.boardSubstrate, sideOriginB, sideOriginA, inward_direction)
+                if tab: # (tab, tabface)
                     tab_substrates.append(tab[0])
                     cuts.append(tab[1])
 
@@ -1157,10 +1192,11 @@ class PanelizerUI(Application):
         if overlapped:
             errors.append("PCB overlaps with other PCB or frame edges")
 
-        for pcb in pcbs:
-            shapes = pcb.shapes
-            for s in shapes:
-                dbg_rects.append(s.bounds)
+        if self.state.debug_bbox:
+            for pcb in pcbs:
+                shapes = pcb.shapes
+                for s in shapes:
+                    dbg_rects.append(s.bounds)
 
         if generate_holes:
             substrates = [frame_top_polygon, frame_bottom_polygon, frame_left_polygon, frame_right_polygon]
@@ -1738,19 +1774,22 @@ class PanelizerUI(Application):
             y1 = tab["y1"]
             x2 = tab["x2"]
             y2 = tab["y2"]
-            x2, y2 = extrapolate(x1, y1, x2, y2, 1, self.state.spacing/2*self.unit)
+            x2, y2 = extrapolate(x1, y1, x2, y2, 1, SHP_EPSILON * 2)
             x1, y1 = self.toCanvas(x1-self.off_x, y1-self.off_y)
             x2, y2 = self.toCanvas(x2-self.off_x, y2-self.off_y)
             if tab["o"] == self.state.focus_tab and pcb is self.state.focus:
                 width = 3
             else:
                 width = 1
+
+            # arrow
+            canvas.drawLine(x1, y1, x2, y2, color=0xFFFF00, width=width)
+
+            # tab width
             ln = LineString([(x2, y2), (x1, y1)])
             ln1 = ln.parallel_offset(tab["width"]*self.unit*scale/2, "left")
             ln2 = ln.parallel_offset(tab["width"]*self.unit*scale/2, "right")
             canvas.drawLine(ln1.coords[0][0], ln1.coords[0][1], ln2.coords[0][0], ln2.coords[0][1], color=0xFFFF00)
-            canvas.drawLine(x1, y1, x2, y2, color=0xFFFF00, width=width)
-            canvas.drawEllipse(x2, y2, 3, 3, stroke=0xFF0000)
 
     def drawLine(self, canvas, x1, y1, x2, y2, color):
         x1, y1 = self.toCanvas(x1, y1)
@@ -1801,6 +1840,7 @@ class PanelizerUI(Application):
             self.autoScale(canvas.width, canvas.height)
             return
 
+        offx, offy, scale = self.state.scale
         pcbs = self.state.pcb
 
         boardSubstrate = self.state.boardSubstrate
@@ -1898,11 +1938,19 @@ class PanelizerUI(Application):
                     t1 = shortest.coords[1]
                     x1, y1 = t0
                     x2, y2 = t1
-                    x2, y2 = extrapolate(x1, y1, x2, y2, 1, self.state.spacing/2*self.unit)
+                    x2, y2 = extrapolate(x1, y1, x2, y2, 1, SHP_EPSILON * 2)
                     x1, y1 = self.toCanvas(x1-self.off_x, y1-self.off_y)
                     x2, y2 = self.toCanvas(x2-self.off_x, y2-self.off_y)
-                    canvas.drawEllipse(x2, y2, 3, 3, stroke=0xFF0000)
+
+                    # arrow
                     canvas.drawLine(x1, y1, x2, y2, color=0xFFFF00)
+
+                    # tab width
+                    ln = LineString([(x2, y2), (x1, y1)])
+                    ln1 = ln.parallel_offset(self.state.tab_width*self.unit*scale/2, "left")
+                    ln2 = ln.parallel_offset(self.state.tab_width*self.unit*scale/2, "right")
+                    canvas.drawLine(ln1.coords[0][0], ln1.coords[0][1], ln2.coords[0][0], ln2.coords[0][1], color=0xFFFF00)
+
 
         for i, error in enumerate(self.state.errors):
             canvas.drawText(10, 10+i*15, error, color=0xFF0000)
@@ -1992,6 +2040,13 @@ class PanelizerUI(Application):
                             Checkbox("Conflicts", self.state("show_conflicts")).click(self.build)
                             Spacer()
                             Checkbox("Debug", self.state("debug")).click(self.build)
+
+
+                        if self.state.debug:
+                            with HBox():
+                                Label("Debug Display")
+                                Checkbox("PCB Bounding Box", self.state("debug_bbox")).click(self.build)
+                                Spacer()
 
                         Divider()
 
@@ -2163,7 +2218,7 @@ class PanelizerUI(Application):
                                                     Button("Remove").click(self.remove_tab, tab)
                                                     Label("Width")
                                                     TextField(self.state.focus._tabs[i]("width")).change(self.build)
-                                                    Checkbox("To the closest point on the edge", self.state.focus._tabs[i]("closest")).change(self.build)
+                                                    Checkbox("To the closest point on the edge", self.state.focus._tabs[i]("closest")).click(self.build)
                                                     if not self.state.focus._tabs[i]["closest"]:
                                                         Label("Direction")
                                                         TextField(self.state.focus._tabs[i]("direction")).change(self.build)
