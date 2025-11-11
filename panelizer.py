@@ -32,6 +32,9 @@ import platform
 import tempfile
 import atexit
 import shutil
+import re
+
+BUILDEXPR = "BUILDEXPR"
 
 MAX_BOARD_SIZE = 10000*mm
 MIN_SPACING = 0.0
@@ -413,6 +416,7 @@ class PanelizerUI(Application):
         self.state.show_vc = True
 
         self.state.pcb = []
+        self.state.flags = []
         self.state.scale = None
 
         self.state.target_path = ""
@@ -839,6 +843,14 @@ class PanelizerUI(Application):
             # Preserve silkscreen text regardless of reference renaming
             # https://github.com/yaqwsx/KiKit/pull/845
             for fp in panel.board.GetFootprints():
+                if fp.HasFieldByName(BUILDEXPR):
+                    expr = fp.GetFieldText(BUILDEXPR)
+                    expr = [t for t in re.split("[|&~]", expr) if t.strip()]
+                    for e in expr:
+                        if e not in self.state.flags:
+                            self.state.flags.append(e)
+                    self.state.flags.sort()
+
                 ref = fp.Reference()
                 t = ref.GetText()
 
