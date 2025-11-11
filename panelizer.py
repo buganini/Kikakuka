@@ -1831,7 +1831,7 @@ class PanelizerUI(Application):
             return
         i = 0
         line = line.parallel_offset(self.state.mb_offset * self.unit, "left")
-        n = int((line.length - SHP_EPSILON) // (mb_spacing * self.unit))
+        n = int(line.length // (mb_spacing * self.unit))
         spacing = line.length / n
         for i in range(n + 1):
             p = line.interpolate(i * spacing)
