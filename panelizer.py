@@ -933,7 +933,7 @@ class PanelizerUI(Application):
                     tab_substrates.append(tab[0])
                     for p in pcbs:
                         dist = p.distance(tab[1])
-                        if dist == 0:
+                        if dist <= SHP_EPSILON:
                             cuts.append(tab[1])
                             break
 
@@ -1069,9 +1069,9 @@ class PanelizerUI(Application):
             tab = autotab(panel.boardSubstrate, sideOriginA, sideOriginB, outward_direction)
             if tab: # (tab, tabface)
                 tab_substrates.append(tab[0])
-                for pcb in pcbs:
-                    dist = pcb.distance(tab[1])
-                    if dist == 0:
+                for p in pcbs:
+                    dist = p.distance(tab[1])
+                    if dist <= SHP_EPSILON:
                         cuts.append(tab[1])
                         break
 
