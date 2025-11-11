@@ -2086,7 +2086,8 @@ class PanelizerUI(Application):
                             RadioButton("V-Cuts and Mousebites", "vc_and_mb", self.state("cut_method")).click(self.build)
                             RadioButton("Mousebites", "mb", self.state("cut_method")).click(self.build)
                             RadioButton("V-Cut", "vc_or_skip", self.state("cut_method")).click(self.build)
-                            # RadioButton("V-Cut (Unsafe)", "vc_unsafe", self.state("cut_method")).click(self.build)
+                            if self.state.debug:
+                                RadioButton("V-Cut (Unsafe)", "vc_unsafe", self.state("cut_method")).click(self.build)
                             RadioButton("None", "none", self.state("cut_method")).click(self.build)
                             Spacer()
 
