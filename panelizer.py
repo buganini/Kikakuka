@@ -128,6 +128,16 @@ class PCB(StateObject):
                     except:
                         self.errors.append(f"{self.ident}: Invalid buildexpr {repr(expr)}")
 
+            for k,v in fp.GetFieldsText().items():
+                if "#" in k:
+                    try:
+                        tags = [t.strip() for t in k.split("#")[1:]]
+                        for f in tags:
+                            if f not in self.avail_flags:
+                                self.avail_flags.append(f)
+                                self.avail_flags.sort()
+                    except:
+                        self.errors.append(f"{self.ident}: Invalid field {k}: {repr(v)}")
 
     def transform(self, shape):
         shape = affinity.rotate(shape, (self.rotate % 360)*-1, origin=(0,0))
@@ -858,17 +868,15 @@ class PanelizerUI(Application):
                 refRenamer=self.refRenamer
             )
 
-            # Cannot loop inside panel, do incremental update to map footprint to the pccb
-            # Preserve silkscreen text regardless of reference renaming
-            # https://github.com/yaqwsx/KiKit/pull/845
             for fp in panel.board.GetFootprints():
                 ref = fp.Reference()
                 t = ref.GetText()
 
-                if self.refMap.get(t, t) != t:
+                # Build Variants
+                if self.refMap.get(t, t) != t and export:
                     if fp.HasFieldByName(BUILDEXPR):
                         expr = fp.GetFieldText(BUILDEXPR)
-                        if expr and export:
+                        if expr:
                             place = buildexpr(expr, pcb.flags)
                             # print("BUILDEXPR", i, expr, pcb.flags, place)
 
@@ -876,6 +884,17 @@ class PanelizerUI(Application):
                                 # print("SET DNP", i, fp.GetReference(), expr, pcb.flags, place)
                                 fp.SetDNP(True)
 
+                    for k,v in fp.GetFieldsText().items():
+                        if "#" in k:
+                            tks = k.split("#")
+                            field = tks[0]
+                            tags = sorted([t.strip() for t in tks[1:]])
+                            if tags == sorted(pcb.flags):
+                                fp.SetField(field, v)
+
+                # Cannot loop inside panel, do incremental update to map footprint to the pccb
+                # Preserve silkscreen text regardless of reference renaming
+                # https://github.com/yaqwsx/KiKit/pull/845
                 if ref.IsVisible() and t != self.refMap.get(t, t):
                     text = pcbnew.PCB_TEXT(panel.board)
                     text.SetText(self.refMap.get(t, t))
