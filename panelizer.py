@@ -116,16 +116,17 @@ class PCB(StateObject):
         for fp in panel.board.GetFootprints():
             if fp.HasFieldByName(BUILDEXPR):
                 expr = fp.GetFieldText(BUILDEXPR)
-                try:
-                    buildexpr(expr, {})
-                except:
-                    self.errors.append(f"{self.ident}: Invalid buildexpr {repr(expr)}")
+                if expr:
+                    try:
+                        buildexpr(expr, {})
 
-                flags = [t for t in re.split("[|&~]", expr) if t.strip()]
-                for f in flags:
-                    if f not in self.avail_flags:
-                        self.avail_flags.append(f)
-                        self.avail_flags.sort()
+                        flags = [t for t in re.split("[|&~]", expr) if t.strip()]
+                        for f in flags:
+                            if f not in self.avail_flags:
+                                self.avail_flags.append(f)
+                                self.avail_flags.sort()
+                    except:
+                        self.errors.append(f"{self.ident}: Invalid buildexpr {repr(expr)}")
 
 
     def transform(self, shape):
@@ -2064,13 +2065,23 @@ class PanelizerUI(Application):
                             Button("Hole").click(self.addHole)
                             Spacer()
 
-                        Label("Export Options")
                         with HBox():
+                            Label("Export Options")
+
+                            Label("V-Cut Layer")
+                            with ComboBox(editable=False, text_model=self.state("vc_layer")):
+                                ComboBoxItem("Cmts.User")
+                                ComboBoxItem("User.1")
+                                ComboBoxItem("Edge.Cuts")
+
                             Checkbox("Hide Out-of-Board References/Values", self.state("hide_outside_reference_value"))
+
+                            Checkbox("Export Simulated Mill Fillets", self.state("export_mill_fillets"))
+
                             Spacer()
 
-                        Label("Display Options")
                         with HBox():
+                            Label("Display Options")
                             Checkbox("PCB", self.state("show_pcb"))
                             Checkbox("Hole", self.state("show_hole"))
                             Checkbox("Mousebites", self.state("show_mb"))
@@ -2102,42 +2113,34 @@ class PanelizerUI(Application):
                             Checkbox("Auto Tab", self.state("auto_tab")).click(self.build)
                             Label("Max Tab Spacing")
                             TextField(self.state("max_tab_spacing")).layout(width=50).change(self.build)
+
+                            Label("Cut Method")
+                            with ComboBox(editable=False, text_model=self.state("cut_method")).change(self.build):
+                                ComboBoxItem("V-Cuts or Mousebites", "vc_or_mb")
+                                ComboBoxItem("V-Cuts and Mousebites", "vc_and_mb")
+                                ComboBoxItem("Mousebites", "mb")
+                                ComboBoxItem("V-Cut", "vc_or_skip")
+                                if self.state.debug:
+                                    ComboBoxItem("V-Cut (Unsafe)", "vc_unsafe")
+                                ComboBoxItem("None", "none")
+
                             Spacer()
 
                         with HBox():
-                            Label("Spacing")
+                            Label("PCB Spacing")
                             TextField(self.state("spacing")).change(self.build)
+
                             Label("Tab Width")
                             TextField(self.state("tab_width")).change(self.build)
 
-                        with HBox():
                             Label("Simulate Mill Fillets")
                             TextField(self.state("mill_fillets")).change(self.build)
-                            Checkbox("Export Simulated Mill Fillets", self.state("export_mill_fillets"))
-
-                        with HBox():
-                            Label("Cut Method")
-                            RadioButton("V-Cuts or Mousebites", "vc_or_mb", self.state("cut_method")).click(self.build)
-                            RadioButton("V-Cuts and Mousebites", "vc_and_mb", self.state("cut_method")).click(self.build)
-                            RadioButton("Mousebites", "mb", self.state("cut_method")).click(self.build)
-                            RadioButton("V-Cut", "vc_or_skip", self.state("cut_method")).click(self.build)
-                            if self.state.debug:
-                                RadioButton("V-Cut (Unsafe)", "vc_unsafe", self.state("cut_method")).click(self.build)
-                            RadioButton("None", "none", self.state("cut_method")).click(self.build)
-                            Spacer()
-
-
-                        with HBox():
-                            Label("V-Cut Layer")
-                            with ComboBox(editable=False, text_model=self.state("vc_layer")):
-                                ComboBoxItem("Cmts.User")
-                                ComboBoxItem("User.1")
-                                ComboBoxItem("Edge.Cuts")
 
                             Checkbox("Merge V-Cuts within", self.state("merge_vcuts")).click(self.build)
                             TextField(self.state("merge_vcuts_threshold")).change(self.build)
 
                             Spacer()
+
                         with HBox():
                             Label("Mousebites")
                             Label("Spacing")
@@ -2158,7 +2161,8 @@ class PanelizerUI(Application):
 
                                 Button("Fit").click(self.fit_frame)
 
-                            with HBox():
+                                Spacer()
+
                                 Label("Edge Rail")
                                 Label("Top")
                                 TextField(self.state("frame_top")).change(self.build)
