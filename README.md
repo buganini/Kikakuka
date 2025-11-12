@@ -46,6 +46,8 @@ A boolean expression with operators:
 * `|` Or
 
 e.g. `(A | ~B) & C`
+
+Footprints without BUILDEXPR property will be kept as is.
 ![BUILDEXPR-Prop](screenshots/buildexpr-prop.png)
 
 ## Per-PCB flags settings
