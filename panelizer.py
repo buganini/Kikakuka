@@ -69,6 +69,7 @@ class PCB(StateObject):
         self.main = main
         boardfile = os.path.realpath(boardfile)
         self.file = boardfile
+        self.avail_flags = []
         board = pcbnew.LoadBoard(boardfile)
 
         panel = panelize.Panel(os.path.join(self.main.temp_dir, "temp.kicad_pcb"))
@@ -88,9 +89,9 @@ class PCB(StateObject):
                 expr = fp.GetFieldText(BUILDEXPR)
                 flags = [t for t in re.split("[|&~]", expr) if t.strip()]
                 for f in flags:
-                    if f not in main.state.flags:
-                        main.state.flags.append(f)
-                        main.state.flags.sort()
+                    if f not in self.avail_flags:
+                        self.avail_flags.append(f)
+                        self.avail_flags.sort()
 
         if isinstance(s.substrates, MultiPolygon):
             self._shapes = s.substrates.geoms
@@ -426,7 +427,6 @@ class PanelizerUI(Application):
         self.state.show_vc = True
 
         self.state.pcb = []
-        self.state.flags = []
         self.state.scale = None
 
         self.state.target_path = ""
@@ -2186,9 +2186,9 @@ class PanelizerUI(Application):
                                             Button("Duplicate").click(self.duplicate, self.state.focus)
                                             Button("Remove").click(self.remove, self.state.focus)
 
-                                        if self.state.flags:
+                                        if self.state.focus.avail_flags:
                                             Label("Flags")
-                                            for flag in self.state.flags:
+                                            for flag in self.state.focus.avail_flags:
                                                 Checkbox(flag, self.state.focus("flags"), value=flag)
 
                                         with Grid():
