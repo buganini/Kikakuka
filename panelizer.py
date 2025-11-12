@@ -33,6 +33,7 @@ import tempfile
 import atexit
 import shutil
 import re
+from buildexpr import buildexpr
 
 BUILDEXPR = "BUILDEXPR"
 
@@ -82,6 +83,15 @@ class PCB(StateObject):
         s = panel.substrates[0]
         bbox = s.bounds()
 
+        for fp in panel.board.GetFootprints():
+            if fp.HasFieldByName(BUILDEXPR):
+                expr = fp.GetFieldText(BUILDEXPR)
+                flags = [t for t in re.split("[|&~]", expr) if t.strip()]
+                for f in flags:
+                    if f not in main.state.flags:
+                        main.state.flags.append(f)
+                        main.state.flags.sort()
+
         if isinstance(s.substrates, MultiPolygon):
             self._shapes = s.substrates.geoms
         elif isinstance(s.substrates, Polygon):
@@ -95,8 +105,6 @@ class PCB(StateObject):
             name = os.path.join(folder, name)
         self.ident = name
 
-        # self.disable_auto_tab = False
-
         self.off_x = 0
         self.off_y = 0
 
@@ -109,6 +117,7 @@ class PCB(StateObject):
         self.margin_top = 0
         self.margin_bottom = 0
         self.rotate = 0
+        self.flags = []
         self._tabs = []
 
     def transform(self, shape):
@@ -170,7 +179,6 @@ class PCB(StateObject):
     def clone(self):
         pcb = PCB(self.main, self.file)
         pcb.rotate = self.rotate
-        # pcb.disable_auto_tab = self.disable_auto_tab
         pcb._tabs = [StateDict({**tab}) for tab in self._tabs]
         return pcb
 
@@ -403,6 +411,8 @@ class PanelizerUI(Application):
         self.off_x = 20 * self.unit
         self.off_y = 20 * self.unit
 
+        self.flag_need_update = False
+
         self.state = State()
         self.state.hide_outside_reference_value = True
 
@@ -579,7 +589,7 @@ class PanelizerUI(Application):
                 "margin_top": pcb.margin_top,
                 "margin_bottom": pcb.margin_bottom,
                 "rotate": pcb.rotate,
-                # "disable_auto_tab": pcb.disable_auto_tab,
+                "flags": [f for f in pcb.flags],
                 "tabs": [dict(tab) for tab in pcb._tabs],
             })
         data = {
@@ -703,7 +713,7 @@ class PanelizerUI(Application):
                 pcb.margin_top = p.get("margin_top", 0)
                 pcb.margin_bottom = p.get("margin_bottom", 0)
                 pcb.rotate = p["rotate"]
-                # pcb.disable_auto_tab = p.get("disable_auto_tab", False)
+                pcb.flags = p.get("flags", [])
                 tabs = p.get("tabs", [])
                 for i in range(len(tabs)):
                     if isinstance(tabs[i], list):
@@ -840,19 +850,23 @@ class PanelizerUI(Application):
                 refRenamer=self.refRenamer
             )
 
+            # Cannot loop inside panel, do incremental update to map footprint to the pccb
             # Preserve silkscreen text regardless of reference renaming
             # https://github.com/yaqwsx/KiKit/pull/845
             for fp in panel.board.GetFootprints():
-                if fp.HasFieldByName(BUILDEXPR):
-                    expr = fp.GetFieldText(BUILDEXPR)
-                    expr = [t for t in re.split("[|&~]", expr) if t.strip()]
-                    for e in expr:
-                        if e not in self.state.flags:
-                            self.state.flags.append(e)
-                    self.state.flags.sort()
-
                 ref = fp.Reference()
                 t = ref.GetText()
+
+                if self.refMap.get(t, t) != t:
+                    if fp.HasFieldByName(BUILDEXPR):
+                        expr = fp.GetFieldText(BUILDEXPR)
+                        if expr and export:
+                            place = buildexpr(expr, pcb.flags)
+                            print("BUILDEXPR", i, expr, pcb.flags, place)
+
+                            if not place:
+                                print("SET DNP", i, fp.GetReference(), expr, pcb.flags, place)
+                                fp.SetDNP(True)
 
                 if ref.IsVisible() and t != self.refMap.get(t, t):
                     text = pcbnew.PCB_TEXT(panel.board)
@@ -969,8 +983,6 @@ class PanelizerUI(Application):
 
         if self.state.auto_tab and max_tab_spacing > 0:
             for pcb in pcbs:
-                # if pcb.disable_auto_tab:
-                #     continue
                 if pcb.tabs():
                     continue
                 bboxes = [p.bbox for p in pcbs if p is not pcb]
@@ -1778,7 +1790,8 @@ class PanelizerUI(Application):
 
         p = affinity.rotate(Point(10, 10), pcb.rotate*-1, origin=(0,0))
         x, y = self.toCanvas(pcb.x+p.x, pcb.y+p.y)
-        canvas.drawText(x, y, f"{index}. {pcb.ident}\n{pcb.width/self.unit:.2f}*{pcb.height/self.unit:.2f}", rotate=pcb.rotate*-1, color=0xFFFFFF)
+        flags = " ".join([f"#{f}" for f in sorted(pcb.flags)])
+        canvas.drawText(x, y, f"{index}. {pcb.ident}\n{pcb.width/self.unit:.2f}*{pcb.height/self.unit:.2f}\n{flags}", rotate=pcb.rotate*-1, color=0xFFFFFF)
 
         offx, offy, scale = self.state.scale
         for i, tab in enumerate(pcb.tabs()):
@@ -2173,6 +2186,11 @@ class PanelizerUI(Application):
                                             Button("Duplicate").click(self.duplicate, self.state.focus)
                                             Button("Remove").click(self.remove, self.state.focus)
 
+                                        if self.state.flags:
+                                            Label("Flags")
+                                            for flag in self.state.flags:
+                                                Checkbox(flag, self.state.focus("flags"), value=flag)
+
                                         with Grid():
                                             r = 0
 
@@ -2220,8 +2238,6 @@ class PanelizerUI(Application):
                                             Label("Tabs").grid(row=r, column=0)
                                             with HBox().grid(row=r, column=1):
                                                 Button("Add").click(self.add_tab)
-                                                # if not self.state.focus.tabs():
-                                                #     Checkbox("Disable auto tab", self.state.focus("disable_auto_tab")).click(self.build)
                                                 Spacer()
                                             r += 1
 

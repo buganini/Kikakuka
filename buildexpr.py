@@ -84,9 +84,9 @@ class BuildExprVisitor(NodeVisitor):
             return visited_children[0]
         return visited_children
 
-def parse(text, vmap):
+def buildexpr(text, flags):
     ast = buildexpr_grammar.parse(text)
-    return BuildExprVisitor(vmap).visit(ast)
+    return BuildExprVisitor({k:True for k in flags}).visit(ast)
 
 if __name__ == "__main__":
     import sys
@@ -99,6 +99,7 @@ if __name__ == "__main__":
         ("t & ~f", True),
         ("t & t & t & t", True),
         ("t & t & f & t", False),
+        ("flag", True)
     ]
     for test, expected in tests:
         print("\n\n# Test ", repr(test), "is")
@@ -107,6 +108,7 @@ if __name__ == "__main__":
         res = BuildExprVisitor({
             "t": True,
             "f": False,
+            "flag": True,
         }).visit(ast)
         print(" # Result =>", res)
         assert res == expected
