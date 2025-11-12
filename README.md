@@ -73,7 +73,7 @@ Single PCB without panelization can be done with frameless setting
 
 ## Field Values Variants
 `Field#Flag` will set `Field` to the value where flags match build flags.
-Multiple flags like `Field#FlagA#FlagB` is also a supported usage.
+Multiple flags like `Field#FlagA#FlagB` (order insensitive) is also a supported usage.
 ![Variants-FieldValue](screenshots/variants-fieldvalue.png)
 
 # Panelizer
