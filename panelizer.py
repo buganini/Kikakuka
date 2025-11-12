@@ -855,6 +855,7 @@ class PanelizerUI(Application):
         if frame_right_polygon:
             panel.appendSubstrate(frame_right_polygon)
 
+        multiple_pcb = len(pcbs) > 1
         for i, pcb in enumerate(pcbs):
             self.refMap = {}
             panel.appendBoard(
@@ -864,8 +865,8 @@ class PanelizerUI(Application):
                 tolerance=panelize.fromMm(1),
                 rotationAngle=pcbnew.EDA_ANGLE(pcb.rotate, pcbnew.DEGREES_T),
                 inheritDrc=False,
-                netRenamer=self.netRenamer,
-                refRenamer=self.refRenamer
+                netRenamer=self.netRenamer if multiple_pcb else None,
+                refRenamer=self.refRenamer if multiple_pcb else None
             )
 
             for fp in panel.board.GetFootprints():
@@ -895,7 +896,7 @@ class PanelizerUI(Application):
                 # Cannot loop inside panel, do incremental update to map footprint to the pccb
                 # Preserve silkscreen text regardless of reference renaming
                 # https://github.com/yaqwsx/KiKit/pull/845
-                if ref.IsVisible() and t != self.refMap.get(t, t):
+                if multiple_pcb and ref.IsVisible() and t != self.refMap.get(t, t):
                     text = pcbnew.PCB_TEXT(panel.board)
                     text.SetText(self.refMap.get(t, t))
                     text.SetTextX(ref.GetTextPos()[0])
@@ -2093,7 +2094,8 @@ class PanelizerUI(Application):
                                 ComboBoxItem("User.1")
                                 ComboBoxItem("Edge.Cuts")
 
-                            Checkbox("Hide Out-of-Board References/Values", self.state("hide_outside_reference_value"))
+                            if len(self.state.pcb) > 1:
+                                Checkbox("Hide Out-of-Board References/Values", self.state("hide_outside_reference_value"))
 
                             Checkbox("Export Simulated Mill Fillets", self.state("export_mill_fillets"))
 
@@ -2192,12 +2194,13 @@ class PanelizerUI(Application):
                                 Label("Right")
                                 TextField(self.state("frame_right")).change(self.build)
 
-                        with HBox():
-                            Label("Rename")
-                            Label("Net")
-                            TextField(self.state("netRenamePattern")).change(self.build)
-                            Label("Ref")
-                            TextField(self.state("refRenamePattern")).change(self.build)
+                        if len(self.state.pcb) > 1:
+                            with HBox():
+                                Label("Rename")
+                                Label("Net")
+                                TextField(self.state("netRenamePattern")).change(self.build)
+                                Label("Ref")
+                                TextField(self.state("refRenamePattern")).change(self.build)
 
                         with HBox():
                             Label("Align")
