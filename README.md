@@ -48,6 +48,9 @@ The `.kkkk` file saves workspace information in JSON format.
 
 # Build Variants
 Set `BUILDEXPR` in footprints' properties. This can be done quickly with `Symbol Fields Table` using the current sheet only scope. Remember to sync them to PCB afterward.
+
+Footprints with the BUILDEXPR evaluated as false will be marked as DNP.
+
 ## BUILDEXPR
 A boolean expression with operators:
 * `~` Not
@@ -64,7 +67,11 @@ Footprints without BUILDEXPR property will be kept as is.
 ### Per-PCB flags settings
 ![BUILDEXPR-Flags](screenshots/buildexpr-flags.png)
 
-### Footprints with the BUILDEXPR evaluated as false will be marked as DNP
+### Single PCB build
+Single PCB without panelization can be done with frameless setting
+![BUILDEXPR-SinglePCB](screenshots/buildexpr-singlepcb.png)
+
+### Panelization with different build variants
 ![BUILDEXPR-Flags](screenshots/buildexpr-dnp.png)
 
 ## Field Values Variants
