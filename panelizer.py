@@ -69,7 +69,6 @@ class PCB(StateObject):
         self.main = main
         boardfile = os.path.realpath(boardfile)
         self.file = boardfile
-        self.avail_flags = []
         board = pcbnew.LoadBoard(boardfile)
 
         panel = panelize.Panel(os.path.join(self.main.temp_dir, "temp.kicad_pcb"))
@@ -83,15 +82,6 @@ class PCB(StateObject):
         )
         s = panel.substrates[0]
         bbox = s.bounds()
-
-        for fp in panel.board.GetFootprints():
-            if fp.HasFieldByName(BUILDEXPR):
-                expr = fp.GetFieldText(BUILDEXPR)
-                flags = [t for t in re.split("[|&~]", expr) if t.strip()]
-                for f in flags:
-                    if f not in self.avail_flags:
-                        self.avail_flags.append(f)
-                        self.avail_flags.sort()
 
         if isinstance(s.substrates, MultiPolygon):
             self._shapes = s.substrates.geoms
@@ -118,8 +108,25 @@ class PCB(StateObject):
         self.margin_top = 0
         self.margin_bottom = 0
         self.rotate = 0
-        self.flags = []
         self._tabs = []
+        self.avail_flags = []
+        self.flags = []
+        self.errors = []
+
+        for fp in panel.board.GetFootprints():
+            if fp.HasFieldByName(BUILDEXPR):
+                expr = fp.GetFieldText(BUILDEXPR)
+                try:
+                    buildexpr(expr, {})
+                except:
+                    self.errors.append(f"{self.ident}: Invalid buildexpr {repr(expr)}")
+
+                flags = [t for t in re.split("[|&~]", expr) if t.strip()]
+                for f in flags:
+                    if f not in self.avail_flags:
+                        self.avail_flags.append(f)
+                        self.avail_flags.sort()
+
 
     def transform(self, shape):
         shape = affinity.rotate(shape, (self.rotate % 360)*-1, origin=(0,0))
@@ -1980,7 +1987,10 @@ class PanelizerUI(Application):
                     canvas.drawLine(ln1.coords[0][0], ln1.coords[0][1], ln2.coords[0][0], ln2.coords[0][1], color=0xFFFF00)
 
 
-        for i, error in enumerate(self.state.errors):
+        errors = list(self.state.errors)
+        for pcb in pcbs:
+            errors.extend(pcb.errors)
+        for i, error in enumerate(errors):
             canvas.drawText(10, 10+i*15, error, color=0xFF0000)
 
         if drawCross and self.state.mousepos:
