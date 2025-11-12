@@ -2113,7 +2113,7 @@ class PanelizerUI(Application):
 
 
                         if self.state.debug:
-                            with HBox():
+                            with HBox().id("debug-display"):
                                 Label("Debug Display")
                                 Checkbox("PCB Bounding Box", self.state("debug_bbox")).click(self.build)
                                 Spacer()
@@ -2173,7 +2173,7 @@ class PanelizerUI(Application):
                             Spacer()
 
                         if self.state.use_frame:
-                            with HBox():
+                            with HBox().id("frame-size"):
                                 Label("Frame Size")
                                 Label("Width")
                                 TextField(self.state("frame_width")).change(self.build)
@@ -2195,7 +2195,7 @@ class PanelizerUI(Application):
                                 TextField(self.state("frame_right")).change(self.build)
 
                         if len(self.state.pcb) > 1:
-                            with HBox():
+                            with HBox().id("renamer"):
                                 Label("Rename")
                                 Label("Net")
                                 TextField(self.state("netRenamePattern")).change(self.build)
