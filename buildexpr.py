@@ -13,7 +13,7 @@ PrimaryExpr = ( ws "(" wsExpr ")" ws ) / wsIdentifier
 
 wsExpr = ws Expr ws
 wsIdentifier = ws Identifier ws
-Identifier = ~r"[A-Z][A-Z0-9._-]*"i
+Identifier = ~r"[A-Z0-9._-]+"i
 
 ws = ~r"\s*"
 """)
