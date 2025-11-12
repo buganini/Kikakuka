@@ -862,10 +862,10 @@ class PanelizerUI(Application):
                         expr = fp.GetFieldText(BUILDEXPR)
                         if expr and export:
                             place = buildexpr(expr, pcb.flags)
-                            print("BUILDEXPR", i, expr, pcb.flags, place)
+                            # print("BUILDEXPR", i, expr, pcb.flags, place)
 
                             if not place:
-                                print("SET DNP", i, fp.GetReference(), expr, pcb.flags, place)
+                                # print("SET DNP", i, fp.GetReference(), expr, pcb.flags, place)
                                 fp.SetDNP(True)
 
                 if ref.IsVisible() and t != self.refMap.get(t, t):
