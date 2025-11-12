@@ -49,7 +49,13 @@ The `.kkkk` file saves workspace information in JSON format.
 # Build Variants
 Set `BUILDEXPR` in footprints' properties. This can be done quickly with `Symbol Fields Table` using the current sheet only scope. Remember to sync them to PCB afterward.
 
-Footprints with the BUILDEXPR evaluated as false will be marked as DNP.
+![BUILDEXPR-Prop](screenshots/buildexpr-prop.png)
+
+* Kikakuka extracts build flags from `BUILDEXPR`. Selected flags are interpreted as true, and vice versa.
+* Footprints with the BUILDEXPR evaluated as false will be marked as DNP.
+* Footprints with unset or empty BUILDEXPR will be kept as is.
+
+![BUILDEXPR-Flags](screenshots/buildexpr-flags.png)
 
 ## BUILDEXPR
 A boolean expression with operators:
@@ -57,26 +63,17 @@ A boolean expression with operators:
 * `&` And
 * `|` Or
 
-e.g. `(A | ~B) & C`
+It can be as simple as a build name as shown in the image above or an expression like `(A | ~B) & C`.
 
-As shown in the image below, a simple variant name is also a valid expression..
-
-Footprints without BUILDEXPR property will be kept as is.
-![BUILDEXPR-Prop](screenshots/buildexpr-prop.png)
-
-### Per-PCB flags settings
-![BUILDEXPR-Flags](screenshots/buildexpr-flags.png)
-
-### Panelization with different build variants
+Panelization with different build variants
 ![BUILDEXPR-Flags](screenshots/buildexpr-dnp.png)
 
-### Single PCB build
 Single PCB without panelization can be done with frameless setting
 ![BUILDEXPR-SinglePCB](screenshots/buildexpr-singlepcb.png)
 
 ## Field Values Variants
 `Field#Flag` will set `Field` to the value where flags match build flags.
-Multiple flags like `Field1#FlagA#FlagB` and multiple fields are also supported usage.
+Multiple flags like `Field#FlagA#FlagB` is also a supported usage.
 ![Variants-FieldValue](screenshots/variants-fieldvalue.png)
 
 # Panelizer
