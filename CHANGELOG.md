@@ -1,4 +1,4 @@
-# Next
+# 5.0
 * Panelizer
     * Support spacing=0 #22
     * Add frame size "Fit" button #22
@@ -11,6 +11,8 @@
     * Fix mousebites offset by preserving cut line direction #23
     * Add configurable angle setting for manual tabs #24
     * Tabs: better handling of non-perpendicular approaching angle #24
+
+* Built variants
 
 * Workspace Manager:
     * Display libraries
