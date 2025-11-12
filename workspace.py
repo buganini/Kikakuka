@@ -454,7 +454,7 @@ class WorkspaceUI(PUIView):
                                     Label("Project Specific Libraries:")
                                     Button("Refresh").click(lambda e: populateProject(focus_project, self.state.root))
                                     Spacer()
-                                    Button("Conver to relative path").click(lambda e: convertToRelativePath(focus_project, self.state.root))
+                                    Button("Convert to relative path").click(lambda e: convertToRelativePath(focus_project, self.state.root))
 
                                 with Grid():
                                     r = 0
