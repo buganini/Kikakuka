@@ -14,6 +14,9 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
     * [PCB diff viewer](#pcb-differ)
     * Git support
 * Panelizer
+    * Build Variants (in the Panelizer)
+        * Can be used for single PCB with frameless setting
+        * Each PCB can have its own flag settings
     * Interactive arrangement with real-time preview
     * Freeform placement not limited to M×N grid configurations
     * Support for multiple different PCBs in a single panel
@@ -33,6 +36,24 @@ The `.kkkk` file saves workspace information in JSON format.
 ## PCB Differ
 ![PCB Differ](screenshots/pcb_differ.png)
 * A diff sample of [cynthion-hardware](https://github.com/greatscottgadgets/cynthion-hardware)
+
+# Build Variants
+Set `BUILDEXPR` in footprints' properties. This can be done quickly with `Symbol Fields Table` using the current sheet only scope. Remember to sync them to PCB afterward.
+## BUILDEXPR
+A boolean expression with operators:
+* `~` Not
+* `&` And
+* `|` Or
+
+e.g. `(A | ~B) & C`
+![BUILDEXPR-Prop](screenshots/buildexpr-prop.png)
+
+## Per-PCB flags settings
+![BUILDEXPR-Flags](screenshots/buildexpr-flags.png)
+
+## Footprints with the BUILDEXPR evaluated as false will be marked as DNP
+![BUILDEXPR-Flags](screenshots/buildexpr-dnp.png)
+
 
 
 # Panelizer
