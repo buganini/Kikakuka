@@ -2220,7 +2220,7 @@ class PanelizerUI(Application):
                                             Button("Remove").click(self.remove, self.state.focus)
 
                                         if self.state.focus.avail_flags:
-                                            Label("Flags")
+                                            Label("Build Flags")
                                             for flag in self.state.focus.avail_flags:
                                                 Checkbox(flag, self.state.focus("flags"), value=flag)
 

@@ -3,6 +3,12 @@
 
 Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely), [OpenCV](https://github.com/opencv/opencv-python), [pypdfium2](https://github.com/pypdfium2-team/pypdfium2) and [PUI](https://github.com/buganini/PUI).
 
+It creates a few more dimensions for KiCad:
+* Projects
+* Revisions
+* Build Variants
+* Panelization
+
 # Features
 * Workspace Manager
     * Easily navigate between projects
@@ -13,10 +19,7 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
     * [Schematic diff viewer](#schematics-differ)
     * [PCB diff viewer](#pcb-differ)
     * Git support
-* Panelizer
-    * Build Variants (in the Panelizer)
-        * Can be used for single PCB with frameless setting
-        * Each PCB can have its own flag settings
+* (Not just a) Panelizer
     * Interactive arrangement with real-time preview
     * Freeform placement not limited to M×N grid configurations
     * Support for multiple different PCBs in a single panel
@@ -24,6 +27,12 @@ Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is main
     * Automatic V-cut/mousebites selection
     * Enable [hole](#substrate-hole) creation in panel substrate for extruded parts
     * No coding skills required
+* Build Variants (as a usage of the Panelizer)
+    * Can be used for single PCB with frameless setting
+    * Each PCB can have its own flag settings
+* CLI
+    * Convert saved .kkkk_pnl to kicad files in one command
+    * Same usage for panelizer & build variants
 
 # Workspace Manager
 The `.kkkk` file saves workspace information in JSON format.
@@ -47,16 +56,21 @@ A boolean expression with operators:
 
 e.g. `(A | ~B) & C`
 
+As shown in the image below, a simple variant name is also a valid expression..
+
 Footprints without BUILDEXPR property will be kept as is.
 ![BUILDEXPR-Prop](screenshots/buildexpr-prop.png)
 
-## Per-PCB flags settings
+### Per-PCB flags settings
 ![BUILDEXPR-Flags](screenshots/buildexpr-flags.png)
 
-## Footprints with the BUILDEXPR evaluated as false will be marked as DNP
+### Footprints with the BUILDEXPR evaluated as false will be marked as DNP
 ![BUILDEXPR-Flags](screenshots/buildexpr-dnp.png)
 
-
+## Field Values Variants
+`Field#Flag` will set `Field` to the value where flags match build flags.
+Multiple flags like `Field1#FlagA#FlagB` and multiple fields are also supported usage.
+![Variants-FieldValue](screenshots/variants-fieldvalue.png)
 
 # Panelizer
 The `.kikit_pnl` file saves panelization settings in JSON format, with PCB paths stored relative to the file's location.
@@ -142,7 +156,7 @@ But however in my Windows environment venv is not working properly, here is how 
 # Load file (.kkkk or .kikit_pnl)
 ./env/bin/python3 kikakuka.py a.kikit_pnl
 
-# Headless export
+# Headless export for panelization or build variants
 ./env/bin/python3 kikakuka.py a.kikit_pnl out.kicad_pcb
 
 # Differ
