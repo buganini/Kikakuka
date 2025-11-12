@@ -28,7 +28,7 @@ It creates a few more dimensions for KiCad:
     * Enable [hole](#substrate-hole) creation in panel substrate for extruded parts
     * No coding skills required
 * Build Variants (as a usage of the Panelizer)
-    * Can be used for single PCB with frameless setting
+    * Single PCB without panelization can be done with frameless setting
     * Each PCB can have its own flag settings
 * CLI
     * Convert saved .kkkk_pnl to kicad files in one command
@@ -67,12 +67,12 @@ Footprints without BUILDEXPR property will be kept as is.
 ### Per-PCB flags settings
 ![BUILDEXPR-Flags](screenshots/buildexpr-flags.png)
 
+### Panelization with different build variants
+![BUILDEXPR-Flags](screenshots/buildexpr-dnp.png)
+
 ### Single PCB build
 Single PCB without panelization can be done with frameless setting
 ![BUILDEXPR-SinglePCB](screenshots/buildexpr-singlepcb.png)
-
-### Panelization with different build variants
-![BUILDEXPR-Flags](screenshots/buildexpr-dnp.png)
 
 ## Field Values Variants
 `Field#Flag` will set `Field` to the value where flags match build flags.
