@@ -786,6 +786,11 @@ class PanelizerUI(Application):
         mb_spacing = self.state.mb_spacing
         mb_offset = self.state.mb_offset
 
+        dbg_points = []
+        dbg_rects = []
+        dbg_polygons = []
+        dbg_text = []
+
         if export is True:
             export = SaveFile(self.state.export_path, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
             if export:
@@ -953,14 +958,11 @@ class PanelizerUI(Application):
 
             # remove islands
             if isinstance(frameBody, MultiPolygon):
-                frameBody = frameBody.geoms[0]
-
+                geoms = [(g.area, g) for g in frameBody.geoms]
+                geoms.sort(key=lambda x: x[0], reverse=True)
+                frameBody = geoms[0][1]
             panel.appendSubstrate(frameBody)
 
-        dbg_points = []
-        dbg_rects = []
-        dbg_polygons = []
-        dbg_text = []
         cuts = []
 
         tab_substrates = []
