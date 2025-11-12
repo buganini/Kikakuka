@@ -327,14 +327,14 @@ def commitLibTable(project, root):
 
 def convertToRelativePath(project, root):
     for lib in project["sym_lib_table"]["lib"]:
-        if os.path.isabs(lib["uri"]):
+        if os.path.isabs(lib["uri"]) and os.path.exists(lib["uri"]):
             # print(lib, os.path.dirname(project["project_path"]))
             reluri = relpath(lib["uri"], os.path.dirname(project["project_path"]), allow_outside=True)
             reluri = "${KIPRJMOD}/" + reluri
             print(lib["uri"], "->", reluri)
             lib["uri"] = reluri
     for lib in project["fp_lib_table"]["lib"]:
-        if os.path.isabs(lib["uri"]):
+        if os.path.isabs(lib["uri"]) and os.path.exists(lib["uri"]):
             # print(lib, os.path.dirname(project["project_path"]))
             reluri = relpath(lib["uri"], os.path.dirname(project["project_path"]), allow_outside=True)
             reluri = "${KIPRJMOD}/" + reluri
