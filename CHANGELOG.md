@@ -1,3 +1,7 @@
+# 5.1
+* Workspace Manager:
+    * Convert to relative path: don't convert non-existent path
+
 # 5.0
 * Panelizer
     * Support spacing=0 #22
