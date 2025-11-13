@@ -120,7 +120,7 @@ class PCB(StateObject):
                     try:
                         buildexpr(expr, {})
 
-                        flags = [t for t in re.split("[|&~]", expr) if t.strip()]
+                        flags = [t for t in re.split("[|&()~]", expr) if t.strip()]
                         for f in flags:
                             if f not in self.avail_flags:
                                 self.avail_flags.append(f)
