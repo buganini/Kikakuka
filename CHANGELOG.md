@@ -1,4 +1,8 @@
-# 5.2
+
+# 5.4
+* trim flags
+
+# 5.3
 * fix extracting flags from BUILDEXPR containing parentesis
 
 # 5.2
