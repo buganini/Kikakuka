@@ -1,3 +1,10 @@
+# 5.2
+* fix extracting flags from BUILDEXPR containing parentesis
+
+# 5.2
+* Panelizer
+    * Fix island removal
+
 # 5.1
 * Workspace Manager:
     * Convert to relative path: don't convert non-existent path
