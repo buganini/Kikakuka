@@ -887,7 +887,11 @@ class PanelizerUI(Application):
                             place = buildexpr(expr, pcb.flags)
                             # print("BUILDEXPR", i, expr, pcb.flags, place)
 
-                            if not place:
+                            if place:
+                                fp.SetExcludedFromPosFiles(False)
+                                fp.SetExcludedFromBOM(False)
+                                fp.SetDNP(False)
+                            else:
                                 # print("SET DNP", i, fp.GetReference(), expr, pcb.flags, place)
                                 fp.SetDNP(True)
 
