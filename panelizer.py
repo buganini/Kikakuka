@@ -956,17 +956,16 @@ class PanelizerUI(Application):
                 bom_comment_header = bom_comment_header[0] if bom_comment_header else None
                 bom_footprint_header = [h for h in ["Footprint"] if h in bom_header]
                 bom_footprint_header = bom_footprint_header[0] if bom_footprint_header else None
-                bom_quantity_header = [h for h in ["Quantity"] if h in bom_header]
-                bom_quantity_header = bom_quantity_header[0] if bom_quantity_header else None
-                cpl_designator_header = [h for h in ["Designator"] if h in cpl_header]
+                bom_ignore_headers = ["Quantity", "Qty", "Item #"]
+                cpl_designator_header = [h for h in ["Designator", "Ref"] if h in cpl_header]
                 cpl_designator_header = cpl_designator_header[0] if cpl_designator_header else None
-                cpl_x_header = [h for h in ["Mid X"] if h in cpl_header]
+                cpl_x_header = [h for h in ["Mid X", "PosX", "X"] if h in cpl_header]
                 cpl_x_header = cpl_x_header[0] if cpl_x_header else None
-                cpl_y_header = [h for h in ["Mid Y"] if h in cpl_header]
+                cpl_y_header = [h for h in ["Mid Y", "PosY", "Y"] if h in cpl_header]
                 cpl_y_header = cpl_y_header[0] if cpl_y_header else None
-                cpl_rotation_header = [h for h in ["Rotation"] if h in cpl_header]
+                cpl_rotation_header = [h for h in ["Rotation", "Rot"] if h in cpl_header]
                 cpl_rotation_header = cpl_rotation_header[0] if cpl_rotation_header else None
-                cpl_layer_header = [h for h in ["Layer"] if h in cpl_header]
+                cpl_layer_header = [h for h in ["Layer", "Side"] if h in cpl_header]
                 cpl_layer_header = cpl_layer_header[0] if cpl_layer_header else None
                 layer_map = {
                     "top": Layer.F_Cu,
@@ -979,8 +978,6 @@ class PanelizerUI(Application):
                         entry = {k:v for k,v in zip(bom_header, row)}
                         designators = entry.pop(bom_designator_header)
                         # print("BOM", designators, entry)
-                        if bom_quantity_header:
-                            entry.pop(bom_quantity_header)
                         for designator in designators.split(","):
                             bom[designator] = entry
 
@@ -1003,6 +1000,8 @@ class PanelizerUI(Application):
                         footprint.SetLayer(layer_map[layer])
                         for k,v in bom.get(designator, {}).items():
                             if k in [bom_comment_header, bom_footprint_header]:
+                                continue
+                            if k in bom_ignore_headers:
                                 continue
                             footprint.SetField(k, v)
                             text = footprint.GetFieldByName(k)
