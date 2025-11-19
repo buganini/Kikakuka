@@ -34,8 +34,11 @@ import atexit
 import shutil
 import re
 from buildexpr import buildexpr
+from tableloader import TableLoader
 
 BUILDEXPR = "BUILDEXPR"
+
+KIKAKUKA_LIB = "kikakuka.pretty"
 
 MAX_BOARD_SIZE = 10000*mm
 MIN_SPACING = 0.0
@@ -70,6 +73,8 @@ class PCB(StateObject):
         boardfile = os.path.realpath(boardfile)
         self.file = boardfile
         board = pcbnew.LoadBoard(boardfile)
+        board_bbox = board.GetBoundingBox()
+        self.orig = (board_bbox.GetX(), board_bbox.GetY())
 
         panel = panelize.Panel(os.path.join(self.main.temp_dir, "temp.kicad_pcb"))
         panel.appendBoard(
@@ -112,6 +117,9 @@ class PCB(StateObject):
         self.avail_flags = []
         self.flags = []
         self.errors = []
+        self.fp_count = 0
+        self.bom_file = ""
+        self.cpl_file = ""
 
         for fp in panel.board.GetFootprints():
             if fp.HasFieldByName(BUILDEXPR):
@@ -610,6 +618,8 @@ class PanelizerUI(Application):
                 "rotate": pcb.rotate,
                 "flags": [f for f in pcb.flags],
                 "tabs": [dict(tab) for tab in pcb._tabs],
+                "bom": relpath(pcb.bom_file, os.path.dirname(target)) if pcb.bom_file else "",
+                "cpl": relpath(pcb.cpl_file, os.path.dirname(target)) if pcb.cpl_file else "",
             })
         data = {
             "export_path": self.state.export_path,
@@ -733,6 +743,12 @@ class PanelizerUI(Application):
                 pcb.margin_bottom = p.get("margin_bottom", 0)
                 pcb.rotate = p["rotate"]
                 pcb.flags = p.get("flags", [])
+                pcb.bom_file = p.get("bom", "")
+                if not os.path.isabs(pcb.bom_file):
+                    pcb.bom_file = os.path.realpath(os.path.join(os.path.dirname(target), pcb.bom_file))
+                pcb.cpl_file = p.get("cpl", "")
+                if not os.path.isabs(pcb.cpl_file):
+                    pcb.cpl_file = os.path.realpath(os.path.join(os.path.dirname(target), pcb.cpl_file))
                 tabs = p.get("tabs", [])
                 for i in range(len(tabs)):
                     if isinstance(tabs[i], list):
@@ -861,6 +877,7 @@ class PanelizerUI(Application):
         if frame_right_polygon:
             panel.appendSubstrate(frame_right_polygon)
 
+        cpl_unknown_layers = []
         multiple_pcb = len(pcbs) > 1
         for i, pcb in enumerate(pcbs):
             self.refMap = {}
@@ -875,12 +892,14 @@ class PanelizerUI(Application):
                 refRenamer=self.refRenamer if multiple_pcb else None
             )
 
+            fp_count = 0
             for fp in panel.board.GetFootprints():
                 ref = fp.Reference()
                 t = ref.GetText()
 
                 # Build Variants
                 if self.refMap.get(t, t) != t and export:
+                    fp_count += 1
                     if fp.HasFieldByName(BUILDEXPR):
                         expr = fp.GetFieldText(BUILDEXPR)
                         if expr:
@@ -920,6 +939,80 @@ class PanelizerUI(Application):
                     text.SetMirrored(ref.IsMirrored())
                     panel.board.Add(text)
                     ref.SetVisible(False)
+
+            pcb.fp_count = fp_count
+
+            if export and pcb.bom_file and pcb.cpl_file:
+                bom = TableLoader(pcb.bom_file)
+                cpl = TableLoader(pcb.cpl_file)
+                bom_rows = bom.rows()
+                bom_header = next(bom_rows)
+                cpl_rows = cpl.rows()
+                cpl_header = next(cpl_rows)
+
+                bom_designator_header = [h for h in ["Designator"] if h in bom_header]
+                bom_designator_header = bom_designator_header[0] if bom_designator_header else None
+                bom_comment_header = [h for h in ["Comment"] if h in bom_header]
+                bom_comment_header = bom_comment_header[0] if bom_comment_header else None
+                bom_footprint_header = [h for h in ["Footprint"] if h in bom_header]
+                bom_footprint_header = bom_footprint_header[0] if bom_footprint_header else None
+                bom_quantity_header = [h for h in ["Quantity"] if h in bom_header]
+                bom_quantity_header = bom_quantity_header[0] if bom_quantity_header else None
+                cpl_designator_header = [h for h in ["Designator"] if h in cpl_header]
+                cpl_designator_header = cpl_designator_header[0] if cpl_designator_header else None
+                cpl_x_header = [h for h in ["Mid X"] if h in cpl_header]
+                cpl_x_header = cpl_x_header[0] if cpl_x_header else None
+                cpl_y_header = [h for h in ["Mid Y"] if h in cpl_header]
+                cpl_y_header = cpl_y_header[0] if cpl_y_header else None
+                cpl_rotation_header = [h for h in ["Rotation"] if h in cpl_header]
+                cpl_rotation_header = cpl_rotation_header[0] if cpl_rotation_header else None
+                cpl_layer_header = [h for h in ["Layer"] if h in cpl_header]
+                cpl_layer_header = cpl_layer_header[0] if cpl_layer_header else None
+                layer_map = {
+                    "top": Layer.F_Cu,
+                    "bottom": Layer.B_Cu,
+                }
+
+                if bom_designator_header:
+                    bom = {}
+                    for row in bom_rows:
+                        entry = {k:v for k,v in zip(bom_header, row)}
+                        designators = entry.pop(bom_designator_header)
+                        # print("BOM", designators, entry)
+                        if bom_quantity_header:
+                            entry.pop(bom_quantity_header)
+                        for designator in designators.split(","):
+                            bom[designator] = entry
+
+                    for row in cpl_rows:
+                        entry = {k:v for k,v in zip(cpl_header, row)}
+                        designator = entry.pop(cpl_designator_header)
+                        mid_x = float(entry.pop(cpl_x_header)) * mm - pcb.orig[0]
+                        mid_y = -float(entry.pop(cpl_y_header)) * mm - pcb.orig[1]
+                        rotation = float(entry.pop(cpl_rotation_header))
+                        layer = entry.pop(cpl_layer_header)
+                        if not layer in layer_map:
+                            cpl_unknown_layers.append(layer)
+                            continue
+
+                        # print(designator, mid_x/mm, -mid_y/mm, rotation, layer)
+                        footprint = pcbnew.FootprintLoad(KIKAKUKA_LIB, "Footprint")
+                        p = pcb.transform(Point(mid_x, mid_y))
+                        footprint.SetPosition(pcbnew.VECTOR2I(round(p.x), round(p.y)))
+                        footprint.SetOrientation(pcbnew.EDA_ANGLE(rotation+pcb.rotate, pcbnew.DEGREES_T))
+                        footprint.SetLayer(layer_map[layer])
+                        for k,v in bom.get(designator, {}).items():
+                            if k in [bom_comment_header, bom_footprint_header]:
+                                continue
+                            footprint.SetField(k, v)
+                            text = footprint.GetFieldByName(k)
+                            text.SetVisible(False)
+                        footprint.SetReference(designator)
+                        footprint.SetValue(bom.get(designator, {}).get(bom_comment_header, ""))
+                        ref = footprint.Reference()
+                        ref.SetVisible(True)
+                        panel.board.Add(footprint)
+
 
         if self.state.hide_outside_reference_value and export:
             for fp in panel.board.GetFootprints():
@@ -2053,6 +2146,12 @@ class PanelizerUI(Application):
         self.state.frame_height = round((max_y-self.off_y) / self.unit + self.state.frame_bottom + (self.state.spacing if self.state.frame_bottom > 0 else 0), 3)
         self.build()
 
+    def select_bom(self, e):
+        self.state.focus.bom_file = OpenFile("Select BOM", dir=os.path.dirname(__file__), types="BOM (*.csv)|*.csv")
+
+    def select_cpl(self, e):
+        self.state.focus.cpl_file = OpenFile("Select CPL", dir=os.path.dirname(__file__), types="CPL (*.csv)|*.csv")
+
     def content(self):
         title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
@@ -2229,6 +2328,22 @@ class PanelizerUI(Application):
                                             Button("Duplicate").click(self.duplicate, self.state.focus)
                                             Button("Remove").click(self.remove, self.state.focus)
 
+                                        if self.state.focus.fp_count == 0:
+                                            with HBox():
+                                                Label("BOM")
+                                                if self.state.focus.bom_file:
+                                                    Label(os.path.basename(self.state.focus.bom_file)).layout(weight=1)
+                                                Button("Select").click(self.select_bom)
+                                                if not self.state.focus.bom_file:
+                                                    Spacer()
+
+                                            with HBox():
+                                                Label("CPL")
+                                                if self.state.focus.cpl_file:
+                                                    Label(os.path.basename(self.state.focus.cpl_file)).layout(weight=1)
+                                                Button("Select").click(self.select_cpl)
+                                                if not self.state.focus.cpl_file:
+                                                    Spacer()
                                         if self.state.focus.avail_flags:
                                             Label("Build Flags")
                                             for flag in self.state.focus.avail_flags:

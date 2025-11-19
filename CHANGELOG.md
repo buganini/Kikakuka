@@ -1,3 +1,5 @@
+Next:
+* Allow attaching BOM/CPL to PCB with no footprints
 
 # 5.4
 * trim flags
