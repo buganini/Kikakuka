@@ -1001,6 +1001,8 @@ class PanelizerUI(Application):
                         footprint.SetOrientation(pcbnew.EDA_ANGLE(rotation+pcb.rotate, pcbnew.DEGREES_T))
                         footprint.SetLayer(layer_map[layer])
                         for k,v in bom.get(designator, {}).items():
+                            if not v:
+                                continue
                             if k in [bom_comment_header, bom_footprint_header]:
                                 continue
                             if k in bom_ignore_headers:
