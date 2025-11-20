@@ -11,6 +11,7 @@ kikit_base = os.path.dirname(kikit.__file__)
 
 from differ import kicad_cli
 
+PKG_BASE = os.path.dirname(__file__)
 
 # macOS
 ## brew install create-dmg
@@ -36,6 +37,8 @@ else:
 
 # kikit's footprint for mousebites driils
 pyinstaller_args.extend(["--add-data", f"{os.path.join(kikit_base, 'resources', 'kikit.pretty')}:kikit.pretty"])
+
+pyinstaller_args.extend(["--add-data", f"{os.path.join(PKG_BASE, 'resources', 'kikakuka.pretty')}:kikakuka.pretty"])
 
 # pypdfium2 for differ
 pyinstaller_args.extend(["--collect-all=pypdfium2_raw", "--collect-all=pypdfium2"])

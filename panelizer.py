@@ -1,9 +1,13 @@
 import sys
 import os
 
+PKG_BASE = os.path.dirname(__file__)
+KIKAKUKA_LIB = os.path.join(PKG_BASE, "resources/kikakuka.pretty")
+
 if getattr(sys, 'frozen', False):
     import kikit.common
     kikit.common.KIKIT_LIB = os.path.join(sys._MEIPASS, "kikit.pretty")
+    KIKAKUKA_LIB = os.path.join(sys._MEIPASS, "kikakuka.pretty")
 
 import pcbnew
 import kikit
@@ -37,8 +41,6 @@ from buildexpr import buildexpr
 from tableloader import TableLoader
 
 BUILDEXPR = "BUILDEXPR"
-
-KIKAKUKA_LIB = "kikakuka.pretty"
 
 MAX_BOARD_SIZE = 10000*mm
 MIN_SPACING = 0.0
