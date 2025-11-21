@@ -87,17 +87,17 @@ def TableLoader(filename, force=None, delimiter=None, encoding=None, sheet=None)
     if force:
         if force == "csv":
             return CSVLoader(filename, delimiter=delimiter, encoding=encoding)
-        elif force == "xlsx":
-            return XLSXLoader(filename, sheet=sheet)
-        elif force == "xls":
-            return XLSLoader(filename, sheet=sheet)
+        # elif force == "xlsx":
+        #     return XLSXLoader(filename, sheet=sheet)
+        # elif force == "xls":
+        #     return XLSLoader(filename, sheet=sheet)
     fn, ext = os.path.splitext(filename)
     if ext.lower() in (".csv", ".txt", ".log"):
         return CSVLoader(filename, delimiter=delimiter, encoding=encoding)
-    elif ext.lower() == ".xlsx":
-        return XLSXLoader(filename, sheet=sheet)
-    elif ext.lower() == ".xls":
-        return XLSLoader(filename, sheet=sheet)
+    # elif ext.lower() == ".xlsx":
+    #     return XLSXLoader(filename, sheet=sheet)
+    # elif ext.lower() == ".xls":
+    #     return XLSLoader(filename, sheet=sheet)
     return None
 
 
