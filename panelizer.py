@@ -155,9 +155,14 @@ class PCB(StateObject):
             sim = gbr.render_with_shapely()
             shape = sim._result.shape
             shape = transform(shape, lambda p: p*[1, -1]*self.main.unit)
+            exterior = shapely.geometry.Polygon(shape.exterior.coords)
+            interior = shapely.geometry.Polygon(shape.interiors[0].coords)
+            exterior_width = exterior.bounds[2] - exterior.bounds[0]
+            interior_width = interior.bounds[2] - interior.bounds[0]
+            dw = exterior_width - interior_width
+            shape = exterior.buffer(-dw/4)
             bbox = shape.bounds
             self.orig = (bbox[0], bbox[1])
-            shape = shapely.geometry.Polygon(shape.exterior.coords)
             shape = transform(shape, lambda p: p - self.orig)
             if isinstance(shape, MultiPolygon):
                 self._shapes = shape.geoms
