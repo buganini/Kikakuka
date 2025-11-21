@@ -956,7 +956,7 @@ class PanelizerUI(Application):
 
         for i, pcb in enumerate(pcbs):
             self.refMap = {}
-            if pcb.file_type == "kicad_pcb":
+            if pcb.file_type == "kicad":
                 panel.appendBoard(
                     pcb.file,
                     pcbnew.VECTOR2I(round(self.off_x + pcb.x), round(self.off_y + pcb.y)),
