@@ -21,6 +21,7 @@ import shapely
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString, GeometryCollection, box
 from shapely import transform, distance, affinity
 import pcbnew
+import pygerber
 from pygerber.gerber.api import GerberFile
 import math
 from enum import Enum
@@ -2233,7 +2234,7 @@ class PanelizerUI(Application):
         self.state.focus.cpl_file = OpenFile("Select CPL", dir=os.path.dirname(__file__), types="CPL (*.csv)|*.csv")
 
     def content(self):
-        title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
+        title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, PyGerber {pygerber.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 with HBox():
