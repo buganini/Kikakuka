@@ -15,7 +15,7 @@ from kikit import panelize, substrate
 from kikit.defs import Layer
 from kikit.units import mm, mil
 from kikit.common import *
-from kikit.substrate import NoIntersectionError, TabFilletError, closestIntersectionPoint, biteBoundary
+from kikit.substrate import Substrate, NoIntersectionError, TabFilletError, closestIntersectionPoint, biteBoundary
 import numpy as np
 import shapely
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString, GeometryCollection, box
@@ -1089,7 +1089,10 @@ class PanelizerUI(Application):
                             ref = footprint.Reference()
                             ref.SetVisible(True)
                             panel.board.Add(footprint)
-
+            elif pcb.file_type == "gerber":
+                s = Substrate([])
+                s.union(pcb.shapes[0])
+                panel.substrates.append(s)
 
         if self.state.hide_outside_reference_value and export:
             for fp in panel.board.GetFootprints():
