@@ -1093,6 +1093,7 @@ class PanelizerUI(Application):
                 s = Substrate([])
                 s.union(pcb.shapes[0])
                 panel.substrates.append(s)
+                panel.appendSubstrate(pcb.shapes[0])
 
         if self.state.hide_outside_reference_value and export:
             for fp in panel.board.GetFootprints():
