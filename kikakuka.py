@@ -22,9 +22,9 @@ if inputs:
             ui.run()
     else:
         ui = PanelizerUI()
-        for boardfile in inputs:
-            if boardfile.endswith(PCB_SUFFIX):
-                ui._addPCB(PCB(ui, boardfile))
+        for path in inputs:
+            if path.endswith(PCB_SUFFIX) or is_gerber_dir(path) or is_gerber_zip(path) or is_gerber_file(path):
+                ui._addPCB(PCB(ui, path))
 
         ui.build()
         ui.run()
