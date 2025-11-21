@@ -1838,6 +1838,7 @@ class PanelizerUI(Application):
                                 self.state.focus_tab = None
                 if not found and (self.state.focus and not self.state.focus.contains(p)):
                     self.state.focus = None
+                    self.state.focus_tab = None
                 if self.state.focus_tab is not None:
                     self.build()
             else:
@@ -1856,7 +1857,7 @@ class PanelizerUI(Application):
             dx = x2 - x1
             dy = y2 - y1
 
-            if self.state.focus_tab is not None:
+            if self.state.focus and self.state.focus_tab is not None:
                 if self.mouse_action_from_inside:
                     p = affinity.rotate(Point(dx, dy), self.state.focus.rotate*1, origin=(0,0))
 
