@@ -1092,8 +1092,8 @@ class PanelizerUI(Application):
             elif pcb.file_type == "gerber":
                 s = Substrate([])
                 s.union(pcb.shapes[0])
-                panel.substrates.append(s)
-                panel.appendSubstrate(pcb.shapes[0])
+                panel.substrates.append(s) # for building process
+                panel.appendSubstrate(pcb.shapes[0]) # for exported result
 
         if self.state.hide_outside_reference_value and export:
             for fp in panel.board.GetFootprints():
