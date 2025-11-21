@@ -103,9 +103,6 @@ class PCB(StateObject):
             name = os.path.join(folder, name)
         self.ident = name
 
-        self.off_x = 0
-        self.off_y = 0
-
         self.x = 0
         self.y = 0
         self.width = bbox[2] - bbox[0]
@@ -152,7 +149,7 @@ class PCB(StateObject):
 
     def transform(self, shape):
         shape = affinity.rotate(shape, (self.rotate % 360)*-1, origin=(0,0))
-        shape = transform(shape, lambda x: x+[self.x+self.off_x, self.y+self.off_y])
+        shape = transform(shape, lambda x: x+[self.x+self.main.off_x, self.y+self.main.off_y])
         return shape
 
     @property
@@ -171,8 +168,7 @@ class PCB(StateObject):
         """
         ret = []
         for tab in self._tabs:
-            p = affinity.rotate(Point(tab["x"], tab["y"]), (self.rotate % 360)*-1, origin=(0,0))
-            p = transform(p, lambda x: x+[self.x+self.off_x, self.y+self.off_y])
+            p = self.transform(Point(tab["x"], tab["y"]))
             arrow = None
 
             if tab["closest"]:
@@ -438,8 +434,8 @@ class PanelizerUI(Application):
         atexit.register(self.cleanup)
 
         self.unit = mm
-        self.off_x = 20 * self.unit
-        self.off_y = 20 * self.unit
+        self.off_x = 0
+        self.off_y = 0
 
         self.flag_need_update = False
 
@@ -561,8 +557,6 @@ class PanelizerUI(Application):
             pcb.y = last.y + last.rheight + self.state.spacing * self.unit
         else:
             pcb.y = (self.state.frame_top + self.state.spacing if self.state.frame_top > 0 else 0) * self.unit
-        pcb.off_x = self.off_x
-        pcb.off_y = self.off_y
         self.state.pcb.append(pcb)
         self.state.scane = None
         self.build()
@@ -735,8 +729,6 @@ class PanelizerUI(Application):
                 if not os.path.isabs(file):
                     file = os.path.realpath(os.path.join(os.path.dirname(target), file))
                 pcb = PCB(self, file)
-                pcb.off_x = self.off_x
-                pcb.off_y = self.off_y
                 pcb.x = p["x"]
                 pcb.y = p["y"]
                 pcb.margin_left = p.get("margin_left", 0)
@@ -810,6 +802,15 @@ class PanelizerUI(Application):
         dbg_polygons = []
         dbg_text = []
 
+        multiple_pcb = len(pcbs) > 1
+
+        if multiple_pcb or self.state.use_frame:
+            self.off_x = 20 * self.unit
+            self.off_y = 20 * self.unit
+        else:
+            self.off_x = pcbs[0].orig[0]
+            self.off_y = pcbs[0].orig[1]
+
         if export is True:
             export = SaveFile(self.state.export_path, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
             if export:
@@ -880,12 +881,12 @@ class PanelizerUI(Application):
             panel.appendSubstrate(frame_right_polygon)
 
         cpl_unknown_layers = []
-        multiple_pcb = len(pcbs) > 1
+
         for i, pcb in enumerate(pcbs):
             self.refMap = {}
             panel.appendBoard(
                 pcb.file,
-                pcbnew.VECTOR2I(round(pcb.off_x + pcb.x), round(pcb.off_y + pcb.y)),
+                pcbnew.VECTOR2I(round(self.off_x + pcb.x), round(self.off_y + pcb.y)),
                 origin=panelize.Origin.TopLeft,
                 tolerance=panelize.fromMm(1),
                 rotationAngle=pcbnew.EDA_ANGLE(pcb.rotate, pcbnew.DEGREES_T),
@@ -1867,7 +1868,7 @@ class PanelizerUI(Application):
                         self.state.focus_tab["y"] = my
                 else:
                     p = affinity.rotate(Point(self.state.focus_tab["x"], self.state.focus_tab["y"]), (self.state.focus.rotate % 360)*-1, origin=(0,0))
-                    p = transform(p, lambda x: x + [self.state.focus.x + self.state.focus.off_x, self.state.focus.y + self.state.focus.off_y])
+                    p = transform(p, lambda x: x + [self.state.focus.x + self.off_x, self.state.focus.y + self.off_y])
 
                     dy = y2 + self.off_y - p.y
                     dx = x2 + self.off_x - p.x
@@ -1919,8 +1920,8 @@ class PanelizerUI(Application):
         for shape in pcb.shapes:
             self.drawShapely(canvas, transform(shape, lambda p:p-(self.off_x, self.off_y)), fill=fill)
 
-        p = affinity.rotate(Point(10, 10), pcb.rotate*-1, origin=(0,0))
-        x, y = self.toCanvas(pcb.x+p.x, pcb.y+p.y)
+        p = pcb.transform(Point(10, 10))
+        x, y = self.toCanvas(p.x - self.off_x, p.y - self.off_y)
         flags = " ".join([f"#{f}" for f in sorted(pcb.flags)])
         canvas.drawText(x, y, f"{index}. {pcb.ident}\n{pcb.width/self.unit:.2f}*{pcb.height/self.unit:.2f}\n{flags}", rotate=pcb.rotate*-1, color=0xFFFFFF)
 
