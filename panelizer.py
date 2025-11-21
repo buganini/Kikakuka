@@ -364,7 +364,7 @@ class PCB(StateObject):
         return p.bounds
 
     def addTab(self, x, y):
-        p = affinity.rotate(Point(x - self.x - self.off_x, y - self.y - self.off_y), self.rotate*1, origin=(0,0))
+        p = affinity.rotate(Point(x - self.x - self.main.off_x, y - self.y - self.main.off_y), self.rotate*1, origin=(0,0))
         self._tabs.append(StateDict({
             "x": p.x,
             "y": p.y,
@@ -374,19 +374,18 @@ class PCB(StateObject):
         }))
 
 class Hole(StateObject):
-    def __init__(self, coords):
+    def __init__(self, main, coords):
         super().__init__()
         polygon = Polygon(coords)
         b = polygon.bounds
-        self.off_x = 0
-        self.off_y = 0
+        self.main = main
         self.x = b[0]
         self.y = b[1]
         self._polygon = transform(polygon, lambda x: x-[self.x, self.y])
 
     @property
     def polygon(self):
-        return transform(self._polygon, lambda x: x+[self.x+self.off_x, self.y+self.off_y])
+        return transform(self._polygon, lambda x: x+[self.x+self.main.off_x, self.y+self.main.off_y])
 
     def contains(self, p):
         return self.polygon.contains(p)
@@ -787,9 +786,7 @@ class PanelizerUI(Application):
             if "hole" in data:
                 holes = []
                 for h in data["hole"]:
-                    hole = Hole(h)
-                    hole.off_x = self.off_x
-                    hole.off_y = self.off_y
+                    hole = Hole(self, h)
                     holes.append(hole)
                 self.state.holes = holes
 
@@ -1439,7 +1436,7 @@ class PanelizerUI(Application):
             else:
                 diffs = [diffs]
             for diff in diffs:
-                self.state.holes.append(Hole(diff.exterior.coords))
+                self.state.holes.append(Hole(self, diff.exterior.coords))
 
             self.build()
             return
@@ -1843,9 +1840,7 @@ class PanelizerUI(Application):
             if len(polygon)>=2:
                 polygon.append(self.fromCanvas(e.x, e.y))
                 self.state.edit_polygon = []
-                h = Hole(polygon)
-                h.off_x = self.off_x
-                h.off_y = self.off_y
+                h = Hole(self, polygon)
                 self.state.holes.append(h)
                 self.tool = Tool.END
                 self.build()
