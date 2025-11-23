@@ -21,8 +21,6 @@ import shapely
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString, GeometryCollection, box
 from shapely import transform, distance, affinity
 import pcbnew
-import pygerber
-from pygerber.gerber.api import GerberFile
 import math
 from enum import Enum
 import traceback
@@ -41,7 +39,7 @@ import shutil
 import re
 from buildexpr import buildexpr
 from tableloader import TableLoader
-import zipfile
+from gbr import *
 
 BUILDEXPR = "BUILDEXPR"
 
@@ -71,43 +69,15 @@ def extrapolate(x1, y1, x2, y2, r, d):
     l = n*r + d
     return x1 + dx*l/n, y1 + dy*l/n
 
-def is_gerber_file(filename):
-    if filename.lower().endswith(".gbr"):
-        return True
-    return False
-
-def is_gerber_dir(path):
-    if not os.path.isdir(path):
-        return False
-    for file in os.listdir(path):
-        if is_gerber_file(file):
-            return True
-    return False
-
-def is_gerber_zip(path):
-    if not zipfile.is_zipfile(path):
-        return False
-    with zipfile.ZipFile(path) as z:
-        for file in z.namelist():
-            if is_gerber_file(file):
-                return True
-    return False
-
-def find_edge_cuts(filenames):
-    for fn in filenames:
-        if "EdgeCut" in fn:
-            return fn
-        if os.path.splitext(fn)[1].lower() in (".gm1", ".gm3", ".gko"):
-            return fn
-    return None
-
 class PCB(StateObject):
     def __init__(self, main, boardpath):
         super().__init__()
         self.main = main
 
-        if is_gerber_file(boardpath):
-            boardpath = os.path.dirname(boardpath)
+        if os.path.isfile(boardpath):
+            dirpath = os.path.dirname(boardpath)
+            if is_gerber_dir(dirpath):
+                boardpath = dirpath
 
         boardpath = os.path.realpath(boardpath)
         self.file = boardpath
@@ -115,62 +85,34 @@ class PCB(StateObject):
 
         if boardpath.lower().endswith(".kicad_pcb"):
             self.file_type = "kicad"
-            board = pcbnew.LoadBoard(boardpath)
-            board_bbox = board.GetBoundingBox()
-            self.orig = (board_bbox.GetX(), board_bbox.GetY())
-
-            panel = panelize.Panel(os.path.join(self.main.temp_dir, "temp.kicad_pcb"))
-            panel.appendBoard(
-                boardpath,
-                pcbnew.VECTOR2I(0, 0),
-                origin=panelize.Origin.TopLeft,
-                tolerance=panelize.fromMm(1),
-                rotationAngle=pcbnew.EDA_ANGLE(0, pcbnew.DEGREES_T),
-                inheritDrc=False
-            )
-            s = panel.substrates[0]
-            bbox = s.bounds()
-
-            if isinstance(s.substrates, MultiPolygon):
-                self._shapes = s.substrates.geoms
-            elif isinstance(s.substrates, Polygon):
-                self._shapes = [s.substrates]
-            else:
-                self._shapes = []
-        elif is_gerber_dir(boardpath):
+            self.kicad_file = self.file
+        elif is_gerber(self.file):
             self.file_type = "gerber"
-            outline = find_edge_cuts(os.listdir(boardpath))
-            if outline is None:
-                raise ValueError(f"Edge cuts not found in {boardpath}")
-            gbr = GerberFile.from_file(os.path.join(boardpath, outline))
-        elif is_gerber_zip(boardpath):
-            self.file_type = "gerber"
-            with zipfile.ZipFile(boardpath) as z:
-                outline = find_edge_cuts(z.namelist())
-                if outline is None:
-                    raise ValueError(f"Edge cuts not found in {boardpath}")
-                content = z.open(outline).read()
-                gbr = GerberFile.from_str(content.decode("utf-8"))
+            self.kicad_file = os.path.join(self.main.temp_dir, f"{id(self)}.kicad_pcb")
+            convert_to_kicad(self.file, self.kicad_file)
 
-        if self.file_type == "gerber":
-            sim = gbr.render_with_shapely()
-            shape = sim._result.shape
-            shape = transform(shape, lambda p: p*[1, -1]*self.main.unit)
-            exterior = shapely.geometry.Polygon(shape.exterior.coords)
-            interior = shapely.geometry.Polygon(shape.interiors[0].coords)
-            exterior_width = exterior.bounds[2] - exterior.bounds[0]
-            interior_width = interior.bounds[2] - interior.bounds[0]
-            dw = exterior_width - interior_width
-            shape = exterior.buffer(-dw/4)
-            bbox = shape.bounds
-            self.orig = (bbox[0], bbox[1])
-            shape = transform(shape, lambda p: p - self.orig)
-            if isinstance(shape, MultiPolygon):
-                self._shapes = shape.geoms
-            elif isinstance(shape, Polygon):
-                self._shapes = [shape]
-            else:
-                self._shapes = []
+        board = pcbnew.LoadBoard(self.kicad_file)
+        board_bbox = board.GetBoundingBox()
+        self.orig = (board_bbox.GetX(), board_bbox.GetY())
+
+        panel = panelize.Panel(os.path.join(self.main.temp_dir, "temp.kicad_pcb"))
+        panel.appendBoard(
+            self.kicad_file,
+            pcbnew.VECTOR2I(0, 0),
+            origin=panelize.Origin.TopLeft,
+            tolerance=panelize.fromMm(1),
+            rotationAngle=pcbnew.EDA_ANGLE(0, pcbnew.DEGREES_T),
+            inheritDrc=False
+        )
+        s = panel.substrates[0]
+        bbox = s.bounds()
+
+        if isinstance(s.substrates, MultiPolygon):
+            self._shapes = s.substrates.geoms
+        elif isinstance(s.substrates, Polygon):
+            self._shapes = [s.substrates]
+        else:
+            self._shapes = []
 
         folder = os.path.basename(os.path.dirname(boardpath))
         name = os.path.splitext(os.path.basename(boardpath))[0]
@@ -957,144 +899,138 @@ class PanelizerUI(Application):
 
         for i, pcb in enumerate(pcbs):
             self.refMap = {}
-            if pcb.file_type == "kicad":
-                panel.appendBoard(
-                    pcb.file,
-                    pcbnew.VECTOR2I(round(self.off_x + pcb.x), round(self.off_y + pcb.y)),
-                    origin=panelize.Origin.TopLeft,
-                    tolerance=panelize.fromMm(1),
-                    rotationAngle=pcbnew.EDA_ANGLE(pcb.rotate, pcbnew.DEGREES_T),
-                    inheritDrc=False,
-                    netRenamer=self.netRenamer if multiple_pcb else None,
-                    refRenamer=self.refRenamer if multiple_pcb else None
-                )
+            panel.appendBoard(
+                pcb.kicad_file,
+                pcbnew.VECTOR2I(round(self.off_x + pcb.x), round(self.off_y + pcb.y)),
+                origin=panelize.Origin.TopLeft,
+                tolerance=panelize.fromMm(1),
+                rotationAngle=pcbnew.EDA_ANGLE(pcb.rotate, pcbnew.DEGREES_T),
+                inheritDrc=False,
+                netRenamer=self.netRenamer if multiple_pcb else None,
+                refRenamer=self.refRenamer if multiple_pcb else None
+            )
 
-                fp_count = 0
-                for fp in panel.board.GetFootprints():
-                    ref = fp.Reference()
-                    t = ref.GetText()
+            fp_count = 0
+            for fp in panel.board.GetFootprints():
+                ref = fp.Reference()
+                t = ref.GetText()
 
-                    # Build Variants
-                    if self.refMap.get(t, t) != t and export:
-                        fp_count += 1
-                        if fp.HasFieldByName(BUILDEXPR):
-                            expr = fp.GetFieldText(BUILDEXPR)
-                            if expr:
-                                place = buildexpr(expr, pcb.flags)
-                                # print("BUILDEXPR", i, expr, pcb.flags, place)
+                # Build Variants
+                if self.refMap.get(t, t) != t and export:
+                    fp_count += 1
+                    if fp.HasFieldByName(BUILDEXPR):
+                        expr = fp.GetFieldText(BUILDEXPR)
+                        if expr:
+                            place = buildexpr(expr, pcb.flags)
+                            # print("BUILDEXPR", i, expr, pcb.flags, place)
 
-                                if place:
-                                    fp.SetExcludedFromPosFiles(False)
-                                    fp.SetExcludedFromBOM(False)
-                                    fp.SetDNP(False)
-                                else:
-                                    # print("SET DNP", i, fp.GetReference(), expr, pcb.flags, place)
-                                    fp.SetDNP(True)
+                            if place:
+                                fp.SetExcludedFromPosFiles(False)
+                                fp.SetExcludedFromBOM(False)
+                                fp.SetDNP(False)
+                            else:
+                                # print("SET DNP", i, fp.GetReference(), expr, pcb.flags, place)
+                                fp.SetDNP(True)
 
-                        for k,v in fp.GetFieldsText().items():
-                            if "#" in k:
-                                tks = k.split("#")
-                                field = tks[0]
-                                tags = sorted([t.strip() for t in tks[1:]])
-                                if tags == sorted(pcb.flags):
-                                    fp.SetField(field, v)
+                    for k,v in fp.GetFieldsText().items():
+                        if "#" in k:
+                            tks = k.split("#")
+                            field = tks[0]
+                            tags = sorted([t.strip() for t in tks[1:]])
+                            if tags == sorted(pcb.flags):
+                                fp.SetField(field, v)
 
-                    # Cannot loop inside panel, do incremental update to map footprint to the pccb
-                    # Preserve silkscreen text regardless of reference renaming
-                    # https://github.com/yaqwsx/KiKit/pull/845
-                    if multiple_pcb and ref.IsVisible() and t != self.refMap.get(t, t):
-                        text = pcbnew.PCB_TEXT(panel.board)
-                        text.SetText(self.refMap.get(t, t))
-                        text.SetTextX(ref.GetTextPos()[0])
-                        text.SetTextY(ref.GetTextPos()[1])
-                        text.SetTextThickness(ref.GetTextThickness())
-                        text.SetTextSize(ref.GetTextSize())
-                        text.SetHorizJustify(ref.GetHorizJustify())
-                        text.SetVertJustify(ref.GetVertJustify())
-                        text.SetTextAngle(ref.GetTextAngle())
-                        text.SetLayer(ref.GetLayer())
-                        text.SetMirrored(ref.IsMirrored())
-                        panel.board.Add(text)
-                        ref.SetVisible(False)
+                # Cannot loop inside panel, do incremental update to map footprint to the pccb
+                # Preserve silkscreen text regardless of reference renaming
+                # https://github.com/yaqwsx/KiKit/pull/845
+                if multiple_pcb and ref.IsVisible() and t != self.refMap.get(t, t):
+                    text = pcbnew.PCB_TEXT(panel.board)
+                    text.SetText(self.refMap.get(t, t))
+                    text.SetTextX(ref.GetTextPos()[0])
+                    text.SetTextY(ref.GetTextPos()[1])
+                    text.SetTextThickness(ref.GetTextThickness())
+                    text.SetTextSize(ref.GetTextSize())
+                    text.SetHorizJustify(ref.GetHorizJustify())
+                    text.SetVertJustify(ref.GetVertJustify())
+                    text.SetTextAngle(ref.GetTextAngle())
+                    text.SetLayer(ref.GetLayer())
+                    text.SetMirrored(ref.IsMirrored())
+                    panel.board.Add(text)
+                    ref.SetVisible(False)
 
-                pcb.fp_count = fp_count
+            pcb.fp_count = fp_count
 
-                if export and pcb.bom_file and pcb.cpl_file:
-                    bom = TableLoader(pcb.bom_file)
-                    cpl = TableLoader(pcb.cpl_file)
-                    bom_rows = bom.rows()
-                    bom_header = next(bom_rows)
-                    cpl_rows = cpl.rows()
-                    cpl_header = next(cpl_rows)
+            if export and pcb.bom_file and pcb.cpl_file:
+                bom = TableLoader(pcb.bom_file)
+                cpl = TableLoader(pcb.cpl_file)
+                bom_rows = bom.rows()
+                bom_header = next(bom_rows)
+                cpl_rows = cpl.rows()
+                cpl_header = next(cpl_rows)
 
-                    bom_designator_header = [h for h in ["Designator"] if h in bom_header]
-                    bom_designator_header = bom_designator_header[0] if bom_designator_header else None
-                    bom_comment_header = [h for h in ["Comment"] if h in bom_header]
-                    bom_comment_header = bom_comment_header[0] if bom_comment_header else None
-                    bom_footprint_header = [h for h in ["Footprint"] if h in bom_header]
-                    bom_footprint_header = bom_footprint_header[0] if bom_footprint_header else None
-                    bom_ignore_headers = ["Quantity", "Qty", "Item #"]
-                    cpl_designator_header = [h for h in ["Designator", "Ref"] if h in cpl_header]
-                    cpl_designator_header = cpl_designator_header[0] if cpl_designator_header else None
-                    cpl_x_header = [h for h in ["Mid X", "PosX", "X"] if h in cpl_header]
-                    cpl_x_header = cpl_x_header[0] if cpl_x_header else None
-                    cpl_y_header = [h for h in ["Mid Y", "PosY", "Y"] if h in cpl_header]
-                    cpl_y_header = cpl_y_header[0] if cpl_y_header else None
-                    cpl_rotation_header = [h for h in ["Rotation", "Rot"] if h in cpl_header]
-                    cpl_rotation_header = cpl_rotation_header[0] if cpl_rotation_header else None
-                    cpl_layer_header = [h for h in ["Layer", "Side"] if h in cpl_header]
-                    cpl_layer_header = cpl_layer_header[0] if cpl_layer_header else None
-                    layer_map = {
-                        "top": Layer.F_Cu,
-                        "bottom": Layer.B_Cu,
-                    }
+                bom_designator_header = [h for h in ["Designator"] if h in bom_header]
+                bom_designator_header = bom_designator_header[0] if bom_designator_header else None
+                bom_comment_header = [h for h in ["Comment"] if h in bom_header]
+                bom_comment_header = bom_comment_header[0] if bom_comment_header else None
+                bom_footprint_header = [h for h in ["Footprint"] if h in bom_header]
+                bom_footprint_header = bom_footprint_header[0] if bom_footprint_header else None
+                bom_ignore_headers = ["Quantity", "Qty", "Item #"]
+                cpl_designator_header = [h for h in ["Designator", "Ref"] if h in cpl_header]
+                cpl_designator_header = cpl_designator_header[0] if cpl_designator_header else None
+                cpl_x_header = [h for h in ["Mid X", "PosX", "X"] if h in cpl_header]
+                cpl_x_header = cpl_x_header[0] if cpl_x_header else None
+                cpl_y_header = [h for h in ["Mid Y", "PosY", "Y"] if h in cpl_header]
+                cpl_y_header = cpl_y_header[0] if cpl_y_header else None
+                cpl_rotation_header = [h for h in ["Rotation", "Rot"] if h in cpl_header]
+                cpl_rotation_header = cpl_rotation_header[0] if cpl_rotation_header else None
+                cpl_layer_header = [h for h in ["Layer", "Side"] if h in cpl_header]
+                cpl_layer_header = cpl_layer_header[0] if cpl_layer_header else None
+                layer_map = {
+                    "top": Layer.F_Cu,
+                    "bottom": Layer.B_Cu,
+                }
 
-                    if bom_designator_header:
-                        bom = {}
-                        for row in bom_rows:
-                            entry = {k:v for k,v in zip(bom_header, row)}
-                            designators = entry.pop(bom_designator_header)
-                            # print("BOM", designators, entry)
-                            for designator in designators.split(","):
-                                bom[designator] = entry
+                if bom_designator_header:
+                    bom = {}
+                    for row in bom_rows:
+                        entry = {k:v for k,v in zip(bom_header, row)}
+                        designators = entry.pop(bom_designator_header)
+                        # print("BOM", designators, entry)
+                        for designator in designators.split(","):
+                            bom[designator] = entry
 
-                        for row in cpl_rows:
-                            entry = {k:v for k,v in zip(cpl_header, row)}
-                            designator = entry.pop(cpl_designator_header)
-                            mid_x = float(entry.pop(cpl_x_header)) * mm - pcb.orig[0]
-                            mid_y = -float(entry.pop(cpl_y_header)) * mm - pcb.orig[1]
-                            rotation = float(entry.pop(cpl_rotation_header))
-                            layer = entry.pop(cpl_layer_header)
-                            if not layer in layer_map:
-                                cpl_unknown_layers.append(layer)
+                    for row in cpl_rows:
+                        entry = {k:v for k,v in zip(cpl_header, row)}
+                        designator = entry.pop(cpl_designator_header)
+                        mid_x = float(entry.pop(cpl_x_header)) * mm - pcb.orig[0]
+                        mid_y = -float(entry.pop(cpl_y_header)) * mm - pcb.orig[1]
+                        rotation = float(entry.pop(cpl_rotation_header))
+                        layer = entry.pop(cpl_layer_header)
+                        if not layer in layer_map:
+                            cpl_unknown_layers.append(layer)
+                            continue
+
+                        # print(designator, mid_x/mm, -mid_y/mm, rotation, layer)
+                        footprint = pcbnew.FootprintLoad(KIKAKUKA_LIB, "Footprint")
+                        p = pcb.transform(Point(mid_x, mid_y))
+                        footprint.SetPosition(pcbnew.VECTOR2I(round(p.x), round(p.y)))
+                        footprint.SetOrientation(pcbnew.EDA_ANGLE(rotation+pcb.rotate, pcbnew.DEGREES_T))
+                        footprint.SetLayer(layer_map[layer])
+                        for k,v in bom.get(designator, {}).items():
+                            if not v:
                                 continue
-
-                            # print(designator, mid_x/mm, -mid_y/mm, rotation, layer)
-                            footprint = pcbnew.FootprintLoad(KIKAKUKA_LIB, "Footprint")
-                            p = pcb.transform(Point(mid_x, mid_y))
-                            footprint.SetPosition(pcbnew.VECTOR2I(round(p.x), round(p.y)))
-                            footprint.SetOrientation(pcbnew.EDA_ANGLE(rotation+pcb.rotate, pcbnew.DEGREES_T))
-                            footprint.SetLayer(layer_map[layer])
-                            for k,v in bom.get(designator, {}).items():
-                                if not v:
-                                    continue
-                                if k in [bom_comment_header, bom_footprint_header]:
-                                    continue
-                                if k in bom_ignore_headers:
-                                    continue
-                                footprint.SetField(k, v)
-                                text = footprint.GetFieldByName(k)
-                                text.SetVisible(False)
-                            footprint.SetReference(designator)
-                            footprint.SetValue(bom.get(designator, {}).get(bom_comment_header, ""))
-                            ref = footprint.Reference()
-                            ref.SetVisible(True)
-                            panel.board.Add(footprint)
-            elif pcb.file_type == "gerber":
-                s = Substrate([])
-                s.union(pcb.shapes[0])
-                panel.substrates.append(s) # for building process
-                panel.appendSubstrate(pcb.shapes[0]) # for exported result
+                            if k in [bom_comment_header, bom_footprint_header]:
+                                continue
+                            if k in bom_ignore_headers:
+                                continue
+                            footprint.SetField(k, v)
+                            text = footprint.GetFieldByName(k)
+                            text.SetVisible(False)
+                        footprint.SetReference(designator)
+                        footprint.SetValue(bom.get(designator, {}).get(bom_comment_header, ""))
+                        ref = footprint.Reference()
+                        ref.SetVisible(True)
+                        panel.board.Add(footprint)
 
         if self.state.hide_outside_reference_value and export:
             for fp in panel.board.GetFootprints():
@@ -2234,7 +2170,7 @@ class PanelizerUI(Application):
         self.state.focus.cpl_file = OpenFile("Select CPL", dir=os.path.dirname(__file__), types="CPL (*.csv)|*.csv")
 
     def content(self):
-        title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, PyGerber {pygerber.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
+        title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 with HBox():

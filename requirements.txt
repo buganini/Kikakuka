@@ -8,4 +8,4 @@ psutil
 pywin32; platform_system == "Windows"
 pygit2
 parsimonious
-pygerber@git+https://github.com/Argmaster/pygerber.git
+pcb-tools
