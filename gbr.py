@@ -3,6 +3,7 @@ import zipfile
 import gerber
 import pcbnew
 import math
+import kikit.common
 
 def is_gerber_file(filename):
     if filename.lower().endswith(".gbr"):
@@ -226,17 +227,30 @@ def populate_kicad(board, gbr, layer, optimize=True):
             print(p.__class__.__name__, p.__dict__)
             print(dir(p))
 
-            via = pcbnew.PCB_VIA(board)
+            if layer: # plated
+                via = pcbnew.PCB_VIA(board)
 
-            via.SetPosition(pcbnew.VECTOR2I(
-                fromUnit(p.position[0]),
-                -fromUnit(p.position[1])
-            ))
-            via.SetWidth(fromUnit(p.diameter))
-            via.SetDrill(fromUnit(p.diameter))
-            via.SetViaType(pcbnew.VIATYPE_THROUGH)
+                via.SetPosition(pcbnew.VECTOR2I(
+                    fromUnit(p.position[0]),
+                    -fromUnit(p.position[1])
+                ))
+                via.SetWidth(fromUnit(p.diameter))
+                via.SetDrill(fromUnit(p.diameter))
+                via.SetViaType(pcbnew.VIATYPE_THROUGH)
 
-            board.Add(via)
+                board.Add(via)
+            else:
+                footprint = pcbnew.FootprintLoad(kikit.common.KIKIT_LIB, "NPTH")
+                footprint.SetPosition(pcbnew.VECTOR2I(
+                    fromUnit(p.position[0]),
+                    -fromUnit(p.position[1])
+                ))
+                for pad in footprint.Pads():
+                    pad.SetDrillSizeX(fromUnit(p.diameter))
+                    pad.SetDrillSizeY(fromUnit(p.diameter))
+                    pad.SetSizeX(fromUnit(p.diameter))
+                    pad.SetSizeY(fromUnit(p.diameter))
+                board.Add(footprint)
         else:
             print(p.__class__.__name__, p.__dict__)
             # print(dir(p))
@@ -301,14 +315,14 @@ def convert_to_kicad(input, output, outline_only=False):
             filenames.remove(pth_file)
             pth_data = read_gbr_file(input, pth_file)
             gbr = gerber.loads(pth_data)
-            populate_kicad(board, gbr, None)
+            populate_kicad(board, gbr, True)
 
         npth_file = find_NPTH(filenames)
         if npth_file is not None:
             filenames.remove(npth_file)
             npth_data = read_gbr_file(input, npth_file)
             gbr = gerber.loads(npth_data)
-            populate_kicad(board, gbr, None)
+            populate_kicad(board, gbr, False)
 
         print(filenames)
 
