@@ -85,6 +85,18 @@ def find_mask_bottom(filenames):
             return fn
     return None
 
+def find_PTH(filenames):
+    for fn in filenames:
+        if "PTH" in fn and not fn.lower().endswith(".pdf"):
+            return fn
+    return None
+
+def find_NPTH(filenames):
+    for fn in filenames:
+        if "NPTH" in fn and not fn.lower().endswith(".pdf"):
+            return fn
+    return None
+
 def read_gbr_file(path, filename):
     if is_gerber_dir(path):
         return open(os.path.join(path, filename), "r").read()
@@ -93,7 +105,21 @@ def read_gbr_file(path, filename):
             return z.open(filename).read()
     return None
 
-def populate_kicad(board, gbr, layer):
+def populate_kicad(board, gbr, layer, optimize=True):
+    # print(gbr, dir(gbr))
+    # print(gbr.__dict__)
+
+    def fromMM(value):
+        return int(value * pcbnew.PCB_IU_PER_MM)
+
+    def fromInch(value):
+        return int(value * pcbnew.PCB_IU_PER_MM * 25.4)
+
+    fromUnit = {
+        "inch": fromInch,
+        "metric": fromMM,
+    }.get(gbr.units)
+
     for p in gbr.primitives:
         if isinstance(p, gerber.primitives.Arc):
             # print(p.__class__.__name__, p.__dict__)
@@ -103,17 +129,17 @@ def populate_kicad(board, gbr, layer):
             arc.SetShape(pcbnew.SHAPE_T_ARC)
 
             arc.SetStart(pcbnew.VECTOR2I(
-                pcbnew.FromMM(p.start[0]),
-                pcbnew.FromMM(-p.start[1])
+                fromUnit(p.start[0]),
+                -fromUnit(p.start[1])
             ))
             arc.SetCenter(pcbnew.VECTOR2I(
-                pcbnew.FromMM(p.center[0]),
-                pcbnew.FromMM(-p.center[1])
+                fromUnit(p.center[0]),
+                -fromUnit(p.center[1])
             ))
             arc.SetArcAngleAndEnd(pcbnew.EDA_ANGLE(p.sweep_angle, pcbnew.RADIANS_T))
 
             arc.SetLayer(layer)
-            arc.SetWidth(pcbnew.FromMM(p.aperture.radius * 2))
+            arc.SetWidth(fromUnit(p.aperture.radius * 2))
 
             board.Add(arc)
         elif isinstance(p, gerber.primitives.Line):
@@ -126,17 +152,17 @@ def populate_kicad(board, gbr, layer):
                 line.SetShape(pcbnew.SHAPE_T_SEGMENT)
 
                 line.SetStart(pcbnew.VECTOR2I(
-                    pcbnew.FromMM(p.start[0]),
-                    pcbnew.FromMM(-p.start[1])
+                    fromUnit(p.start[0]),
+                    -fromUnit(p.start[1])
                 ))
 
                 line.SetEnd(pcbnew.VECTOR2I(
-                    pcbnew.FromMM(p.end[0]),
-                    pcbnew.FromMM(-p.end[1])
+                    fromUnit(p.end[0]),
+                    -fromUnit(p.end[1])
                 ))
 
                 line.SetLayer(layer)
-                line.SetWidth(pcbnew.FromMM(p.aperture.radius * 2))
+                line.SetWidth(fromUnit(p.aperture.radius * 2))
 
                 board.Add(line)
             else:
@@ -150,12 +176,12 @@ def populate_kicad(board, gbr, layer):
             rectangle.SetShape(pcbnew.SHAPE_T_RECTANGLE)
 
             rectangle.SetStart(pcbnew.VECTOR2I(
-                pcbnew.FromMM(p.position[0] - p.width / 2),
-                pcbnew.FromMM(-p.position[1] - p.height / 2)
+                fromUnit(p.position[0] - p.width / 2),
+                -fromUnit(p.position[1] - p.height / 2)
             ))
             rectangle.SetEnd(pcbnew.VECTOR2I(
-                pcbnew.FromMM(p.position[0] + p.width / 2),
-                pcbnew.FromMM(-p.position[1] + p.height / 2)
+                fromUnit(p.position[0] + p.width / 2),
+                -fromUnit(p.position[1] + p.height / 2)
             ))
 
             rectangle.SetLayer(layer)
@@ -168,10 +194,10 @@ def populate_kicad(board, gbr, layer):
             circle = pcbnew.PCB_SHAPE()
             circle.SetShape(pcbnew.SHAPE_T_CIRCLE)
             circle.SetCenter(pcbnew.VECTOR2I(
-                pcbnew.FromMM(p.position[0]),
-                pcbnew.FromMM(-p.position[1])
+                fromUnit(p.position[0]),
+                -fromUnit(p.position[1])
             ))
-            circle.SetRadius(pcbnew.FromMM(p.radius))
+            circle.SetRadius(fromUnit(p.radius))
             circle.SetLayer(layer)
             circle.SetFilled(True)
             board.Add(circle)
@@ -189,13 +215,28 @@ def populate_kicad(board, gbr, layer):
 
             for line in p.primitives:
                 poly_set.Append(
-                    pcbnew.FromMM(line.start[0]),
-                    pcbnew.FromMM(-line.start[1]),
+                    fromUnit(line.start[0]),
+                    -fromUnit(line.start[1]),
                     outline
                 )
 
             poly.SetFilled(True)
             board.Add(poly)
+        elif isinstance(p, gerber.primitives.Drill):
+            print(p.__class__.__name__, p.__dict__)
+            print(dir(p))
+
+            via = pcbnew.PCB_VIA(board)
+
+            via.SetPosition(pcbnew.VECTOR2I(
+                fromUnit(p.position[0]),
+                -fromUnit(p.position[1])
+            ))
+            via.SetWidth(fromUnit(p.diameter))
+            via.SetDrill(fromUnit(p.diameter))
+            via.SetViaType(pcbnew.VIATYPE_THROUGH)
+
+            board.Add(via)
         else:
             print(p.__class__.__name__, p.__dict__)
             # print(dir(p))
@@ -254,6 +295,20 @@ def convert_to_kicad(input, output, outline_only=False):
             mask_bottom_data = read_gbr_file(input, mask_bottom_file)
             gbr = gerber.loads(mask_bottom_data)
             populate_kicad(board, gbr, pcbnew.B_Mask)
+
+        pth_file = find_PTH(filenames)
+        if pth_file is not None:
+            filenames.remove(pth_file)
+            pth_data = read_gbr_file(input, pth_file)
+            gbr = gerber.loads(pth_data)
+            populate_kicad(board, gbr, None)
+
+        npth_file = find_NPTH(filenames)
+        if npth_file is not None:
+            filenames.remove(npth_file)
+            npth_data = read_gbr_file(input, npth_file)
+            gbr = gerber.loads(npth_data)
+            populate_kicad(board, gbr, None)
 
         print(filenames)
 
