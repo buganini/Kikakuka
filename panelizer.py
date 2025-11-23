@@ -85,19 +85,21 @@ class PCB(StateObject):
 
         if boardpath.lower().endswith(".kicad_pcb"):
             self.file_type = "kicad"
+            self.outline_file = self.file
             self.kicad_file = self.file
         elif is_gerber(self.file):
             self.file_type = "gerber"
-            self.kicad_file = os.path.join(self.main.temp_dir, f"{id(self)}.kicad_pcb")
-            convert_to_kicad(self.file, self.kicad_file)
+            self.outline_file = os.path.join(self.main.temp_dir, f"{id(self)}_outline.kicad_pcb")
+            self.kicad_file = os.path.join(self.main.temp_dir, f"{id(self)}_full.kicad_pcb")
+            convert_to_kicad(self.file, self.outline_file, outline_only=True)
 
-        board = pcbnew.LoadBoard(self.kicad_file)
+        board = pcbnew.LoadBoard(self.outline_file)
         board_bbox = board.GetBoundingBox()
         self.orig = (board_bbox.GetX(), board_bbox.GetY())
 
         panel = panelize.Panel(os.path.join(self.main.temp_dir, "temp.kicad_pcb"))
         panel.appendBoard(
-            self.kicad_file,
+            self.outline_file,
             pcbnew.VECTOR2I(0, 0),
             origin=panelize.Origin.TopLeft,
             tolerance=panelize.fromMm(1),
@@ -899,8 +901,13 @@ class PanelizerUI(Application):
 
         for i, pcb in enumerate(pcbs):
             self.refMap = {}
+            file = pcb.outline_file
+            if export:
+                file = pcb.kicad_file
+                if not os.path.exists(file):
+                    convert_to_kicad(pcb.file, pcb.kicad_file, outline_only=False)
             panel.appendBoard(
-                pcb.kicad_file,
+                file,
                 pcbnew.VECTOR2I(round(self.off_x + pcb.x), round(self.off_y + pcb.y)),
                 origin=panelize.Origin.TopLeft,
                 tolerance=panelize.fromMm(1),
