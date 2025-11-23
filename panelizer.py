@@ -93,9 +93,17 @@ class PCB(StateObject):
             self.kicad_file = os.path.join(self.main.temp_dir, f"{id(self)}_full.kicad_pcb")
             convert_to_kicad(self.file, self.outline_file, outline_only=True)
 
+        orig_x = None
+        orig_y = None
         board = pcbnew.LoadBoard(self.outline_file)
-        board_bbox = board.GetBoundingBox()
-        self.orig = (board_bbox.GetX(), board_bbox.GetY())
+        for draw in board.GetDrawings():
+            if draw.GetLayer() == pcbnew.Edge_Cuts:
+                width = draw.GetWidth()
+                ox = draw.GetBoundingBox().GetX() + width/2
+                oy = draw.GetBoundingBox().GetY() + width/2
+                orig_x = min(orig_x, ox) if orig_x is not None else ox
+                orig_y = min(orig_y, oy) if orig_y is not None else oy
+        self.orig = (orig_x, orig_y)
 
         panel = panelize.Panel(os.path.join(self.main.temp_dir, "temp.kicad_pcb"))
         panel.appendBoard(
@@ -825,8 +833,8 @@ class PanelizerUI(Application):
             self.off_x = 20 * self.unit
             self.off_y = 20 * self.unit
         else:
-            self.off_x = pcbs[0].orig[0]
-            self.off_y = pcbs[0].orig[1]
+            self.off_x = pcbs[0].orig[0] - pcbs[0].x
+            self.off_y = pcbs[0].orig[1] - pcbs[0].y
 
         if export is True:
             export = SaveFile(self.state.export_path, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
