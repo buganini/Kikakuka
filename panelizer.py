@@ -763,10 +763,10 @@ class PanelizerUI(Application):
                 pcb.rotate = p["rotate"]
                 pcb.flags = p.get("flags", [])
                 pcb.bom_file = p.get("bom", "")
-                if not os.path.isabs(pcb.bom_file):
+                if pcb.bom_file and not os.path.isabs(pcb.bom_file):
                     pcb.bom_file = os.path.realpath(os.path.join(os.path.dirname(target), pcb.bom_file))
                 pcb.cpl_file = p.get("cpl", "")
-                if not os.path.isabs(pcb.cpl_file):
+                if pcb.cpl_file and not os.path.isabs(pcb.cpl_file):
                     pcb.cpl_file = os.path.realpath(os.path.join(os.path.dirname(target), pcb.cpl_file))
                 tabs = p.get("tabs", [])
                 for i in range(len(tabs)):
