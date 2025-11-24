@@ -487,9 +487,6 @@ class PanelizerUI(Application):
         self.state.focus = None
         self.state.focus_tab = None
 
-        self.state.netRenamePattern = "B{n}-{orig}"
-        self.state.refRenamePattern = "B{n}-{orig}"
-
         self.state.vcuts = []
         self.state.bites = []
         self.state.dbg_points = []
@@ -500,6 +497,23 @@ class PanelizerUI(Application):
         self.state.holes = []
         self.state.conflicts = []
         self.state.errors = []
+
+        self.state.boardSubstrate = None
+
+        self.state.move = 0
+        self.state.mousepos = None
+        self.mouse_dragging = None
+        self.mousehold = False
+        self.mousemoved = 0
+        self.mouse_action_from_inside = False
+        self.tool = Tool.NONE
+        self.state.edit_polygon = None
+
+        self.set_defaults()
+
+    def set_defaults(self):
+        self.state.netRenamePattern = "B{n}-{orig}"
+        self.state.refRenamePattern = "B{n}-{orig}"
 
         self.state.use_frame = True
         self.state.tight = True
@@ -524,16 +538,16 @@ class PanelizerUI(Application):
         self.state.mill_fillets = 0.5
         self.state.export_mill_fillets = False
 
-        self.state.boardSubstrate = None
+        self.state.frame_tooling_holes = True
+        self.state.frame_tooling_horizontal_offset = 3.5
+        self.state.frame_tooling_vertical_offset = 3.5
+        self.state.frame_tooling_diameter = 1.152
+        self.state.frame_tooling_solder_mask_opening_diameter = 1.3
 
-        self.state.move = 0
-        self.state.mousepos = None
-        self.mouse_dragging = None
-        self.mousehold = False
-        self.mousemoved = 0
-        self.mouse_action_from_inside = False
-        self.tool = Tool.NONE
-        self.state.edit_polygon = None
+        self.state.fiducials = True
+        self.state.fiducials_clearance = 3.35
+        self.state.fiducials_diameter = 1.0
+        self.state.fiducials_solder_mask_opening_diameter = 2.0
 
     def cleanup(self):
         if os.path.exists(self.temp_dir):
@@ -670,6 +684,15 @@ class PanelizerUI(Application):
             "export_mill_fillets": self.state.export_mill_fillets,
             "netRenamePattern": self.state.netRenamePattern,
             "refRenamePattern": self.state.refRenamePattern,
+            "frame_tooling_holes": self.state.frame_tooling_holes,
+            "frame_tooling_horizontal_offset": self.state.frame_tooling_horizontal_offset,
+            "frame_tooling_vertical_offset": self.state.frame_tooling_vertical_offset,
+            "frame_tooling_diameter": self.state.frame_tooling_diameter,
+            "frame_tooling_solder_mask_opening_diameter": self.state.frame_tooling_solder_mask_opening_diameter,
+            "fiducials": self.state.fiducials,
+            "fiducials_clearance": self.state.fiducials_clearance,
+            "fiducials_diameter": self.state.fiducials_diameter,
+            "fiducials_solder_mask_opening_diameter": self.state.fiducials_solder_mask_opening_diameter,
             "pcb": pcbs,
             "hole": [list(transform(h.polygon.exterior, lambda p:p-(self.off_x, self.off_y)).coords) for h in self.state.holes],
         }
@@ -678,6 +701,8 @@ class PanelizerUI(Application):
 
 
     def load(self, e, target=None):
+        self.set_defaults()
+
         if target is None:
             target = OpenFile("Load Panelization", types="KiKit Panelization (*.kikit_pnl)|*.kikit_pnl")
         if target:
@@ -741,6 +766,26 @@ class PanelizerUI(Application):
                 self.state.netRenamePattern = data["netRenamePattern"]
             if "refRenamePattern" in data:
                 self.state.refRenamePattern = data["refRenamePattern"]
+
+            if "frame_tooling_holes" in data:
+                self.state.frame_tooling_holes = data["frame_tooling_holes"]
+            if "frame_tooling_horizontal_offset" in data:
+                self.state.frame_tooling_horizontal_offset = data["frame_tooling_horizontal_offset"]
+            if "frame_tooling_vertical_offset" in data:
+                self.state.frame_tooling_vertical_offset = data["frame_tooling_vertical_offset"]
+            if "frame_tooling_diameter" in data:
+                self.state.frame_tooling_diameter = data["frame_tooling_diameter"]
+            if "frame_tooling_solder_mask_opening_diameter" in data:
+                self.state.frame_tooling_solder_mask_opening_diameter = data["frame_tooling_solder_mask_opening_diameter"]
+            if "fiducials" in data:
+                self.state.fiducials = data["fiducials"]
+            if "fiducials_clearance" in data:
+                self.state.fiducials_clearance = data["fiducials_clearance"]
+            if "fiducials_diameter" in data:
+                self.state.fiducials_diameter = data["fiducials_diameter"]
+            if "fiducials_solder_mask_opening_diameter" in data:
+                self.state.fiducials_solder_mask_opening_diameter = data["fiducials_solder_mask_opening_diameter"]
+
             if "hole" in data:
                 holes = []
                 for h in data["hole"]:
@@ -975,7 +1020,7 @@ class PanelizerUI(Application):
 
             pcb.fp_count = fp_count
 
-            if export and pcb.bom_file and pcb.cpl_file:
+            if export and pcb.fp_count == 0 and pcb.bom_file and pcb.cpl_file:
                 bom = TableLoader(pcb.bom_file)
                 cpl = TableLoader(pcb.cpl_file)
                 bom_rows = bom.rows()
@@ -1519,6 +1564,38 @@ class PanelizerUI(Application):
                 vcuts.append(LineString([(x, boardSubstrateBounds[1]), (x, boardSubstrateBounds[3])]))
 
         panel.makeVCuts(vcuts)
+
+
+        if self.state.frame_tooling_holes:
+            horizontalOffset = self.state.frame_tooling_horizontal_offset * mm
+            verticalOffset = self.state.frame_tooling_vertical_offset * mm
+            holeCount = 4
+            diameter = self.state.frame_tooling_holes * mm
+            solderMaskDiameter = self.state.frame_tooling_solder_mask_opening_diameter * mm
+            for i, pos in enumerate(panel.panelCorners(horizontalOffset, verticalOffset)[:holeCount]):
+                footprint = pcbnew.FootprintLoad(kikit.common.KIKIT_LIB, "NPTH")
+                footprint.SetPosition(pos)
+                for pad in footprint.Pads():
+                    pad.SetDrillSize(toKiCADPoint((diameter, diameter)))
+                    pad.SetSize(toKiCADPoint((solderMaskDiameter, solderMaskDiameter)))
+                panel.board.Add(footprint)
+
+        if self.state.fiducials:
+            diameter = self.state.fiducials_diameter * mm
+            solderMaskDiameter = self.state.fiducials_solder_mask_opening_diameter * mm
+            if self.state.frame_top and self.state.frame_bottom:
+                horizontalOffset = (self.state.frame_tooling_horizontal_offset + self.state.frame_tooling_solder_mask_opening_diameter * 4) * mm
+                verticalOffset = (self.state.fiducials_clearance + self.state.fiducials_diameter/2) * mm
+
+                for i, pos in enumerate(panel.panelCorners(horizontalOffset, verticalOffset)[:4]):
+                    panel.addFiducial(pos, diameter, solderMaskDiameter)
+
+            if self.state.frame_left and self.state.frame_right:
+                horizontalOffset = (self.state.fiducials_clearance + self.state.fiducials_diameter/2) * mm
+                verticalOffset = (self.state.frame_tooling_vertical_offset + self.state.frame_tooling_solder_mask_opening_diameter * 4) * mm
+
+                for i, pos in enumerate(panel.panelCorners(horizontalOffset, verticalOffset)[:4]):
+                    panel.addFiducial(pos, diameter, solderMaskDiameter)
 
         if not export:
             self.state.vcuts = vcuts
@@ -2284,6 +2361,27 @@ class PanelizerUI(Application):
                                 ComboBoxItem("None", "none")
 
                             Spacer()
+
+                        if self.state.use_frame:
+                            with HBox().id("frame-tooling"):
+                                Checkbox("Tooling Holes", self.state("frame_tooling_holes")).click(self.build)
+                                Label("Horizontal Offset")
+                                TextField(self.state("frame_tooling_horizontal_offset")).change(self.build)
+                                Label("Vertical Offset")
+                                TextField(self.state("frame_tooling_vertical_offset")).change(self.build)
+                                Label("Diameter")
+                                TextField(self.state("frame_tooling_diameter")).change(self.build)
+                                Label("Solder Mask Opening Diameter")
+                                TextField(self.state("frame_tooling_solder_mask_opening_diameter")).change(self.build)
+
+                            with HBox().id("fiducials"):
+                                Checkbox("Fiducials", self.state("fiducials")).click(self.build)
+                                Label("Clearance")
+                                TextField(self.state("fiducials_clearance")).change(self.build)
+                                Label("Diameter")
+                                TextField(self.state("fiducials_diameter")).change(self.build)
+                                Label("Solder Mask Opening Diameter")
+                                TextField(self.state("fiducials_solder_mask_opening_diameter")).change(self.build)
 
                         with HBox():
                             Label("PCB Spacing")
