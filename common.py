@@ -37,3 +37,25 @@ def relpath(path, base, allow_outside=False):
         return relpath
     except ValueError:
         return path
+
+def findFiles(workspace, root, types=None):
+    if types is None:
+        types = [SCH_SUFFIX, PCB_SUFFIX, STEP_SUFFIX]
+    for project in workspace["projects"]:
+        project["files"] = []
+        project["parent"] = None
+        project["project_path"] = project["path"]
+        if project["path"].endswith(".kikit_pnl"):
+            continue
+        if project["path"].endswith(".kicad_pro"):
+            for ext in types:
+                fpath = re.sub(r"\.kicad_pro$", ext, project["path"])
+                if not os.path.isabs(fpath):
+                    fpath = os.path.join(root, fpath)
+                if os.path.exists(fpath):
+                    project["files"].append({
+                        "project_path": project["path"],
+                        "path": fpath,
+                        "parent": project,
+                        "files": [],
+                    })
