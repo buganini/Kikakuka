@@ -1567,11 +1567,11 @@ class PanelizerUI(Application):
 
 
         if self.state.frame_tooling_holes:
-            horizontalOffset = self.state.frame_tooling_horizontal_offset * mm
-            verticalOffset = self.state.frame_tooling_vertical_offset * mm
+            horizontalOffset = self.state.frame_tooling_horizontal_offset * self.unit
+            verticalOffset = self.state.frame_tooling_vertical_offset * self.unit
             holeCount = 4
-            diameter = self.state.frame_tooling_holes * mm
-            solderMaskDiameter = self.state.frame_tooling_solder_mask_opening_diameter * mm
+            diameter = self.state.frame_tooling_holes * self.unit
+            solderMaskDiameter = self.state.frame_tooling_solder_mask_opening_diameter * self.unit
             for i, pos in enumerate(panel.panelCorners(horizontalOffset, verticalOffset)[:holeCount]):
                 footprint = pcbnew.FootprintLoad(kikit.common.KIKIT_LIB, "NPTH")
                 footprint.SetPosition(pos)
@@ -1581,18 +1581,18 @@ class PanelizerUI(Application):
                 panel.board.Add(footprint)
 
         if self.state.fiducials:
-            diameter = self.state.fiducials_diameter * mm
-            solderMaskDiameter = self.state.fiducials_solder_mask_opening_diameter * mm
+            diameter = self.state.fiducials_diameter * self.unit
+            solderMaskDiameter = self.state.fiducials_solder_mask_opening_diameter * self.unit
             if self.state.frame_top and self.state.frame_bottom:
-                horizontalOffset = (self.state.frame_tooling_horizontal_offset + self.state.frame_tooling_solder_mask_opening_diameter * 4) * mm
-                verticalOffset = (self.state.fiducials_clearance + self.state.fiducials_diameter/2) * mm
+                horizontalOffset = (self.state.frame_tooling_horizontal_offset + self.state.frame_tooling_solder_mask_opening_diameter * 4) * self.unit
+                verticalOffset = (self.state.fiducials_clearance + self.state.fiducials_diameter/2) * self.unit
 
                 for i, pos in enumerate(panel.panelCorners(horizontalOffset, verticalOffset)[:4]):
                     panel.addFiducial(pos, diameter, solderMaskDiameter)
 
             if self.state.frame_left and self.state.frame_right:
-                horizontalOffset = (self.state.fiducials_clearance + self.state.fiducials_diameter/2) * mm
-                verticalOffset = (self.state.frame_tooling_vertical_offset + self.state.frame_tooling_solder_mask_opening_diameter * 4) * mm
+                horizontalOffset = (self.state.fiducials_clearance + self.state.fiducials_diameter/2) * self.unit
+                verticalOffset = (self.state.frame_tooling_vertical_offset + self.state.frame_tooling_solder_mask_opening_diameter * 4) * self.unit
 
                 for i, pos in enumerate(panel.panelCorners(horizontalOffset, verticalOffset)[:4]):
                     panel.addFiducial(pos, diameter, solderMaskDiameter)
@@ -2100,6 +2100,18 @@ class PanelizerUI(Application):
             x, y = self.toCanvas(p.x-self.off_x, p.y-self.off_y)
             canvas.drawEllipse(x, y, mb_diameter*self.unit/2*scale, mb_diameter*self.unit/2*scale, stroke=0xFFFF00)
 
+    def panelCorners(self, horizontalOffset=0, verticalOffset=0):
+        """
+        Return the list of top-left, top-right, bottom-left and bottom-right
+        corners of the panel. You can specify offsets.
+        """
+        minx, miny, maxx, maxy = self.off_x, self.off_y, self.off_x + self.state.frame_width*mm, self.off_y + self.state.frame_height*mm
+        topLeft = (minx + horizontalOffset, miny + verticalOffset)
+        topRight = (maxx - horizontalOffset, miny + verticalOffset)
+        bottomLeft = (minx + horizontalOffset, maxy - verticalOffset)
+        bottomRight = (maxx - horizontalOffset, maxy - verticalOffset)
+        return [topLeft, topRight, bottomLeft, bottomRight]
+
     def painter(self, canvas):
         if self.state.scale is None:
             self.autoScale(canvas.width, canvas.height)
@@ -2132,6 +2144,39 @@ class PanelizerUI(Application):
                 if pcb is not self.state.focus:
                     continue
                 self.drawPCB(canvas, i, pcb, True)
+
+        if self.state.frame_tooling_holes:
+            horizontalOffset = self.state.frame_tooling_horizontal_offset * self.unit
+            verticalOffset = self.state.frame_tooling_vertical_offset * self.unit
+            holeCount = 4
+            diameter = self.state.frame_tooling_diameter * self.unit
+            solderMaskDiameter = self.state.frame_tooling_solder_mask_opening_diameter * self.unit
+            for i, pos in enumerate(self.panelCorners(horizontalOffset, verticalOffset)[:holeCount]):
+                x, y = self.toCanvas(pos[0]-self.off_x, pos[1]-self.off_y)
+                print("x", x, "y", y, "solderMaskDiameter", solderMaskDiameter, "diameter", diameter)
+                canvas.drawEllipse(x, y, solderMaskDiameter/2*scale, solderMaskDiameter/2*scale, stroke=0x84E7ED)
+                canvas.drawEllipse(x, y, diameter/2*scale, diameter/2*scale, fill=0x84E7ED)
+
+        if self.state.fiducials:
+            diameter = self.state.fiducials_diameter * self.unit
+            solderMaskDiameter = self.state.fiducials_solder_mask_opening_diameter * self.unit
+            if self.state.frame_top and self.state.frame_bottom:
+                horizontalOffset = (self.state.frame_tooling_horizontal_offset + self.state.frame_tooling_solder_mask_opening_diameter * 4) * self.unit
+                verticalOffset = (self.state.fiducials_clearance + self.state.fiducials_diameter/2) * self.unit
+
+                for i, pos in enumerate(self.panelCorners(horizontalOffset, verticalOffset)[:4]):
+                    x, y = self.toCanvas(pos[0]-self.off_x, pos[1]-self.off_y)
+                    canvas.drawEllipse(x, y, solderMaskDiameter/2*scale, solderMaskDiameter/2*scale, stroke=0xFF00E9)
+                    canvas.drawEllipse(x, y, diameter/2*scale, diameter/2*scale, fill=0xDA1C2B)
+
+            if self.state.frame_left and self.state.frame_right:
+                horizontalOffset = (self.state.fiducials_clearance + self.state.fiducials_diameter/2) * self.unit
+                verticalOffset = (self.state.frame_tooling_vertical_offset + self.state.frame_tooling_solder_mask_opening_diameter * 4) * self.unit
+
+                for i, pos in enumerate(self.panelCorners(horizontalOffset, verticalOffset)[:4]):
+                    x, y = self.toCanvas(pos[0]-self.off_x, pos[1]-self.off_y)
+                    canvas.drawEllipse(x, y, solderMaskDiameter/2*scale, solderMaskDiameter/2*scale, stroke=0xFF00E9)
+                    canvas.drawEllipse(x, y, diameter/2*scale, diameter/2*scale, fill=0xDA1C2B)
 
         if self.state.show_hole:
             for hole in self.state.holes:
