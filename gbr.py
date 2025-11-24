@@ -203,6 +203,71 @@ def populate_kicad(board, gbr, layer, optimize=True):
             circle.SetLayer(layer)
             circle.SetFilled(True)
             board.Add(circle)
+        elif isinstance(p, gerber.primitives.AMGroup):
+            print(p.__class__.__name__, p.__dict__)
+            print(dir(p))
+
+            r = None
+            circles = []
+            circles_center = set()
+            outlines_center = set()
+            for primitive in p.primitives:
+                if isinstance(primitive, gerber.primitives.Circle):
+                    circles.append(primitive)
+                    circles_center.add(primitive.position)
+                    r = primitive.radius
+
+                    # """ BEGIN OF DEBUG """
+                    # circle = pcbnew.PCB_SHAPE()
+                    # circle.SetShape(pcbnew.SHAPE_T_CIRCLE)
+                    # circle.SetCenter(pcbnew.VECTOR2I(
+                    #     fromUnit(primitive.position[0]),
+                    #     -fromUnit(primitive.position[1])
+                    # ))
+                    # circle.SetRadius(fromUnit(primitive.radius))
+                    # circle.SetLayer(layer)
+                    # circle.SetFilled(False)
+                    # board.Add(circle)
+                    # """ END OF DEBUG """
+                elif isinstance(primitive, gerber.primitives.Outline):
+                    for outline_line in primitive.primitives:
+                        outlines_center.add(outline_line.start)
+                        outlines_center.add(outline_line.end)
+
+                        # """ BEGIN OF DEBUG """
+                        # line = pcbnew.PCB_SHAPE()
+                        # line.SetShape(pcbnew.SHAPE_T_SEGMENT)
+                        # line.SetStart(pcbnew.VECTOR2I(
+                        #     fromUnit(outline_line.start[0]),
+                        #     -fromUnit(outline_line.start[1])
+                        # ))
+                        # line.SetEnd(pcbnew.VECTOR2I(
+                        #     fromUnit(outline_line.end[0]),
+                        #     -fromUnit(outline_line.end[1])
+                        # ))
+                        # line.SetLayer(layer)
+                        # line.SetWidth(fromUnit(0.01))
+                        # board.Add(line)
+                        # """ END OF DEBUG """
+            if outlines_center.issuperset(circles_center):
+                rectangle = pcbnew.PCB_SHAPE()
+                rectangle.SetShape(pcbnew.SHAPE_T_RECTANGLE)
+
+                rectangle.SetStart(pcbnew.VECTOR2I(
+                    fromUnit(circles[0].position[0]),
+                    -fromUnit(circles[0].position[1])
+                ))
+                rectangle.SetEnd(pcbnew.VECTOR2I(
+                    fromUnit(circles[2].position[0]),
+                    -fromUnit(circles[2].position[1])
+                ))
+
+                rectangle.SetLayer(layer)
+                rectangle.SetFilled(True)
+                rectangle.SetWidth(fromUnit(r * 2))
+                board.Add(rectangle)
+            else:
+                print("Unhandled case: not a rounded rectangle")
         elif isinstance(p, gerber.primitives.Region):
             # print(p.__class__.__name__, p.__dict__)
             # print(dir(p))
@@ -225,8 +290,8 @@ def populate_kicad(board, gbr, layer, optimize=True):
             poly.SetFilled(True)
             board.Add(poly)
         elif isinstance(p, gerber.primitives.Drill):
-            print(p.__class__.__name__, p.__dict__)
-            print(dir(p))
+            # print(p.__class__.__name__, p.__dict__)
+            # print(dir(p))
 
             if layer: # plated
                 via = pcbnew.PCB_VIA(board)
