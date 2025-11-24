@@ -1615,16 +1615,20 @@
 		(uuid "eb9e045a-7a8f-4045-98d8-c0e4b93a3409")
 	)
 	(no_connect
+		(at 74.93 119.38)
+		(uuid "09f542e1-b084-4865-bae5-132c6096819c")
+	)
+	(no_connect
+		(at 74.93 124.46)
+		(uuid "3aa76e67-1356-4f64-bbd9-6ff8f1394643")
+	)
+	(no_connect
+		(at 74.93 111.76)
+		(uuid "3b62f466-022d-4e13-a876-b28bab20864f")
+	)
+	(no_connect
 		(at 116.84 67.31)
 		(uuid "418c466d-8a31-488d-9113-c3f24fa74d8a")
-	)
-	(no_connect
-		(at 93.98 100.33)
-		(uuid "46a03590-4750-41d3-831d-7bebfe677cee")
-	)
-	(no_connect
-		(at 101.6 100.33)
-		(uuid "4a2cee26-41d9-4f41-94e0-973ab350634c")
 	)
 	(no_connect
 		(at 116.84 90.17)
@@ -1635,8 +1639,20 @@
 		(uuid "69abc7db-2d4f-4c12-9826-bc70a012558f")
 	)
 	(no_connect
+		(at 74.93 134.62)
+		(uuid "7260c961-0a06-4d26-9578-62540e7c9dc1")
+	)
+	(no_connect
 		(at 116.84 82.55)
 		(uuid "76441ce6-d434-4863-972f-8f6a5b5d684e")
+	)
+	(no_connect
+		(at 74.93 132.08)
+		(uuid "bdc7ff01-f0d6-4e24-b34d-75008abb8eb7")
+	)
+	(no_connect
+		(at 74.93 109.22)
+		(uuid "cca719cd-751c-41c8-b4b1-b1c1a816b619")
 	)
 	(no_connect
 		(at 116.84 77.47)
@@ -1765,6 +1781,16 @@
 			(justify left bottom)
 		)
 		(uuid "8a8382ac-ceb0-47c4-b2e2-29b3a3cde7dd")
+	)
+	(label "V"
+		(at 74.93 104.14 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "e4904beb-dc50-457f-9719-6b4c8668c13a")
 	)
 	(symbol
 		(lib_id "Connector:Conn_01x04_Socket")
@@ -1903,6 +1929,251 @@
 			(project "gerber"
 				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
 					(reference "#PWR03")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 93.98 100.33 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "1ee3712a-c91e-49c9-a59d-ad6b961ed597")
+		(property "Reference" "#PWR06"
+			(at 93.98 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 93.98 105.41 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 93.98 100.33 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 93.98 100.33 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 93.98 100.33 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "d64f5dc6-823c-4130-b546-76cd32749215")
+		)
+		(instances
+			(project "gerber"
+				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
+					(reference "#PWR06")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Connector:USB_C_Receptacle_USB2.0_16P")
+		(at 59.69 119.38 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "207a8f6e-9dda-42f7-b7b2-5517f38fc87a")
+		(property "Reference" "J3"
+			(at 59.69 96.52 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "USB_C_Receptacle_USB2.0_16P"
+			(at 59.69 99.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Connector_USB:USB_C_Receptacle_G-Switch_GT-USB-7051x"
+			(at 63.5 119.38 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "https://www.usb.org/sites/default/files/documents/usb_type-c.zip"
+			(at 63.5 119.38 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "USB 2.0-only 16P Type-C Receptacle connector"
+			(at 59.69 119.38 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "B7"
+			(uuid "c6cfe58d-7d84-4545-b7f4-ba4240d2d106")
+		)
+		(pin "B9"
+			(uuid "263d8676-d6b8-473e-b324-28ba3d178b0f")
+		)
+		(pin "S1"
+			(uuid "265bade8-9ac3-4b52-8bcf-7fc5738a865c")
+		)
+		(pin "B5"
+			(uuid "cde28bbd-2dc2-4fa2-872c-d4a7504a7cf7")
+		)
+		(pin "B6"
+			(uuid "27f5a799-bb67-46db-9ce7-44748da1f596")
+		)
+		(pin "B1"
+			(uuid "7d84398e-3917-4f8b-85e1-c18681188eca")
+		)
+		(pin "B12"
+			(uuid "7cfff0e9-71dc-4832-a079-4ece0faa635c")
+		)
+		(pin "A4"
+			(uuid "327fac15-3075-4337-b165-f1001382d017")
+		)
+		(pin "A8"
+			(uuid "27562289-ebf6-4fff-b079-66031dde679d")
+		)
+		(pin "A5"
+			(uuid "f217eee3-bbf4-498a-be67-14ad7fefc091")
+		)
+		(pin "B8"
+			(uuid "0c5017f1-e0eb-44db-9426-0ab1a5db7bf0")
+		)
+		(pin "A7"
+			(uuid "adce28d6-9f3a-4326-8d18-278c3c6bbfc8")
+		)
+		(pin "A12"
+			(uuid "c7802440-d4b4-4a9f-9d82-2a356a3b29f0")
+		)
+		(pin "A6"
+			(uuid "da99a3b4-948f-4804-b576-8728b1440e45")
+		)
+		(pin "A9"
+			(uuid "ecb42a03-7d6c-4166-92ce-1d0971554b13")
+		)
+		(pin "A1"
+			(uuid "9469b8f0-93e4-4276-9d7b-8198afe2d63e")
+		)
+		(pin "B4"
+			(uuid "c627586f-de33-454d-8235-3667280e760d")
+		)
+		(instances
+			(project "gerber"
+				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
+					(reference "J3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 59.69 142.24 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "263864f6-e87a-472d-95f3-0abce9dd23c5")
+		(property "Reference" "#PWR07"
+			(at 59.69 148.59 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 59.69 147.32 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 59.69 142.24 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 59.69 142.24 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 59.69 142.24 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "25425fda-7fed-4d1e-97ec-970ca02d6d24")
+		)
+		(instances
+			(project "gerber"
+				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
+					(reference "#PWR07")
 					(unit 1)
 				)
 			)
@@ -2125,6 +2396,138 @@
 			(project "gerber"
 				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
 					(reference "C2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 52.07 142.24 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "5fe567fb-2eb5-430e-a09a-9f96d3fa9b72")
+		(property "Reference" "#PWR08"
+			(at 52.07 148.59 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 52.07 147.32 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 52.07 142.24 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 52.07 142.24 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 52.07 142.24 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "3e9581a7-5f8d-4514-93bd-45f918dd205a")
+		)
+		(instances
+			(project "gerber"
+				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
+					(reference "#PWR08")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 101.6 100.33 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "6adda049-d29b-4741-88b6-7925e174d9c0")
+		(property "Reference" "#PWR05"
+			(at 101.6 106.68 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 101.6 105.41 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 101.6 100.33 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 101.6 100.33 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 101.6 100.33 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "aeb7b95e-d312-4fad-8735-2bf0935908f2")
+		)
+		(instances
+			(project "gerber"
+				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
+					(reference "#PWR05")
 					(unit 1)
 				)
 			)
