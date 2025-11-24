@@ -102,8 +102,9 @@ def read_gbr_file(path, filename):
     if is_gerber_dir(path):
         return open(os.path.join(path, filename), "r").read()
     if is_gerber_zip(path):
-        with zipfile.ZipFile(path) as z:
-            return z.open(filename).read()
+        with zipfile.ZipFile(path) as zf:
+            path = zipfile.Path(zf, at=filename)
+            return path.read_text(encoding='UTF-8')
     return None
 
 def populate_kicad(board, gbr, layer, optimize=True):
