@@ -331,19 +331,28 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
                 pad.SetShape(pcbnew.PAD_SHAPE_OVAL)
                 pad.SetDrillShape(pcbnew.PAD_DRILL_SHAPE_OBLONG)
                 if primitive.start[0] == primitive.end[0]: # vertical slot
-                    print("vertical slot")
                     w = fromUnit(primitive.diameter)
                     h = fromUnit(abs(primitive.start[1] - primitive.end[1]) + primitive.diameter)
                     pad.SetSize(pcbnew.VECTOR2I(w, h))
                     pad.SetDrillSize(pcbnew.VECTOR2I(w, h))
                 elif primitive.start[1] == primitive.end[1]: # horizontal slot
-                    print("horizontal slot")
                     w = fromUnit(abs(primitive.start[0] - primitive.end[0]) + primitive.diameter)
                     h = fromUnit(primitive.diameter)
                     pad.SetSize(pcbnew.VECTOR2I(w, h))
                     pad.SetDrillSize(pcbnew.VECTOR2I(w, h))
                 else:
-                    print("Unhandled slot orientation")
+                    left, right = (primitive.start, primitive.end) if primitive.start[0] < primitive.end[0] else (primitive.end, primitive.start)
+                    rotation = math.atan2(right[1] - left[1], right[0] - left[0])
+                    footprint.SetOrientation(pcbnew.EDA_ANGLE(rotation, pcbnew.RADIANS_T))
+                    distance = math.sqrt((right[0] - left[0])**2 + (right[1] - left[1])**2)
+                    w = fromUnit(distance + primitive.diameter)
+                    h = fromUnit(primitive.diameter)
+                    footprint.SetPosition(pcbnew.VECTOR2I(
+                        fromUnit((left[0] + right[0]) / 2),
+                        -fromUnit((left[1] + right[1]) / 2)
+                    ))
+                    pad.SetSize(pcbnew.VECTOR2I(w, h))
+                    pad.SetDrillSize(pcbnew.VECTOR2I(w, h))
             board.Add(footprint)
         else:
             print("Unhandled slot on layer", layer)
