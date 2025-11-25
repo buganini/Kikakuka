@@ -217,6 +217,52 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
     elif isinstance(primitive, gerber.primitives.AMGroup):
         for amp in primitive.primitives:
             populate_kicad_by_primitive(board, amp, fromUnit, layer, optimize=optimize)
+    elif isinstance(primitive, gerber.primitives.Obround):
+        print(primitive.__class__.__name__, primitive.__dict__)
+        print(dir(primitive))
+        if primitive.hole_diameter == 0:
+            if primitive.width > primitive.height:
+                line = pcbnew.PCB_SHAPE()
+
+                line.SetShape(pcbnew.SHAPE_T_SEGMENT)
+
+                line.SetStart(pcbnew.VECTOR2I(
+                    fromUnit(primitive.position[0] - primitive.width / 4),
+                    -fromUnit(primitive.position[1])
+                ))
+
+                line.SetEnd(pcbnew.VECTOR2I(
+                    fromUnit(primitive.position[0] + primitive.width / 4),
+                    -fromUnit(primitive.position[1])
+                ))
+
+                line.SetLayer(layer)
+                line.SetWidth(fromUnit(primitive.height))
+
+                board.Add(line)
+            else:
+                line = pcbnew.PCB_SHAPE()
+
+                line.SetShape(pcbnew.SHAPE_T_SEGMENT)
+
+                line.SetStart(pcbnew.VECTOR2I(
+                    fromUnit(primitive.position[0]),
+                    -fromUnit(primitive.position[1] - primitive.height / 4)
+                ))
+
+                line.SetEnd(pcbnew.VECTOR2I(
+                    fromUnit(primitive.position[0]),
+                    -fromUnit(primitive.position[1] + primitive.height / 4)
+                ))
+
+                line.SetLayer(layer)
+                line.SetWidth(fromUnit(primitive.width))
+
+                board.Add(line)
+
+        else:
+            print("Unhandled obround with hole")
+
     elif isinstance(primitive, gerber.primitives.Outline):
         poly = pcbnew.PCB_SHAPE()
         poly.SetShape(pcbnew.SHAPE_T_POLY)
