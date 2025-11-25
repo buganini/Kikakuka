@@ -44,11 +44,11 @@ def list_gerber_files(path):
 
 def find_edge_cuts(filenames):
     for fn in filenames:
-        if "EdgeCut" in fn:
+        if "EdgeCut" in fn: # Bouni/kicad-jlcpcb-tools
             return fn
-        if "Edge_Cuts" in fn:
+        if "Edge_Cuts" in fn: # KiCAD
             return fn
-        if "Edge.Cuts" in fn:
+        if "Edge.Cuts" in fn: # KiCAD
             return fn
         if os.path.splitext(fn)[1].lower() in (".gm1", ".gm3", ".gko"):
             return fn
@@ -56,51 +56,59 @@ def find_edge_cuts(filenames):
 
 def find_silk_top(filenames):
     for fn in filenames:
-        if "SilkTop" in fn:
+        if "SilkTop" in fn: # Bouni/kicad-jlcpcb-tools
             return fn
-        if "F_Silk" in fn:
+        if "F_Silk" in fn: # KiCAD
             return fn
-        if "F.Silk" in fn:
+        if "F.Silk" in fn: # KiCAD
+            return fn
+        if fn.lower().endswith(".gto"): # Altium
             return fn
     return None
 
 def find_silk_bottom(filenames):
     for fn in filenames:
-        if "SilkBottom" in fn:
+        if "SilkBottom" in fn: # Bouni/kicad-jlcpcb-tools
             return fn
-        if "B_Silk" in fn:
+        if "B_Silk" in fn: # KiCAD
             return fn
-        if "B.Silk" in fn:
+        if "B.Silk" in fn: # KiCAD
+            return fn
+        if fn.lower().endswith(".gbo"): # Altium
             return fn
     return None
 
 def find_cu_top(filenames):
     for fn in filenames:
-        if "CuTop" in fn:
+        if "CuTop" in fn: # Bouni/kicad-jlcpcb-tools
             return fn
-        if "F_Cu" in fn:
+        if "F_Cu" in fn: # KiCAD
             return fn
-        if "F.Cu" in fn:
+        if "F.Cu" in fn: # KiCAD
+            return fn
+        if fn.lower().endswith(".gtl"): # Altium
             return fn
     return None
 
 def find_cu_bottom(filenames):
     for fn in filenames:
-        if "CuBottom" in fn:
+        if "CuBottom" in fn: # Bouni/kicad-jlcpcb-tools
             return fn
-        if "B_Cu" in fn:
+        if "B_Cu" in fn: # KiCAD
             return fn
-        if "B.Cu" in fn:
+        if "B.Cu" in fn: # KiCAD
+            return fn
+        if fn.lower().endswith(".gbl"): # Altium
             return fn
     return None
 
 def find_cu_inner(filenames, i):
     for fn in filenames:
-        if f"CuIn{i}" in fn:
+        if f"CuIn{i}" in fn: # Bouni/kicad-jlcpcb-tools
             return fn
-        if f"In{i}_Cu" in fn:
+        if f"In{i}_Cu" in fn: # KiCAD
             return fn
-        if f"In{i}.Cu" in fn:
+        if f"In{i}.Cu" in fn: # KiCAD
             return fn
         if fn.endswith(f".G{i}"):
             return fn
@@ -108,49 +116,61 @@ def find_cu_inner(filenames, i):
 
 def find_paste_top(filenames):
     for fn in filenames:
-        if "F_Paste" in fn:
+        if "F_Paste" in fn: # KiCAD
             return fn
-        if "F.Paste" in fn:
+        if "F.Paste" in fn: # KiCAD
+            return fn
+        if fn.lower().endswith(".gtp"): # Altium
             return fn
     return None
 
 def find_paste_bottom(filenames):
     for fn in filenames:
-        if "B_Paste" in fn:
+        if "B_Paste" in fn: # KiCAD
             return fn
-        if "B.Paste" in fn:
+        if "B.Paste" in fn: # KiCAD
+            return fn
+        if fn.lower().endswith(".gbp"): # Altium
             return fn
     return None
 
 def find_mask_top(filenames):
     for fn in filenames:
-        if "MaskTop" in fn:
+        if "MaskTop" in fn: # Bouni/kicad-jlcpcb-tools
             return fn
-        if "F_Mask" in fn:
+        if "F_Mask" in fn: # KiCAD
             return fn
-        if "F.Mask" in fn:
+        if "F.Mask" in fn: # KiCAD
+            return fn
+        if fn.lower().endswith(".gts"): # Altium
             return fn
     return None
 
 def find_mask_bottom(filenames):
     for fn in filenames:
-        if "MaskBottom" in fn:
+        if "MaskBottom" in fn: # Bouni/kicad-jlcpcb-tools
             return fn
-        if "B_Mask" in fn:
+        if "B_Mask" in fn: # KiCAD
             return fn
-        if "B.Mask" in fn:
+        if "B.Mask" in fn: # KiCAD
+            return fn
+        if fn.lower().endswith(".gbs"): # Altium
             return fn
     return None
 
 def find_PTH(filenames):
     for fn in filenames:
-        if "PTH" in fn and not fn.lower().endswith(".pdf"):
+        if fn.lower().endswith(".pdf"):
+            continue
+        if "PTH" in fn:
             return fn
     return None
 
 def find_NPTH(filenames):
     for fn in filenames:
-        if "NPTH" in fn and not fn.lower().endswith(".pdf"):
+        if fn.lower().endswith(".pdf"):
+            continue
+        if "NPTH" in fn:
             return fn
     return None
 
@@ -438,6 +458,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
     board = pcbnew.BOARD()
 
     if edge_cuts_file:
+        print("edge_cuts_file", edge_cuts_file)
         filenames.remove(edge_cuts_file)
         edge_cuts_data = read_gbr_file(input, edge_cuts_file)
         gbr = gerber.loads(edge_cuts_data)
@@ -447,6 +468,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
     if not outline_only:
         cu_top_file = find_cu_top(filenames)
         if cu_top_file is not None:
+            print("cu_top_file", cu_top_file)
             filenames.remove(cu_top_file)
             cu_top_data = read_gbr_file(input, cu_top_file)
             gbr = gerber.loads(cu_top_data)
@@ -457,6 +479,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
         for i in range(len(inner_layers)):
             cu_inner_file = find_cu_inner(filenames, i+1)
             if cu_inner_file is not None:
+                print("cu_inner_file[{}]".format(i+1), cu_inner_file)
                 filenames.remove(cu_inner_file)
                 cu_inner_data = read_gbr_file(input, cu_inner_file)
                 gbr = gerber.loads(cu_inner_data)
@@ -465,6 +488,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
 
         cu_bottom_file = find_cu_bottom(filenames)
         if cu_bottom_file is not None:
+            print("cu_bottom_file", cu_bottom_file)
             filenames.remove(cu_bottom_file)
             cu_bottom_data = read_gbr_file(input, cu_bottom_file)
             gbr = gerber.loads(cu_bottom_data)
@@ -474,6 +498,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
 
         silk_top_file = find_silk_top(filenames)
         if silk_top_file is not None:
+            print("silk_top_file", silk_top_file)
             filenames.remove(silk_top_file)
             silk_top_data = read_gbr_file(input, silk_top_file)
             gbr = gerber.loads(silk_top_data)
@@ -481,6 +506,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
 
         silk_bottom_file = find_silk_bottom(filenames)
         if silk_bottom_file is not None:
+            print("silk_bottom_file", silk_bottom_file)
             filenames.remove(silk_bottom_file)
             silk_bottom_data = read_gbr_file(input, silk_bottom_file)
             gbr = gerber.loads(silk_bottom_data)
@@ -488,6 +514,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
 
         mask_top_file = find_mask_top(filenames)
         if mask_top_file is not None:
+            print("mask_top_file", mask_top_file)
             filenames.remove(mask_top_file)
             mask_top_data = read_gbr_file(input, mask_top_file)
             gbr = gerber.loads(mask_top_data)
@@ -495,6 +522,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
 
         mask_bottom_file = find_mask_bottom(filenames)
         if mask_bottom_file is not None:
+            print("mask_bottom_file", mask_bottom_file)
             filenames.remove(mask_bottom_file)
             mask_bottom_data = read_gbr_file(input, mask_bottom_file)
             gbr = gerber.loads(mask_bottom_data)
@@ -502,6 +530,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
 
         paste_top_file = find_paste_top(filenames)
         if paste_top_file is not None:
+            print("paste_top_file", paste_top_file)
             filenames.remove(paste_top_file)
             paste_top_data = read_gbr_file(input, paste_top_file)
             gbr = gerber.loads(paste_top_data)
@@ -509,6 +538,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
 
         paste_bottom_file = find_paste_bottom(filenames)
         if paste_bottom_file is not None:
+            print("paste_bottom_file", paste_bottom_file)
             filenames.remove(paste_bottom_file)
             paste_bottom_data = read_gbr_file(input, paste_bottom_file)
             gbr = gerber.loads(paste_bottom_data)
@@ -516,6 +546,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
 
         pth_file = find_PTH(filenames)
         if pth_file is not None:
+            print("pth_file", pth_file)
             filenames.remove(pth_file)
             pth_data = read_gbr_file(input, pth_file)
             gbr = gerber.loads(pth_data)
@@ -523,6 +554,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
 
         npth_file = find_NPTH(filenames)
         if npth_file is not None:
+            print("npth_file", npth_file)
             filenames.remove(npth_file)
             npth_data = read_gbr_file(input, npth_file)
             gbr = gerber.loads(npth_data)
