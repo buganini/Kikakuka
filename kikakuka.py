@@ -21,8 +21,8 @@ if inputs:
         else:
             ui.build()
             ui.run()
-    elif len(inputs) == 2 and (is_gerber_dir(inputs[0]) or is_gerber_zip(inputs[0]) or is_gerber_file(inputs[0])) and inputs[1].endswith(PCB_SUFFIX):
-        errors = convert_to_kicad(inputs[0], inputs[1], required_edge_cuts=False)
+    elif len(inputs) >= 2 and (is_gerber_dir(inputs[0]) or is_gerber_zip(inputs[0]) or is_gerber_file(inputs[0])) and inputs[1].endswith(PCB_SUFFIX):
+        errors = convert_to_kicad(inputs[0], inputs[1], required_edge_cuts=False, extra_files=inputs[2:])
         if errors:
             print("Errors:")
             for error in errors:

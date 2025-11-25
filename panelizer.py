@@ -1,14 +1,5 @@
 import sys
 import os
-
-PKG_BASE = os.path.dirname(__file__)
-KIKAKUKA_LIB = os.path.join(PKG_BASE, "resources/kikakuka.pretty")
-
-if getattr(sys, 'frozen', False):
-    import kikit.common
-    kikit.common.KIKIT_LIB = os.path.join(sys._MEIPASS, "kikit.pretty")
-    KIKAKUKA_LIB = os.path.join(sys._MEIPASS, "kikakuka.pretty")
-
 import pcbnew
 import kikit
 from kikit import panelize, substrate
@@ -38,7 +29,6 @@ import atexit
 import shutil
 import re
 from buildexpr import buildexpr
-from tableloader import TableLoader
 from gerber import *
 
 BUILDEXPR = "BUILDEXPR"
@@ -143,6 +133,7 @@ class PCB(StateObject):
         self.avail_flags = []
         self.flags = []
         self.errors = []
+        self.permanent_errors = []
         self.fp_count = 0
         self.bom_file = ""
         self.cpl_file = ""
@@ -958,7 +949,9 @@ class PanelizerUI(Application):
             if export:
                 file = pcb.kicad_file
                 if not os.path.exists(file):
-                    convert_to_kicad(pcb.file, pcb.kicad_file, outline_only=False)
+                    errors = convert_to_kicad(pcb.file, pcb.kicad_file, outline_only=False, bom_file=pcb.bom_file if os.path.exists(pcb.bom_file) else None, cpl_file=pcb.cpl_file if os.path.exists(pcb.cpl_file) else None)
+                    pcb.permanent_errors.extend(errors)
+
             panel.appendBoard(
                 file,
                 pcbnew.VECTOR2I(round(self.off_x + pcb.x), round(self.off_y + pcb.y)),
@@ -1019,78 +1012,6 @@ class PanelizerUI(Application):
                     ref.SetVisible(False)
 
             pcb.fp_count = fp_count
-
-            if export and pcb.fp_count == 0 and pcb.bom_file and pcb.cpl_file:
-                bom = TableLoader(pcb.bom_file)
-                cpl = TableLoader(pcb.cpl_file)
-                bom_rows = bom.rows()
-                bom_header = next(bom_rows)
-                cpl_rows = cpl.rows()
-                cpl_header = next(cpl_rows)
-
-                bom_designator_header = [h for h in ["Designator"] if h in bom_header]
-                bom_designator_header = bom_designator_header[0] if bom_designator_header else None
-                bom_comment_header = [h for h in ["Comment"] if h in bom_header]
-                bom_comment_header = bom_comment_header[0] if bom_comment_header else None
-                bom_footprint_header = [h for h in ["Footprint"] if h in bom_header]
-                bom_footprint_header = bom_footprint_header[0] if bom_footprint_header else None
-                bom_ignore_headers = ["Quantity", "Qty", "Item #"]
-                cpl_designator_header = [h for h in ["Designator", "Ref"] if h in cpl_header]
-                cpl_designator_header = cpl_designator_header[0] if cpl_designator_header else None
-                cpl_x_header = [h for h in ["Mid X", "PosX", "X"] if h in cpl_header]
-                cpl_x_header = cpl_x_header[0] if cpl_x_header else None
-                cpl_y_header = [h for h in ["Mid Y", "PosY", "Y"] if h in cpl_header]
-                cpl_y_header = cpl_y_header[0] if cpl_y_header else None
-                cpl_rotation_header = [h for h in ["Rotation", "Rot"] if h in cpl_header]
-                cpl_rotation_header = cpl_rotation_header[0] if cpl_rotation_header else None
-                cpl_layer_header = [h for h in ["Layer", "Side"] if h in cpl_header]
-                cpl_layer_header = cpl_layer_header[0] if cpl_layer_header else None
-                layer_map = {
-                    "top": Layer.F_Cu,
-                    "bottom": Layer.B_Cu,
-                }
-
-                if bom_designator_header:
-                    bom = {}
-                    for row in bom_rows:
-                        entry = {k:v for k,v in zip(bom_header, row)}
-                        designators = entry.pop(bom_designator_header)
-                        # print("BOM", designators, entry)
-                        for designator in designators.split(","):
-                            bom[designator] = entry
-
-                    for row in cpl_rows:
-                        entry = {k:v for k,v in zip(cpl_header, row)}
-                        designator = entry.pop(cpl_designator_header)
-                        mid_x = float(entry.pop(cpl_x_header)) * mm - pcb.orig[0]
-                        mid_y = -float(entry.pop(cpl_y_header)) * mm - pcb.orig[1]
-                        rotation = float(entry.pop(cpl_rotation_header))
-                        layer = entry.pop(cpl_layer_header)
-                        if not layer in layer_map:
-                            cpl_unknown_layers.append(layer)
-                            continue
-
-                        # print(designator, mid_x/mm, -mid_y/mm, rotation, layer)
-                        footprint = pcbnew.FootprintLoad(KIKAKUKA_LIB, "Footprint")
-                        p = pcb.transform(Point(mid_x, mid_y))
-                        footprint.SetPosition(pcbnew.VECTOR2I(round(p.x), round(p.y)))
-                        footprint.SetOrientation(pcbnew.EDA_ANGLE(rotation+pcb.rotate, pcbnew.DEGREES_T))
-                        footprint.SetLayer(layer_map[layer])
-                        for k,v in bom.get(designator, {}).items():
-                            if not v:
-                                continue
-                            if k in [bom_comment_header, bom_footprint_header]:
-                                continue
-                            if k in bom_ignore_headers:
-                                continue
-                            footprint.SetField(k, v)
-                            text = footprint.GetFieldByName(k)
-                            text.SetVisible(False)
-                        footprint.SetReference(designator)
-                        footprint.SetValue(bom.get(designator, {}).get(bom_comment_header, ""))
-                        ref = footprint.Reference()
-                        ref.SetVisible(True)
-                        panel.board.Add(footprint)
 
         if self.state.hide_outside_reference_value and export:
             for fp in panel.board.GetFootprints():
@@ -2264,6 +2185,7 @@ class PanelizerUI(Application):
 
         errors = list(self.state.errors)
         for pcb in pcbs:
+            errors.extend(pcb.permanent_errors)
             errors.extend(pcb.errors)
         for i, error in enumerate(errors):
             canvas.drawText(10, 10+i*15, error, color=0xFF0000)
@@ -2503,7 +2425,7 @@ class PanelizerUI(Application):
                                             Button("Duplicate").click(self.duplicate, self.state.focus)
                                             Button("Remove").click(self.remove, self.state.focus)
 
-                                        if self.state.focus.fp_count == 0:
+                                        if self.state.focus.file_type == "gerber":
                                             with HBox():
                                                 Label("BOM")
                                                 if self.state.focus.bom_file:

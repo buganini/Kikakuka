@@ -1,9 +1,20 @@
 import os
+import sys
 import zipfile
 from pcb_tools import gerber
 import pcbnew
 import math
 import kikit.common
+from tableloader import TableLoader
+
+PKG_BASE = os.path.dirname(__file__)
+KIKAKUKA_LIB = os.path.join(PKG_BASE, "resources/kikakuka.pretty")
+
+if getattr(sys, 'frozen', False):
+    import kikit.common
+    kikit.common.KIKIT_LIB = os.path.join(sys._MEIPASS, "kikit.pretty")
+    KIKAKUKA_LIB = os.path.join(sys._MEIPASS, "kikakuka.pretty")
+
 
 def is_gerber_file(filename):
     if os.path.splitext(filename)[1].lower() in (".gbr", ".gm1", ".gm3", ".gko", ".g1"):
@@ -172,6 +183,22 @@ def find_NPTH(filenames):
             continue
         if "NPTH" in fn:
             return fn
+    return None
+
+def find_BOM(filenames):
+    for fn in filenames:
+        if fn.lower().endswith(".csv"):
+            if "bom" in fn.lower():
+                return fn
+    return None
+
+def find_CPL(filenames):
+    for fn in filenames:
+        if fn.lower().endswith(".csv"):
+            if "cpl" in fn.lower():
+                return fn
+            if "pos" in fn.lower():
+                return fn
     return None
 
 def read_gbr_file(path, filename):
@@ -452,8 +479,10 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
         # print(dir(primitive))
         errors.append(f"Unhandled primitive {primitive.__class__.__name__}")
 
-def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False):
+def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False, bom_file=None, cpl_file=None, extra_files=None):
     filenames = list_gerber_files(input)
+    if extra_files:
+        filenames.extend(extra_files)
     # print("filenames", filenames)
 
     edge_cuts_file = find_edge_cuts(filenames)
@@ -567,6 +596,85 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             gbr = gerber.loads(npth_data)
             populate_kicad(board, gbr, False, errors)
 
+        if bom_file is None:
+            bom_file = find_BOM(filenames)
+        if cpl_file is None:
+            cpl_file = find_CPL(filenames)
+
+        if bom_file and cpl_file:
+            print("bom_file", bom_file)
+            print("cpl_file", cpl_file)
+            bom = TableLoader(bom_file)
+            cpl = TableLoader(cpl_file)
+            bom_rows = bom.rows()
+            bom_header = next(bom_rows)
+            cpl_rows = cpl.rows()
+            cpl_header = next(cpl_rows)
+
+            bom_designator_header = [h for h in ["Designator"] if h in bom_header]
+            bom_designator_header = bom_designator_header[0] if bom_designator_header else None
+            bom_comment_header = [h for h in ["Comment"] if h in bom_header]
+            bom_comment_header = bom_comment_header[0] if bom_comment_header else None
+            bom_footprint_header = [h for h in ["Footprint"] if h in bom_header]
+            bom_footprint_header = bom_footprint_header[0] if bom_footprint_header else None
+            bom_ignore_headers = ["Quantity", "Qty", "Item #", "Id"]
+            cpl_designator_header = [h for h in ["Designator", "Ref"] if h in cpl_header]
+            cpl_designator_header = cpl_designator_header[0] if cpl_designator_header else None
+            cpl_x_header = [h for h in ["Mid X", "PosX", "X"] if h in cpl_header]
+            cpl_x_header = cpl_x_header[0] if cpl_x_header else None
+            cpl_y_header = [h for h in ["Mid Y", "PosY", "Y"] if h in cpl_header]
+            cpl_y_header = cpl_y_header[0] if cpl_y_header else None
+            cpl_rotation_header = [h for h in ["Rotation", "Rot"] if h in cpl_header]
+            cpl_rotation_header = cpl_rotation_header[0] if cpl_rotation_header else None
+            cpl_layer_header = [h for h in ["Layer", "Side"] if h in cpl_header]
+            cpl_layer_header = cpl_layer_header[0] if cpl_layer_header else None
+            layer_map = {
+                "top": pcbnew.F_Cu,
+                "bottom": pcbnew.B_Cu,
+            }
+
+            if bom_designator_header:
+                unit = pcbnew.PCB_IU_PER_MM
+
+                bom = {}
+                for row in bom_rows:
+                    entry = {k:v for k,v in zip(bom_header, row)}
+                    designators = entry.pop(bom_designator_header)
+                    # print("BOM", designators, entry)
+                    for designator in designators.split(","):
+                        bom[designator] = entry
+
+                for row in cpl_rows:
+                    entry = {k:v for k,v in zip(cpl_header, row)}
+                    designator = entry.pop(cpl_designator_header)
+                    mid_x = float(entry.pop(cpl_x_header)) * unit
+                    mid_y = -float(entry.pop(cpl_y_header)) * unit
+                    rotation = float(entry.pop(cpl_rotation_header))
+                    layer = entry.pop(cpl_layer_header)
+                    if not layer in layer_map:
+                        cpl_unknown_layers.append(layer)
+                        continue
+
+                    # print(designator, mid_x/mm, -mid_y/mm, rotation, layer)
+                    footprint = pcbnew.FootprintLoad(KIKAKUKA_LIB, "Footprint")
+                    footprint.SetPosition(pcbnew.VECTOR2I(round(mid_x), round(mid_y)))
+                    footprint.SetOrientation(pcbnew.EDA_ANGLE(rotation, pcbnew.DEGREES_T))
+                    footprint.SetLayer(layer_map[layer])
+                    for k,v in bom.get(designator, {}).items():
+                        if not v:
+                            continue
+                        if k in [bom_comment_header, bom_footprint_header]:
+                            continue
+                        if k in bom_ignore_headers:
+                            continue
+                        footprint.SetField(k, v)
+                        text = footprint.GetFieldByName(k)
+                        text.SetVisible(False)
+                    footprint.SetReference(designator)
+                    footprint.SetValue(bom.get(designator, {}).get(bom_comment_header, ""))
+                    ref = footprint.Reference()
+                    ref.SetVisible(True)
+                    board.Add(footprint)
         print(filenames)
 
     board.Save(output)
@@ -575,7 +683,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
 
 if __name__ == "__main__":
     import sys
-    errors = convert_to_kicad(sys.argv[1], sys.argv[2], required_edge_cuts=False)
+    errors = convert_to_kicad(sys.argv[1], sys.argv[2], required_edge_cuts=False, extra_files=sys.argv[3:])
     if errors:
         print("Errors:")
         for error in errors:

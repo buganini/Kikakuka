@@ -14,8 +14,8 @@
     "vc_layer": "Cmts.User",
     "merge_vcuts": true,
     "merge_vcuts_threshold": 0.4,
-    "frame_width": 100,
-    "frame_height": 100,
+    "frame_width": 104.151,
+    "frame_height": 102.633,
     "frame_top": 5,
     "frame_bottom": 5,
     "frame_left": 0,
@@ -24,75 +24,138 @@
     "export_mill_fillets": false,
     "netRenamePattern": "Board_{n}-{orig}",
     "refRenamePattern": "Board_{n}-{orig}",
+    "frame_tooling_holes": true,
+    "frame_tooling_horizontal_offset": 3.5,
+    "frame_tooling_vertical_offset": 3.5,
+    "frame_tooling_diameter": 1.152,
+    "frame_tooling_solder_mask_opening_diameter": 1.3,
+    "fiducials": true,
+    "fiducials_clearance": 3.35,
+    "fiducials_diameter": 1.0,
+    "fiducials_solder_mask_opening_diameter": 2.0,
     "pcb": [
         {
             "file": "circle.kicad_pcb",
-            "x": 37151452,
-            "y": 21644498.0,
+            "x": 74151441,
+            "y": 25982177.716220774,
+            "margin_left": 0,
+            "margin_right": 0,
+            "margin_top": 0,
+            "margin_bottom": 0,
             "rotate": 0,
-            "disable_auto_tab": false,
+            "flags": [],
             "tabs": [
                 {
                     "x": 8500013.333333328,
                     "y": 20566682.0,
-                    "width": 3.6
+                    "width": 3.6,
+                    "closest": true,
+                    "direction": 0.0
                 }
-            ]
+            ],
+            "bom": "",
+            "cpl": ""
         },
         {
             "file": "25x12.kicad_pcb",
-            "x": 56251849.548048876,
-            "y": 65338404.41935304,
+            "x": 77585175.54804888,
+            "y": 85861236.95776823,
+            "margin_left": 0,
+            "margin_right": 0,
+            "margin_top": 0,
+            "margin_bottom": 0,
             "rotate": 45,
-            "disable_auto_tab": false,
+            "flags": [],
             "tabs": [
                 {
                     "x": 13967626.293177623,
                     "y": 8775026.650459202,
-                    "width": 6.0
+                    "width": 6.0,
+                    "closest": true,
+                    "direction": 0.0
                 }
-            ]
+            ],
+            "bom": "",
+            "cpl": ""
         },
         {
             "file": "rounded.kicad_pcb",
-            "x": 13758506,
-            "y": 54886391.323255286,
+            "x": 41425165,
+            "y": 76033324.0,
+            "margin_left": 0,
+            "margin_right": 0,
+            "margin_top": 0,
+            "margin_bottom": 0,
             "rotate": 0,
-            "disable_auto_tab": false,
+            "flags": [],
             "tabs": [
                 {
                     "x": 26511202.62346518,
                     "y": 17014128.158511803,
-                    "width": 3.6
+                    "width": 3.6,
+                    "closest": true,
+                    "direction": 0.0
                 }
-            ]
+            ],
+            "bom": "",
+            "cpl": ""
         },
         {
             "file": "25x12.kicad_pcb",
             "x": 7748126.451951146,
-            "y": 80556849.24554272,
+            "y": 69800000.0,
+            "margin_left": 0,
+            "margin_right": 0,
+            "margin_top": 0,
+            "margin_bottom": 0,
             "rotate": 0,
-            "disable_auto_tab": false,
+            "flags": [],
             "tabs": [
                 {
                     "x": 13967626.293177623,
                     "y": 8775026.650459202,
-                    "width": 3.6
+                    "width": 3.6,
+                    "closest": true,
+                    "direction": 0.0
                 },
                 {
                     "x": 2418541.548048854,
                     "y": 6109815.421123952,
-                    "width": 3.6
+                    "width": 3.6,
+                    "closest": true,
+                    "direction": 0.0
                 }
-            ]
+            ],
+            "bom": "",
+            "cpl": ""
         },
         {
             "file": "25x12.kicad_pcb",
             "x": 67869814,
-            "y": 8024291.24554272,
+            "y": 6600000.0,
+            "margin_left": 0,
+            "margin_right": 0,
+            "margin_top": 0,
+            "margin_bottom": 0,
             "rotate": 0,
-            "disable_auto_tab": false,
-            "tabs": []
+            "flags": [],
+            "tabs": [],
+            "bom": "",
+            "cpl": ""
+        },
+        {
+            "file": "gerber/jlcpcb/production_files/GERBER-gerber.zip",
+            "x": 18989000.47033631,
+            "y": 8314716.215210274,
+            "margin_left": 0,
+            "margin_right": 0,
+            "margin_top": 0,
+            "margin_bottom": 0,
+            "rotate": -15,
+            "flags": [],
+            "tabs": [],
+            "bom": "gerber/jlcpcb/production_files/BOM-gerber.csv",
+            "cpl": "gerber/jlcpcb/production_files/CPL-gerber.csv"
         }
     ],
     "hole": []
