@@ -1,6 +1,6 @@
 Next:
 * Allow attaching BOM/CPL to PCB with no footprints
-* Add gerber support
+* Experimental Gerber support
 * Add tooling holes
 * Add fiducials
 * Fix opening differ
