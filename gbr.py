@@ -74,6 +74,12 @@ def find_cu_bottom(filenames):
             return fn
     return None
 
+def find_cu_inner(filenames, i):
+    for fn in filenames:
+        if f"CuIn{i}" in fn:
+            return fn
+    return None
+
 def find_mask_top(filenames):
     for fn in filenames:
         if "MaskTop" in fn:
@@ -292,12 +298,25 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             gbr = gerber.loads(cu_top_data)
             populate_kicad(board, gbr, pcbnew.F_Cu)
 
+        found_inner_layer = 0
+        inner_layers = [pcbnew.In1_Cu, pcbnew.In2_Cu, pcbnew.In3_Cu, pcbnew.In4_Cu, pcbnew.In5_Cu, pcbnew.In6_Cu, pcbnew.In7_Cu, pcbnew.In8_Cu, pcbnew.In9_Cu, pcbnew.In10_Cu, pcbnew.In11_Cu, pcbnew.In12_Cu, pcbnew.In13_Cu, pcbnew.In14_Cu, pcbnew.In15_Cu, pcbnew.In16_Cu, pcbnew.In17_Cu, pcbnew.In18_Cu, pcbnew.In19_Cu, pcbnew.In20_Cu, pcbnew.In21_Cu, pcbnew.In22_Cu, pcbnew.In23_Cu, pcbnew.In24_Cu, pcbnew.In25_Cu, pcbnew.In26_Cu, pcbnew.In27_Cu, pcbnew.In28_Cu, pcbnew.In29_Cu, pcbnew.In30_Cu]
+        for i in range(0, 30):
+            cu_inner_file = find_cu_inner(filenames, i+1)
+            if cu_inner_file is not None:
+                filenames.remove(cu_inner_file)
+                cu_inner_data = read_gbr_file(input, cu_inner_file)
+                gbr = gerber.loads(cu_inner_data)
+                populate_kicad(board, gbr, inner_layers[found_inner_layer])
+                found_inner_layer += 1
+
         cu_bottom_file = find_cu_bottom(filenames)
         if cu_bottom_file is not None:
             filenames.remove(cu_bottom_file)
             cu_bottom_data = read_gbr_file(input, cu_bottom_file)
             gbr = gerber.loads(cu_bottom_data)
             populate_kicad(board, gbr, pcbnew.B_Cu)
+
+        board.SetCopperLayerCount(found_inner_layer + 2)
 
         silk_top_file = find_silk_top(filenames)
         if silk_top_file is not None:
