@@ -217,7 +217,25 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
     elif isinstance(primitive, gerber.primitives.AMGroup):
         for amp in primitive.primitives:
             populate_kicad_by_primitive(board, amp, fromUnit, layer, optimize=optimize)
+    elif isinstance(primitive, gerber.primitives.Outline):
+        poly = pcbnew.PCB_SHAPE()
+        poly.SetShape(pcbnew.SHAPE_T_POLY)
 
+        poly.SetLayer(layer)
+
+        poly_set = poly.GetPolyShape()
+        outline = poly_set.NewOutline()
+
+        for line in primitive.primitives:
+            poly_set.Append(
+                fromUnit(line.start[0]),
+                -fromUnit(line.start[1]),
+                outline
+            )
+
+        poly.SetFilled(True)
+        poly.SetWidth(fromUnit(0.0))
+        board.Add(poly)
     elif isinstance(primitive, gerber.primitives.Region):
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
