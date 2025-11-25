@@ -1,0 +1,6 @@
+"Id";"Designator";"Footprint";"Quantity";"Designation";"Supplier and ref";
+1;"J2";"PinHeader_1x04_P2.54mm_Vertical";1;"Conn_01x04_Socket";;;
+2;"U1";"SOIC-8_5.3x5.3mm_P1.27mm";1;"W25Q16JVSS";;;
+3;"C2,C3";"C_1210_3225Metric";2;"C";;;
+4;"J1,J3,J4";"USB_C_Receptacle_G-Switch_GT-USB-7051x";3;"USB_C_Receptacle_USB2.0_16P";;;
+5;"C1";"C_0402_1005Metric";1;"C";;;

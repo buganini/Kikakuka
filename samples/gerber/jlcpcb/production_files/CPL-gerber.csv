@@ -1,7 +1,9 @@
 Designator,Val,Package,Mid X,Mid Y,Rotation,Layer
-C1,C,C_0402_1005Metric,123.91,-107.46,90.0,top
-C2,C,C_1210_3225Metric,119.96,-106.425,90.0,top
-J1,USB_C_Receptacle_USB2.0_16P,USB_C_Receptacle_G-Switch_GT-USB-7051x,130.74,-110.515,90.0,top
-J2,Conn_01x04_Socket,PinHeader_1x04_P2.54mm_Vertical,140.77,-111.25,0.0,top
-J3,USB_C_Receptacle_USB2.0_16P,USB_C_Receptacle_G-Switch_GT-USB-7051x,107.26,-115.2,45.0,top
-U1,W25Q16JVSS,SOIC-8_5.3x5.3mm_P1.27mm,119.8925,-113.045,0.0,top
+C1,C,C_0402_1005Metric,129.42934,-106.756194,90.0,top
+C2,C,C_1210_3225Metric,125.47934,-105.721194,90.0,top
+C3,C,C_1210_3225Metric,130.307387,-103.1625,30.0,top
+J1,USB_C_Receptacle_USB2.0_16P,USB_C_Receptacle_G-Switch_GT-USB-7051x,136.25934,-109.811194,90.0,top
+J2,Conn_01x04_Socket,PinHeader_1x04_P2.54mm_Vertical,146.28934,-110.546194,0.0,top
+J3,USB_C_Receptacle_USB2.0_16P,USB_C_Receptacle_G-Switch_GT-USB-7051x,114.92835,-107.25165,45.0,top
+J4,USB_C_Receptacle_USB2.0_16P,USB_C_Receptacle_G-Switch_GT-USB-7051x,111.494776,-118.717336,-30.0,top
+U1,W25Q16JVSS,SOIC-8_5.3x5.3mm_P1.27mm,125.41184,-112.341194,0.0,top

@@ -1,0 +1,14 @@
+### Footprint positions - created on 2025-11-26T00:28:49+0800 ###
+### Printed by KiCad version 9.0.6
+## Unit = mm, Angle = deg.
+## Side : top
+# Ref     Val                          Package                                      PosX       PosY       Rot  Side
+C1        C                            C_0402_1005Metric                        129.4293  -106.7562   90.0000  top
+C2        C                            C_1210_3225Metric                        125.4793  -105.7212   90.0000  top
+C3        C                            C_1210_3225Metric                        130.3074  -103.1625   30.0000  top
+J1        USB_C_Receptacle_USB2.0_16P  USB_C_Receptacle_G-Switch_GT-USB-7051x   136.2593  -109.8962   90.0000  top
+J2        Conn_01x04_Socket            PinHeader_1x04_P2.54mm_Vertical          146.2893  -106.7362    0.0000  top
+J3        USB_C_Receptacle_USB2.0_16P  USB_C_Receptacle_G-Switch_GT-USB-7051x   114.9283  -107.2516   45.0000  top
+J4        USB_C_Receptacle_USB2.0_16P  USB_C_Receptacle_G-Switch_GT-USB-7051x   111.4868  -118.7173  -30.0000  top
+U1        W25Q16JVSS                   SOIC-8_5.3x5.3mm_P1.27mm                 125.4118  -112.3412    0.0000  top
+## End

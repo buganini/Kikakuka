@@ -46,6 +46,10 @@ def find_edge_cuts(filenames):
     for fn in filenames:
         if "EdgeCut" in fn:
             return fn
+        if "Edge_Cuts" in fn:
+            return fn
+        if "Edge.Cuts" in fn:
+            return fn
         if os.path.splitext(fn)[1].lower() in (".gm1", ".gm3", ".gko"):
             return fn
     return None
@@ -54,11 +58,19 @@ def find_silk_top(filenames):
     for fn in filenames:
         if "SilkTop" in fn:
             return fn
+        if "F_Silk" in fn:
+            return fn
+        if "F.Silk" in fn:
+            return fn
     return None
 
 def find_silk_bottom(filenames):
     for fn in filenames:
         if "SilkBottom" in fn:
+            return fn
+        if "B_Silk" in fn:
+            return fn
+        if "B.Silk" in fn:
             return fn
     return None
 
@@ -66,11 +78,19 @@ def find_cu_top(filenames):
     for fn in filenames:
         if "CuTop" in fn:
             return fn
+        if "F_Cu" in fn:
+            return fn
+        if "F.Cu" in fn:
+            return fn
     return None
 
 def find_cu_bottom(filenames):
     for fn in filenames:
         if "CuBottom" in fn:
+            return fn
+        if "B_Cu" in fn:
+            return fn
+        if "B.Cu" in fn:
             return fn
     return None
 
@@ -78,17 +98,31 @@ def find_cu_inner(filenames, i):
     for fn in filenames:
         if f"CuIn{i}" in fn:
             return fn
+        if f"In{i}_Cu" in fn:
+            return fn
+        if f"In{i}.Cu" in fn:
+            return fn
+        if fn.endswith(f".G{i}"):
+            return fn
     return None
 
 def find_mask_top(filenames):
     for fn in filenames:
         if "MaskTop" in fn:
             return fn
+        if "F_Mask" in fn:
+            return fn
+        if "F.Mask" in fn:
+            return fn
     return None
 
 def find_mask_bottom(filenames):
     for fn in filenames:
         if "MaskBottom" in fn:
+            return fn
+        if "B_Mask" in fn:
+            return fn
+        if "B.Mask" in fn:
             return fn
     return None
 

@@ -1631,12 +1631,28 @@
 		(uuid "418c466d-8a31-488d-9113-c3f24fa74d8a")
 	)
 	(no_connect
+		(at 121.92 165.1)
+		(uuid "5421400f-d9d2-475e-8f88-ac8ec83a466d")
+	)
+	(no_connect
+		(at 121.92 160.02)
+		(uuid "54d3f004-625e-4cb3-8901-deee94c49958")
+	)
+	(no_connect
 		(at 116.84 90.17)
 		(uuid "62b39624-15a5-407f-8f21-9977a704d505")
 	)
 	(no_connect
+		(at 121.92 172.72)
+		(uuid "63896444-b9a7-4d56-9caf-109b6111226b")
+	)
+	(no_connect
 		(at 116.84 69.85)
 		(uuid "69abc7db-2d4f-4c12-9826-bc70a012558f")
+	)
+	(no_connect
+		(at 121.92 152.4)
+		(uuid "7197473f-6cc2-4e50-9d70-7d4ff983d79c")
 	)
 	(no_connect
 		(at 74.93 134.62)
@@ -1645,6 +1661,14 @@
 	(no_connect
 		(at 116.84 82.55)
 		(uuid "76441ce6-d434-4863-972f-8f6a5b5d684e")
+	)
+	(no_connect
+		(at 121.92 175.26)
+		(uuid "785400c5-98ec-4f93-8e7a-51e9cd8242e3")
+	)
+	(no_connect
+		(at 121.92 149.86)
+		(uuid "9280c7f3-6d48-4e04-9d3e-27ca7e764022")
 	)
 	(no_connect
 		(at 74.93 132.08)
@@ -1783,6 +1807,16 @@
 		(uuid "8a8382ac-ceb0-47c4-b2e2-29b3a3cde7dd")
 	)
 	(label "V"
+		(at 121.92 144.78 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "b9eb5207-4bdc-4a49-9fa3-b46afdc40b41")
+	)
+	(label "V"
 		(at 74.93 104.14 0)
 		(effects
 			(font
@@ -1791,6 +1825,16 @@
 			(justify left bottom)
 		)
 		(uuid "e4904beb-dc50-457f-9719-6b4c8668c13a")
+	)
+	(label "V"
+		(at 274.32 74.93 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "e4eec7e4-4322-4396-aa21-143775cdfd07")
 	)
 	(symbol
 		(lib_id "Connector:Conn_01x04_Socket")
@@ -2244,6 +2288,72 @@
 		)
 	)
 	(symbol
+		(lib_id "power:GND")
+		(at 99.06 182.88 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "2870df9f-a0e2-4f3d-a8ca-958937866981")
+		(property "Reference" "#PWR09"
+			(at 99.06 189.23 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 99.06 187.96 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 99.06 182.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 99.06 182.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 99.06 182.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "029718f2-0651-45c2-beed-16774a70da59")
+		)
+		(instances
+			(project "gerber"
+				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
+					(reference "#PWR09")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Memory_Flash:W25Q16JVSS")
 		(at 207.01 81.28 0)
 		(unit 1)
@@ -2402,6 +2512,76 @@
 		)
 	)
 	(symbol
+		(lib_id "Device:C")
+		(at 274.32 78.74 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "40dc5ce0-8a0f-4787-af93-a523d43693fe")
+		(property "Reference" "C3"
+			(at 278.13 77.4699 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "C"
+			(at 278.13 80.0099 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_1210_3225Metric"
+			(at 275.2852 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 274.32 78.74 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Unpolarized capacitor"
+			(at 274.32 78.74 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "8a112b36-f221-4ba5-b8c7-21ecca485b9f")
+		)
+		(pin "2"
+			(uuid "4f83867d-4cfb-462f-b50e-df3349b13087")
+		)
+		(instances
+			(project "gerber"
+				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
+					(reference "C3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "power:GND")
 		(at 52.07 142.24 0)
 		(unit 1)
@@ -2528,6 +2708,72 @@
 			(project "gerber"
 				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
 					(reference "#PWR05")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 106.68 182.88 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "94445b1f-c95a-480e-9f1c-a3ffb76793d6")
+		(property "Reference" "#PWR010"
+			(at 106.68 189.23 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 106.68 187.96 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 106.68 182.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 106.68 182.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 106.68 182.88 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "b2772bec-cae7-4529-adcb-503060171316")
+		)
+		(instances
+			(project "gerber"
+				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
+					(reference "#PWR010")
 					(unit 1)
 				)
 			)
@@ -2784,6 +3030,72 @@
 	)
 	(symbol
 		(lib_id "power:GND")
+		(at 274.32 82.55 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "b7d78d86-ab5d-4c07-bae0-cc890dc40f12")
+		(property "Reference" "#PWR011"
+			(at 274.32 88.9 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 274.32 87.63 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 274.32 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 274.32 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 274.32 82.55 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "79f8367f-5a17-49c8-8746-17e1336f2fb8")
+		)
+		(instances
+			(project "gerber"
+				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
+					(reference "#PWR011")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
 		(at 138.43 77.47 0)
 		(unit 1)
 		(exclude_from_sim no)
@@ -2910,6 +3222,119 @@
 			(project ""
 				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
 					(reference "H2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Connector:USB_C_Receptacle_USB2.0_16P")
+		(at 106.68 160.02 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "fd652212-05e2-4695-9235-3377872f69e0")
+		(property "Reference" "J4"
+			(at 106.68 137.16 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "USB_C_Receptacle_USB2.0_16P"
+			(at 106.68 139.7 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Connector_USB:USB_C_Receptacle_G-Switch_GT-USB-7051x"
+			(at 110.49 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "https://www.usb.org/sites/default/files/documents/usb_type-c.zip"
+			(at 110.49 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "USB 2.0-only 16P Type-C Receptacle connector"
+			(at 106.68 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "B7"
+			(uuid "475b7b03-5516-42fb-9ae9-d57201aafc0c")
+		)
+		(pin "B9"
+			(uuid "8f0d9041-5314-4d24-90bf-cd941958f5a4")
+		)
+		(pin "S1"
+			(uuid "aa39293d-6eda-47d9-af82-2b2a2d25c611")
+		)
+		(pin "B5"
+			(uuid "213bcfd3-7af0-446e-aebe-60689e88531d")
+		)
+		(pin "B6"
+			(uuid "5aafc445-12b7-44df-bc74-a9087237ef3e")
+		)
+		(pin "B1"
+			(uuid "a6de9dc1-866e-434a-9e7e-f09017288762")
+		)
+		(pin "B12"
+			(uuid "ad45ac34-66b9-43b7-847e-b6b2ed96fbaa")
+		)
+		(pin "A4"
+			(uuid "10569d07-4bf7-4ba8-bf85-7ecbd194c473")
+		)
+		(pin "A8"
+			(uuid "7612966e-0543-40f1-b844-a95ff4522801")
+		)
+		(pin "A5"
+			(uuid "c4bc3c1d-8c80-4c17-bae4-ec25951c20a6")
+		)
+		(pin "B8"
+			(uuid "98fe2d4d-0f73-4f5e-aceb-5620ea959740")
+		)
+		(pin "A7"
+			(uuid "7a800e39-9ddf-454d-b2f6-2666fbf76622")
+		)
+		(pin "A12"
+			(uuid "039026d8-28b4-4d05-920a-03b7280a0a10")
+		)
+		(pin "A6"
+			(uuid "797275ac-55b8-46aa-b6bc-53f2e85e6248")
+		)
+		(pin "A9"
+			(uuid "a6039477-884a-4fd3-9eeb-f5eed0a92258")
+		)
+		(pin "A1"
+			(uuid "be83fb5c-cd51-4958-9b78-311ec4227194")
+		)
+		(pin "B4"
+			(uuid "330fe550-a678-4ad0-8866-188a088af9fe")
+		)
+		(instances
+			(project "gerber"
+				(path "/f2ce34c1-037b-440f-a744-2e9522ecac4d"
+					(reference "J4")
 					(unit 1)
 				)
 			)
