@@ -203,26 +203,32 @@ def populate_kicad(board, gbr, layer, errors):
 
 def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
     if isinstance(primitive, gerber.primitives.Arc):
-        print(primitive.__class__.__name__, primitive.__dict__)
-        print(dir(primitive))
+        # print(primitive.__class__.__name__, primitive.__dict__)
+        # print(dir(primitive))
 
-        arc = pcbnew.PCB_SHAPE()
-        arc.SetShape(pcbnew.SHAPE_T_ARC)
+        if isinstance(primitive.aperture, gerber.primitives.Circle):
+            start = primitive.start if primitive.direction == "clockwise" else primitive.end
+            sweep = (primitive.start_angle - primitive.end_angle) if primitive.direction == "clockwise" else (primitive.end_angle - primitive.start_angle)
 
-        arc.SetStart(pcbnew.VECTOR2I(
-            fromUnit(primitive.start[0]),
-            -fromUnit(primitive.start[1])
-        ))
-        arc.SetCenter(pcbnew.VECTOR2I(
-            fromUnit(primitive.center[0]),
-            -fromUnit(primitive.center[1])
-        ))
-        arc.SetArcAngleAndEnd(pcbnew.EDA_ANGLE(primitive.sweep_angle, pcbnew.RADIANS_T))
+            arc = pcbnew.PCB_SHAPE()
+            arc.SetShape(pcbnew.SHAPE_T_ARC)
 
-        arc.SetLayer(layer)
-        arc.SetWidth(fromUnit(primitive.aperture.radius * 2))
+            arc.SetStart(pcbnew.VECTOR2I(
+                fromUnit(start[0]),
+                -fromUnit(start[1])
+            ))
+            arc.SetCenter(pcbnew.VECTOR2I(
+                fromUnit(primitive.center[0]),
+                -fromUnit(primitive.center[1])
+            ))
+            arc.SetArcAngleAndEnd(pcbnew.EDA_ANGLE(sweep, pcbnew.RADIANS_T))
 
-        board.Add(arc)
+            arc.SetLayer(layer)
+            arc.SetWidth(fromUnit(primitive.aperture.radius * 2))
+
+            board.Add(arc)
+        else:
+            errors.append(f"Unhandled aperture type {primitive.aperture.__class__.__name__} for Arc primitive")
     elif isinstance(primitive, gerber.primitives.Line):
         if isinstance(primitive.aperture, gerber.primitives.Circle):
             # print(primitive.__class__.__name__, primitive.__dict__)
@@ -247,8 +253,7 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
 
             board.Add(line)
         else:
-            print(primitive.__class__.__name__, primitive.__dict__)
-            print(dir(primitive))
+            errors.append(f"Unhandled aperture type {primitive.aperture.__class__.__name__} for Line primitive")
     elif isinstance(primitive, gerber.primitives.Rectangle):
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
@@ -331,7 +336,7 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
                 board.Add(line)
 
         else:
-            errors.append("Unhandled obround with hole")
+            errors.append("Unhandled Obround primitive with hole")
 
     elif isinstance(primitive, gerber.primitives.Outline):
         poly = pcbnew.PCB_SHAPE()
@@ -445,7 +450,7 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
     else:
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
-        errors.append("Unhandled primitive", primitive.__class__.__name__)
+        errors.append(f"Unhandled primitive {primitive.__class__.__name__}")
 
 def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False):
     filenames = list_gerber_files(input)
