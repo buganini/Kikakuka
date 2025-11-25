@@ -26,7 +26,6 @@ It creates a few more dimensions for KiCad:
     * [Automatic](#auto-tab) or [manual](#manual-tab) tab creation
     * Automatic V-cut/mousebites selection
     * Enable [hole](#substrate-hole) creation in panel substrate for extruded parts
-    * Allow attaching BOM/CPL (mainly for gerber)
     * No coding skills required
 * Build Variants (as a usage of the Panelizer)
     * Single PCB without panelization can be done with frameless setting
@@ -34,6 +33,7 @@ It creates a few more dimensions for KiCad:
 * Gerber handling (experimental)
     * In panelizer context
     * Or direct conversion to .kicad_pcb
+    * Allow attaching BOM/CPL (converted to reference-only footprints)
 * CLI
     * Convert saved .kkkk_pnl to kicad files in one command
     * Same usage for panelizer & build variants
