@@ -2,7 +2,7 @@ import sys
 from differ import *
 from workspace import *
 from panelizer import *
-from gbr import *
+from gerber import *
 
 inputs = sys.argv[1:]
 if inputs:

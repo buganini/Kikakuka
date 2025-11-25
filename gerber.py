@@ -203,8 +203,8 @@ def populate_kicad(board, gbr, layer, errors):
 
 def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
     if isinstance(primitive, gerber.primitives.Arc):
-        # print(primitive.__class__.__name__, primitive.__dict__)
-        # print(dir(primitive))
+        print(primitive.__class__.__name__, primitive.__dict__)
+        print(dir(primitive))
 
         arc = pcbnew.PCB_SHAPE()
         arc.SetShape(pcbnew.SHAPE_T_ARC)

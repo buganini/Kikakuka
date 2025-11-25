@@ -39,7 +39,7 @@ import shutil
 import re
 from buildexpr import buildexpr
 from tableloader import TableLoader
-from gbr import *
+from gerber import *
 
 BUILDEXPR = "BUILDEXPR"
 
