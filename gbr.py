@@ -106,6 +106,22 @@ def find_cu_inner(filenames, i):
             return fn
     return None
 
+def find_paste_top(filenames):
+    for fn in filenames:
+        if "F_Paste" in fn:
+            return fn
+        if "F.Paste" in fn:
+            return fn
+    return None
+
+def find_paste_bottom(filenames):
+    for fn in filenames:
+        if "B_Paste" in fn:
+            return fn
+        if "B.Paste" in fn:
+            return fn
+    return None
+
 def find_mask_top(filenames):
     for fn in filenames:
         if "MaskTop" in fn:
@@ -483,6 +499,20 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             mask_bottom_data = read_gbr_file(input, mask_bottom_file)
             gbr = gerber.loads(mask_bottom_data)
             populate_kicad(board, gbr, pcbnew.B_Mask)
+
+        paste_top_file = find_paste_top(filenames)
+        if paste_top_file is not None:
+            filenames.remove(paste_top_file)
+            paste_top_data = read_gbr_file(input, paste_top_file)
+            gbr = gerber.loads(paste_top_data)
+            populate_kicad(board, gbr, pcbnew.F_Paste)
+
+        paste_bottom_file = find_paste_bottom(filenames)
+        if paste_bottom_file is not None:
+            filenames.remove(paste_bottom_file)
+            paste_bottom_data = read_gbr_file(input, paste_bottom_file)
+            gbr = gerber.loads(paste_bottom_data)
+            populate_kicad(board, gbr, pcbnew.B_Paste)
 
         pth_file = find_PTH(filenames)
         if pth_file is not None:
