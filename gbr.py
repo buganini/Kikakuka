@@ -221,18 +221,18 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
         if primitive.hole_diameter == 0:
-            if primitive.width > primitive.height:
+            if primitive.width > primitive.height: # horizontal obround
                 line = pcbnew.PCB_SHAPE()
 
                 line.SetShape(pcbnew.SHAPE_T_SEGMENT)
 
                 line.SetStart(pcbnew.VECTOR2I(
-                    fromUnit(primitive.position[0] - primitive.width / 4),
+                    fromUnit(primitive.position[0] - primitive.width / 2 + primitive.height / 2),
                     -fromUnit(primitive.position[1])
                 ))
 
                 line.SetEnd(pcbnew.VECTOR2I(
-                    fromUnit(primitive.position[0] + primitive.width / 4),
+                    fromUnit(primitive.position[0] + primitive.width / 2 - primitive.height / 2),
                     -fromUnit(primitive.position[1])
                 ))
 
@@ -240,19 +240,19 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
                 line.SetWidth(fromUnit(primitive.height))
 
                 board.Add(line)
-            else:
+            else: # vertical obround
                 line = pcbnew.PCB_SHAPE()
 
                 line.SetShape(pcbnew.SHAPE_T_SEGMENT)
 
                 line.SetStart(pcbnew.VECTOR2I(
                     fromUnit(primitive.position[0]),
-                    -fromUnit(primitive.position[1] - primitive.height / 4)
+                    -fromUnit(primitive.position[1] - primitive.height / 2 + primitive.width / 2)
                 ))
 
                 line.SetEnd(pcbnew.VECTOR2I(
                     fromUnit(primitive.position[0]),
-                    -fromUnit(primitive.position[1] + primitive.height / 4)
+                    -fromUnit(primitive.position[1] + primitive.height / 2 - primitive.width / 2)
                 ))
 
                 line.SetLayer(layer)
