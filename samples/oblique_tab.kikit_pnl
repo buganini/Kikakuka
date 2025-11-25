@@ -14,8 +14,8 @@
     "vc_layer": "Cmts.User",
     "merge_vcuts": true,
     "merge_vcuts_threshold": 0.4,
-    "frame_width": 104.151,
-    "frame_height": 102.633,
+    "frame_width": 166.596,
+    "frame_height": 100.71,
     "frame_top": 5,
     "frame_bottom": 5,
     "frame_left": 0,
@@ -58,8 +58,8 @@
         },
         {
             "file": "25x12.kicad_pcb",
-            "x": 77585175.54804888,
-            "y": 85861236.95776823,
+            "x": 73227538.54804888,
+            "y": 75578805.95776823,
             "margin_left": 0,
             "margin_right": 0,
             "margin_top": 0,
@@ -80,8 +80,8 @@
         },
         {
             "file": "rounded.kicad_pcb",
-            "x": 41425165,
-            "y": 76033324.0,
+            "x": 36924797,
+            "y": 74109752.0,
             "margin_left": 0,
             "margin_right": 0,
             "margin_top": 0,
@@ -153,9 +153,45 @@
             "margin_bottom": 0,
             "rotate": -15,
             "flags": [],
-            "tabs": [],
+            "tabs": [
+                {
+                    "x": 28636845.48288323,
+                    "y": 3514331.4562773164,
+                    "width": 3.6,
+                    "closest": true,
+                    "direction": 0.0
+                },
+                {
+                    "x": 39083525.96508968,
+                    "y": 37878669.27942185,
+                    "width": 3.6,
+                    "closest": true,
+                    "direction": 0.0
+                },
+                {
+                    "x": 1967856.936257571,
+                    "y": 35745639.6601085,
+                    "width": 3.6,
+                    "closest": true,
+                    "direction": 0.0
+                }
+            ],
             "bom": "gerber/jlcpcb/production_files/BOM-gerber.csv",
             "cpl": "gerber/jlcpcb/production_files/CPL-gerber.csv"
+        },
+        {
+            "file": "gerber/gerber.kicad_pcb",
+            "x": 116595518,
+            "y": 19855606.47091493,
+            "margin_left": 0,
+            "margin_right": 0,
+            "margin_top": 0,
+            "margin_bottom": 0,
+            "rotate": 0,
+            "flags": [],
+            "tabs": [],
+            "bom": "",
+            "cpl": ""
         }
     ],
     "hole": []

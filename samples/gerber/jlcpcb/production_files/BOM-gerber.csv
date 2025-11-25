@@ -1,9 +1,7 @@
 Comment,Designator,Footprint,LCSC,Quantity
-C,C3,C_1210_3225Metric,,1
-USB_C_Receptacle_USB2.0_16P,J4,USB_C_Receptacle_G-Switch_GT-USB-7051x,,1
+USB_C_Receptacle_USB2.0_16P,"J1,J3,J4",USB_C_Receptacle_G-Switch_GT-USB-7051x,C2843970,3
 Conn_01x04_Socket,J2,PinHeader_1x04_P2.54mm_Vertical,,1
 W25Q16JVSS,U1,SOIC-8_5.3x5.3mm_P1.27mm,,1
 C,C2,C_1210_3225Metric,,1
-USB_C_Receptacle_USB2.0_16P,J1,USB_C_Receptacle_G-Switch_GT-USB-7051x,,1
-USB_C_Receptacle_USB2.0_16P,J3,USB_C_Receptacle_G-Switch_GT-USB-7051x,,1
+C,C3,C_1210_3225Metric,,1
 C,C1,C_0402_1005Metric,,1

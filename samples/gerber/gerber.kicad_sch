@@ -2097,6 +2097,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C2843970"
+			(at 59.69 119.38 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "B7"
 			(uuid "c6cfe58d-7d84-4545-b7f4-ba4240d2d106")
 		)
@@ -2898,6 +2907,15 @@
 				(hide yes)
 			)
 		)
+		(property "LCSC" "C2843970"
+			(at 101.6 77.47 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
 		(pin "B7"
 			(uuid "6fe2ff01-5731-4572-b74d-bcbaa59035cb")
 		)
@@ -3272,6 +3290,15 @@
 			)
 		)
 		(property "Description" "USB 2.0-only 16P Type-C Receptacle connector"
+			(at 106.68 160.02 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "LCSC" "C2843970"
 			(at 106.68 160.02 0)
 			(effects
 				(font
