@@ -207,96 +207,38 @@ def populate_kicad(board, gbr, layer, optimize=True):
             print(p.__class__.__name__, p.__dict__)
             print(dir(p))
 
-            r = None
-            circles = []
-            circles_center = set()
-            outlines_center = set()
             for primitive in p.primitives:
                 if isinstance(primitive, gerber.primitives.Circle):
-                    circles.append(primitive)
-                    circles_center.add(primitive.position)
-                    r = primitive.radius
-
-                    # """ BEGIN OF DEBUG """
-                    # circle = pcbnew.PCB_SHAPE()
-                    # circle.SetShape(pcbnew.SHAPE_T_CIRCLE)
-                    # circle.SetCenter(pcbnew.VECTOR2I(
-                    #     fromUnit(primitive.position[0]),
-                    #     -fromUnit(primitive.position[1])
-                    # ))
-                    # circle.SetRadius(fromUnit(primitive.radius))
-                    # circle.SetLayer(layer)
-                    # circle.SetFilled(False)
-                    # board.Add(circle)
-                    # """ END OF DEBUG """
+                    circle = pcbnew.PCB_SHAPE()
+                    circle.SetShape(pcbnew.SHAPE_T_CIRCLE)
+                    circle.SetCenter(pcbnew.VECTOR2I(
+                        fromUnit(primitive.position[0]),
+                        -fromUnit(primitive.position[1])
+                    ))
+                    circle.SetRadius(fromUnit(primitive.radius))
+                    circle.SetLayer(layer)
+                    circle.SetWidth(fromUnit(0.0))
+                    circle.SetFilled(True)
+                    board.Add(circle)
                 elif isinstance(primitive, gerber.primitives.Outline):
+                    poly = pcbnew.PCB_SHAPE()
+                    poly.SetShape(pcbnew.SHAPE_T_POLY)
+
+                    poly.SetLayer(layer)
+
+                    poly_set = poly.GetPolyShape()
+                    outline = poly_set.NewOutline()
+
                     for outline_line in primitive.primitives:
-                        outlines_center.add(outline_line.start)
-                        outlines_center.add(outline_line.end)
+                        poly_set.Append(
+                            fromUnit(outline_line.start[0]),
+                            -fromUnit(outline_line.start[1]),
+                            outline
+                        )
 
-                        # """ BEGIN OF DEBUG """
-                        # line = pcbnew.PCB_SHAPE()
-                        # line.SetShape(pcbnew.SHAPE_T_SEGMENT)
-                        # line.SetStart(pcbnew.VECTOR2I(
-                        #     fromUnit(outline_line.start[0]),
-                        #     -fromUnit(outline_line.start[1])
-                        # ))
-                        # line.SetEnd(pcbnew.VECTOR2I(
-                        #     fromUnit(outline_line.end[0]),
-                        #     -fromUnit(outline_line.end[1])
-                        # ))
-                        # line.SetLayer(layer)
-                        # line.SetWidth(fromUnit(0.01))
-                        # board.Add(line)
-                        # """ END OF DEBUG """
-            if outlines_center.issuperset(circles_center):
-                rectangle = pcbnew.PCB_SHAPE()
-                rectangle.SetShape(pcbnew.SHAPE_T_RECTANGLE)
-
-                rectangle.SetStart(pcbnew.VECTOR2I(
-                    fromUnit(circles[0].position[0]),
-                    -fromUnit(circles[0].position[1])
-                ))
-                rectangle.SetEnd(pcbnew.VECTOR2I(
-                    fromUnit(circles[2].position[0]),
-                    -fromUnit(circles[2].position[1])
-                ))
-
-                rectangle.SetLayer(layer)
-                rectangle.SetFilled(True)
-                rectangle.SetWidth(fromUnit(r * 2))
-                board.Add(rectangle)
-            else:
-                print("Unhandled case: not a rounded rectangle")
-
-                for primitive in p.primitives:
-                    if isinstance(primitive, gerber.primitives.Circle):
-                        circle = pcbnew.PCB_SHAPE()
-                        circle.SetShape(pcbnew.SHAPE_T_CIRCLE)
-                        circle.SetCenter(pcbnew.VECTOR2I(
-                            fromUnit(primitive.position[0]),
-                            -fromUnit(primitive.position[1])
-                        ))
-                        circle.SetRadius(fromUnit(primitive.radius))
-                        circle.SetLayer(layer)
-                        circle.SetFilled(True)
-                        circle.SetWidth(fromUnit(0.0))
-                        board.Add(circle)
-                    elif isinstance(primitive, gerber.primitives.Outline):
-                        for outline_line in primitive.primitives:
-                            line = pcbnew.PCB_SHAPE()
-                            line.SetShape(pcbnew.SHAPE_T_SEGMENT)
-                            line.SetStart(pcbnew.VECTOR2I(
-                                fromUnit(outline_line.start[0]),
-                                -fromUnit(outline_line.start[1])
-                            ))
-                            line.SetEnd(pcbnew.VECTOR2I(
-                                fromUnit(outline_line.end[0]),
-                                -fromUnit(outline_line.end[1])
-                            ))
-                            line.SetLayer(layer)
-                            line.SetWidth(fromUnit(outline_line.aperture.radius * 2))
-                            board.Add(line)
+                    poly.SetWidth(fromUnit(0.001))
+                    poly.SetFilled(False)
+                    board.Add(poly)
         elif isinstance(p, gerber.primitives.Region):
             # print(p.__class__.__name__, p.__dict__)
             # print(dir(p))
