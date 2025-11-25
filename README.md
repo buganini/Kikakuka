@@ -174,6 +174,7 @@ But however in my Windows environment venv is not working properly, here is how 
 ./env/bin/python3 kikakuka.py gerber.gbr out.kicad_pcb
 ./env/bin/python3 kikakuka.py gerber_folder out.kicad_pcb
 ./env/bin/python3 kikakuka.py gerber.zip out.kicad_pcb
+./env/bin/python3 kikakuka.py any_gerber_path out.kicad_pcb extra_bom.csv extra_cpl.csv # BOM/CPL files are determined by filename regardless of argument order
 ```
 
 # Contributors
