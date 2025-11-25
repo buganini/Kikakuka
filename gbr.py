@@ -183,7 +183,7 @@ def read_gbr_file(path, filename):
             return path.read_text(encoding='UTF-8')
     return None
 
-def populate_kicad(board, gbr, layer, optimize=True):
+def populate_kicad(board, gbr, layer, errors, optimize=True):
     # print(gbr, dir(gbr))
     # print(gbr.__dict__)
 
@@ -199,9 +199,9 @@ def populate_kicad(board, gbr, layer, optimize=True):
     }.get(gbr.units)
 
     for p in gbr.primitives:
-        populate_kicad_by_primitive(board, p, fromUnit, layer, optimize=optimize)
+        populate_kicad_by_primitive(board, p, fromUnit, layer, errors, optimize=optimize)
 
-def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True):
+def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors, optimize=True):
     if isinstance(primitive, gerber.primitives.Arc):
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
@@ -286,7 +286,7 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
         board.Add(circle)
     elif isinstance(primitive, gerber.primitives.AMGroup):
         for amp in primitive.primitives:
-            populate_kicad_by_primitive(board, amp, fromUnit, layer, optimize=optimize)
+            populate_kicad_by_primitive(board, amp, fromUnit, layer, errors, optimize=optimize)
     elif isinstance(primitive, gerber.primitives.Obround):
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
@@ -331,7 +331,7 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
                 board.Add(line)
 
         else:
-            print("Unhandled obround with hole")
+            errors.append("Unhandled obround with hole")
 
     elif isinstance(primitive, gerber.primitives.Outline):
         poly = pcbnew.PCB_SHAPE()
@@ -353,10 +353,10 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
         poly.SetWidth(fromUnit(0.0))
         board.Add(poly)
     elif isinstance(primitive, gerber.primitives.Slot):
-        print(primitive.__class__.__name__, primitive.__dict__)
+        # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
         if layer is True: # PTH
-            print("Unhandled PTH slot")
+            errors.append("Unhandled PTH slot")
         elif layer is False: # NPTH
             footprint = pcbnew.FootprintLoad(kikit.common.KIKIT_LIB, "NPTH")
             footprint.SetPosition(pcbnew.VECTOR2I(
@@ -391,7 +391,7 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
                     pad.SetDrillSize(pcbnew.VECTOR2I(w, h))
             board.Add(footprint)
         else:
-            print("Unhandled slot on layer", layer)
+            errors.append("Unhandled slot on layer", layer)
     elif isinstance(primitive, gerber.primitives.Region):
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
@@ -443,13 +443,13 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
                 pad.SetSizeY(fromUnit(primitive.diameter))
             board.Add(footprint)
     else:
-        print(primitive.__class__.__name__, primitive.__dict__)
+        # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
+        errors.append("Unhandled primitive", primitive.__class__.__name__)
 
 def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False):
     filenames = list_gerber_files(input)
-    print("filenames", filenames)
-
+    # print("filenames", filenames)
 
     edge_cuts_file = find_edge_cuts(filenames)
     if edge_cuts_file is None and required_edge_cuts:
@@ -457,13 +457,15 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
 
     board = pcbnew.BOARD()
 
+    errors = []
+
     if edge_cuts_file:
         print("edge_cuts_file", edge_cuts_file)
         filenames.remove(edge_cuts_file)
         edge_cuts_data = read_gbr_file(input, edge_cuts_file)
         gbr = gerber.loads(edge_cuts_data)
 
-        populate_kicad(board, gbr, pcbnew.Edge_Cuts)
+        populate_kicad(board, gbr, pcbnew.Edge_Cuts, errors)
 
     if not outline_only:
         cu_top_file = find_cu_top(filenames)
@@ -472,7 +474,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             filenames.remove(cu_top_file)
             cu_top_data = read_gbr_file(input, cu_top_file)
             gbr = gerber.loads(cu_top_data)
-            populate_kicad(board, gbr, pcbnew.F_Cu)
+            populate_kicad(board, gbr, pcbnew.F_Cu, errors)
 
         found_inner_layer = 0
         inner_layers = [pcbnew.In1_Cu, pcbnew.In2_Cu, pcbnew.In3_Cu, pcbnew.In4_Cu, pcbnew.In5_Cu, pcbnew.In6_Cu, pcbnew.In7_Cu, pcbnew.In8_Cu, pcbnew.In9_Cu, pcbnew.In10_Cu, pcbnew.In11_Cu, pcbnew.In12_Cu, pcbnew.In13_Cu, pcbnew.In14_Cu, pcbnew.In15_Cu, pcbnew.In16_Cu, pcbnew.In17_Cu, pcbnew.In18_Cu, pcbnew.In19_Cu, pcbnew.In20_Cu, pcbnew.In21_Cu, pcbnew.In22_Cu, pcbnew.In23_Cu, pcbnew.In24_Cu, pcbnew.In25_Cu, pcbnew.In26_Cu, pcbnew.In27_Cu, pcbnew.In28_Cu, pcbnew.In29_Cu, pcbnew.In30_Cu]
@@ -483,7 +485,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
                 filenames.remove(cu_inner_file)
                 cu_inner_data = read_gbr_file(input, cu_inner_file)
                 gbr = gerber.loads(cu_inner_data)
-                populate_kicad(board, gbr, inner_layers[found_inner_layer])
+                populate_kicad(board, gbr, inner_layers[found_inner_layer], errors)
                 found_inner_layer += 1
 
         cu_bottom_file = find_cu_bottom(filenames)
@@ -492,7 +494,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             filenames.remove(cu_bottom_file)
             cu_bottom_data = read_gbr_file(input, cu_bottom_file)
             gbr = gerber.loads(cu_bottom_data)
-            populate_kicad(board, gbr, pcbnew.B_Cu)
+            populate_kicad(board, gbr, pcbnew.B_Cu, errors)
 
         board.SetCopperLayerCount(found_inner_layer + 2)
 
@@ -502,7 +504,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             filenames.remove(silk_top_file)
             silk_top_data = read_gbr_file(input, silk_top_file)
             gbr = gerber.loads(silk_top_data)
-            populate_kicad(board, gbr, pcbnew.F_SilkS)
+            populate_kicad(board, gbr, pcbnew.F_SilkS, errors)
 
         silk_bottom_file = find_silk_bottom(filenames)
         if silk_bottom_file is not None:
@@ -510,7 +512,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             filenames.remove(silk_bottom_file)
             silk_bottom_data = read_gbr_file(input, silk_bottom_file)
             gbr = gerber.loads(silk_bottom_data)
-            populate_kicad(board, gbr, pcbnew.B_SilkS)
+            populate_kicad(board, gbr, pcbnew.B_SilkS, errors)
 
         mask_top_file = find_mask_top(filenames)
         if mask_top_file is not None:
@@ -518,7 +520,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             filenames.remove(mask_top_file)
             mask_top_data = read_gbr_file(input, mask_top_file)
             gbr = gerber.loads(mask_top_data)
-            populate_kicad(board, gbr, pcbnew.F_Mask)
+            populate_kicad(board, gbr, pcbnew.F_Mask, errors)
 
         mask_bottom_file = find_mask_bottom(filenames)
         if mask_bottom_file is not None:
@@ -526,7 +528,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             filenames.remove(mask_bottom_file)
             mask_bottom_data = read_gbr_file(input, mask_bottom_file)
             gbr = gerber.loads(mask_bottom_data)
-            populate_kicad(board, gbr, pcbnew.B_Mask)
+            populate_kicad(board, gbr, pcbnew.B_Mask, errors)
 
         paste_top_file = find_paste_top(filenames)
         if paste_top_file is not None:
@@ -534,7 +536,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             filenames.remove(paste_top_file)
             paste_top_data = read_gbr_file(input, paste_top_file)
             gbr = gerber.loads(paste_top_data)
-            populate_kicad(board, gbr, pcbnew.F_Paste)
+            populate_kicad(board, gbr, pcbnew.F_Paste, errors)
 
         paste_bottom_file = find_paste_bottom(filenames)
         if paste_bottom_file is not None:
@@ -542,7 +544,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             filenames.remove(paste_bottom_file)
             paste_bottom_data = read_gbr_file(input, paste_bottom_file)
             gbr = gerber.loads(paste_bottom_data)
-            populate_kicad(board, gbr, pcbnew.B_Paste)
+            populate_kicad(board, gbr, pcbnew.B_Paste, errors)
 
         pth_file = find_PTH(filenames)
         if pth_file is not None:
@@ -550,7 +552,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             filenames.remove(pth_file)
             pth_data = read_gbr_file(input, pth_file)
             gbr = gerber.loads(pth_data)
-            populate_kicad(board, gbr, True)
+            populate_kicad(board, gbr, True, errors)
 
         npth_file = find_NPTH(filenames)
         if npth_file is not None:
@@ -558,12 +560,18 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False)
             filenames.remove(npth_file)
             npth_data = read_gbr_file(input, npth_file)
             gbr = gerber.loads(npth_data)
-            populate_kicad(board, gbr, False)
+            populate_kicad(board, gbr, False, errors)
 
         print(filenames)
 
     board.Save(output)
 
+    return errors
+
 if __name__ == "__main__":
     import sys
-    convert_to_kicad(sys.argv[1], sys.argv[2], required_edge_cuts=False)
+    errors = convert_to_kicad(sys.argv[1], sys.argv[2], required_edge_cuts=False)
+    if errors:
+        print("Errors:")
+        for error in errors:
+            print(error)
