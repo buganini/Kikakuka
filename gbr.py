@@ -123,174 +123,148 @@ def populate_kicad(board, gbr, layer, optimize=True):
     }.get(gbr.units)
 
     for p in gbr.primitives:
-        if isinstance(p, gerber.primitives.Arc):
-            # print(p.__class__.__name__, p.__dict__)
-            # print(dir(p))
+        populate_kicad_by_primitive(board, p, fromUnit, layer, optimize=optimize)
 
-            arc = pcbnew.PCB_SHAPE()
-            arc.SetShape(pcbnew.SHAPE_T_ARC)
+def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True):
+    if isinstance(primitive, gerber.primitives.Arc):
+        # print(primitive.__class__.__name__, primitive.__dict__)
+        # print(dir(primitive))
 
-            arc.SetStart(pcbnew.VECTOR2I(
-                fromUnit(p.start[0]),
-                -fromUnit(p.start[1])
-            ))
-            arc.SetCenter(pcbnew.VECTOR2I(
-                fromUnit(p.center[0]),
-                -fromUnit(p.center[1])
-            ))
-            arc.SetArcAngleAndEnd(pcbnew.EDA_ANGLE(p.sweep_angle, pcbnew.RADIANS_T))
+        arc = pcbnew.PCB_SHAPE()
+        arc.SetShape(pcbnew.SHAPE_T_ARC)
 
-            arc.SetLayer(layer)
-            arc.SetWidth(fromUnit(p.aperture.radius * 2))
+        arc.SetStart(pcbnew.VECTOR2I(
+            fromUnit(primitive.start[0]),
+            -fromUnit(primitive.start[1])
+        ))
+        arc.SetCenter(pcbnew.VECTOR2I(
+            fromUnit(primitive.center[0]),
+            -fromUnit(primitive.center[1])
+        ))
+        arc.SetArcAngleAndEnd(pcbnew.EDA_ANGLE(primitive.sweep_angle, pcbnew.RADIANS_T))
 
-            board.Add(arc)
-        elif isinstance(p, gerber.primitives.Line):
-            if isinstance(p.aperture, gerber.primitives.Circle):
-                # print(p.__class__.__name__, p.__dict__)
-                # print(dir(p))
+        arc.SetLayer(layer)
+        arc.SetWidth(fromUnit(primitive.aperture.radius * 2))
 
-                line = pcbnew.PCB_SHAPE()
+        board.Add(arc)
+    elif isinstance(primitive, gerber.primitives.Line):
+        if isinstance(primitive.aperture, gerber.primitives.Circle):
+            # print(primitive.__class__.__name__, primitive.__dict__)
+            # print(dir(primitive))
 
-                line.SetShape(pcbnew.SHAPE_T_SEGMENT)
+            line = pcbnew.PCB_SHAPE()
 
-                line.SetStart(pcbnew.VECTOR2I(
-                    fromUnit(p.start[0]),
-                    -fromUnit(p.start[1])
-                ))
+            line.SetShape(pcbnew.SHAPE_T_SEGMENT)
 
-                line.SetEnd(pcbnew.VECTOR2I(
-                    fromUnit(p.end[0]),
-                    -fromUnit(p.end[1])
-                ))
-
-                line.SetLayer(layer)
-                line.SetWidth(fromUnit(p.aperture.radius * 2))
-
-                board.Add(line)
-            else:
-                print(p.__class__.__name__, p.__dict__)
-                print(dir(p))
-        elif isinstance(p, gerber.primitives.Rectangle):
-            # print(p.__class__.__name__, p.__dict__)
-            # print(dir(p))
-
-            rectangle = pcbnew.PCB_SHAPE()
-            rectangle.SetShape(pcbnew.SHAPE_T_RECTANGLE)
-
-            rectangle.SetStart(pcbnew.VECTOR2I(
-                fromUnit(p.position[0] - p.width / 2),
-                -fromUnit(p.position[1] - p.height / 2)
-            ))
-            rectangle.SetEnd(pcbnew.VECTOR2I(
-                fromUnit(p.position[0] + p.width / 2),
-                -fromUnit(p.position[1] + p.height / 2)
+            line.SetStart(pcbnew.VECTOR2I(
+                fromUnit(primitive.start[0]),
+                -fromUnit(primitive.start[1])
             ))
 
-            rectangle.SetLayer(layer)
-            rectangle.SetFilled(True)
-            board.Add(rectangle)
-        elif isinstance(p, gerber.primitives.Circle):
-            # print(p.__class__.__name__, p.__dict__)
-            # print(dir(p))
-
-            circle = pcbnew.PCB_SHAPE()
-            circle.SetShape(pcbnew.SHAPE_T_CIRCLE)
-            circle.SetCenter(pcbnew.VECTOR2I(
-                fromUnit(p.position[0]),
-                -fromUnit(p.position[1])
+            line.SetEnd(pcbnew.VECTOR2I(
+                fromUnit(primitive.end[0]),
+                -fromUnit(primitive.end[1])
             ))
-            circle.SetRadius(fromUnit(p.radius))
-            circle.SetLayer(layer)
-            circle.SetFilled(True)
-            board.Add(circle)
-        elif isinstance(p, gerber.primitives.AMGroup):
-            print(p.__class__.__name__, p.__dict__)
-            print(dir(p))
 
-            for primitive in p.primitives:
-                if isinstance(primitive, gerber.primitives.Circle):
-                    circle = pcbnew.PCB_SHAPE()
-                    circle.SetShape(pcbnew.SHAPE_T_CIRCLE)
-                    circle.SetCenter(pcbnew.VECTOR2I(
-                        fromUnit(primitive.position[0]),
-                        -fromUnit(primitive.position[1])
-                    ))
-                    circle.SetRadius(fromUnit(primitive.radius))
-                    circle.SetLayer(layer)
-                    circle.SetWidth(fromUnit(0.0))
-                    circle.SetFilled(True)
-                    board.Add(circle)
-                elif isinstance(primitive, gerber.primitives.Outline):
-                    poly = pcbnew.PCB_SHAPE()
-                    poly.SetShape(pcbnew.SHAPE_T_POLY)
+            line.SetLayer(layer)
+            line.SetWidth(fromUnit(primitive.aperture.radius * 2))
 
-                    poly.SetLayer(layer)
-
-                    poly_set = poly.GetPolyShape()
-                    outline = poly_set.NewOutline()
-
-                    for outline_line in primitive.primitives:
-                        poly_set.Append(
-                            fromUnit(outline_line.start[0]),
-                            -fromUnit(outline_line.start[1]),
-                            outline
-                        )
-
-                    poly.SetWidth(fromUnit(0.001))
-                    poly.SetFilled(False)
-                    board.Add(poly)
-        elif isinstance(p, gerber.primitives.Region):
-            # print(p.__class__.__name__, p.__dict__)
-            # print(dir(p))
-
-            poly = pcbnew.PCB_SHAPE()
-            poly.SetShape(pcbnew.SHAPE_T_POLY)
-
-            poly.SetLayer(layer)
-
-            poly_set = poly.GetPolyShape()
-            outline = poly_set.NewOutline()
-
-            for line in p.primitives:
-                poly_set.Append(
-                    fromUnit(line.start[0]),
-                    -fromUnit(line.start[1]),
-                    outline
-                )
-
-            poly.SetFilled(True)
-            board.Add(poly)
-        elif isinstance(p, gerber.primitives.Drill):
-            # print(p.__class__.__name__, p.__dict__)
-            # print(dir(p))
-
-            if layer: # plated
-                via = pcbnew.PCB_VIA(board)
-
-                via.SetPosition(pcbnew.VECTOR2I(
-                    fromUnit(p.position[0]),
-                    -fromUnit(p.position[1])
-                ))
-                via.SetWidth(fromUnit(p.diameter))
-                via.SetDrill(fromUnit(p.diameter))
-                via.SetViaType(pcbnew.VIATYPE_THROUGH)
-
-                board.Add(via)
-            else:
-                footprint = pcbnew.FootprintLoad(kikit.common.KIKIT_LIB, "NPTH")
-                footprint.SetPosition(pcbnew.VECTOR2I(
-                    fromUnit(p.position[0]),
-                    -fromUnit(p.position[1])
-                ))
-                for pad in footprint.Pads():
-                    pad.SetDrillSizeX(fromUnit(p.diameter))
-                    pad.SetDrillSizeY(fromUnit(p.diameter))
-                    pad.SetSizeX(fromUnit(p.diameter))
-                    pad.SetSizeY(fromUnit(p.diameter))
-                board.Add(footprint)
+            board.Add(line)
         else:
-            print(p.__class__.__name__, p.__dict__)
-            # print(dir(p))
+            print(primitive.__class__.__name__, primitive.__dict__)
+            print(dir(primitive))
+    elif isinstance(primitive, gerber.primitives.Rectangle):
+        # print(primitive.__class__.__name__, primitive.__dict__)
+        # print(dir(primitive))
+
+        rectangle = pcbnew.PCB_SHAPE()
+        rectangle.SetShape(pcbnew.SHAPE_T_RECTANGLE)
+
+        rectangle.SetStart(pcbnew.VECTOR2I(
+            fromUnit(primitive.position[0] - primitive.width / 2),
+            -fromUnit(primitive.position[1] - primitive.height / 2)
+        ))
+        rectangle.SetEnd(pcbnew.VECTOR2I(
+            fromUnit(primitive.position[0] + primitive.width / 2),
+            -fromUnit(primitive.position[1] + primitive.height / 2)
+        ))
+
+        rectangle.SetLayer(layer)
+        rectangle.SetWidth(fromUnit(0.0))
+        rectangle.SetFilled(True)
+        board.Add(rectangle)
+    elif isinstance(primitive, gerber.primitives.Circle):
+        # print(primitive.__class__.__name__, primitive.__dict__)
+        # print(dir(primitive))
+
+        circle = pcbnew.PCB_SHAPE()
+        circle.SetShape(pcbnew.SHAPE_T_CIRCLE)
+        circle.SetCenter(pcbnew.VECTOR2I(
+            fromUnit(primitive.position[0]),
+            -fromUnit(primitive.position[1])
+        ))
+        circle.SetRadius(fromUnit(primitive.radius))
+        circle.SetLayer(layer)
+        circle.SetFilled(True)
+        circle.SetWidth(fromUnit(0.0))
+        board.Add(circle)
+    elif isinstance(primitive, gerber.primitives.AMGroup):
+        for amp in primitive.primitives:
+            populate_kicad_by_primitive(board, amp, fromUnit, layer, optimize=optimize)
+
+    elif isinstance(primitive, gerber.primitives.Region):
+        # print(primitive.__class__.__name__, primitive.__dict__)
+        # print(dir(primitive))
+
+        poly = pcbnew.PCB_SHAPE()
+        poly.SetShape(pcbnew.SHAPE_T_POLY)
+
+        poly.SetLayer(layer)
+
+        poly_set = poly.GetPolyShape()
+        outline = poly_set.NewOutline()
+
+        for line in primitive.primitives:
+            poly_set.Append(
+                fromUnit(line.start[0]),
+                -fromUnit(line.start[1]),
+                outline
+            )
+
+        poly.SetFilled(True)
+        poly.SetWidth(fromUnit(0.0))
+        board.Add(poly)
+    elif isinstance(primitive, gerber.primitives.Drill):
+        # print(primitive.__class__.__name__, primitive.__dict__)
+        # print(dir(primitive))
+
+        if layer: # plated
+            via = pcbnew.PCB_VIA(board)
+
+            via.SetPosition(pcbnew.VECTOR2I(
+                fromUnit(primitive.position[0]),
+                -fromUnit(primitive.position[1])
+            ))
+            via.SetWidth(fromUnit(primitive.diameter))
+            via.SetDrill(fromUnit(primitive.diameter))
+            via.SetViaType(pcbnew.VIATYPE_THROUGH)
+
+            board.Add(via)
+        else:
+            footprint = pcbnew.FootprintLoad(kikit.common.KIKIT_LIB, "NPTH")
+            footprint.SetPosition(pcbnew.VECTOR2I(
+                fromUnit(primitive.position[0]),
+                -fromUnit(primitive.position[1])
+            ))
+            for pad in footprint.Pads():
+                pad.SetDrillSizeX(fromUnit(primitive.diameter))
+                pad.SetDrillSizeY(fromUnit(primitive.diameter))
+                pad.SetSizeX(fromUnit(primitive.diameter))
+                pad.SetSizeY(fromUnit(primitive.diameter))
+            board.Add(footprint)
+    else:
+        print(primitive.__class__.__name__, primitive.__dict__)
+        # print(dir(primitive))
 
 def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False):
     filenames = list_gerber_files(input)
