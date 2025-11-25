@@ -1,6 +1,6 @@
 import os
 import zipfile
-import gerber
+from pcb_tools import gerber
 import pcbnew
 import math
 import kikit.common
