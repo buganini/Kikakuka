@@ -2223,10 +2223,10 @@ class PanelizerUI(Application):
         self.build()
 
     def select_bom(self, e):
-        self.state.focus.bom_file = OpenFile("Select BOM", dir=os.path.dirname(__file__), types="BOM (*.csv)|*.csv")
+        self.state.focus.bom_file = OpenFile("Select BOM", dir=os.path.dirname(self.state.focus.file), types="BOM (*.csv)|*.csv")
 
     def select_cpl(self, e):
-        self.state.focus.cpl_file = OpenFile("Select CPL", dir=os.path.dirname(__file__), types="CPL (*.csv)|*.csv")
+        self.state.focus.cpl_file = OpenFile("Select CPL", dir=os.path.dirname(self.state.focus.file), types="CPL (*.csv)|*.csv")
 
     def content(self):
         title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
