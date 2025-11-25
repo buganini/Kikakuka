@@ -172,9 +172,9 @@ But however in my Windows environment venv is not working properly, here is how 
 
 # Gerber to KiCAD Conversion
 ./env/bin/python3 kikakuka.py gerber.gbr out.kicad_pcb
-./env/bin/python3 kikakuka.py gerber_folder out.kicad_pcb
+./env/bin/python3 kikakuka.py gerber_folder out.kicad_pcb # BOM/CPL will be detected if they are in the folder
 ./env/bin/python3 kikakuka.py gerber.zip out.kicad_pcb
-./env/bin/python3 kikakuka.py any_gerber_path out.kicad_pcb extra_bom.csv extra_cpl.csv # BOM/CPL files are determined by filename regardless of argument order
+./env/bin/python3 kikakuka.py gerber.zip out.kicad_pcb bom_or_cpl_1.csv bom_or_cpl_2.csv # BOM/CPL files are determined by filename regardless of argument order
 ```
 
 # Contributors
