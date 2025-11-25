@@ -395,6 +395,8 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
                 fromUnit((primitive.start[0] + primitive.end[0]) / 2),
                 -fromUnit((primitive.start[1] + primitive.end[1]) / 2)
             ))
+            footprint.SetExcludedFromPosFiles(False)
+            footprint.SetExcludedFromBOM(False)
             for pad in footprint.Pads():
                 pad.SetShape(pcbnew.PAD_SHAPE_OVAL)
                 pad.SetDrillShape(pcbnew.PAD_DRILL_SHAPE_OBLONG)
@@ -464,6 +466,8 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
             board.Add(via)
         else:
             footprint = pcbnew.FootprintLoad(kikit.common.KIKIT_LIB, "NPTH")
+            footprint.SetExcludedFromPosFiles(False)
+            footprint.SetExcludedFromBOM(False)
             footprint.SetPosition(pcbnew.VECTOR2I(
                 fromUnit(primitive.position[0]),
                 -fromUnit(primitive.position[1])
