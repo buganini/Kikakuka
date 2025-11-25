@@ -6,7 +6,7 @@ import math
 import kikit.common
 
 def is_gerber_file(filename):
-    if filename.lower().endswith(".gbr"):
+    if os.path.splitext(filename)[1].lower() in (".gbr", ".gm1", ".gm3", ".gko", ".g1"):
         return True
     return False
 
@@ -268,6 +268,35 @@ def populate_kicad(board, gbr, layer, optimize=True):
                 board.Add(rectangle)
             else:
                 print("Unhandled case: not a rounded rectangle")
+
+                for primitive in p.primitives:
+                    if isinstance(primitive, gerber.primitives.Circle):
+                        circle = pcbnew.PCB_SHAPE()
+                        circle.SetShape(pcbnew.SHAPE_T_CIRCLE)
+                        circle.SetCenter(pcbnew.VECTOR2I(
+                            fromUnit(primitive.position[0]),
+                            -fromUnit(primitive.position[1])
+                        ))
+                        circle.SetRadius(fromUnit(primitive.radius))
+                        circle.SetLayer(layer)
+                        circle.SetFilled(True)
+                        circle.SetWidth(fromUnit(0.0))
+                        board.Add(circle)
+                    elif isinstance(primitive, gerber.primitives.Outline):
+                        for outline_line in primitive.primitives:
+                            line = pcbnew.PCB_SHAPE()
+                            line.SetShape(pcbnew.SHAPE_T_SEGMENT)
+                            line.SetStart(pcbnew.VECTOR2I(
+                                fromUnit(outline_line.start[0]),
+                                -fromUnit(outline_line.start[1])
+                            ))
+                            line.SetEnd(pcbnew.VECTOR2I(
+                                fromUnit(outline_line.end[0]),
+                                -fromUnit(outline_line.end[1])
+                            ))
+                            line.SetLayer(layer)
+                            line.SetWidth(fromUnit(outline_line.aperture.radius * 2))
+                            board.Add(line)
         elif isinstance(p, gerber.primitives.Region):
             # print(p.__class__.__name__, p.__dict__)
             # print(dir(p))
@@ -321,17 +350,23 @@ def populate_kicad(board, gbr, layer, optimize=True):
             print(p.__class__.__name__, p.__dict__)
             # print(dir(p))
 
-def convert_to_kicad(input, output, outline_only=False):
+def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False):
     filenames = list_gerber_files(input)
+    print("filenames", filenames)
+
+
     edge_cuts_file = find_edge_cuts(filenames)
-    if edge_cuts_file is None:
+    if edge_cuts_file is None and required_edge_cuts:
         raise ValueError(f"Edge cuts not found in {input}")
-    filenames.remove(edge_cuts_file)
-    edge_cuts_data = read_gbr_file(input, edge_cuts_file)
-    gbr = gerber.loads(edge_cuts_data)
 
     board = pcbnew.BOARD()
-    populate_kicad(board, gbr, pcbnew.Edge_Cuts)
+
+    if edge_cuts_file:
+        filenames.remove(edge_cuts_file)
+        edge_cuts_data = read_gbr_file(input, edge_cuts_file)
+        gbr = gerber.loads(edge_cuts_data)
+
+        populate_kicad(board, gbr, pcbnew.Edge_Cuts)
 
     if not outline_only:
         cu_top_file = find_cu_top(filenames)
@@ -396,4 +431,4 @@ def convert_to_kicad(input, output, outline_only=False):
 
 if __name__ == "__main__":
     import sys
-    convert_to_kicad(sys.argv[1], sys.argv[2])
+    convert_to_kicad(sys.argv[1], sys.argv[2], required_edge_cuts=False)
