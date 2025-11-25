@@ -218,8 +218,8 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
         for amp in primitive.primitives:
             populate_kicad_by_primitive(board, amp, fromUnit, layer, optimize=optimize)
     elif isinstance(primitive, gerber.primitives.Obround):
-        print(primitive.__class__.__name__, primitive.__dict__)
-        print(dir(primitive))
+        # print(primitive.__class__.__name__, primitive.__dict__)
+        # print(dir(primitive))
         if primitive.hole_diameter == 0:
             if primitive.width > primitive.height:
                 line = pcbnew.PCB_SHAPE()
@@ -282,6 +282,37 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, optimize=True
         poly.SetFilled(True)
         poly.SetWidth(fromUnit(0.0))
         board.Add(poly)
+    elif isinstance(primitive, gerber.primitives.Slot):
+        print(primitive.__class__.__name__, primitive.__dict__)
+        # print(dir(primitive))
+        if layer is True: # PTH
+            print("Unhandled PTH slot")
+        elif layer is False: # NPTH
+            footprint = pcbnew.FootprintLoad(kikit.common.KIKIT_LIB, "NPTH")
+            footprint.SetPosition(pcbnew.VECTOR2I(
+                fromUnit((primitive.start[0] + primitive.end[0]) / 2),
+                -fromUnit((primitive.start[1] + primitive.end[1]) / 2)
+            ))
+            for pad in footprint.Pads():
+                pad.SetShape(pcbnew.PAD_SHAPE_OVAL)
+                pad.SetDrillShape(pcbnew.PAD_DRILL_SHAPE_OBLONG)
+                if primitive.start[0] == primitive.end[0]: # vertical slot
+                    print("vertical slot")
+                    w = fromUnit(primitive.diameter)
+                    h = fromUnit(abs(primitive.start[1] - primitive.end[1]) + primitive.diameter)
+                    pad.SetSize(pcbnew.VECTOR2I(w, h))
+                    pad.SetDrillSize(pcbnew.VECTOR2I(w, h))
+                elif primitive.start[1] == primitive.end[1]: # horizontal slot
+                    print("horizontal slot")
+                    w = fromUnit(abs(primitive.start[0] - primitive.end[0]) + primitive.diameter)
+                    h = fromUnit(primitive.diameter)
+                    pad.SetSize(pcbnew.VECTOR2I(w, h))
+                    pad.SetDrillSize(pcbnew.VECTOR2I(w, h))
+                else:
+                    print("Unhandled slot orientation")
+            board.Add(footprint)
+        else:
+            print("Unhandled slot on layer", layer)
     elif isinstance(primitive, gerber.primitives.Region):
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
