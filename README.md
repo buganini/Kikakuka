@@ -30,6 +30,9 @@ It creates a few more dimensions for KiCad:
 * Build Variants (as a usage of the Panelizer)
     * Single PCB without panelization can be done with frameless setting
     * Each PCB can have its own flag settings
+* Gerber handling (experimental)
+    * In panelizer context
+    * Or direct conversion to .kicad_pcb
 * CLI
     * Convert saved .kkkk_pnl to kicad files in one command
     * Same usage for panelizer & build variants
@@ -165,6 +168,11 @@ But however in my Windows environment venv is not working properly, here is how 
 
 # Differ
 ./env/bin/python3 kikakuka.py --differ a.kicad_sch b.kicad_sch
+
+# Gerber to KiCAD Conversion
+./env/bin/python3 kikakuka.py gerber.gbr out.kicad_pcb
+./env/bin/python3 kikakuka.py gerber_folder out.kicad_pcb
+./env/bin/python3 kikakuka.py gerber.zip out.kicad_pcb
 ```
 
 # Contributors
