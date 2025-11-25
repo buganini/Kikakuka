@@ -183,7 +183,7 @@ def read_gbr_file(path, filename):
             return path.read_text(encoding='UTF-8')
     return None
 
-def populate_kicad(board, gbr, layer, errors, optimize=True):
+def populate_kicad(board, gbr, layer, errors):
     # print(gbr, dir(gbr))
     # print(gbr.__dict__)
 
@@ -199,9 +199,9 @@ def populate_kicad(board, gbr, layer, errors, optimize=True):
     }.get(gbr.units)
 
     for p in gbr.primitives:
-        populate_kicad_by_primitive(board, p, fromUnit, layer, errors, optimize=optimize)
+        populate_kicad_by_primitive(board, p, fromUnit, layer, errors)
 
-def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors, optimize=True):
+def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
     if isinstance(primitive, gerber.primitives.Arc):
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
@@ -286,7 +286,7 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors, optim
         board.Add(circle)
     elif isinstance(primitive, gerber.primitives.AMGroup):
         for amp in primitive.primitives:
-            populate_kicad_by_primitive(board, amp, fromUnit, layer, errors, optimize=optimize)
+            populate_kicad_by_primitive(board, amp, fromUnit, layer, errors)
     elif isinstance(primitive, gerber.primitives.Obround):
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
