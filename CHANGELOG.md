@@ -1,3 +1,6 @@
+# 5.7
+* Panelizer: add buttons for adding gerber folder & gerber zip
+
 # 5.6:
 * Gerber: write footprint name to the converted .kicad_pcb
 
