@@ -661,6 +661,7 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False,
 
                     # print(designator, mid_x/mm, -mid_y/mm, rotation, layer)
                     footprint = pcbnew.FootprintLoad(KIKAKUKA_LIB, "Footprint")
+                    footprint.SetFPIDAsString(bom.get(designator, {}).get(bom_footprint_header, ""))
                     footprint.SetPosition(pcbnew.VECTOR2I(round(mid_x), round(mid_y)))
                     footprint.SetOrientation(pcbnew.EDA_ANGLE(rotation, pcbnew.DEGREES_T))
                     footprint.SetLayer(layer_map[layer])
