@@ -583,6 +583,20 @@ class PanelizerUI(Application):
                 Critical("Error loading PCB: {}".format(e), "Error loading PCB")
                 self.state.pcb.pop()
 
+    def addGerberFolder(self, e):
+        folder = OpenDirectory("Open Gerber Folder")
+        if is_gerber_dir(folder):
+            self._addPCB(PCB(self, folder))
+        else:
+            Critical("Invalid Gerber folder: {}".format(folder), "Invalid Gerber folder")
+
+    def addGerberZip(self, e):
+        zipfile = OpenFile("Open Gerber Zip", types="Gerber Zip (*.zip)|*.zip")
+        if is_gerber_zip(zipfile):
+            self._addPCB(PCB(self, zipfile))
+        else:
+            Critical("Invalid Gerber zip: {}".format(zipfile), "Invalid Gerber zip")
+
     def _addPCB(self, pcb):
         if len(self.state.pcb) > 0:
             last = self.state.pcb[-1]
@@ -2263,6 +2277,8 @@ class PanelizerUI(Application):
                         with HBox():
                             Label("Add")
                             Button("PCB").click(self.addPCB)
+                            Button("Gerber Folder").click(self.addGerberFolder)
+                            Button("Gerber Zip").click(self.addGerberZip)
                             Button("Hole").click(self.addHole)
                             Spacer()
 
