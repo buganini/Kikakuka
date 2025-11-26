@@ -182,7 +182,3 @@ But however in my Windows environment venv is not working properly, here is how 
 * Footprint names are also exported, so `Tools -> Update Footprints from Library` can bring back the footprint if the name matches
 * Lock the footprint, clean up with quick selection and deletion, unlock the footprint (you will need to set the `Selection Filter`)
 * If footprint update fails, focus on the `User.Drawings` layer and set `Selection Filter` to `Footprints`-only can help you select individual footprints and then `Change Footprint`
-
-# Contributors
-* @buganini
-* @dartrax
