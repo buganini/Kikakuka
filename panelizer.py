@@ -1,6 +1,7 @@
 import sys
 import os
 import pcbnew
+from gerber import *
 import kikit
 from kikit import panelize, substrate
 from kikit.defs import Layer
@@ -29,7 +30,6 @@ import atexit
 import shutil
 import re
 from buildexpr import buildexpr
-from gerber import *
 
 BUILDEXPR = "BUILDEXPR"
 
