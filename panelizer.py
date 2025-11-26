@@ -2066,7 +2066,7 @@ class PanelizerUI(Application):
                     continue
                 self.drawPCB(canvas, i, pcb, True)
 
-        if self.state.frame_tooling_holes:
+        if self.state.use_frame and self.state.frame_tooling_holes:
             horizontalOffset = self.state.frame_tooling_horizontal_offset * self.unit
             verticalOffset = self.state.frame_tooling_vertical_offset * self.unit
             holeCount = 4
@@ -2077,7 +2077,7 @@ class PanelizerUI(Application):
                 canvas.drawEllipse(x, y, solderMaskDiameter/2*scale, solderMaskDiameter/2*scale, stroke=0x84E7ED)
                 canvas.drawEllipse(x, y, diameter/2*scale, diameter/2*scale, fill=0x84E7ED)
 
-        if self.state.fiducials:
+        if self.state.use_frame and self.state.fiducials:
             diameter = self.state.fiducials_diameter * self.unit
             solderMaskDiameter = self.state.fiducials_solder_mask_opening_diameter * self.unit
             if self.state.frame_top and self.state.frame_bottom:
