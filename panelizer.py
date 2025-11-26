@@ -2074,7 +2074,6 @@ class PanelizerUI(Application):
             solderMaskDiameter = self.state.frame_tooling_solder_mask_opening_diameter * self.unit
             for i, pos in enumerate(self.panelCorners(horizontalOffset, verticalOffset)[:holeCount]):
                 x, y = self.toCanvas(pos[0]-self.off_x, pos[1]-self.off_y)
-                print("x", x, "y", y, "solderMaskDiameter", solderMaskDiameter, "diameter", diameter)
                 canvas.drawEllipse(x, y, solderMaskDiameter/2*scale, solderMaskDiameter/2*scale, stroke=0x84E7ED)
                 canvas.drawEllipse(x, y, diameter/2*scale, diameter/2*scale, fill=0x84E7ED)
 
