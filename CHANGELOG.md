@@ -1,10 +1,9 @@
-Next:
+# 5.5:
 * Allow attaching BOM/CPL to PCB with no footprints
 * Experimental Gerber support
 * Add tooling holes
 * Add fiducials
 * Fix opening differ
-
 
 # 5.4
 * trim flags
