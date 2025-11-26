@@ -1,6 +1,6 @@
 # 5.5:
-* Allow attaching BOM/CPL to PCB with no footprints
 * Experimental Gerber support
+    * Allow attaching BOM/CPL (converted to reference-only footprints)
 * Add tooling holes
 * Add fiducials
 * Fix opening differ
