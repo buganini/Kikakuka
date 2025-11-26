@@ -1,3 +1,6 @@
+# 5.6:
+* Gerber: write footprint name to the converted .kicad_pcb
+
 # 5.5:
 * Experimental Gerber support
     * Allow attaching BOM/CPL (converted to reference-only footprints)
