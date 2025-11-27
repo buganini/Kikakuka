@@ -140,6 +140,11 @@ ${PYTHON} -m venv --system-site-packages env
 ./env/bin/pip3 install -r requirements.txt
 ```
 
+Update submodule
+```
+git submodule update --init --recursive
+```
+
 Run
 ```
 ./env/bin/python3 kikakuka.py
