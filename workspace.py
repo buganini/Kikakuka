@@ -391,7 +391,7 @@ class WorkspaceUI(PUIView):
             "projects": projects
         }
         with open(self.state.filepath, "w") as f:
-            json.dump(workspace, f, indent=4)
+            json.dump(workspace, f, indent=4, ensure_ascii=False)
 
     def content(self):
         with VBox():
