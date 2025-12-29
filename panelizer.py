@@ -63,6 +63,7 @@ class PCB(StateObject):
     def __init__(self, main, boardpath):
         super().__init__()
         self.main = main
+        self.error = None
 
         if os.path.isfile(boardpath):
             dirpath = os.path.dirname(boardpath)
@@ -96,23 +97,28 @@ class PCB(StateObject):
         self.orig = (orig_x, orig_y)
 
         panel = panelize.Panel(os.path.join(self.main.temp_dir, "temp.kicad_pcb"))
-        panel.appendBoard(
-            self.outline_file,
-            pcbnew.VECTOR2I(0, 0),
-            origin=panelize.Origin.TopLeft,
-            tolerance=panelize.fromMm(1),
-            rotationAngle=pcbnew.EDA_ANGLE(0, pcbnew.DEGREES_T),
-            inheritDrc=False
-        )
-        s = panel.substrates[0]
-        bbox = s.bounds()
+        try:
+            panel.appendBoard(
+                self.outline_file,
+                pcbnew.VECTOR2I(0, 0),
+                origin=panelize.Origin.TopLeft,
+                tolerance=panelize.fromMm(1),
+                rotationAngle=pcbnew.EDA_ANGLE(0, pcbnew.DEGREES_T),
+                inheritDrc=False
+            )
+            s = panel.substrates[0]
+            bbox = s.bounds()
 
-        if isinstance(s.substrates, MultiPolygon):
-            self._shapes = s.substrates.geoms
-        elif isinstance(s.substrates, Polygon):
-            self._shapes = [s.substrates]
-        else:
+            if isinstance(s.substrates, MultiPolygon):
+                self._shapes = s.substrates.geoms
+            elif isinstance(s.substrates, Polygon):
+                self._shapes = [s.substrates]
+            else:
+                self._shapes = []
+        except Exception as e:
+            self.error = str(e).replace(self.outline_file, os.path.basename(self.file))
             self._shapes = []
+            bbox = (0, 0, 0, 0)
 
         folder = os.path.basename(os.path.dirname(boardpath))
         name = os.path.splitext(os.path.basename(boardpath))[0]
@@ -857,9 +863,17 @@ class PanelizerUI(Application):
             Critical("Invalid ref rename pattern: {}".format(e), "Invalid ref rename pattern")
             return
 
+        errors = []
+        conflicts = []
 
-        pcbs = self.state.pcb
+        for pcb in self.state.pcb:
+            if pcb.error:
+                errors.append(pcb.error)
+
+        pcbs = [pcb for pcb in self.state.pcb if not pcb.error]
         if len(pcbs) == 0:
+            self.state.errors = errors
+            self.state.conflicts = conflicts
             return
 
         if self.state.spacing < MIN_SPACING:
@@ -963,8 +977,8 @@ class PanelizerUI(Application):
             if export:
                 file = pcb.kicad_file
                 if not os.path.exists(file):
-                    errors = convert_to_kicad(pcb.file, pcb.kicad_file, outline_only=False, bom_file=pcb.bom_file if os.path.exists(pcb.bom_file) else None, cpl_file=pcb.cpl_file if os.path.exists(pcb.cpl_file) else None)
-                    pcb.permanent_errors.extend(errors)
+                    convert_errors = convert_to_kicad(pcb.file, pcb.kicad_file, outline_only=False, bom_file=pcb.bom_file if os.path.exists(pcb.bom_file) else None, cpl_file=pcb.cpl_file if os.path.exists(pcb.cpl_file) else None)
+                    pcb.permanent_errors.extend(convert_errors)
 
             panel.appendBoard(
                 file,
@@ -1314,9 +1328,6 @@ class PanelizerUI(Application):
                 panel.appendSubstrate(t)
             except:
                 traceback.print_exc()
-
-        errors = []
-        conflicts = []
 
         # frame boundary
         shapes = [shapely.union_all(p.shapes) for p in pcbs]
