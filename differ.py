@@ -15,6 +15,7 @@ import tempfile
 import atexit
 import shutil
 import git
+import pcbnew
 
 if platform.system() == "Darwin":
     kicad_cli = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
@@ -41,20 +42,6 @@ try:
 except Exception:
     pass
 
-
-PCB_LAYERS = [
-    "Edge.Cuts",
-    # "F.Paste",
-    "F.Silkscreen",
-    # "F.Mask",
-    "F.Cu",
-    *[f"In{i+1}.Cu" for i in range(16)],
-    "B.Cu",
-    # "B.Mask",
-    "B.Silkscreen",
-    # "B.Paste"
-]
-
 def convert_sch(path, outpath):
     os.makedirs(outpath, exist_ok=True)
 
@@ -79,13 +66,17 @@ def convert_sch(path, outpath):
             opencv_image = cv2.cvtColor(opencv_image, cv2.COLOR_RGBA2RGB)
             cv2.imwrite(os.path.join(outpath, "sch", f"sch_{p:02d}.png"), opencv_image)
 
+def get_pcb_layers(path):
+    board = pcbnew.LoadBoard(path)
+    return [board.GetLayerName(layer) for layer in board.GetEnabledLayers().Seq()]
+
 def convert_pcb(path, outpath):
     os.makedirs(outpath, exist_ok=True)
 
     pdfpath = os.path.join(outpath, f"pcb_pdf")
     if not os.path.exists(pdfpath):
         yield f"Exporting PDF for {os.path.basename(path)}..."
-        cmd = [kicad_cli, "pcb", "export", "pdf", "--mode-separate", "--layers", ",".join(PCB_LAYERS), "-o", pdfpath, path]
+        cmd = [kicad_cli, "pcb", "export", "pdf", "--mode-separate", "--layers", ",".join(get_pcb_layers(path)), "-o", pdfpath, path]
         kwargs = {}
         if platform.system() == "Windows":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -93,7 +84,7 @@ def convert_pcb(path, outpath):
 
     if os.path.isdir(pdfpath):
         os.makedirs(os.path.join(outpath, "pcb"), exist_ok=True)
-        for layer in PCB_LAYERS:
+        for layer in get_pcb_layers(path):
             png_path = os.path.join(outpath, "pcb", f"{layer}.png")
             layerpdfpath = glob.glob(os.path.join(pdfpath, f"*{layer.replace('.', '_')}.pdf"))
             if layerpdfpath:
@@ -1138,7 +1129,7 @@ class DifferUI(Application):
                             os.makedirs(os.path.join(self.temp_dir, "pcb_darker"), exist_ok=True)
 
                             layers = []
-                            for layer in PCB_LAYERS:
+                            for layer in get_pcb_layers(file_a):
                                 png_a = os.path.join(self.state.cached_file_a, "pcb", f"{layer}.png")
                                 png_b = os.path.join(self.state.cached_file_b, "pcb", f"{layer}.png")
 
