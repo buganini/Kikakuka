@@ -997,7 +997,7 @@ class PanelizerUI(Application):
                 t = ref.GetText()
 
                 # Build Variants
-                if self.refMap.get(t, t) != t and export:
+                if t not in self.refMap and export:
                     fp_count += 1
                     if fp.HasFieldByName(BUILDEXPR):
                         expr = fp.GetFieldText(BUILDEXPR)
