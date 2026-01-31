@@ -136,8 +136,10 @@ class PCB(StateObject):
         self.margin_bottom = 0
         self.rotate = 0
         self._tabs = []
+        self.avail_options = {}
         self.avail_flags = []
-        self.flags = []
+        self.build_options = defaultdict(str)
+        self.build_flags = []
         self.errors = []
         self.permanent_errors = []
         self.fp_count = 0
@@ -166,9 +168,17 @@ class PCB(StateObject):
                         try:
                             tags = [t.strip() for t in k.split("#")[1:]]
                             for f in tags:
-                                if f not in self.avail_flags:
-                                    self.avail_flags.append(f)
-                                    self.avail_flags.sort()
+                                if "=" in f:
+                                    k, v = f.split("=")
+                                    if k not in self.avail_options:
+                                        self.avail_options[k] = []
+                                    if v not in self.avail_options[k]:
+                                        self.avail_options[k].append(v)
+                                        self.avail_options[k].sort()
+                                else:
+                                    if f not in self.avail_flags:
+                                        self.avail_flags.append(f)
+                                        self.avail_flags.sort()
                         except:
                             self.errors.append(f"{self.ident}: Invalid field {k}: {repr(v)}")
 
@@ -664,7 +674,8 @@ class PanelizerUI(Application):
                 "margin_top": pcb.margin_top,
                 "margin_bottom": pcb.margin_bottom,
                 "rotate": pcb.rotate,
-                "flags": [f for f in pcb.flags],
+                "options": {k:v for k,v in pcb.build_options.items()},
+                "flags": [f for f in pcb.build_flags],
                 "tabs": [dict(tab) for tab in pcb._tabs],
                 "bom": relpath(pcb.bom_file, os.path.dirname(target)) if pcb.bom_file else "",
                 "cpl": relpath(pcb.cpl_file, os.path.dirname(target)) if pcb.cpl_file else "",
@@ -817,7 +828,8 @@ class PanelizerUI(Application):
                 pcb.margin_top = p.get("margin_top", 0)
                 pcb.margin_bottom = p.get("margin_bottom", 0)
                 pcb.rotate = p["rotate"]
-                pcb.flags = p.get("flags", [])
+                pcb.build_options = p.get("options", {})
+                pcb.build_flags = p.get("flags", [])
                 pcb.bom_file = p.get("bom", "")
                 if pcb.bom_file and not os.path.isabs(pcb.bom_file):
                     pcb.bom_file = os.path.realpath(os.path.join(os.path.dirname(target), pcb.bom_file))
@@ -997,28 +1009,38 @@ class PanelizerUI(Application):
                 t = ref.GetText()
 
                 # Build Variants
-                if t not in self.refMap and export:
+                if (t in self.refMap or not multiple_pcb) and export:
                     fp_count += 1
                     if fp.HasFieldByName(BUILDEXPR):
                         expr = fp.GetFieldText(BUILDEXPR)
                         if expr:
-                            place = buildexpr(expr, pcb.flags)
-                            # print("BUILDEXPR", i, expr, pcb.flags, place)
+                            place = buildexpr(expr, pcb.build_flags)
+                            # print("BUILDEXPR", i, expr, pcb.build_flags, place)
 
                             if place:
                                 fp.SetExcludedFromPosFiles(False)
                                 fp.SetExcludedFromBOM(False)
                                 fp.SetDNP(False)
                             else:
-                                # print("SET DNP", i, fp.GetReference(), expr, pcb.flags, place)
+                                # print("SET DNP", i, fp.GetReference(), expr, pcb.build_flags, place)
                                 fp.SetDNP(True)
 
                     for k,v in fp.GetFieldsText().items():
                         if "#" in k:
                             tks = k.split("#")
                             field = tks[0]
-                            tags = sorted([t.strip() for t in tks[1:]])
-                            if tags == sorted(pcb.flags):
+                            matched = True
+                            for v in [t.strip() for t in tks[1:]]:
+                                if "=" in v:
+                                    k, v = v.split("=")
+                                    if pcb.build_options.get(k) != v:
+                                        matched = False
+                                        break
+                                else:
+                                    if v not in pcb.build_flags:
+                                        matched = False
+                                        break
+                            if matched:
                                 fp.SetField(field, v)
 
                 # Cannot loop inside panel, do incremental update to map footprint to the pccb
@@ -1973,8 +1995,9 @@ class PanelizerUI(Application):
 
         p = pcb.transform(Point(10, 10))
         x, y = self.toCanvas(p.x - self.off_x, p.y - self.off_y)
-        flags = " ".join([f"#{f}" for f in sorted(pcb.flags)])
-        canvas.drawText(x, y, f"{index}. {pcb.ident}\n{pcb.width/self.unit:.2f}*{pcb.height/self.unit:.2f}\n{flags}", rotate=pcb.rotate*-1, color=0xFFFFFF)
+        options = " ".join([f"#{k}={v}" for k,v in sorted(pcb.build_options.items())])
+        flags = " ".join([f"#{f}" for f in sorted(pcb.build_flags)])
+        canvas.drawText(x, y, f"{index}. {pcb.ident}\n{pcb.width/self.unit:.2f}*{pcb.height/self.unit:.2f}\n{options}\n{flags}", rotate=pcb.rotate*-1, color=0xFFFFFF)
 
         offx, offy, scale = self.state.scale
         for i, tab in enumerate(pcb.tabs()):
@@ -2467,10 +2490,20 @@ class PanelizerUI(Application):
                                                 Button("Select").click(self.select_cpl)
                                                 if not self.state.focus.cpl_file:
                                                     Spacer()
+                                        if self.state.focus.avail_options:
+                                            Label("Build Options")
+                                            for k, vs in self.state.focus.avail_options.items():
+                                                with HBox():
+                                                    Label(k)
+                                                    with ComboBox(editable=False, text_model=self.state.focus.build_options(k)):
+                                                        for v in vs:
+                                                            ComboBoxItem(v)
+                                                    Spacer()
+
                                         if self.state.focus.avail_flags:
                                             Label("Build Flags")
                                             for flag in self.state.focus.avail_flags:
-                                                Checkbox(flag, self.state.focus("flags"), value=flag)
+                                                Checkbox(flag, self.state.focus("build_flags"), value=flag)
 
                                         with Grid():
                                             r = 0

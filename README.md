@@ -76,9 +76,9 @@ Single PCB without panelization can be done with frameless setting
 ![BUILDEXPR-SinglePCB](screenshots/buildexpr-singlepcb.png)
 
 ## Field Values Variants
-`Field#Flag` will set `Field` to the value where flags match build flags.
-Multiple flags like `Field#FlagA#FlagB` (order insensitive) is also a supported usage.
+`Field#Flag` or multiple flags like `Field#FlagA#FlagB` will set `Field` to the value where build flags contain all the flags.
 ![Variants-FieldValue](screenshots/variants-fieldvalue.png)
+`Field#Opt=A`, `Field#Opt=B` will be displayed as dropdown options.
 
 # Panelizer
 The `.kikit_pnl` file saves panelization settings in JSON format, with PCB paths stored relative to the file's location.
