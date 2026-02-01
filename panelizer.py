@@ -1461,6 +1461,10 @@ class PanelizerUI(Application):
         vcuts = []
         bites = []
         cut_method = self.state.cut_method
+        merge_vcuts = self.state.merge_vcuts
+        merge_vcuts_threshold = self.state.merge_vcuts_threshold * self.unit
+
+        vcuts_tolerance = SHP_EPSILON * 5
 
         if cut_method == "mb":
             bites.extend(cuts)
@@ -1470,11 +1474,12 @@ class PanelizerUI(Application):
             for cut in cuts:
                 p1 = cut.coords[0]
                 p2 = cut.coords[-1]
-                if p1[0]==p2[0]: # vertical
+                if abs(p1[0] - p2[0]) <= vcuts_tolerance: # vertical
+                    px = (p1[0]+p2[0])/2
                     vc_ok = True
                     for i, pcb in enumerate(pcbs):
                         x1, y1, x2, y2 = pcb.bbox
-                        if x1+SHP_EPSILON < p1[0] and p1[0] < x2-SHP_EPSILON: # cut through other pcb
+                        if x1+vcuts_tolerance < px and px < x2-vcuts_tolerance: # cut through other pcb
                             vc_ok = False
                             break
 
@@ -1484,12 +1489,14 @@ class PanelizerUI(Application):
                     if do_mb:
                         bites.append(cut)
                     if do_vc:
+                        cut = LineString([(px, p1[1]), (px, p2[1])])
                         vcuts.append(cut)
-                elif p1[1]==p2[1]: # horizontal
+                elif abs(p1[1] - p2[1]) <= merge_vcuts_threshold * 0.2: # horizontal
+                    py = (p1[1]+p2[1])/2
                     vc_ok = True
                     for i, pcb in enumerate(pcbs):
                         x1, y1, x2, y2 = pcb.bbox
-                        if y1+SHP_EPSILON < p1[1] and p1[1] < y2-SHP_EPSILON: # cut through other pcb
+                        if y1+vcuts_tolerance < py and py < y2-vcuts_tolerance: # cut through other pcb
                             vc_ok = False
                             break
 
@@ -1499,6 +1506,7 @@ class PanelizerUI(Application):
                     if do_mb:
                         bites.append(cut)
                     if do_vc:
+                        cut = LineString([(p1[0], py), (p2[0], py)])
                         vcuts.append(cut)
                 else:
                     if cut_method != "vc_or_skip":
@@ -1514,8 +1522,6 @@ class PanelizerUI(Application):
             if vcuts[i].coords[0][0] > vcuts[i].coords[1][0]:
                 vcuts[i] = shapely.reverse(vcuts[i])
 
-        merge_vcuts = self.state.merge_vcuts
-        merge_threshold = self.state.merge_vcuts_threshold * self.unit
         if merge_vcuts:
             if self.state.debug:
                 conflicts.extend(vcuts)
@@ -1532,7 +1538,7 @@ class PanelizerUI(Application):
             horitonzal_groups = []
             for p in horizontal_vcuts:
                 for g in horitonzal_groups:
-                    if any([abs(p-p2) <= merge_threshold + SHP_EPSILON for p2 in g]):
+                    if any([abs(p-p2) <= merge_vcuts_threshold + SHP_EPSILON for p2 in g]):
                         if not p in g:
                             g.append(p)
                         break
@@ -1542,7 +1548,7 @@ class PanelizerUI(Application):
             vertical_groups = []
             for p in vertical_vcuts:
                 for g in vertical_groups:
-                    if any([abs(p-p2) <= merge_threshold + SHP_EPSILON for p2 in g]):
+                    if any([abs(p-p2) <= merge_vcuts_threshold + SHP_EPSILON for p2 in g]):
                         if not p in g:
                             g.append(p)
                         break
