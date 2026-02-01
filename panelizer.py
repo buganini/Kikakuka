@@ -747,8 +747,8 @@ class PanelizerUI(Application):
             if "frame_pcb" in data:
                 self.state.frame_pcb = data["frame_pcb"]
             if "frame_pcb" in data:
-                frame_pcb = data["frame_pcb"]
-                if not os.path.isabs(frame_pcb):
+                frame_pcb = data["frame_pcb"] or None
+                if frame_pcb and not os.path.isabs(frame_pcb):
                     frame_pcb = os.path.realpath(os.path.join(os.path.dirname(target), frame_pcb))
                 self.state.frame_pcb = frame_pcb
             if "use_frame" in data:
