@@ -989,15 +989,6 @@ class PanelizerUI(Application):
                     [self.off_x+self.state.frame_width*self.unit-self.state.frame_right*self.unit, self.off_y],
                 ])
 
-            if frame_top_polygon:
-                panel.appendSubstrate(frame_top_polygon)
-            if frame_bottom_polygon:
-                panel.appendSubstrate(frame_bottom_polygon)
-            if frame_left_polygon:
-                panel.appendSubstrate(frame_left_polygon)
-            if frame_right_polygon:
-                panel.appendSubstrate(frame_right_polygon)
-
             if pcbs:
                 x1, y1, x2, y2 = pcbs[0].bbox
 
@@ -1025,6 +1016,15 @@ class PanelizerUI(Application):
             "Edge.Cuts": Layer.Edge_Cuts,
             "User.1": Layer.User_1,
         }.get(self.state.vc_layer, Layer.Cmts_User)
+
+        if frame_top_polygon:
+            panel.appendSubstrate(frame_top_polygon)
+        if frame_bottom_polygon:
+            panel.appendSubstrate(frame_bottom_polygon)
+        if frame_left_polygon:
+            panel.appendSubstrate(frame_left_polygon)
+        if frame_right_polygon:
+            panel.appendSubstrate(frame_right_polygon)
 
         for i, pcb in enumerate(pcbs):
             self.refMap = {}
