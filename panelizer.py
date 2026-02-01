@@ -1241,7 +1241,7 @@ class PanelizerUI(Application):
                         partition = len([y for y in y_parts if y < p[1]])
                         tab_candidates.append((pcb, p, (-1,0), partition, (y2-y1)/n))
 
-        tab_candidates.sort(key=lambda t: t[3]) # sort by divided edge length
+        tab_candidates.sort(key=lambda t: t[-1]) # sort by divided edge length
 
         filtered_cands = []
         for pcb, p, inward_direction, partition, score_divider in tab_candidates:
