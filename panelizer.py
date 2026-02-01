@@ -523,6 +523,7 @@ class PanelizerUI(Application):
         self.state.refRenamePattern = "B{n}-{orig}"
 
         self.state.use_frame = True
+        self.state.frame_pcb = None
         self.state.tight = True
         self.state.auto_tab = True
         self.state.spacing = 1.6
@@ -683,6 +684,7 @@ class PanelizerUI(Application):
         data = {
             "export_path": self.state.export_path,
             "hide_outside_reference_value": self.state.hide_outside_reference_value,
+            "frame_pcb": relpath(self.state.frame_pcb, os.path.dirname(target)) if self.state.frame_pcb else "",
             "use_frame": self.state.use_frame,
             "tight": self.state.tight,
             "auto_tab": self.state.auto_tab,
@@ -742,6 +744,13 @@ class PanelizerUI(Application):
                 self.state.export_path = data["export_path"]
             if "hide_outside_reference_value" in data:
                 self.state.hide_outside_reference_value = data["hide_outside_reference_value"]
+            if "frame_pcb" in data:
+                self.state.frame_pcb = data["frame_pcb"]
+            if "frame_pcb" in data:
+                frame_pcb = data["frame_pcb"]
+                if not os.path.isabs(frame_pcb):
+                    frame_pcb = os.path.realpath(os.path.join(os.path.dirname(target), frame_pcb))
+                self.state.frame_pcb = frame_pcb
             if "use_frame" in data:
                 self.state.use_frame = data["use_frame"]
             if "tight" in data:
@@ -859,6 +868,16 @@ class PanelizerUI(Application):
             self.state.scale = None
             self.build()
 
+    def use_frame_pcb(self, e):
+        frame_pcb = OpenFile("Use Frame PCB", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
+        if frame_pcb:
+            self.state.frame_pcb = os.path.realpath(frame_pcb)
+            self.build()
+
+    def clear_frame_pcb(self, e):
+        self.state.frame_pcb = None
+        self.build()
+
     def generate_holes(self, e):
         self.build(generate_holes=True)
 
@@ -883,10 +902,6 @@ class PanelizerUI(Application):
                 errors.append(pcb.error)
 
         pcbs = [pcb for pcb in self.state.pcb if not pcb.error]
-        if len(pcbs) == 0:
-            self.state.errors = errors
-            self.state.conflicts = conflicts
-            return
 
         if self.state.spacing < MIN_SPACING:
             self.state.spacing = MIN_SPACING
@@ -925,63 +940,91 @@ class PanelizerUI(Application):
                 export += PCB_SUFFIX
             self.state.export_path = export
 
+        frame_top_polygon = None
+        frame_bottom_polygon = None
+        frame_left_polygon = None
+        frame_right_polygon = None
+
+        if self.state.frame_pcb:
+            frame_panel = panelize.Panel(os.path.join(self.temp_dir, "temp.kicad_pcb"))
+            frame_panel.appendBoard(
+                self.state.frame_pcb,
+                pcbnew.VECTOR2I(round(self.off_x), round(self.off_y)),
+                origin=panelize.Origin.TopLeft,
+                tolerance=panelize.fromMm(1),
+                inheritDrc=False,
+            )
+
+            frameBody = Polygon(frame_panel.boardSubstrate.substrates)
+        else:
+            if self.state.use_frame and self.state.frame_top > 0:
+                frame_top_polygon = Polygon([
+                    [self.off_x, self.off_y],
+                    [self.off_x+self.state.frame_width*self.unit, self.off_y],
+                    [self.off_x+self.state.frame_width*self.unit, self.off_y+self.state.frame_top*self.unit],
+                    [self.off_x, self.off_y+self.state.frame_top*self.unit],
+                ])
+
+            if self.state.use_frame and self.state.frame_bottom > 0:
+                frame_bottom_polygon = Polygon([
+                    [self.off_x, self.off_y+self.state.frame_height*self.unit],
+                    [self.off_x+self.state.frame_width*self.unit, self.off_y+self.state.frame_height*self.unit],
+                    [self.off_x+self.state.frame_width*self.unit, self.off_y+self.state.frame_height*self.unit-self.state.frame_bottom*self.unit],
+                    [self.off_x, self.off_y+self.state.frame_height*self.unit-self.state.frame_bottom*self.unit],
+                ])
+
+            if self.state.use_frame and self.state.frame_left > 0:
+                frame_left_polygon = Polygon([
+                    [self.off_x, self.off_y],
+                    [self.off_x, self.off_y+self.state.frame_height*self.unit],
+                    [self.off_x+self.state.frame_left*self.unit, self.off_y+self.state.frame_height*self.unit],
+                    [self.off_x+self.state.frame_left*self.unit, self.off_y],
+                ])
+
+            if self.state.use_frame and self.state.frame_right > 0:
+                frame_right_polygon = Polygon([
+                    [self.off_x+self.state.frame_width*self.unit, self.off_y],
+                    [self.off_x+self.state.frame_width*self.unit, self.off_y+self.state.frame_height*self.unit],
+                    [self.off_x+self.state.frame_width*self.unit-self.state.frame_right*self.unit, self.off_y+self.state.frame_height*self.unit],
+                    [self.off_x+self.state.frame_width*self.unit-self.state.frame_right*self.unit, self.off_y],
+                ])
+
+            if frame_top_polygon:
+                panel.appendSubstrate(frame_top_polygon)
+            if frame_bottom_polygon:
+                panel.appendSubstrate(frame_bottom_polygon)
+            if frame_left_polygon:
+                panel.appendSubstrate(frame_left_polygon)
+            if frame_right_polygon:
+                panel.appendSubstrate(frame_right_polygon)
+
+            if pcbs:
+                x1, y1, x2, y2 = pcbs[0].bbox
+
+                x1 = min(x1, self.off_x)
+                y1 = min(y1, self.off_y)
+                x2 = max(x2, self.off_x + self.state.frame_width*self.unit)
+                y2 = max(y2, self.off_y + self.state.frame_height*self.unit)
+
+                for pcb in pcbs[1:]:
+                    bbox = pcb.bbox
+                    x1 = min(x1, bbox[0])
+                    y1 = min(y1, bbox[1])
+                    x2 = max(x2, bbox[2])
+                    y2 = max(y2, bbox[3])
+
+                frameBody = box(x1, y1, x2, y2)
+            else:
+                frameBody = None
+
+        cpl_unknown_layers = []
+
         panel = panelize.Panel(self.state.export_path if export else os.path.join(self.temp_dir, "temp.kicad_pcb"))
         panel.vCutSettings.layer = {
             "Cmts.User": Layer.Cmts_User,
             "Edge.Cuts": Layer.Edge_Cuts,
             "User.1": Layer.User_1,
         }.get(self.state.vc_layer, Layer.Cmts_User)
-
-        if self.state.use_frame and self.state.frame_top > 0:
-            frame_top_polygon = Polygon([
-                [self.off_x, self.off_y],
-                [self.off_x+self.state.frame_width*self.unit, self.off_y],
-                [self.off_x+self.state.frame_width*self.unit, self.off_y+self.state.frame_top*self.unit],
-                [self.off_x, self.off_y+self.state.frame_top*self.unit],
-            ])
-        else:
-            frame_top_polygon = None
-
-        if self.state.use_frame and self.state.frame_bottom > 0:
-            frame_bottom_polygon = Polygon([
-                [self.off_x, self.off_y+self.state.frame_height*self.unit],
-                [self.off_x+self.state.frame_width*self.unit, self.off_y+self.state.frame_height*self.unit],
-                [self.off_x+self.state.frame_width*self.unit, self.off_y+self.state.frame_height*self.unit-self.state.frame_bottom*self.unit],
-                [self.off_x, self.off_y+self.state.frame_height*self.unit-self.state.frame_bottom*self.unit],
-            ])
-        else:
-            frame_bottom_polygon = None
-
-        if self.state.use_frame and self.state.frame_left > 0:
-            frame_left_polygon = Polygon([
-                [self.off_x, self.off_y],
-                [self.off_x, self.off_y+self.state.frame_height*self.unit],
-                [self.off_x+self.state.frame_left*self.unit, self.off_y+self.state.frame_height*self.unit],
-                [self.off_x+self.state.frame_left*self.unit, self.off_y],
-            ])
-        else:
-            frame_left_polygon = None
-
-        if self.state.use_frame and self.state.frame_right > 0:
-            frame_right_polygon = Polygon([
-                [self.off_x+self.state.frame_width*self.unit, self.off_y],
-                [self.off_x+self.state.frame_width*self.unit, self.off_y+self.state.frame_height*self.unit],
-                [self.off_x+self.state.frame_width*self.unit-self.state.frame_right*self.unit, self.off_y+self.state.frame_height*self.unit],
-                [self.off_x+self.state.frame_width*self.unit-self.state.frame_right*self.unit, self.off_y],
-            ])
-        else:
-            frame_right_polygon = None
-
-        if frame_top_polygon:
-            panel.appendSubstrate(frame_top_polygon)
-        if frame_bottom_polygon:
-            panel.appendSubstrate(frame_bottom_polygon)
-        if frame_left_polygon:
-            panel.appendSubstrate(frame_left_polygon)
-        if frame_right_polygon:
-            panel.appendSubstrate(frame_right_polygon)
-
-        cpl_unknown_layers = []
 
         for i, pcb in enumerate(pcbs):
             self.refMap = {}
@@ -1079,31 +1122,17 @@ class PanelizerUI(Application):
                 else:
                     value.SetVisible(False)
 
-        if self.state.use_frame and self.state.tight:
-            x1, y1, x2, y2 = pcbs[0].bbox
-
-            x1 = min(x1, self.off_x)
-            y1 = min(y1, self.off_y)
-            x2 = max(x2, self.off_x + self.state.frame_width*self.unit)
-            y2 = max(y2, self.off_y + self.state.frame_height*self.unit)
-
-            for pcb in pcbs[1:]:
-                bbox = pcb.bbox
-                x1 = min(x1, bbox[0])
-                y1 = min(y1, bbox[1])
-                x2 = max(x2, bbox[2])
-                y2 = max(y2, bbox[3])
-
-            # board hole
-            frameBody = box(x1, y1, x2, y2)
+        if frameBody and (self.state.frame_pcb or self.state.use_frame) and self.state.tight:
+            print("Making board holes")
             for s in panel.substrates:
                 frameBody = frameBody.difference(s.exterior().buffer(spacing*self.unit, join_style="mitre"))
 
+            print("Making holes")
             for hole in self.state.holes:
                 poly = hole.polygon
                 frameBody = frameBody.difference(poly)
 
-            # remove islands
+            print("Removing islands")
             if isinstance(frameBody, MultiPolygon):
                 geoms = [(g.area, g) for g in frameBody.geoms]
                 geoms.sort(key=lambda x: x[0], reverse=True)
@@ -1534,7 +1563,7 @@ class PanelizerUI(Application):
         panel.makeVCuts(vcuts)
 
 
-        if self.state.frame_tooling_holes:
+        if not self.state.frame_pcb and self.state.frame_tooling_holes:
             horizontalOffset = self.state.frame_tooling_horizontal_offset * self.unit
             verticalOffset = self.state.frame_tooling_vertical_offset * self.unit
             holeCount = 4
@@ -1548,7 +1577,7 @@ class PanelizerUI(Application):
                     pad.SetSize(toKiCADPoint((solderMaskDiameter, solderMaskDiameter)))
                 panel.board.Add(footprint)
 
-        if self.state.fiducials:
+        if not self.state.frame_pcb and self.state.fiducials:
             diameter = self.state.fiducials_diameter * self.unit
             solderMaskDiameter = self.state.fiducials_solder_mask_opening_diameter * self.unit
             if self.state.frame_top and self.state.frame_bottom:
@@ -2114,7 +2143,7 @@ class PanelizerUI(Application):
                     continue
                 self.drawPCB(canvas, i, pcb, True)
 
-        if self.state.use_frame and self.state.frame_tooling_holes:
+        if not self.state.frame_pcb and self.state.use_frame and self.state.frame_tooling_holes:
             horizontalOffset = self.state.frame_tooling_horizontal_offset * self.unit
             verticalOffset = self.state.frame_tooling_vertical_offset * self.unit
             holeCount = 4
@@ -2125,7 +2154,7 @@ class PanelizerUI(Application):
                 canvas.drawEllipse(x, y, solderMaskDiameter/2*scale, solderMaskDiameter/2*scale, stroke=0x84E7ED)
                 canvas.drawEllipse(x, y, diameter/2*scale, diameter/2*scale, fill=0x84E7ED)
 
-        if self.state.use_frame and self.state.fiducials:
+        if not self.state.frame_pcb and self.state.use_frame and self.state.fiducials:
             diameter = self.state.fiducials_diameter * self.unit
             solderMaskDiameter = self.state.fiducials_solder_mask_opening_diameter * self.unit
             if self.state.frame_top and self.state.frame_bottom:
@@ -2357,8 +2386,12 @@ class PanelizerUI(Application):
                             Label("Unit: mm")
 
                         with HBox():
-                            Checkbox("Use Frame", self.state("use_frame")).click(self.build)
-                            if self.state.use_frame:
+                            if self.state.frame_pcb:
+                                Button("Clear Frame PCB").click(self.clear_frame_pcb)
+                            else:
+                                Button("Use Frame PCB").click(self.use_frame_pcb)
+                                Checkbox("Use Frame", self.state("use_frame")).click(self.build)
+                            if self.state.use_frame or self.state.frame_pcb:
                                 Checkbox("Tight", self.state("tight")).click(self.build)
                                 if self.state.tight and self.state.spacing == 0:
                                     Button("Generate Holes").click(self.generate_holes)
@@ -2378,7 +2411,7 @@ class PanelizerUI(Application):
 
                             Spacer()
 
-                        if self.state.use_frame:
+                        if not self.state.frame_pcb and self.state.use_frame:
                             with HBox().id("frame-tooling"):
                                 Checkbox("Tooling Holes", self.state("frame_tooling_holes")).click(self.build)
                                 Label("Horizontal Offset")
@@ -2424,7 +2457,7 @@ class PanelizerUI(Application):
                             TextField(self.state("mb_offset")).change(self.build)
                             Spacer()
 
-                        if self.state.use_frame:
+                        if not self.state.frame_pcb and self.state.use_frame:
                             with HBox().id("frame-size"):
                                 Label("Frame Size")
                                 Label("Width")
