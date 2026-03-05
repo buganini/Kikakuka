@@ -18,7 +18,6 @@ from enum import Enum
 import traceback
 import json
 import itertools
-import functools
 from shootly import *
 from common import *
 from PUI.PySide6 import *
@@ -1455,14 +1454,7 @@ class PanelizerUI(Application):
             self.state.dbg_rects = dbg_rects
             self.state.dbg_polygons = dbg_polygons
             self.state.dbg_text = dbg_text
-            boardSubstrate = panel.boardSubstrate
-            if boardSubstrate:
-                if isinstance(boardSubstrate.substrates, MultiPolygon):
-                    self.state.boardSubstrate = boardSubstrate.substrates.geoms
-                elif isinstance(boardSubstrate.substrates, Polygon):
-                    self.state.boardSubstrate = [boardSubstrate.substrates]
-                else:
-                    self.state.boardSubstrate = []
+            self.state.boardSubstrate = panel.boardSubstrate
 
         cuts = sorted(cuts,key=lambda cut: cut.bounds)
 
@@ -2124,16 +2116,6 @@ class PanelizerUI(Application):
         bottomRight = (maxx - horizontalOffset, maxy - verticalOffset)
         return [topLeft, topRight, bottomLeft, bottomRight]
 
-    @staticmethod
-    @functools.lru_cache(maxsize=128)
-    def _transform(shape, rotate1, scale1, xoff1, yoff1, rotate2, scale2, xoff2, yoff2):
-        print(f"transform: {id(shape)} {rotate1}, {scale1}, {xoff1}, {yoff1}, {rotate2}, {scale2}, {xoff2}, {yoff2}")
-        shape = affinity.rotate(shape, (rotate1 % 360)*-1, origin=(0,0))
-        shape = transform(shape, lambda x: x * scale1 + (xoff1, yoff1))
-        shape = affinity.rotate(shape, (rotate2 % 360)*-1, origin=(0,0))
-        shape = transform(shape, lambda x: x * scale2 + (xoff2, yoff2))
-        return shape
-
     def painter(self, canvas):
         if self.state.scale is None:
             self.autoScale(canvas.width, canvas.height)
@@ -2144,9 +2126,15 @@ class PanelizerUI(Application):
 
         boardSubstrate = self.state.boardSubstrate
         if boardSubstrate:
-            for i,polygon in enumerate(boardSubstrate):
-                polygon = self._transform(polygon, 0, 1, -self.off_x, -self.off_y, 0, scale, offx, offy)
-                canvas.drawShapely(polygon, fill=0x151515, stroke=0x777777)
+            if isinstance(boardSubstrate.substrates, MultiPolygon):
+                geoms = boardSubstrate.substrates.geoms
+            elif isinstance(boardSubstrate.substrates, Polygon):
+                geoms = [boardSubstrate.substrates]
+            else:
+                geoms = []
+            for polygon in geoms:
+                polygon = transform(polygon, lambda p:p-(self.off_x, self.off_y))
+                self.drawShapely(canvas, polygon, fill=0x151515, stroke=0x777777)
 
         if self.state.show_pcb:
             # pcb areas
