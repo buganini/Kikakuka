@@ -28,6 +28,7 @@ import platform
 import tempfile
 import atexit
 import shutil
+import psutil
 import re
 from buildexpr import buildexpr
 
@@ -2626,4 +2627,7 @@ class PanelizerUI(Application):
                         else:
                             Spacer()
 
-                        Label(f"Conflicts: {len(self.state.conflicts)}")
+                        with HBox():
+                            Label(f"Conflicts: {len(self.state.conflicts)}")
+                            Spacer()
+                            Label(f"Memory: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
