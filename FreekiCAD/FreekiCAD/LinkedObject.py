@@ -307,7 +307,18 @@ def load_board(filepath):
             to_concrete_board_shape,
         )
 
-        kicad = KiCad()
+        # Resolve the KiCad IPC socket for this file via the
+        # Kikakuka workspace manager (ZMQ).  The workspace manager
+        # will start KiCad automatically if needed (async pending).
+        from FreekiCAD.zmq_bus import resolve_kicad_socket
+        socket_path = resolve_kicad_socket(filepath)
+        if socket_path is None:
+            FreeCAD.Console.PrintError(
+                "FreekiCAD: Could not resolve KiCad socket for "
+                f"{filepath}. Is the workspace manager running?\n"
+            )
+            return None, [], None
+        kicad = KiCad(socket_path=f"ipc://{socket_path}")
         board = kicad.get_board()
 
         # Load KiCad path variables
@@ -624,6 +635,16 @@ def load_board(filepath):
     return None, [], None
 
 
+def _fit_view(obj):
+    """Fit the 3D viewport to show the given object."""
+    try:
+        import FreeCADGui
+        FreeCADGui.updateGui()
+        FreeCADGui.SendMsgToActiveView("ViewFit")
+    except Exception:
+        pass
+
+
 class LinkedObject:
     """A FeaturePython object that maps an external .kicad_pcb file to a
     FreeCAD object via kipy (KiCad IPC API).
@@ -689,6 +710,7 @@ class LinkedObject:
         """Force reload from KiCad."""
         obj.touch()
         obj.Document.recompute()
+        _fit_view(obj)
 
     def dumps(self):
         return {"Type": self.Type}
@@ -734,6 +756,7 @@ class LinkedObjectViewProvider:
                     except Exception:
                         pass
 
+
     def dumps(self):
         return None
 
@@ -755,4 +778,5 @@ def create_linked_object(filename=""):
         obj.FileName = filename
 
     doc.recompute()
+    _fit_view(obj)
     return obj

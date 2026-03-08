@@ -358,7 +358,6 @@ class WorkspaceUI(PUIView):
         self.state.editingDesc = False
         self.state.edit = ""
 
-        self.pidmap = {}
         if os.path.exists(self.state.filepath):
             self.loadFile()
         else:
@@ -411,11 +410,11 @@ class WorkspaceUI(PUIView):
                         folder_file = f"{folder}/{file}"
                         with (TreeNode(folder_file)
                                 .click(lambda e, project: self.selectFile(project), project)
-                                .dblclick(lambda e, project: self.openFile(project["path"]), project)):
+                                .dblclick(lambda e, project: self.openFile(project["path"], bring_to_front=True), project)):
                             for file in project["files"]:
                                 (TreeNode(os.path.basename(file["path"]))
                                     .click(lambda e, file: self.selectFile(file), file)
-                                    .dblclick(lambda e, file: self.openFile(file["path"]), file))
+                                    .dblclick(lambda e, file: self.openFile(file["path"], bring_to_front=True), file))
 
                 with VBox().layout(weight=1):
                     with HBox():
@@ -531,7 +530,7 @@ class WorkspaceUI(PUIView):
             event.ignore()
 
     def openDiffer(self):
-        if bringToFront(self.pidmap.get(":differ")):
+        if bringToFront(self.main.pidmap.get(":differ")):
             return
         Thread(target=self._openDiffer, args=[self.state.filepath], daemon=True).start()
 
@@ -544,9 +543,9 @@ class WorkspaceUI(PUIView):
             self.quit()
             return
         pid = p.pid
-        self.pidmap[":differ"] = pid
+        self.main.pidmap[":differ"] = pid
         p.wait()
-        self.pidmap.pop(":differ", None)
+        self.main.pidmap.pop(":differ", None)
 
     def selectFile(self, node):
         Thread(target=self._selectFile, args=[node], daemon=True).start()
@@ -602,30 +601,22 @@ class WorkspaceUI(PUIView):
                 self.state()
             self.openPanelizer(filepath)
 
-    def openFile(self, path):
+    def openFile(self, path, bring_to_front=False):
         if path.lower().endswith(PNL_SUFFIX):
             self.openPanelizer(path)
             return
         if path.lower().endswith(STEP_SUFFIX):
             self.openStep(path)
             return
-        if bringToFront(self.pidmap.get(path)):
-            return
-        Thread(target=self._openFile, args=[path], daemon=True).start()
-
-    def _openFile(self, filepath):
-        import subprocess, platform
-        if platform.system() == 'Darwin':
-            pid = macos_open_file(filepath, ["kicad", "pcbnew", "eeschema"], "-n", "-W")
-            if pid:
-                self.pidmap[filepath] = pid
-        elif platform.system() == 'Windows':
-            pid = windows_open_file(filepath, ["kicad", "pcbnew", "eeschema", "freecad"])
-            if pid:
-                self.pidmap[filepath] = pid
-        else:
-            # XXX window recalling is not implemented
-            subprocess.Popen(('xdg-open', filepath)) # XXX wait for process to finish
+        pid = self.main.pidmap.get(path)
+        if pid is not None:
+            if bring_to_front:
+                if bringToFront(pid):
+                    return
+            else:
+                if psutil.pid_exists(pid):
+                    return
+        Thread(target=self.main._open_kicad_file, args=[path, bring_to_front], daemon=True).start()
 
     def openFolder(self, location):
         if platform.system() == 'Darwin':
@@ -636,7 +627,7 @@ class WorkspaceUI(PUIView):
             subprocess.run(["xdg-open", location])
 
     def openPanelizer(self, filepath):
-        if bringToFront(self.pidmap.get(filepath)):
+        if bringToFront(self.main.pidmap.get(filepath)):
             return
         Thread(target=self._openPanelizer, args=[filepath], daemon=True).start()
 
@@ -646,12 +637,12 @@ class WorkspaceUI(PUIView):
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         p = subprocess.Popen([*ARGV0, filepath], **kwargs)
         pid = p.pid
-        self.pidmap[filepath] = pid
+        self.main.pidmap[filepath] = pid
         p.wait()
-        self.pidmap.pop(filepath, None)
+        self.main.pidmap.pop(filepath, None)
 
     def openStep(self, filepath):
-        if bringToFront(self.pidmap.get(filepath)):
+        if bringToFront(self.main.pidmap.get(filepath)):
             return
         Thread(target=self._openStep, args=[filepath], daemon=True).start()
 
@@ -659,11 +650,11 @@ class WorkspaceUI(PUIView):
         if platform.system() == 'Darwin':
             pid = macos_open_file(filepath, ["freecad"], "-a", "FreeCAD", "-n", "-W", "--args")
             if pid:
-                self.pidmap[filepath] = pid
+                self.main.pidmap[filepath] = pid
         elif platform.system() == 'Windows':
             pid = windows_open_file(filepath, ["freecad"])
             if pid:
-                self.pidmap[filepath] = pid
+                self.main.pidmap[filepath] = pid
 
     def close(self):
         self.main.state.workspaces = [f for f in self.main.state.workspaces if f != self.filepath]
@@ -696,6 +687,58 @@ class MainUI(Application):
         self.state.workspaces = workspaces
         self.commit()
         self.pidmap = {}
+
+        # Start the ZMQ daemon so FreekiCAD can resolve KiCad sockets
+        self._zmq_bus = None
+        try:
+            from zmq_bus import WorkspaceBus
+            self._zmq_bus = WorkspaceBus(
+                lambda: dict(self.pidmap),
+                open_file=self._open_kicad_file,
+                remove_pid=lambda fp: self.pidmap.pop(fp, None),
+            )
+            import atexit
+            atexit.register(self._shutdown_zmq)
+        except ImportError:
+            print("WorkspaceBus: pyzmq not installed, remote commands disabled")
+        except Exception as e:
+            print(f"WorkspaceBus: Could not start: {e}")
+
+    def _open_kicad_file(self, filepath, bring_to_front=False):
+        """Open a .kicad_pcb file in a new KiCad instance.
+
+        Called from WorkspaceBus when a resolve request arrives for a
+        file not yet in the pidmap.  Returns the PID on success, or None.
+
+        When *bring_to_front* is False (the default for ZMQ callers),
+        macOS uses ``-g`` so KiCad launches in the background.
+        """
+        print(f"MainUI: opening KiCad for {filepath}")
+        if platform.system() == 'Darwin':
+            open_args = ["-n"]
+            if not bring_to_front:
+                open_args.append("-g")
+            pid = macos_open_file(filepath, ["kicad", "pcbnew", "eeschema"], *open_args)
+            if pid and bring_to_front:
+                bringToFront(pid)
+        elif platform.system() == 'Windows':
+            pid = windows_open_file(filepath, ["kicad", "pcbnew", "eeschema"])
+            if pid and bring_to_front:
+                bringToFront(pid)
+        else:
+            subprocess.Popen(('xdg-open', filepath))
+            pid = None
+        if pid:
+            self.pidmap[filepath] = pid
+            print(f"MainUI: KiCad started, PID {pid}")
+        else:
+            print(f"MainUI: could not determine KiCad PID")
+        return pid
+
+    def _shutdown_zmq(self):
+        if self._zmq_bus:
+            self._zmq_bus.shutdown()
+            self._zmq_bus = None
 
     def commit(self):
         f = open(self.cfgfile, "w")

@@ -6,6 +6,8 @@
     <maintainer email="buganini@gmail.com">Kuan-Chung Chiu</maintainer>
     <license>LGPL-2.1</license>
     <url type="repository">https://github.com/buganini/kikakuka</url>
+    <depend type="python">kicad-python</depend>
+    <depend type="python">pyzmq</depend>
     <content>
         <workbench>
             <classname>FreekiCADWorkbench</classname>
