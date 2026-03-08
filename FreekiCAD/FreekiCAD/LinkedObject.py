@@ -47,7 +47,7 @@ def _load_kicad_env_vars(kicad):
             config_bases.append(os.path.expanduser('~/.config/kicad'))
 
         for base in config_bases:
-            for ver in ['9.0', '8.0', '7.0', '6.0']:
+            for ver in ['6.0', '7.0', '8.0', '9.0']:
                 cfg = os.path.join(base, ver, 'kicad_common.json')
                 if os.path.isfile(cfg):
                     with open(cfg, 'r') as f:
@@ -55,9 +55,6 @@ def _load_kicad_env_vars(kicad):
                     user_vars = (data.get('environment', {}) or {}).get('vars', {})
                     if user_vars:
                         env.update(user_vars)
-                    break
-            if env:
-                break
     except Exception:
         pass
 

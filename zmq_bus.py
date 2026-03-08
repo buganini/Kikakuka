@@ -7,6 +7,8 @@ to use for a given ``.kicad_pcb`` file.
 
 import json
 import os
+import platform
+import tempfile
 import threading
 
 WORKSPACE_PORT = 19780
@@ -25,19 +27,31 @@ def _is_pid_running(pid):
             return False
 
 
+def _kicad_socket_dir():
+    """Return the platform-specific directory where KiCad creates IPC sockets.
+
+    - Linux/macOS: ``/tmp/kicad/``
+    - Windows:     ``{tempdir}\\kicad\\``  (e.g. ``C:\\Users\\foo\\AppData\\Local\\Temp\\kicad\\``)
+    """
+    if platform.system() == 'Windows':
+        return os.path.join(tempfile.gettempdir(), 'kicad')
+    return '/tmp/kicad'
+
+
 def _kicad_socket_for_pid(pid):
     """Derive the KiCad IPC API socket path from a process *pid*.
 
     KiCad naming convention:
-      - First instance:      ``/tmp/kicad/api.sock``
-      - Subsequent instances: ``/tmp/kicad/api-{PID}.sock``
+      - First instance:      ``api.sock``
+      - Subsequent instances: ``api-{PID}.sock``
 
     Returns the path (str) if the socket file exists, else ``None``.
     """
-    specific = f"/tmp/kicad/api-{pid}.sock"
+    sock_dir = _kicad_socket_dir()
+    specific = os.path.join(sock_dir, f"api-{pid}.sock")
     if os.path.exists(specific):
         return specific
-    default = "/tmp/kicad/api.sock"
+    default = os.path.join(sock_dir, "api.sock")
     if os.path.exists(default):
         return default
     return None
