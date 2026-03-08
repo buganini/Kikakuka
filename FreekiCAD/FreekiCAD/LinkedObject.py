@@ -663,10 +663,14 @@ class LinkedObject:
             "Automatically reload when the file changes"
         )
         obj.AutoReload = False
+        obj.addProperty(
+            "App::PropertyString", "ComponentsGroup", "LinkedFile",
+            "Internal name of the components group"
+        )
+        obj.setPropertyStatus("ComponentsGroup", "Hidden")
         obj.Proxy = self
         self.Type = "LinkedObject"
         self._file_mtime = None
-        self._components_group = None
 
     def onChanged(self, obj, prop):
         if prop == "FileName":
@@ -683,22 +687,30 @@ class LinkedObject:
                     else:
                         vp._auto_reload_timer.stop()
 
+    def _ensure_components_property(self, obj):
+        """Add ComponentsGroup property if it doesn't exist yet."""
+        if not hasattr(obj, "ComponentsGroup"):
+            obj.addProperty(
+                "App::PropertyString", "ComponentsGroup", "LinkedFile",
+                "Internal name of the components group"
+            )
+            obj.setPropertyStatus("ComponentsGroup", "Hidden")
+
     def _remove_components(self, obj):
-        """Remove all component groups matching obj.Name + '_Components*'."""
+        """Remove the component group tracked by ComponentsGroup property."""
+        self._ensure_components_property(obj)
+        if not obj.ComponentsGroup:
+            return
         doc = obj.Document
-        prefix = obj.Name + "_Components"
-        for o in list(doc.Objects):
-            try:
-                name = o.Name
-            except ReferenceError:
-                continue
-            if name.startswith(prefix) and o.TypeId == "App::DocumentObjectGroup":
-                for child in list(o.Group):
-                    try:
-                        doc.removeObject(child.Name)
-                    except (ReferenceError, Exception):
-                        pass
-                doc.removeObject(name)
+        old_group = doc.getObject(obj.ComponentsGroup)
+        if old_group:
+            for child in list(old_group.Group):
+                try:
+                    doc.removeObject(child.Name)
+                except (ReferenceError, Exception):
+                    pass
+            doc.removeObject(old_group.Name)
+        obj.ComponentsGroup = ""
 
     def execute(self, obj):
         """Load board data from KiCad via kipy, or fall back to a dummy cube."""
@@ -719,7 +731,8 @@ class LinkedObject:
             if components:
                 doc = obj.Document
                 group = doc.addObject("App::DocumentObjectGroup", obj.Name + "_Components")
-                self._components_group = group
+                self._ensure_components_property(obj)
+                obj.ComponentsGroup = group.Name
                 for label, comp_shape, comp_colors in components:
                     comp_obj = doc.addObject("Part::Feature", label)
                     comp_obj.Shape = comp_shape
@@ -765,7 +778,6 @@ class LinkedObject:
         if state:
             self.Type = state.get("Type", "LinkedObject")
         self._file_mtime = None
-        self._components_group = None
 
 
 class LinkedObjectViewProvider:
