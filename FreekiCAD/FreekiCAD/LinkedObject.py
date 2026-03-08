@@ -147,28 +147,45 @@ def _load_step(step_path, doc):
         tmp_doc = FreeCAD.newDocument("__FreekiCAD_tmp__")
         ImportGui.insert(step_path, tmp_doc.Name)
         tmp_doc.recompute()
-        # Find the top-level object (compound parent or single part)
-        top = None
+        # Collect leaf shapes (skip objects whose children have shapes)
+        # to handle multi-body STEP files with multiple App::Part containers.
+        child_names = set()
         for obj in tmp_doc.Objects:
-            if hasattr(obj, 'Shape') and not obj.Shape.isNull():
-                if top is None:
-                    top = obj
-                if hasattr(obj, 'Group') and obj.Group:
-                    top = obj
-                    break
-        if top and hasattr(top, 'Shape') and not top.Shape.isNull():
-            shape = top.Shape.copy()
-            colors = None
-            if hasattr(top, 'ViewObject') and top.ViewObject:
+            if hasattr(obj, 'Group'):
+                for child in obj.Group:
+                    child_names.add(child.Name)
+
+        leaf_shapes = []
+        all_colors = []
+        _skip_types = {'App::Origin', 'App::Plane', 'App::Line'}
+        for obj in tmp_doc.Objects:
+            if obj.TypeId in _skip_types:
+                continue
+            if not hasattr(obj, 'Shape') or obj.Shape.isNull():
+                continue
+            # Use parent's shape if it has children (compound),
+            # otherwise use the leaf shape directly.
+            if obj.Name in child_names:
+                continue
+            s = obj.Shape.copy()
+            leaf_shapes.append(s)
+            if hasattr(obj, 'ViewObject') and obj.ViewObject:
                 try:
-                    colors = list(top.ViewObject.DiffuseColor)
+                    all_colors.extend(list(obj.ViewObject.DiffuseColor))
                 except Exception:
                     try:
-                        colors = [top.ViewObject.ShapeColor]
+                        all_colors.extend(
+                            [obj.ViewObject.ShapeColor] * len(s.Faces))
                     except Exception:
                         pass
+
+        if leaf_shapes:
+            shape = leaf_shapes[0] if len(leaf_shapes) == 1 \
+                else Part.makeCompound(leaf_shapes)
+            colors = all_colors if all_colors else None
             FreeCAD.closeDocument(tmp_doc.Name)
             return [(shape, colors)]
+
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD:   ImportGui produced no shape for {step_path}\n"
         )
