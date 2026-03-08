@@ -37,6 +37,10 @@ It creates a few more dimensions for KiCad:
 * CLI
     * Convert saved .kkkk_pnl to kicad files in one command
     * Same usage for panelizer & build variants
+* FreeCAD Integration
+    * `FreekiCAD` support loading multiple .kicad_pcb into a FreeCAD document
+    * Auto or manual reloading
+    * `kipy` is in used and the workspace manager handles multiple KiCad instances & unix sockets
 
 # Workspace Manager
 The `.kkkk` file saves workspace information in JSON format.
