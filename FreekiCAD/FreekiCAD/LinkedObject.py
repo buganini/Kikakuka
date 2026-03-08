@@ -702,14 +702,29 @@ class LinkedObject:
         if not obj.ComponentsGroup:
             return
         doc = obj.Document
-        old_group = doc.getObject(obj.ComponentsGroup)
+        group_name = obj.ComponentsGroup
+        old_group = doc.getObject(group_name)
         if old_group:
-            for child in list(old_group.Group):
+            children = list(old_group.Group)
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Removing components group '{group_name}' "
+                f"with {len(children)} children\n"
+            )
+            for child in children:
                 try:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: Removing component '{child.Name}'\n"
+                    )
                     doc.removeObject(child.Name)
-                except (ReferenceError, Exception):
-                    pass
-            doc.removeObject(old_group.Name)
+                except (ReferenceError, Exception) as e:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: Failed to remove component: {e}\n"
+                    )
+            doc.removeObject(group_name)
+        else:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Components group '{group_name}' not found\n"
+            )
         obj.ComponentsGroup = ""
 
     def execute(self, obj):

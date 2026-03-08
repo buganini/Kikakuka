@@ -39,10 +39,13 @@ class ReloadAllLinkedObjectsCommand:
 
     def Activated(self):
         doc = FreeCAD.ActiveDocument
-        for obj in doc.Objects:
-            if hasattr(obj, "Proxy") and hasattr(obj.Proxy, "reload"):
-                if hasattr(obj, "FileName") and obj.FileName:
-                    obj.Proxy.reload(obj)
+        for obj in list(doc.Objects):
+            try:
+                if hasattr(obj, "Proxy") and hasattr(obj.Proxy, "reload"):
+                    if hasattr(obj, "FileName") and obj.FileName:
+                        obj.Proxy.reload(obj)
+            except ReferenceError:
+                continue
 
 
 class FreekiCADWorkbench(FreeCADGui.Workbench):
