@@ -58,12 +58,44 @@ def _load_kicad_env_vars(kicad):
     except Exception:
         pass
 
-    # 3. Environment variables from the OS (highest priority)
+    # 3. Derive KICAD*_3RD_PARTY from the current KiCad version's
+    #    user data directory (set by PCM / Plugin Content Manager).
+    try:
+        data_bases = []
+        if os.name == 'nt':
+            data_bases.append(os.path.join(
+                os.environ.get('USERPROFILE', ''), 'Documents', 'KiCad'))
+        else:
+            data_bases.append(os.path.expanduser('~/Documents/KiCad'))
+            data_bases.append(os.path.expanduser('~/.local/share/kicad'))
+
+        thirdparty_path = None
+        for base in data_bases:
+            for ver in ['9.0', '8.0', '7.0', '6.0']:
+                candidate = os.path.join(base, ver, '3rdparty')
+                if os.path.isdir(candidate):
+                    thirdparty_path = candidate
+                    break
+            if thirdparty_path:
+                break
+
+        if thirdparty_path:
+            for v in range(9, 5, -1):
+                key = f'KICAD{v}_3RD_PARTY'
+                if key not in env:
+                    env[key] = thirdparty_path
+    except Exception:
+        pass
+
+    # 4. Environment variables from the OS (highest priority)
     for key in list(env.keys()):
         os_val = os.environ.get(key)
         if os_val:
             env[key] = os_val
 
+    FreeCAD.Console.PrintMessage(
+        f"FreekiCAD: Loaded path variables: {env}\n"
+    )
     return env
 
 
@@ -77,10 +109,16 @@ def _resolve_model_path(filename, board, kicad_vars):
     except Exception:
         resolved = filename
 
-    # Substitute ${VAR} using our collected variables
+    # Substitute ${VAR} using our collected variables, then OS env
     def _var_sub(m):
         var = m.group(1)
-        return kicad_vars.get(var, m.group(0))
+        val = kicad_vars.get(var) or os.environ.get(var)
+        if not val:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Unresolved variable '${{{var}}}', "
+                f"kicad_vars keys: {list(kicad_vars.keys())}\n"
+            )
+        return val if val else m.group(0)
     resolved = re.sub(r'\$\{(\w+)\}', _var_sub, resolved)
 
     # Prefer .step over .wrl – FreeCAD handles STEP reliably but
@@ -98,42 +136,17 @@ def _resolve_model_path(filename, board, kicad_vars):
 
 
 def _load_step(step_path, doc):
-    """Load a STEP file into the document preserving colors.
-    Returns a list of (shape, diffuse_colors_or_None) for each part.
-    diffuse_colors is a list of (r,g,b,a) tuples, one per face."""
-    results = []
+    """Load a STEP file as a single compound shape.
+    Returns a list with one (shape, None) entry, or [] on failure."""
     try:
-        import ImportGui
-        # Remember existing objects
-        existing = set(o.Name for o in doc.Objects)
-        ImportGui.insert(step_path, doc.Name)
-        # Collect newly created objects
-        new_objs = [o for o in doc.Objects if o.Name not in existing]
-        for obj in new_objs:
-            if hasattr(obj, 'Shape') and not obj.Shape.isNull():
-                colors = None
-                if hasattr(obj, 'ViewObject') and obj.ViewObject:
-                    try:
-                        colors = list(obj.ViewObject.DiffuseColor)
-                    except Exception:
-                        try:
-                            sc = obj.ViewObject.ShapeColor
-                            colors = [sc]
-                        except Exception:
-                            pass
-                results.append((obj.Shape.copy(), colors))
-            doc.removeObject(obj.Name)
-    except Exception:
-        # Fallback to Part.read (no colors)
-        try:
-            shape = Part.read(step_path)
-            if shape and not shape.isNull():
-                results.append((shape, None))
-        except Exception as ex:
-            FreeCAD.Console.PrintWarning(
-                f"FreekiCAD:   Could not read STEP {step_path}: {ex}\n"
-            )
-    return results
+        shape = Part.read(step_path)
+        if shape and not shape.isNull():
+            return [(shape, None)]
+    except Exception as ex:
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD:   Could not read STEP {step_path}: {ex}\n"
+        )
+    return []
 
 
 # Default solder mask color when stackup has no color set.
