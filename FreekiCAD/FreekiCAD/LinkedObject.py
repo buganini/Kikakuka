@@ -646,11 +646,11 @@ def _fit_view(obj):
 
 
 class LinkedObject:
-    """A FeaturePython object that maps an external .kicad_pcb file to a
-    FreeCAD object via kipy (KiCad IPC API).
+    """A group object that maps an external .kicad_pcb file to FreeCAD
+    objects via kipy (KiCad IPC API).
 
-    Acts like a symbolic link: stores a file path and can be reloaded
-    to update the object when the file changes.
+    Uses App::DocumentObjectGroupPython so the board and all component
+    objects are children of this group in the tree view.
     """
 
     def __init__(self, obj):
@@ -663,14 +663,10 @@ class LinkedObject:
             "Automatically reload when the file changes"
         )
         obj.AutoReload = False
-        obj.addProperty(
-            "App::PropertyString", "ComponentsGroup", "LinkedFile",
-            "Internal name of the components group"
-        )
-        obj.setPropertyStatus("ComponentsGroup", "Hidden")
         obj.Proxy = self
         self.Type = "LinkedObject"
         self._file_mtime = None
+        self._board_color = None
 
     def onChanged(self, obj, prop):
         if prop == "FileName":
@@ -687,85 +683,73 @@ class LinkedObject:
                     else:
                         vp._auto_reload_timer.stop()
 
-    def _ensure_components_property(self, obj):
-        """Add ComponentsGroup property if it doesn't exist yet."""
-        if not hasattr(obj, "ComponentsGroup"):
-            obj.addProperty(
-                "App::PropertyString", "ComponentsGroup", "LinkedFile",
-                "Internal name of the components group"
-            )
-            obj.setPropertyStatus("ComponentsGroup", "Hidden")
-
-    def _remove_components(self, obj):
-        """Remove the component group tracked by ComponentsGroup property."""
-        self._ensure_components_property(obj)
-        if not obj.ComponentsGroup:
-            return
+    def _remove_children(self, obj):
+        """Remove all child objects from this group."""
         doc = obj.Document
-        group_name = obj.ComponentsGroup
-        old_group = doc.getObject(group_name)
-        if old_group:
-            children = list(old_group.Group)
+        children = list(obj.Group)
+        if children:
             FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Removing components group '{group_name}' "
-                f"with {len(children)} children\n"
+                f"FreekiCAD: Removing {len(children)} children from '{obj.Name}'\n"
             )
-            for child in children:
-                try:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: Removing component '{child.Name}'\n"
-                    )
-                    doc.removeObject(child.Name)
-                except (ReferenceError, Exception) as e:
-                    FreeCAD.Console.PrintWarning(
-                        f"FreekiCAD: Failed to remove component: {e}\n"
-                    )
-            doc.removeObject(group_name)
-        else:
-            FreeCAD.Console.PrintWarning(
-                f"FreekiCAD: Components group '{group_name}' not found\n"
-            )
-        obj.ComponentsGroup = ""
+        for child in children:
+            try:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: Removing child '{child.Name}'\n"
+                )
+                doc.removeObject(child.Name)
+            except (ReferenceError, Exception) as e:
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: Failed to remove child: {e}\n"
+                )
 
     def execute(self, obj):
         """Load board data from KiCad via kipy, or fall back to a dummy cube."""
-        shape = None
         self._board_color = None
-        if obj.FileName:
-            board_solid, components, board_color = load_board(obj.FileName)
-            self._board_color = board_color
+        if not obj.FileName:
+            return
 
-            # Record file modification time
-            try:
-                self._file_mtime = os.path.getmtime(obj.FileName)
-            except OSError:
-                self._file_mtime = None
+        board_solid, components, board_color = load_board(obj.FileName)
+        self._board_color = board_color
 
-            # Remove old and create new component objects
-            self._remove_components(obj)
-            if components:
-                doc = obj.Document
-                group = doc.addObject("App::DocumentObjectGroup", obj.Name + "_Components")
-                self._ensure_components_property(obj)
-                obj.ComponentsGroup = group.Name
-                for label, comp_shape, comp_colors in components:
-                    comp_obj = doc.addObject("Part::Feature", label)
-                    comp_obj.Shape = comp_shape
-                    if comp_colors and hasattr(comp_obj, 'ViewObject') and comp_obj.ViewObject:
+        # Record file modification time
+        try:
+            self._file_mtime = os.path.getmtime(obj.FileName)
+        except OSError:
+            self._file_mtime = None
+
+        # Remove old children
+        self._remove_children(obj)
+
+        doc = obj.Document
+
+        # Add board shape as a child
+        if board_solid:
+            board_obj = doc.addObject("Part::Feature", obj.Name + "_Board")
+            board_obj.Shape = board_solid
+            if board_color:
+                try:
+                    board_obj.ViewObject.ShapeColor = board_color
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: Applied board color {board_color}\n"
+                    )
+                except Exception:
+                    pass
+            obj.addObject(board_obj)
+
+        # Add component objects as children
+        if components:
+            for label, comp_shape, comp_colors in components:
+                comp_obj = doc.addObject("Part::Feature", label)
+                comp_obj.Shape = comp_shape
+                if comp_colors and hasattr(comp_obj, 'ViewObject') and comp_obj.ViewObject:
+                    try:
+                        comp_obj.ViewObject.DiffuseColor = comp_colors
+                    except Exception:
                         try:
-                            comp_obj.ViewObject.DiffuseColor = comp_colors
+                            comp_obj.ViewObject.ShapeColor = comp_colors[0][:3]
                         except Exception:
-                            try:
-                                comp_obj.ViewObject.ShapeColor = comp_colors[0][:3]
-                            except Exception:
-                                pass
-                    group.addObject(comp_obj)
-
-            shape = board_solid
-
-        if shape is None:
-            shape = Part.makeBox(10, 10, 10)
-        obj.Shape = shape
+                            pass
+                obj.addObject(comp_obj)
 
     def _check_file_changed(self, obj):
         """Return True if the file's mtime has changed since last load."""
@@ -781,7 +765,7 @@ class LinkedObject:
 
     def reload(self, obj):
         """Force reload from KiCad."""
-        self._remove_components(obj)
+        self._remove_children(obj)
         obj.touch()
         obj.Document.recompute()
         _fit_view(obj)
@@ -829,21 +813,6 @@ class LinkedObjectViewProvider:
         if hasattr(obj, "Proxy") and hasattr(obj.Proxy, "reload"):
             obj.Proxy.reload(obj)
 
-    def updateData(self, obj, prop):
-        if prop == "Shape":
-            # Apply board color after shape is set
-            if hasattr(obj, "Proxy") and hasattr(obj.Proxy, "_board_color"):
-                color = obj.Proxy._board_color
-                if color:
-                    try:
-                        obj.ViewObject.ShapeColor = color
-                        FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD: Applied board color {color}\n"
-                        )
-                    except Exception:
-                        pass
-
-
     def dumps(self):
         return None
 
@@ -857,7 +826,7 @@ def create_linked_object(filename=""):
         doc = FreeCAD.newDocument()
 
     label = os.path.splitext(os.path.basename(filename))[0] if filename else "LinkedObject"
-    obj = doc.addObject("Part::FeaturePython", label)
+    obj = doc.addObject("App::DocumentObjectGroupPython", label)
     LinkedObject(obj)
     LinkedObjectViewProvider(obj.ViewObject)
 
