@@ -8,8 +8,8 @@ class CreateLinkedObjectCommand:
 
     def GetResources(self):
         return {
-            "MenuText": "Create Linked File",
-            "ToolTip": "Create an object linked to an external file",
+            "MenuText": "Add KiCad PCB",
+            "ToolTip": "Add a linked KiCad PCB object",
         }
 
     def IsActive(self):
@@ -19,32 +19,30 @@ class CreateLinkedObjectCommand:
         from PySide import QtGui
         from FreekiCAD.LinkedObject import create_linked_object
         filepath, _ = QtGui.QFileDialog.getOpenFileName(
-            None, "Select file to link", "", "All files (*.*)"
+            None, "Select file to link", "", "KiCad PCB (*.kicad_pcb)"
         )
         if filepath:
             create_linked_object(filepath)
 
 
-class ReloadLinkedObjectCommand:
-    """Command to reload a LinkedObject from its file."""
+class ReloadAllLinkedObjectsCommand:
+    """Command to reload all LinkedObjects in the document."""
 
     def GetResources(self):
         return {
-            "MenuText": "Reload Linked File",
-            "ToolTip": "Reload the selected linked object from its file",
+            "MenuText": "Reload All",
+            "ToolTip": "Reload all linked KiCad PCB objects",
         }
 
     def IsActive(self):
-        sel = FreeCADGui.Selection.getSelection()
-        if sel and hasattr(sel[0], "FileName"):
-            return True
-        return False
+        return FreeCAD.ActiveDocument is not None
 
     def Activated(self):
-        sel = FreeCADGui.Selection.getSelection()
-        for obj in sel:
+        doc = FreeCAD.ActiveDocument
+        for obj in doc.Objects:
             if hasattr(obj, "Proxy") and hasattr(obj.Proxy, "reload"):
-                obj.Proxy.reload(obj)
+                if hasattr(obj, "FileName") and obj.FileName:
+                    obj.Proxy.reload(obj)
 
 
 class FreekiCADWorkbench(FreeCADGui.Workbench):
@@ -52,7 +50,7 @@ class FreekiCADWorkbench(FreeCADGui.Workbench):
     ToolTip = "Addon for linking external files to objects"
 
     def Initialize(self):
-        self.appendMenu("FreekiCAD", ["CreateLinkedObject", "ReloadLinkedObject"])
+        self.appendMenu("FreekiCAD", ["CreateLinkedObject", "ReloadAllLinkedObjects"])
 
     def Activated(self):
         pass
@@ -63,4 +61,4 @@ class FreekiCADWorkbench(FreeCADGui.Workbench):
 
 FreeCADGui.addWorkbench(FreekiCADWorkbench)
 FreeCADGui.addCommand("CreateLinkedObject", CreateLinkedObjectCommand())
-FreeCADGui.addCommand("ReloadLinkedObject", ReloadLinkedObjectCommand())
+FreeCADGui.addCommand("ReloadAllLinkedObjects", ReloadAllLinkedObjectsCommand())
