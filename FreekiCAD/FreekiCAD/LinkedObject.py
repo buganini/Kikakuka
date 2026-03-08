@@ -658,14 +658,47 @@ class LinkedObject:
             "App::PropertyFile", "FileName", "LinkedFile",
             "Path to the .kicad_pcb file"
         )
+        obj.addProperty(
+            "App::PropertyBool", "AutoReload", "LinkedFile",
+            "Automatically reload when the file changes"
+        )
+        obj.AutoReload = False
         obj.Proxy = self
         self.Type = "LinkedObject"
+        self._file_mtime = None
+        self._components_group = None
 
     def onChanged(self, obj, prop):
         if prop == "FileName":
             if obj.FileName:
                 obj.Label = os.path.splitext(os.path.basename(obj.FileName))[0]
+            self._file_mtime = None
             self.execute(obj)
+        elif prop == "AutoReload":
+            if hasattr(obj, "ViewObject") and obj.ViewObject and hasattr(obj.ViewObject, "Proxy"):
+                vp = obj.ViewObject.Proxy
+                if hasattr(vp, '_auto_reload_timer'):
+                    if obj.AutoReload:
+                        vp._auto_reload_timer.start(2000)
+                    else:
+                        vp._auto_reload_timer.stop()
+
+    def _remove_components(self, obj):
+        """Remove all component groups matching obj.Name + '_Components*'."""
+        doc = obj.Document
+        prefix = obj.Name + "_Components"
+        for o in list(doc.Objects):
+            try:
+                name = o.Name
+            except ReferenceError:
+                continue
+            if name.startswith(prefix) and o.TypeId == "App::DocumentObjectGroup":
+                for child in list(o.Group):
+                    try:
+                        doc.removeObject(child.Name)
+                    except (ReferenceError, Exception):
+                        pass
+                doc.removeObject(name)
 
     def execute(self, obj):
         """Load board data from KiCad via kipy, or fall back to a dummy cube."""
@@ -675,18 +708,18 @@ class LinkedObject:
             board_solid, components, board_color = load_board(obj.FileName)
             self._board_color = board_color
 
-            # Remove old component objects
-            doc = obj.Document
-            group_name = obj.Name + "_Components"
-            old_group = doc.getObject(group_name)
-            if old_group:
-                for child in old_group.Group:
-                    doc.removeObject(child.Name)
-                doc.removeObject(group_name)
+            # Record file modification time
+            try:
+                self._file_mtime = os.path.getmtime(obj.FileName)
+            except OSError:
+                self._file_mtime = None
 
-            # Create component objects
+            # Remove old and create new component objects
+            self._remove_components(obj)
             if components:
-                group = doc.addObject("App::DocumentObjectGroup", group_name)
+                doc = obj.Document
+                group = doc.addObject("App::DocumentObjectGroup", obj.Name + "_Components")
+                self._components_group = group
                 for label, comp_shape, comp_colors in components:
                     comp_obj = doc.addObject("Part::Feature", label)
                     comp_obj.Shape = comp_shape
@@ -706,8 +739,21 @@ class LinkedObject:
             shape = Part.makeBox(10, 10, 10)
         obj.Shape = shape
 
+    def _check_file_changed(self, obj):
+        """Return True if the file's mtime has changed since last load."""
+        if not obj.FileName:
+            return False
+        try:
+            mtime = os.path.getmtime(obj.FileName)
+        except OSError:
+            return False
+        if not hasattr(self, '_file_mtime') or self._file_mtime is None or mtime != self._file_mtime:
+            return True
+        return False
+
     def reload(self, obj):
         """Force reload from KiCad."""
+        self._remove_components(obj)
         obj.touch()
         obj.Document.recompute()
         _fit_view(obj)
@@ -718,6 +764,8 @@ class LinkedObject:
     def loads(self, state):
         if state:
             self.Type = state.get("Type", "LinkedObject")
+        self._file_mtime = None
+        self._components_group = None
 
 
 class LinkedObjectViewProvider:
@@ -728,6 +776,18 @@ class LinkedObjectViewProvider:
 
     def attach(self, vobj):
         self.Object = vobj.Object
+        from PySide import QtCore
+        self._auto_reload_timer = QtCore.QTimer()
+        self._auto_reload_timer.timeout.connect(lambda: self._auto_reload(vobj))
+        if hasattr(vobj.Object, "AutoReload") and vobj.Object.AutoReload:
+            self._auto_reload_timer.start(2000)
+
+    def _auto_reload(self, vobj):
+        """Called by the timer — reload only if the file has changed."""
+        obj = vobj.Object
+        if hasattr(obj, "Proxy") and hasattr(obj.Proxy, "_check_file_changed"):
+            if obj.Proxy._check_file_changed(obj):
+                obj.Proxy.reload(obj)
 
     def getIcon(self):
         return ":/icons/Tree_Part.svg"
