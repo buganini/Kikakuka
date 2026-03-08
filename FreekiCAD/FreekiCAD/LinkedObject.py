@@ -136,17 +136,53 @@ def _resolve_model_path(filename, board, kicad_vars):
 
 
 def _load_step(step_path, doc):
-    """Load a STEP file as a single compound shape.
-    Returns a list with one (shape, None) entry, or [] on failure."""
+    """Load a STEP file as a single compound shape with colors.
+    Uses Part.read() for the geometry and ImportGui in a temporary
+    document to extract per-face DiffuseColor without polluting
+    the main document.
+    Returns a list with one (shape, colors_or_None) entry, or [] on failure."""
     try:
         shape = Part.read(step_path)
-        if shape and not shape.isNull():
-            return [(shape, None)]
+        if not shape or shape.isNull():
+            return []
     except Exception as ex:
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD:   Could not read STEP {step_path}: {ex}\n"
         )
-    return []
+        return []
+
+    # Extract colors from a temporary document
+    colors = None
+    try:
+        import ImportGui
+        tmp_doc = FreeCAD.newDocument("__FreekiCAD_tmp__")
+        ImportGui.insert(step_path, tmp_doc.Name)
+        # Find the top-level object (compound parent or single part)
+        top = None
+        for obj in tmp_doc.Objects:
+            if hasattr(obj, 'Shape') and not obj.Shape.isNull():
+                if top is None:
+                    top = obj
+                if hasattr(obj, 'Group') and obj.Group:
+                    top = obj
+                    break
+        if top and hasattr(top, 'ViewObject') and top.ViewObject:
+            try:
+                colors = list(top.ViewObject.DiffuseColor)
+            except Exception:
+                try:
+                    colors = [top.ViewObject.ShapeColor]
+                except Exception:
+                    pass
+        FreeCAD.closeDocument(tmp_doc.Name)
+    except Exception:
+        # Clean up temp doc on error
+        try:
+            FreeCAD.closeDocument("__FreekiCAD_tmp__")
+        except Exception:
+            pass
+
+    return [(shape, colors)]
 
 
 # Default solder mask color when stackup has no color set.
