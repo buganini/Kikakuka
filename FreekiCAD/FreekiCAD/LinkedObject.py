@@ -137,26 +137,16 @@ def _resolve_model_path(filename, board, kicad_vars):
 
 def _load_step(step_path, doc):
     """Load a STEP file as a single compound shape with colors.
-    Uses Part.read() for the geometry and ImportGui in a temporary
-    document to extract per-face DiffuseColor without polluting
-    the main document.
+    Uses ImportGui in a temporary document to get both shape and
+    per-face DiffuseColor without polluting the main document.
+    Falls back to Part.read() (no colors) on failure.
     Returns a list with one (shape, colors_or_None) entry, or [] on failure."""
-    try:
-        shape = Part.read(step_path)
-        if not shape or shape.isNull():
-            return []
-    except Exception as ex:
-        FreeCAD.Console.PrintWarning(
-            f"FreekiCAD:   Could not read STEP {step_path}: {ex}\n"
-        )
-        return []
-
-    # Extract colors from a temporary document
-    colors = None
+    # Try ImportGui in a temporary document for shape + colors
     try:
         import ImportGui
         tmp_doc = FreeCAD.newDocument("__FreekiCAD_tmp__")
         ImportGui.insert(step_path, tmp_doc.Name)
+        tmp_doc.recompute()
         # Find the top-level object (compound parent or single part)
         top = None
         for obj in tmp_doc.Objects:
@@ -166,23 +156,42 @@ def _load_step(step_path, doc):
                 if hasattr(obj, 'Group') and obj.Group:
                     top = obj
                     break
-        if top and hasattr(top, 'ViewObject') and top.ViewObject:
-            try:
-                colors = list(top.ViewObject.DiffuseColor)
-            except Exception:
+        if top and hasattr(top, 'Shape') and not top.Shape.isNull():
+            shape = top.Shape.copy()
+            colors = None
+            if hasattr(top, 'ViewObject') and top.ViewObject:
                 try:
-                    colors = [top.ViewObject.ShapeColor]
+                    colors = list(top.ViewObject.DiffuseColor)
                 except Exception:
-                    pass
+                    try:
+                        colors = [top.ViewObject.ShapeColor]
+                    except Exception:
+                        pass
+            FreeCAD.closeDocument(tmp_doc.Name)
+            return [(shape, colors)]
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD:   ImportGui produced no shape for {step_path}\n"
+        )
         FreeCAD.closeDocument(tmp_doc.Name)
-    except Exception:
-        # Clean up temp doc on error
+    except Exception as ex:
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD:   ImportGui failed for {step_path}: {ex}\n"
+        )
         try:
             FreeCAD.closeDocument("__FreekiCAD_tmp__")
         except Exception:
             pass
 
-    return [(shape, colors)]
+    # Fallback to Part.read (no colors)
+    try:
+        shape = Part.read(step_path)
+        if shape and not shape.isNull():
+            return [(shape, None)]
+    except Exception as ex:
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD:   Could not read STEP {step_path}: {ex}\n"
+        )
+    return []
 
 
 # Default solder mask color when stackup has no color set.
@@ -692,14 +701,15 @@ def _fit_view(obj):
 
 
 class LinkedObject:
-    """A group object that maps an external .kicad_pcb file to FreeCAD
-    objects via kipy (KiCad IPC API).
+    """A Part object with group extension that maps an external .kicad_pcb
+    file to FreeCAD objects via kipy (KiCad IPC API).
 
-    Uses App::DocumentObjectGroupPython so the board and all component
-    objects are children of this group in the tree view.
+    Uses Part::FeaturePython + App::GroupExtensionPython so the object
+    has its own Shape and can hold component children in the tree view.
     """
 
     def __init__(self, obj):
+        obj.addExtension("App::GeoFeatureGroupExtensionPython")
         obj.addProperty(
             "App::PropertyFile", "FileName", "LinkedFile",
             "Path to the .kicad_pcb file"
@@ -829,6 +839,7 @@ class LinkedObjectViewProvider:
     """ViewProvider for LinkedObject."""
 
     def __init__(self, vobj):
+        vobj.addExtension("Gui::ViewProviderGeoFeatureGroupExtensionPython")
         vobj.Proxy = self
 
     def attach(self, vobj):
@@ -872,7 +883,7 @@ def create_linked_object(filename=""):
         doc = FreeCAD.newDocument()
 
     label = os.path.splitext(os.path.basename(filename))[0] if filename else "LinkedObject"
-    obj = doc.addObject("App::DocumentObjectGroupPython", label)
+    obj = doc.addObject("Part::FeaturePython", label)
     LinkedObject(obj)
     LinkedObjectViewProvider(obj.ViewObject)
 
