@@ -770,7 +770,6 @@ class _OutlineSketchObserver:
             parent.Proxy._on_outline_changed(parent)
 
     def slotResetEdit(self, obj):
-        return
         """Called when an object exits edit mode (sketch editor closed)."""
         parent = self._find_linked_parent(obj)
         if parent:
