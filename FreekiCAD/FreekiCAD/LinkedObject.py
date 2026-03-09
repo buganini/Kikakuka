@@ -819,6 +819,8 @@ class LinkedObject:
         self._board_color = None
 
     def onChanged(self, obj, prop):
+        if prop not in ("FileName", "AutoReload"):
+            return
         if prop == "FileName":
             # Skip during document restore — shapes are already saved
             if obj.Document.Restoring:
@@ -1177,19 +1179,22 @@ class LinkedObject:
         except OSError:
             return False
         if not hasattr(self, '_file_mtime') or self._file_mtime is None:
-            # First check after restore — record current mtime, no reload
-            self._file_mtime = mtime
-            return False
+            if obj.Document.Restoring:
+                # During restore — record mtime, skip reload
+                self._file_mtime = mtime
+                return False
+            # First load — need to load
+            return True
         if mtime != self._file_mtime:
             return True
         return False
 
-    def reload(self, obj):
-        """Force reload from KiCad.  Skips if file mtime hasn't changed
-        (prevents double-scheduled reloads)."""
+    def reload(self, obj, force=False):
+        """Reload from KiCad.  Unless force=True, skips if file mtime
+        hasn't changed (prevents double-scheduled reloads)."""
         if getattr(self, '_reloading', False):
             return
-        if not self._check_file_changed(obj):
+        if not force and not self._check_file_changed(obj):
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Skipping reload of '{obj.Name}' "
                 "(file unchanged)\n")
@@ -1202,6 +1207,7 @@ class LinkedObject:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Reloading '{obj.Name}'...\n")
             self._suppress_execute = False
+            self._file_mtime = None
             self._remove_children(obj)
             self.execute(obj)
         finally:
@@ -1236,12 +1242,15 @@ class LinkedObjectViewProvider:
         from PySide import QtCore
         self._auto_reload_timer = QtCore.QTimer()
         self._auto_reload_timer.timeout.connect(lambda: self._auto_reload(vobj))
-        if hasattr(vobj.Object, "AutoReload") and vobj.Object.AutoReload:
-            self._auto_reload_timer.start(2000)
+        if not vobj.Object.Document.Restoring:
+            if hasattr(vobj.Object, "AutoReload") and vobj.Object.AutoReload:
+                self._auto_reload_timer.start(2000)
 
     def _auto_reload(self, vobj):
         """Called by the timer — reload only if the file has changed."""
         obj = vobj.Object
+        if obj.Document.Restoring:
+            return
         if hasattr(obj, "Proxy") and hasattr(obj.Proxy, "_check_file_changed"):
             if obj.Proxy._check_file_changed(obj):
                 obj.Proxy.reload(obj)
@@ -1257,7 +1266,7 @@ class LinkedObjectViewProvider:
     def _reload(self, vobj):
         obj = vobj.Object
         if hasattr(obj, "Proxy") and hasattr(obj.Proxy, "reload"):
-            obj.Proxy.reload(obj)
+            obj.Proxy.reload(obj, force=True)
 
     def dumps(self):
         return None
