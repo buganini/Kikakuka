@@ -845,9 +845,8 @@ class LinkedObject:
 
     def reload(self, obj):
         """Force reload from KiCad."""
-        self._remove_children(obj)
-        obj.touch()
-        obj.Document.recompute()
+        self._file_mtime = None
+        self.execute(obj)
         _fit_view(obj)
 
     def dumps(self):
