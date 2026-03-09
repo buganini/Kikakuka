@@ -756,12 +756,20 @@ class _OutlineSketchObserver:
 
     def slotSetEdit(self, obj):
         """Called when an object enters edit mode (sketch editor opened)."""
+        if obj.Document.Restoring:
+            return
         parent = self._find_linked_parent(obj)
         if parent and hasattr(parent, "Proxy"):
             parent.Proxy._on_outline_edit_start(parent)
 
     def slotChangedObject(self, obj, prop):
         if prop not in ("Shape", "Geometry"):
+            return
+        if not hasattr(obj, 'TypeId') or obj.TypeId != "Sketcher::SketchObject":
+            return
+        if not obj.Name.endswith("_Outline"):
+            return
+        if obj.Document.Restoring:
             return
         if obj.Name in self._suppressed:
             return
@@ -771,6 +779,8 @@ class _OutlineSketchObserver:
 
     def slotResetEdit(self, obj):
         """Called when an object exits edit mode (sketch editor closed)."""
+        if obj.Document.Restoring:
+            return
         parent = self._find_linked_parent(obj)
         if parent:
             parent.Proxy._on_outline_edit_done(parent)
@@ -810,11 +820,21 @@ class LinkedObject:
 
     def onChanged(self, obj, prop):
         if prop == "FileName":
+            # Skip during document restore — shapes are already saved
+            if obj.Document.Restoring:
+                return
             if obj.FileName:
                 obj.Label = os.path.splitext(os.path.basename(obj.FileName))[0]
             self._file_mtime = None
-            self._remove_children(obj)
-            self.execute(obj)
+            global _sketch_observer
+            if _sketch_observer is not None:
+                FreeCAD.removeDocumentObserver(_sketch_observer)
+            try:
+                self._remove_children(obj)
+                self.execute(obj)
+            finally:
+                if _sketch_observer is not None:
+                    FreeCAD.addDocumentObserver(_sketch_observer)
         elif prop == "AutoReload":
             if hasattr(obj, "ViewObject") and obj.ViewObject and hasattr(obj.ViewObject, "Proxy"):
                 vp = obj.ViewObject.Proxy
@@ -848,15 +868,24 @@ class LinkedObject:
         self._board_color = None
         if not obj.FileName:
             return
+        if obj.Document.Restoring:
+            return
 
         if getattr(self, '_suppress_execute', False):
             return
         if getattr(self, '_in_execute', False):
             return
+        if not self._check_file_changed(obj):
+            return
         self._in_execute = True
+        global _sketch_observer
+        if _sketch_observer is not None:
+            FreeCAD.removeDocumentObserver(_sketch_observer)
         try:
             self._do_execute(obj)
         finally:
+            if _sketch_observer is not None:
+                FreeCAD.addDocumentObserver(_sketch_observer)
             self._in_execute = False
 
     def _do_execute(self, obj):
@@ -1147,7 +1176,11 @@ class LinkedObject:
             mtime = os.path.getmtime(obj.FileName)
         except OSError:
             return False
-        if not hasattr(self, '_file_mtime') or self._file_mtime is None or mtime != self._file_mtime:
+        if not hasattr(self, '_file_mtime') or self._file_mtime is None:
+            # First check after restore — record current mtime, no reload
+            self._file_mtime = mtime
+            return False
+        if mtime != self._file_mtime:
             return True
         return False
 
@@ -1162,6 +1195,9 @@ class LinkedObject:
                 "(file unchanged)\n")
             return
         self._reloading = True
+        global _sketch_observer
+        if _sketch_observer is not None:
+            FreeCAD.removeDocumentObserver(_sketch_observer)
         try:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Reloading '{obj.Name}'...\n")
@@ -1169,6 +1205,8 @@ class LinkedObject:
             self._remove_children(obj)
             self.execute(obj)
         finally:
+            if _sketch_observer is not None:
+                FreeCAD.addDocumentObserver(_sketch_observer)
             self._reloading = False
         _fit_view(obj)
 
@@ -1178,7 +1216,10 @@ class LinkedObject:
     def loads(self, state):
         if state:
             self.Type = state.get("Type", "LinkedObject")
+        # Set mtime to current value so auto-reload doesn't trigger
+        # immediately after opening a saved file.
         self._file_mtime = None
+        self._board_color = None
 
 
 class LinkedObjectViewProvider:
@@ -1190,7 +1231,8 @@ class LinkedObjectViewProvider:
 
     def attach(self, vobj):
         self.Object = vobj.Object
-        _ensure_sketch_observer()
+        if not vobj.Object.Document.Restoring:
+            _ensure_sketch_observer()
         from PySide import QtCore
         self._auto_reload_timer = QtCore.QTimer()
         self._auto_reload_timer.timeout.connect(lambda: self._auto_reload(vobj))
