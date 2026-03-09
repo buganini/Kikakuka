@@ -8,6 +8,7 @@ It creates a few more dimensions for KiCad:
 * Revisions
 * Build Variants
 * Panelization
+* FreeCAD integration
 
 # Features
 * Workspace Manager
@@ -38,9 +39,10 @@ It creates a few more dimensions for KiCad:
     * Convert saved .kkkk_pnl to kicad files in one command
     * Same usage for panelizer & build variants
 * FreeCAD Integration
-    * `FreekiCAD` support loading multiple .kicad_pcb into a FreeCAD document
+    * `FreekiCAD` supports loading multiple .kicad_pcb files into a FreeCAD document
+    * Designed to work with the `Manipulator` workbench
     * Auto or manual reloading
-    * `kipy` is in used and the workspace manager handles multiple KiCad instances & unix sockets
+    * `kicad-python` is used and the workspace manager handles multiple KiCad instances & API sockets
 
 # Workspace Manager
 The `.kkkk` file saves workspace information in JSON format.

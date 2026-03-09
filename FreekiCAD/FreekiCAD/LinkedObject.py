@@ -728,6 +728,56 @@ def _fit_view(obj):
         pass
 
 
+_sketch_observer = None
+
+
+class _OutlineSketchObserver:
+    """Document observer that detects when an outline sketch is modified."""
+
+    def __init__(self):
+        self._suppressed = set()
+
+    def suppress(self, name):
+        self._suppressed.add(name)
+
+    def unsuppress(self, name):
+        self._suppressed.discard(name)
+
+    def _find_linked_parent(self, obj):
+        """Find the LinkedObject parent of an outline sketch."""
+        if not hasattr(obj, 'TypeId') or obj.TypeId != "Sketcher::SketchObject":
+            return None
+        for parent in obj.InList:
+            proxy = getattr(parent, "Proxy", None)
+            if proxy and hasattr(proxy, '_on_outline_changed'):
+                if obj.Name == parent.Name + "_Outline":
+                    return parent
+        return None
+
+    def slotChangedObject(self, obj, prop):
+        if prop not in ("Shape", "Geometry"):
+            return
+        if obj.Name in self._suppressed:
+            return
+        parent = self._find_linked_parent(obj)
+        if parent:
+            parent.Proxy._on_outline_changed(parent)
+
+    def slotResetEdit(self, obj):
+        """Called when an object exits edit mode (sketch editor closed)."""
+        parent = self._find_linked_parent(obj)
+        if parent:
+            parent.Proxy._on_outline_edit_done(parent)
+
+
+def _ensure_sketch_observer():
+    global _sketch_observer
+    if _sketch_observer is None:
+        _sketch_observer = _OutlineSketchObserver()
+        FreeCAD.addDocumentObserver(_sketch_observer)
+    return _sketch_observer
+
+
 class LinkedObject:
     """A Part object with group extension that maps an external .kicad_pcb
     file to FreeCAD objects via kipy (KiCad IPC API).
@@ -842,11 +892,135 @@ class LinkedObject:
                             pass
                 obj.addObject(comp_obj)
 
+    def _get_kicad_board(self, obj):
+        """Connect to KiCad and return the board proxy, or None."""
+        from kipy.kicad import KiCad
+        from FreekiCAD.workspace_bus import resolve_kicad_socket
+        socket_path = resolve_kicad_socket(obj.FileName)
+        if socket_path is None:
+            FreeCAD.Console.PrintError(
+                "FreekiCAD: Could not resolve KiCad socket\n")
+            return None
+        kicad = KiCad(socket_path=f"ipc://{socket_path}")
+        return kicad.get_board()
+
+    def _find_outline_sketch(self, obj):
+        """Find the outline sketch child, or None."""
+        for child in obj.Group:
+            if child.Name == obj.Name + "_Outline":
+                return child
+        return None
+
+    def _on_outline_changed(self, obj):
+        """Called by the sketch observer when the outline sketch is modified.
+        Rebuilds the Edge.Cuts layer in KiCad."""
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Outline sketch changed for '{obj.Name}', "
+            "sending to KiCad...\n")
+        sketch = self._find_outline_sketch(obj)
+        if sketch is None:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: No outline sketch found for '{obj.Name}'\n")
+            return
+        try:
+            from kipy.proto.board.board_types_pb2 import BoardLayer
+            from kipy.board_types import BoardSegment, BoardArc, BoardCircle
+            from kipy.geometry import Vector2
+
+            board = self._get_kicad_board(obj)
+            if board is None:
+                return
+
+            commit = board.begin_commit()
+
+            # Remove existing Edge.Cuts
+            existing = board.get_shapes()
+            edge_cuts = [s for s in existing
+                         if s.layer == BoardLayer.BL_Edge_Cuts]
+            if edge_cuts:
+                board.remove_items(edge_cuts)
+
+            # Build new Edge.Cuts from sketch geometry
+            new_items = []
+            for i in range(sketch.GeometryCount):
+                geo = sketch.Geometry[i]
+                try:
+                    if isinstance(geo, Part.LineSegment):
+                        seg = BoardSegment()
+                        seg.start = Vector2.from_xy_mm(
+                            geo.StartPoint.x, -geo.StartPoint.y)
+                        seg.end = Vector2.from_xy_mm(
+                            geo.EndPoint.x, -geo.EndPoint.y)
+                        seg.layer = BoardLayer.BL_Edge_Cuts
+                        new_items.append(seg)
+                    elif isinstance(geo, Part.ArcOfCircle):
+                        mid_angle = (geo.FirstParameter
+                                     + geo.LastParameter) / 2
+                        mid_x = (geo.Center.x
+                                 + geo.Radius * math.cos(mid_angle))
+                        mid_y = (geo.Center.y
+                                 + geo.Radius * math.sin(mid_angle))
+                        arc = BoardArc()
+                        arc.start = Vector2.from_xy_mm(
+                            geo.StartPoint.x, -geo.StartPoint.y)
+                        arc.mid = Vector2.from_xy_mm(mid_x, -mid_y)
+                        arc.end = Vector2.from_xy_mm(
+                            geo.EndPoint.x, -geo.EndPoint.y)
+                        arc.layer = BoardLayer.BL_Edge_Cuts
+                        new_items.append(arc)
+                    elif isinstance(geo, Part.Circle):
+                        circle = BoardCircle()
+                        circle.center = Vector2.from_xy_mm(
+                            geo.Center.x, -geo.Center.y)
+                        circle.radius_point = Vector2.from_xy_mm(
+                            geo.Center.x + geo.Radius, -geo.Center.y)
+                        circle.layer = BoardLayer.BL_Edge_Cuts
+                        new_items.append(circle)
+                except Exception as ex:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: Outline geo {i} error: {ex}\n")
+
+            if new_items:
+                board.create_items(new_items)
+
+            board.push_commit(commit,
+                              "Update board outline from FreeCAD")
+
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Sent {len(new_items)} outline shapes to KiCad "
+                f"(removed {len(edge_cuts)} old)\n")
+
+        except Exception as ex:
+            import traceback
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Failed to send outline to KiCad: {ex}\n")
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: {traceback.format_exc()}\n")
+
+    def _on_outline_edit_done(self, obj):
+        """Called when the outline sketch editor is closed.
+        Saves the board file via KiCad, then reloads."""
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Outline sketch editor closed for '{obj.Name}', "
+            "saving board...\n")
+        try:
+            board = self._get_kicad_board(obj)
+            if board is None:
+                return
+            board.save()
+            FreeCAD.Console.PrintMessage("FreekiCAD: Board file saved\n")
+            self.reload(obj)
+        except Exception as ex:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Failed to save board: {ex}\n")
+
     def _build_outline_sketch(self, sketch, edges):
         """Populate a Sketcher::SketchObject with geometry and coincident
         constraints from the sorted outline edges."""
         import Sketcher
 
+        obs = _ensure_sketch_observer()
+        obs.suppress(sketch.Name)
         geo_indices = []
         for edge in edges:
             curve = edge.Curve
@@ -915,6 +1089,8 @@ class LinkedObject:
                         f"between geo {curr} and {nxt}: {ex}\n"
                     )
 
+        obs.unsuppress(sketch.Name)
+
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Built outline sketch with {len(geo_indices)} "
             f"elements and {len(geo_indices)} constraints\n"
@@ -934,6 +1110,8 @@ class LinkedObject:
 
     def reload(self, obj):
         """Force reload from KiCad."""
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Reloading '{obj.Name}'...\n")
         self._file_mtime = None
         self.execute(obj)
         _fit_view(obj)
@@ -956,6 +1134,7 @@ class LinkedObjectViewProvider:
 
     def attach(self, vobj):
         self.Object = vobj.Object
+        _ensure_sketch_observer()
         from PySide import QtCore
         self._auto_reload_timer = QtCore.QTimer()
         self._auto_reload_timer.timeout.connect(lambda: self._auto_reload(vobj))
