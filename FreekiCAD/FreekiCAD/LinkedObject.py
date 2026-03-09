@@ -369,8 +369,9 @@ def _get_board_color(board, filepath):
 
 def load_board(filepath):
     """Connect to a running KiCad instance via kipy and build the board
-    solid + component 3D models.  Returns (board_shape, components, color)
-    where components is a list of (label, shape, color) and color is (r,g,b) or None."""
+    solid + component 3D models.  Returns (board_shape, components, color, outline_edges)
+    where components is a list of (label, shape, color), color is (r,g,b) or None,
+    and outline_edges is a list of sorted Part edges for the board outline."""
     try:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Loading board {filepath}\n")
@@ -462,6 +463,7 @@ def load_board(filepath):
         )
 
         board_solid = None
+        outline_edges = []
         if edges:
             # Get board thickness from stackup
             thickness = DEFAULT_PCB_THICKNESS
@@ -478,7 +480,9 @@ def load_board(filepath):
                     f"FreekiCAD: Could not read stackup, using default {DEFAULT_PCB_THICKNESS}mm: {ex}\n"
                 )
 
-            wire = Part.Wire(Part.sortEdges(edges)[0])
+            sorted_groups = Part.sortEdges(edges)
+            outline_edges = sorted_groups[0]
+            wire = Part.Wire(outline_edges)
             face = Part.Face(wire)
             board_solid = face.extrude(FreeCAD.Vector(0, 0, thickness))
             FreeCAD.Console.PrintMessage(
@@ -701,7 +705,7 @@ def load_board(filepath):
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Loaded {len(components)} component models\n"
         )
-        return board_solid, components, board_color
+        return board_solid, components, board_color, outline_edges
 
     except Exception as e:
         import traceback
@@ -711,7 +715,7 @@ def load_board(filepath):
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD: Traceback:\n{traceback.format_exc()}\n"
         )
-    return None, [], None
+    return None, [], None, []
 
 
 def _fit_view(obj):
@@ -788,7 +792,7 @@ class LinkedObject:
         if not obj.FileName:
             return
 
-        board_solid, components, board_color = load_board(obj.FileName)
+        board_solid, components, board_color, outline_edges = load_board(obj.FileName)
         self._board_color = board_color
 
         # Record file modification time
@@ -801,6 +805,13 @@ class LinkedObject:
         self._remove_children(obj)
 
         doc = obj.Document
+
+        # Add board outline sketch as a child
+        if outline_edges:
+            sketch = doc.addObject("Sketcher::SketchObject",
+                                   obj.Name + "_Outline")
+            obj.addObject(sketch)
+            self._build_outline_sketch(sketch, outline_edges)
 
         # Add board shape as a child
         if board_solid:
@@ -830,6 +841,84 @@ class LinkedObject:
                         except Exception:
                             pass
                 obj.addObject(comp_obj)
+
+    def _build_outline_sketch(self, sketch, edges):
+        """Populate a Sketcher::SketchObject with geometry and coincident
+        constraints from the sorted outline edges."""
+        import Sketcher
+
+        geo_indices = []
+        for edge in edges:
+            curve = edge.Curve
+            try:
+                if isinstance(curve, Part.Line) or isinstance(curve, Part.LineSegment):
+                    p1 = edge.Vertexes[0].Point
+                    p2 = edge.Vertexes[1].Point
+                    seg = Part.LineSegment(
+                        FreeCAD.Vector(p1.x, p1.y, 0),
+                        FreeCAD.Vector(p2.x, p2.y, 0),
+                    )
+                    idx = sketch.addGeometry(seg, False)
+                    geo_indices.append(idx)
+                elif isinstance(curve, Part.Circle):
+                    if edge.isClosed():
+                        # Full circle
+                        circle = Part.Circle(
+                            FreeCAD.Vector(curve.Center.x, curve.Center.y, 0),
+                            FreeCAD.Vector(0, 0, 1),
+                            curve.Radius,
+                        )
+                        idx = sketch.addGeometry(circle, False)
+                        geo_indices.append(idx)
+                    else:
+                        # Arc
+                        p1 = edge.Vertexes[0].Point
+                        p2 = edge.Vertexes[1].Point
+                        mid = edge.valueAt(
+                            (edge.FirstParameter + edge.LastParameter) / 2)
+                        arc = Part.ArcOfCircle(
+                            Part.Circle(
+                                FreeCAD.Vector(curve.Center.x, curve.Center.y, 0),
+                                FreeCAD.Vector(0, 0, 1),
+                                curve.Radius,
+                            ),
+                            edge.FirstParameter,
+                            edge.LastParameter,
+                        )
+                        idx = sketch.addGeometry(arc, False)
+                        geo_indices.append(idx)
+                else:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: Unsupported outline curve type: "
+                        f"{type(curve).__name__}\n"
+                    )
+            except Exception as ex:
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: Failed to add outline geometry: {ex}\n"
+                )
+
+        # Add coincident constraints between consecutive edges
+        if len(geo_indices) >= 2:
+            for i in range(len(geo_indices)):
+                curr = geo_indices[i]
+                nxt = geo_indices[(i + 1) % len(geo_indices)]
+                try:
+                    # End point of current → start point of next
+                    # In Sketcher: point index 1 = start, 2 = end
+                    # For lines/arcs: 1 = start vertex, 2 = end vertex
+                    sketch.addConstraint(
+                        Sketcher.Constraint("Coincident",
+                                            curr, 2, nxt, 1))
+                except Exception as ex:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: Failed to add coincident constraint "
+                        f"between geo {curr} and {nxt}: {ex}\n"
+                    )
+
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Built outline sketch with {len(geo_indices)} "
+            f"elements and {len(geo_indices)} constraints\n"
+        )
 
     def _check_file_changed(self, obj):
         """Return True if the file's mtime has changed since last load."""
