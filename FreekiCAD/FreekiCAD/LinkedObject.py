@@ -754,6 +754,12 @@ class _OutlineSketchObserver:
                     return parent
         return None
 
+    def slotSetEdit(self, obj):
+        """Called when an object enters edit mode (sketch editor opened)."""
+        parent = self._find_linked_parent(obj)
+        if parent and hasattr(parent, "Proxy"):
+            parent.Proxy._on_outline_edit_start(parent)
+
     def slotChangedObject(self, obj, prop):
         if prop not in ("Shape", "Geometry"):
             return
@@ -893,11 +899,27 @@ class LinkedObject:
                             pass
                 obj.addObject(comp_obj)
 
+    def _on_outline_edit_start(self, obj):
+        """Called when the outline sketch enters edit mode.
+        Resolves and caches the KiCad socket path."""
+        from FreekiCAD.workspace_bus import resolve_kicad_socket
+        socket_path = resolve_kicad_socket(obj.FileName)
+        if socket_path is None:
+            FreeCAD.Console.PrintError(
+                "FreekiCAD: Could not resolve KiCad socket\n")
+        else:
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Resolved KiCad socket for '{obj.Name}': "
+                f"{socket_path}\n")
+        self._cached_socket_path = socket_path
+
     def _get_kicad_board(self, obj):
         """Connect to KiCad and return the board proxy, or None."""
         from kipy.kicad import KiCad
-        from FreekiCAD.workspace_bus import resolve_kicad_socket
-        socket_path = resolve_kicad_socket(obj.FileName)
+        socket_path = getattr(self, '_cached_socket_path', None)
+        if socket_path is None:
+            from FreekiCAD.workspace_bus import resolve_kicad_socket
+            socket_path = resolve_kicad_socket(obj.FileName)
         if socket_path is None:
             FreeCAD.Console.PrintError(
                 "FreekiCAD: Could not resolve KiCad socket\n")
