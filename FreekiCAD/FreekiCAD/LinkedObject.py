@@ -12,6 +12,25 @@ def _vec(x_nm, y_nm, z=0):
     return FreeCAD.Vector(x_nm / 1e6, -y_nm / 1e6, z)
 
 
+def _polyline_to_edges(polyline):
+    """Convert a kipy PolyLine to Part edges (lines and arcs)."""
+    result = []
+    nodes = polyline.nodes
+    if not nodes:
+        return result
+    for i in range(len(nodes)):
+        n0 = nodes[i]
+        n1 = nodes[(i + 1) % len(nodes)]
+        p0 = _vec(n0.point.x, n0.point.y)
+        p1 = _vec(n1.point.x, n1.point.y)
+        if hasattr(n1, 'arc') and n1.arc is not None and hasattr(n1.arc, 'mid'):
+            pm = _vec(n1.arc.mid.x, n1.arc.mid.y)
+            result.append(Part.Arc(p0, pm, p1).toShape())
+        else:
+            result.append(Part.makeLine(p0, p1))
+    return result
+
+
 def _load_kicad_env_vars(kicad):
     """Load KiCad path variables from the running KiCad instance and
     its configuration files.  Returns a dict of variable name -> value."""
@@ -380,7 +399,7 @@ def load_board(filepath):
         from kipy.proto.board.board_types_pb2 import BoardLayer
         from kipy.board_types import (
             BoardSegment, BoardCircle, BoardArc, BoardRectangle,
-            to_concrete_board_shape,
+            BoardPolygon, to_concrete_board_shape,
         )
 
         # Resolve the KiCad IPC socket for this file via the
@@ -440,8 +459,9 @@ def load_board(filepath):
                     radius = math.hypot(dx, dy) / 1e6
                     edges.append(Part.makeCircle(radius, center))
                 elif isinstance(concrete, BoardRectangle):
-                    p1 = _vec(concrete.start.x, concrete.start.y)
-                    p2 = _vec(concrete.end.x, concrete.end.y)
+                    p1 = _vec(concrete.top_left.x, concrete.top_left.y)
+                    p2 = _vec(concrete.bottom_right.x,
+                              concrete.bottom_right.y)
                     x0, x1 = min(p1.x, p2.x), max(p1.x, p2.x)
                     y0, y1 = min(p1.y, p2.y), max(p1.y, p2.y)
                     c1 = FreeCAD.Vector(x0, y0, 0)
@@ -452,6 +472,13 @@ def load_board(filepath):
                     edges.append(Part.makeLine(c2, c3))
                     edges.append(Part.makeLine(c3, c4))
                     edges.append(Part.makeLine(c4, c1))
+                elif isinstance(concrete, BoardPolygon):
+                    for pwh in concrete.polygons:
+                        edges.extend(
+                            _polyline_to_edges(pwh.outline))
+                        for hole in pwh.holes:
+                            edges.extend(
+                                _polyline_to_edges(hole))
             except Exception as ex:
                 FreeCAD.Console.PrintWarning(
                     f"FreekiCAD:   shape exception: {ex}\n"
@@ -482,8 +509,14 @@ def load_board(filepath):
 
             sorted_groups = Part.sortEdges(edges)
             outline_edges = sorted_groups[0]
-            wire = Part.Wire(outline_edges)
-            face = Part.Face(wire)
+            wires = [Part.Wire(g) for g in sorted_groups]
+            if len(wires) > 1:
+                face = Part.Face(wires, "Part::FaceMakerBullseye")
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: Board outline has {len(wires) - 1} "
+                    "hole(s)\n")
+            else:
+                face = Part.Face(wires[0])
             board_solid = face.extrude(FreeCAD.Vector(0, 0, thickness))
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Board solid created ({thickness}mm thick)\n"
