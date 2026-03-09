@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <package format="1">
     <name>FreekiCAD</name>
-    <description>FreeCAD addon that maps external files to objects, like symbolic links.</description>
+    <description>FreeCAD workbench for bidirectional KiCad PCB integration via kipy IPC API.</description>
     <version>0.1.0</version>
-    <maintainer email="buganini@gmail.com">Kuan-Chung Chiu</maintainer>
-    <license>LGPL-2.1</license>
+    <maintainer email="buganini@b612.tw">Kuan-Chung Chiu</maintainer>
+    <license>MIT</license>
     <url type="repository">https://github.com/buganini/kikakuka</url>
     <depend type="python">kicad-python</depend>
-    <depend type="python">pyzmq</depend>
     <content>
         <workbench>
             <classname>FreekiCADWorkbench</classname>

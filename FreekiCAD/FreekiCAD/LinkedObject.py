@@ -372,6 +372,9 @@ def load_board(filepath):
     solid + component 3D models.  Returns (board_shape, components, color)
     where components is a list of (label, shape, color) and color is (r,g,b) or None."""
     try:
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Loading board {filepath}\n")
+
         from kipy.kicad import KiCad
         from kipy.proto.board.board_types_pb2 import BoardLayer
         from kipy.board_types import (
@@ -380,9 +383,11 @@ def load_board(filepath):
         )
 
         # Resolve the KiCad IPC socket for this file via the
-        # Kikakuka workspace manager (ZMQ).  The workspace manager
+        # Kikakuka workspace manager.  The workspace manager
         # will start KiCad automatically if needed (async pending).
-        from FreekiCAD.zmq_bus import resolve_kicad_socket
+        from FreekiCAD.workspace_bus import resolve_kicad_socket
+        FreeCAD.Console.PrintMessage(
+            "FreekiCAD: Resolving KiCad socket...\n")
         socket_path = resolve_kicad_socket(filepath)
         if socket_path is None:
             FreeCAD.Console.PrintError(
@@ -390,6 +395,8 @@ def load_board(filepath):
                 f"{filepath}. Is the workspace manager running?\n"
             )
             return None, [], None
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Connecting to KiCad at {socket_path}\n")
         kicad = KiCad(socket_path=f"ipc://{socket_path}")
         board = kicad.get_board()
 

@@ -688,19 +688,17 @@ class MainUI(Application):
         self.commit()
         self.pidmap = {}
 
-        # Start the ZMQ daemon so FreekiCAD can resolve KiCad sockets
-        self._zmq_bus = None
+        # Start the socket daemon so FreekiCAD can resolve KiCad sockets
+        self._bus = None
         try:
-            from zmq_bus import WorkspaceBus
-            self._zmq_bus = WorkspaceBus(
+            from workspace_bus import WorkspaceBus
+            self._bus = WorkspaceBus(
                 lambda: dict(self.pidmap),
                 open_file=self._open_kicad_file,
                 remove_pid=lambda fp: self.pidmap.pop(fp, None),
             )
             import atexit
-            atexit.register(self._shutdown_zmq)
-        except ImportError:
-            print("WorkspaceBus: pyzmq not installed, remote commands disabled")
+            atexit.register(self._shutdown_bus)
         except Exception as e:
             print(f"WorkspaceBus: Could not start: {e}")
 
@@ -710,7 +708,7 @@ class MainUI(Application):
         Called from WorkspaceBus when a resolve request arrives for a
         file not yet in the pidmap.  Returns the PID on success, or None.
 
-        When *bring_to_front* is False (the default for ZMQ callers),
+        When *bring_to_front* is False (the default for WorkspaceBus callers),
         macOS uses ``-g`` so KiCad launches in the background.
         """
         print(f"MainUI: opening KiCad for {filepath}")
@@ -735,10 +733,10 @@ class MainUI(Application):
             print(f"MainUI: could not determine KiCad PID")
         return pid
 
-    def _shutdown_zmq(self):
-        if self._zmq_bus:
-            self._zmq_bus.shutdown()
-            self._zmq_bus = None
+    def _shutdown_bus(self):
+        if self._bus:
+            self._bus.shutdown()
+            self._bus = None
 
     def commit(self):
         f = open(self.cfgfile, "w")
