@@ -813,6 +813,7 @@ class LinkedObject:
             if obj.FileName:
                 obj.Label = os.path.splitext(os.path.basename(obj.FileName))[0]
             self._file_mtime = None
+            self._remove_children(obj)
             self.execute(obj)
         elif prop == "AutoReload":
             if hasattr(obj, "ViewObject") and obj.ViewObject and hasattr(obj.ViewObject, "Proxy"):
@@ -848,6 +849,20 @@ class LinkedObject:
         if not obj.FileName:
             return
 
+        if getattr(self, '_suppress_execute', False):
+            return
+        if getattr(self, '_in_execute', False):
+            return
+        self._in_execute = True
+        try:
+            self._do_execute(obj)
+        finally:
+            self._in_execute = False
+
+    def _do_execute(self, obj):
+        """Internal execute implementation.
+        NOTE: _remove_children must be called BEFORE this method,
+        outside of FreeCAD's recompute cycle."""
         board_solid, components, board_color, outline_edges = load_board(obj.FileName)
         self._board_color = board_color
 
@@ -856,9 +871,6 @@ class LinkedObject:
             self._file_mtime = os.path.getmtime(obj.FileName)
         except OSError:
             self._file_mtime = None
-
-        # Remove old children
-        self._remove_children(obj)
 
         doc = obj.Document
 
@@ -900,7 +912,8 @@ class LinkedObject:
 
     def _on_outline_edit_start(self, obj):
         """Called when the outline sketch enters edit mode.
-        Resolves and caches the KiCad socket path."""
+        Suppresses execute() and resolves the KiCad socket path."""
+        self._suppress_execute = True
         from FreekiCAD.workspace_bus import resolve_kicad_socket
         socket_path = resolve_kicad_socket(obj.FileName)
         if socket_path is None:
@@ -1110,9 +1123,6 @@ class LinkedObject:
                 curr = geo_indices[i]
                 nxt = geo_indices[(i + 1) % len(geo_indices)]
                 try:
-                    # End point of current → start point of next
-                    # In Sketcher: point index 1 = start, 2 = end
-                    # For lines/arcs: 1 = start vertex, 2 = end vertex
                     sketch.addConstraint(
                         Sketcher.Constraint("Coincident",
                                             curr, 2, nxt, 1))
@@ -1142,11 +1152,24 @@ class LinkedObject:
         return False
 
     def reload(self, obj):
-        """Force reload from KiCad."""
-        FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: Reloading '{obj.Name}'...\n")
-        self._file_mtime = None
-        self.execute(obj)
+        """Force reload from KiCad.  Skips if file mtime hasn't changed
+        (prevents double-scheduled reloads)."""
+        if getattr(self, '_reloading', False):
+            return
+        if not self._check_file_changed(obj):
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Skipping reload of '{obj.Name}' "
+                "(file unchanged)\n")
+            return
+        self._reloading = True
+        try:
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Reloading '{obj.Name}'...\n")
+            self._suppress_execute = False
+            self._remove_children(obj)
+            self.execute(obj)
+        finally:
+            self._reloading = False
         _fit_view(obj)
 
     def dumps(self):
