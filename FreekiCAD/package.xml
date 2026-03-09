@@ -3,7 +3,7 @@
     <name>FreekiCAD</name>
     <description>FreeCAD workbench for bidirectional KiCad PCB integration via kipy IPC API.</description>
     <version>0.1.0</version>
-    <maintainer email="buganini@b612.tw">Kuan-Chung Chiu</maintainer>
+    <maintainer email="buganini@b612.tw">Buganini Chiu</maintainer>
     <license>MIT</license>
     <url type="repository">https://github.com/buganini/kikakuka</url>
     <depend type="python">kicad-python</depend>

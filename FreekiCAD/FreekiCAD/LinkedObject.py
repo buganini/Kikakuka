@@ -154,12 +154,19 @@ def _resolve_model_path(filename, board, kicad_vars):
     return None
 
 
-def _load_step(step_path, doc):
+def _load_step(step_path, doc, cache=None):
     """Load a STEP file as a single compound shape with colors.
     Uses ImportGui in a temporary document to get both shape and
     per-face DiffuseColor without polluting the main document.
     Falls back to Part.read() (no colors) on failure.
-    Returns a list with one (shape, colors_or_None) entry, or [] on failure."""
+    Returns a list with one (shape, colors_or_None) entry, or [] on failure.
+    If *cache* dict is provided, results are cached by canonical path."""
+    # Check cache first
+    canonical = os.path.realpath(step_path)
+    if cache is not None and canonical in cache:
+        shape, colors = cache[canonical]
+        return [(shape.copy(), list(colors) if colors else None)]
+
     # Try ImportGui in a temporary document for shape + colors
     try:
         import ImportGui
@@ -203,6 +210,9 @@ def _load_step(step_path, doc):
                 else Part.makeCompound(leaf_shapes)
             colors = all_colors if all_colors else None
             FreeCAD.closeDocument(tmp_doc.Name)
+            if cache is not None:
+                cache[canonical] = (shape.copy(),
+                                    list(colors) if colors else None)
             return [(shape, colors)]
 
         FreeCAD.Console.PrintWarning(
@@ -222,12 +232,107 @@ def _load_step(step_path, doc):
     try:
         shape = Part.read(step_path)
         if shape and not shape.isNull():
+            if cache is not None:
+                cache[canonical] = (shape.copy(), None)
             return [(shape, None)]
     except Exception as ex:
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD:   Could not read STEP {step_path}: {ex}\n"
         )
     return []
+
+
+def _load_footprint_models(fp_info, thickness, doc, step_cache=None):
+    """Load and transform 3D models for a single footprint.
+    Returns (components, model_mtimes) where components is a list of
+    (ref, shape, colors) tuples and model_mtimes is {canonical_path: mtime}."""
+    ref = fp_info['ref']
+    fp_x = fp_info['x']
+    fp_y = fp_info['y']
+    fp_angle = fp_info['angle']
+    is_back = fp_info['is_back']
+
+    components = []
+    mtimes = {}
+
+    for model_info in fp_info['models']:
+        model_path = model_info['path']
+        offset = model_info['offset']
+        rotation = model_info['rotation']
+        scale = model_info['scale']
+
+        # Record model file mtime
+        canonical = os.path.realpath(model_path)
+        try:
+            mt = os.path.getmtime(canonical)
+        except OSError:
+            mt = None
+        mtimes[canonical] = mt
+
+        # Load STEP (check cache status before call)
+        was_cached = step_cache is not None and canonical in step_cache
+        parts = _load_step(model_path, doc, cache=step_cache)
+        if not parts:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD:   {ref}: STEP load returned "
+                f"no shapes: {model_path}\n"
+            )
+            continue
+
+        status = "cache hit" if was_cached else "loaded"
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD:   {ref}: {status} "
+            f"{os.path.basename(model_path)}\n"
+        )
+
+        for part_shape, part_colors in parts:
+            # Apply model scale
+            sx = scale[0] if scale[0] != 0 else 1.0
+            sy = scale[1] if scale[1] != 0 else 1.0
+            sz = scale[2] if scale[2] != 0 else 1.0
+            if sx != 1.0 or sy != 1.0 or sz != 1.0:
+                mat = FreeCAD.Matrix()
+                mat.scale(sx, sy, sz)
+                part_shape = part_shape.transformGeometry(mat)
+
+            # Apply model rotation (degrees, X then Y then Z)
+            origin = FreeCAD.Vector(0, 0, 0)
+            if rotation[0] != 0:
+                part_shape.rotate(
+                    origin, FreeCAD.Vector(1, 0, 0), rotation[0])
+            if rotation[1] != 0:
+                part_shape.rotate(
+                    origin, FreeCAD.Vector(0, 1, 0), rotation[1])
+            if rotation[2] != 0:
+                part_shape.rotate(
+                    origin, FreeCAD.Vector(0, 0, 1), rotation[2])
+
+            # Apply model offset (mm in KiCad)
+            part_shape.translate(FreeCAD.Vector(
+                offset[0], offset[1], offset[2]))
+
+            # Flip for back-side components
+            # KiCad does Ry(180)*Rz(180): (x,y,z)→(x,-y,-z)
+            if is_back:
+                part_shape.rotate(
+                    origin, FreeCAD.Vector(0, 0, 1), 180)
+                part_shape.rotate(
+                    origin, FreeCAD.Vector(0, 1, 0), 180)
+
+            # Apply footprint rotation around origin
+            if fp_angle != 0:
+                part_shape.rotate(
+                    origin, FreeCAD.Vector(0, 0, 1), fp_angle)
+
+            # Move to footprint position
+            # Front on top of board, back at bottom
+            fp_z = thickness if not is_back else 0.0
+            part_shape.translate(
+                FreeCAD.Vector(fp_x, fp_y, fp_z))
+
+            components.append((ref, part_shape, part_colors))
+
+    return components, mtimes
 
 
 # Default solder mask color when stackup has no color set.
@@ -388,9 +493,11 @@ def _get_board_color(board, filepath):
 
 def load_board(filepath):
     """Connect to a running KiCad instance via kipy and build the board
-    solid + component 3D models.  Returns (board_shape, components, color, outline_edges)
-    where components is a list of (label, shape, color), color is (r,g,b) or None,
-    and outline_edges is a list of sorted Part edges for the board outline."""
+    solid + footprint metadata.
+    Returns (board_shape, footprints_data, color, outline_edges, thickness)
+    where footprints_data is a list of dicts with ref/position/models info,
+    color is (r,g,b) or None, outline_edges is a list of sorted Part edges,
+    and thickness is the board thickness in mm."""
     try:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Loading board {filepath}\n")
@@ -414,7 +521,7 @@ def load_board(filepath):
                 "FreekiCAD: Could not resolve KiCad socket for "
                 f"{filepath}. Is the workspace manager running?\n"
             )
-            return None, [], None
+            return None, [], None, [], DEFAULT_PCB_THICKNESS
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Connecting to KiCad at {socket_path}\n")
         kicad = KiCad(socket_path=f"ipc://{socket_path}")
@@ -489,24 +596,24 @@ def load_board(filepath):
             f"FreekiCAD: Edge.Cuts edges collected: {len(edges)}\n"
         )
 
+        # Get board thickness from stackup
+        thickness = DEFAULT_PCB_THICKNESS
+        try:
+            stackup = board.get_stackup()
+            total_nm = sum(layer.thickness for layer in stackup.layers)
+            if total_nm > 0:
+                thickness = total_nm / 1e6
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: Board thickness from stackup: {thickness}mm\n"
+                )
+        except Exception as ex:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Could not read stackup, using default {DEFAULT_PCB_THICKNESS}mm: {ex}\n"
+            )
+
         board_solid = None
         outline_edges = []
         if edges:
-            # Get board thickness from stackup
-            thickness = DEFAULT_PCB_THICKNESS
-            try:
-                stackup = board.get_stackup()
-                total_nm = sum(layer.thickness for layer in stackup.layers)
-                if total_nm > 0:
-                    thickness = total_nm / 1e6
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: Board thickness from stackup: {thickness}mm\n"
-                    )
-            except Exception as ex:
-                FreeCAD.Console.PrintWarning(
-                    f"FreekiCAD: Could not read stackup, using default {DEFAULT_PCB_THICKNESS}mm: {ex}\n"
-                )
-
             sorted_groups = Part.sortEdges(edges)
             outline_edges = sorted_groups[0]
             wires = [Part.Wire(g) for g in sorted_groups]
@@ -601,8 +708,8 @@ def load_board(filepath):
         # --- Board color ---
         board_color = _get_board_color(board, filepath)
 
-        # --- 3D models for footprints ---
-        components = []
+        # --- Footprint metadata (no STEP loading) ---
+        footprints_data = []
         footprints = board.get_footprints()
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Total footprints: {len(footprints)}\n"
@@ -635,6 +742,7 @@ def load_board(filepath):
                     )
                     continue
 
+                models_info = []
                 for model in models:
                     try:
                         if not model.visible:
@@ -647,88 +755,30 @@ def load_board(filepath):
                                 f"{model.filename}\n"
                             )
                             continue
-
-                        fc_doc = FreeCAD.ActiveDocument
-                        parts = _load_step(model_path, fc_doc)
-                        if not parts:
-                            FreeCAD.Console.PrintWarning(
-                                f"FreekiCAD:   {ref}: STEP load returned "
-                                f"no shapes: {model_path}\n"
-                            )
-                            continue
-
-                        FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD:   {ref}: loaded "
-                            f"{os.path.basename(model_path)} "
-                            f"({len(parts)} parts)"
-                            f"  offset=({model.offset.x}, {model.offset.y}, "
-                            f"{model.offset.z})"
-                            f"  rot=({model.rotation.x}, {model.rotation.y}, "
-                            f"{model.rotation.z})"
-                            f"  scale=({model.scale.x}, {model.scale.y}, "
-                            f"{model.scale.z})"
-                            f"  fp_angle={fp_angle} is_back={is_back}\n"
-                        )
-
-                        for part_shape, part_colors in parts:
-                            # Apply model scale
-                            sx = model.scale.x if model.scale.x != 0 else 1.0
-                            sy = model.scale.y if model.scale.y != 0 else 1.0
-                            sz = model.scale.z if model.scale.z != 0 else 1.0
-                            if sx != 1.0 or sy != 1.0 or sz != 1.0:
-                                mat = FreeCAD.Matrix()
-                                mat.scale(sx, sy, sz)
-                                part_shape = part_shape.transformGeometry(mat)
-
-                            # Apply model rotation (degrees, X then Y then Z)
-                            origin = FreeCAD.Vector(0, 0, 0)
-                            if model.rotation.x != 0:
-                                part_shape.rotate(
-                                    origin, FreeCAD.Vector(1, 0, 0),
-                                    model.rotation.x)
-                            if model.rotation.y != 0:
-                                part_shape.rotate(
-                                    origin, FreeCAD.Vector(0, 1, 0),
-                                    model.rotation.y)
-                            if model.rotation.z != 0:
-                                part_shape.rotate(
-                                    origin, FreeCAD.Vector(0, 0, 1),
-                                    model.rotation.z)
-
-                            # Apply model offset (mm in KiCad)
-                            part_shape.translate(FreeCAD.Vector(
-                                model.offset.x,
-                                model.offset.y,
-                                model.offset.z,
-                            ))
-
-                            # Flip for back-side components
-                            # KiCad does Ry(180)*Rz(180): (x,y,z)→(x,-y,-z)
-                            if is_back:
-                                part_shape.rotate(
-                                    origin, FreeCAD.Vector(0, 0, 1), 180)
-                                part_shape.rotate(
-                                    origin, FreeCAD.Vector(0, 1, 0), 180)
-
-                            # Apply footprint rotation around origin
-                            if fp_angle != 0:
-                                part_shape.rotate(
-                                    origin, FreeCAD.Vector(0, 0, 1), fp_angle)
-
-                            # Move to footprint position
-                            # Front on top of board, back at bottom
-                            fp_z = thickness if not is_back else 0.0
-                            part_shape.translate(
-                                FreeCAD.Vector(fp_x, fp_y, fp_z))
-
-                            components.append(
-                                (ref, part_shape, part_colors))
-
+                        models_info.append({
+                            'path': model_path,
+                            'offset': (model.offset.x, model.offset.y,
+                                       model.offset.z),
+                            'rotation': (model.rotation.x, model.rotation.y,
+                                         model.rotation.z),
+                            'scale': (model.scale.x, model.scale.y,
+                                      model.scale.z),
+                        })
                     except Exception as ex:
                         FreeCAD.Console.PrintWarning(
                             f"FreekiCAD:   {ref}: model error: {ex}\n"
                         )
                         continue
+
+                if models_info:
+                    footprints_data.append({
+                        'ref': ref,
+                        'x': fp_x,
+                        'y': fp_y,
+                        'angle': fp_angle,
+                        'is_back': is_back,
+                        'models': models_info,
+                    })
 
             except Exception as ex:
                 FreeCAD.Console.PrintWarning(
@@ -736,9 +786,9 @@ def load_board(filepath):
                 )
 
         FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: Loaded {len(components)} component models\n"
+            f"FreekiCAD: Found {len(footprints_data)} footprints with 3D models\n"
         )
-        return board_solid, components, board_color, outline_edges
+        return board_solid, footprints_data, board_color, outline_edges, thickness
 
     except Exception as e:
         import traceback
@@ -748,7 +798,7 @@ def load_board(filepath):
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD: Traceback:\n{traceback.format_exc()}\n"
         )
-    return None, [], None, []
+    return None, [], None, [], DEFAULT_PCB_THICKNESS
 
 
 def _fit_view(obj):
@@ -846,9 +896,18 @@ class LinkedObject:
             "Automatically reload when the file changes"
         )
         obj.AutoReload = False
+        obj.addProperty(
+            "App::PropertyString", "ComponentMtimes", "LinkedFile",
+            "JSON: per-component model file mtimes for reuse"
+        )
+        obj.setPropertyStatus("ComponentMtimes", "Hidden")
+        obj.addProperty(
+            "App::PropertyString", "FileMtime", "LinkedFile",
+            "Stored mtime of the linked .kicad_pcb file"
+        )
+        obj.setPropertyStatus("FileMtime", "Hidden")
         obj.Proxy = self
         self.Type = "LinkedObject"
-        self._file_mtime = None
         self._board_color = None
 
     def onChanged(self, obj, prop):
@@ -860,12 +919,15 @@ class LinkedObject:
                 return
             if obj.FileName:
                 obj.Label = os.path.splitext(os.path.basename(obj.FileName))[0]
-            self._file_mtime = None
+            self._suppress_execute = True
+            if hasattr(obj, 'FileMtime'):
+                obj.FileMtime = ""
             global _sketch_observer
             if _sketch_observer is not None:
                 FreeCAD.removeDocumentObserver(_sketch_observer)
             try:
                 self._remove_children(obj)
+                self._suppress_execute = False
                 self.execute(obj)
             finally:
                 if _sketch_observer is not None:
@@ -898,9 +960,39 @@ class LinkedObject:
                     f"FreekiCAD: Failed to remove child: {e}\n"
                 )
 
-    def execute(self, obj):
+    def _remove_board_children(self, obj):
+        """Remove outline sketch and board shape children, keep components.
+        Returns dict of {ref: child_obj} for existing component objects,
+        where ref is the designator with the parent name prefix stripped."""
+        doc = obj.Document
+        prefix = obj.Name + "_"
+        existing_components = {}
+        for child in list(obj.Group):
+            if child.Name.endswith("_Outline") or child.Name.endswith("_Board"):
+                try:
+                    doc.removeObject(child.Name)
+                except (ReferenceError, Exception) as e:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: Failed to remove child: {e}\n"
+                    )
+            else:
+                # Strip parent name prefix to get the designator ref
+                label = child.Label
+                if label.startswith(prefix):
+                    ref = label[len(prefix):]
+                else:
+                    ref = label
+                existing_components[ref] = child
+        if existing_components:
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Existing components: "
+                f"{', '.join(existing_components.keys())}\n")
+        return existing_components
+
+    def execute(self, obj, _existing_components=None):
         """Load board data from KiCad via kipy, or fall back to a dummy cube."""
         self._board_color = None
+        self._ensure_properties(obj)
         if not obj.FileName:
             return
         if obj.Document.Restoring:
@@ -917,24 +1009,32 @@ class LinkedObject:
         if _sketch_observer is not None:
             FreeCAD.removeDocumentObserver(_sketch_observer)
         try:
-            self._do_execute(obj)
+            self._do_execute(obj, existing_components=_existing_components)
         finally:
             if _sketch_observer is not None:
                 FreeCAD.addDocumentObserver(_sketch_observer)
             self._in_execute = False
 
-    def _do_execute(self, obj):
+    def _do_execute(self, obj, existing_components=None):
         """Internal execute implementation.
-        NOTE: _remove_children must be called BEFORE this method,
-        outside of FreeCAD's recompute cycle."""
-        board_solid, components, board_color, outline_edges = load_board(obj.FileName)
+        NOTE: board/outline children must be removed BEFORE this method,
+        outside of FreeCAD's recompute cycle.
+        *existing_components*: optional dict {label: child_obj} of component
+        Part::Feature objects to reuse by designator match."""
+        import json
+
+        board_solid, footprints_data, board_color, outline_edges, thickness = \
+            load_board(obj.FileName)
         self._board_color = board_color
 
         # Record file modification time
         try:
-            self._file_mtime = os.path.getmtime(obj.FileName)
+            mt = os.path.getmtime(obj.FileName)
+            if hasattr(obj, 'FileMtime'):
+                obj.FileMtime = str(mt)
         except OSError:
-            self._file_mtime = None
+            if hasattr(obj, 'FileMtime'):
+                obj.FileMtime = ""
 
         doc = obj.Document
 
@@ -959,20 +1059,126 @@ class LinkedObject:
                     pass
             obj.addObject(board_obj)
 
-        # Add component objects as children
-        if components:
-            for label, comp_shape, comp_colors in components:
-                comp_obj = doc.addObject("Part::Feature", label)
-                comp_obj.Shape = comp_shape
-                if comp_colors and hasattr(comp_obj, 'ViewObject') and comp_obj.ViewObject:
-                    try:
-                        comp_obj.ViewObject.DiffuseColor = comp_colors
-                    except Exception:
+        # Load component 3D models on demand, reusing where possible
+        if existing_components is None:
+            existing_components = {}
+        stored_mtimes = {}
+        if existing_components and hasattr(obj, 'ComponentMtimes') \
+                and obj.ComponentMtimes:
+            try:
+                stored_mtimes = json.loads(obj.ComponentMtimes)
+            except Exception:
+                pass
+
+        step_cache = {}
+        all_mtimes = {}
+        matched = set()
+        components = []
+
+        for fp_info in footprints_data:
+            ref = fp_info['ref']
+
+            # Check if this component can be reused from existing objects
+            in_existing = ref in existing_components
+            in_stored = ref in stored_mtimes
+            if in_existing and ref not in matched and in_stored:
+                fp_paths = {os.path.realpath(m['path'])
+                            for m in fp_info['models']}
+                stored = stored_mtimes[ref]
+                if set(stored.keys()) == fp_paths:
+                    can_reuse = True
+                    changed_file = None
+                    for path, old_mt in stored.items():
                         try:
-                            comp_obj.ViewObject.ShapeColor = comp_colors[0][:3]
-                        except Exception:
-                            pass
+                            cur_mt = os.path.getmtime(path)
+                        except OSError:
+                            can_reuse = False
+                            changed_file = path
+                            break
+                        if cur_mt != old_mt:
+                            can_reuse = False
+                            changed_file = path
+                            break
+                    if can_reuse:
+                        matched.add(ref)
+                        all_mtimes[ref] = stored_mtimes[ref]
+                        # Ensure prefixed name for migration
+                        expected = obj.Name + "_" + ref
+                        child = existing_components[ref]
+                        if child.Label != expected:
+                            child.Label = expected
+                        for m in fp_info['models']:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD:   {ref}: reused "
+                                f"{os.path.basename(m['path'])}\n")
+                        continue
+                    else:
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD:   {ref}: mtime changed "
+                            f"({os.path.basename(changed_file)}), "
+                            f"reloading\n")
+                else:
+                    added = fp_paths - set(stored.keys())
+                    removed = set(stored.keys()) - fp_paths
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   {ref}: model paths changed"
+                        f"{' +' + ','.join(os.path.basename(p) for p in added) if added else ''}"
+                        f"{' -' + ','.join(os.path.basename(p) for p in removed) if removed else ''}"
+                        f", reloading\n")
+            elif not in_existing:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   {ref}: new component\n")
+            elif not in_stored:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   {ref}: no stored mtimes\n")
+
+            # Load models on demand
+            fp_components, fp_mtimes = _load_footprint_models(
+                fp_info, thickness, doc, step_cache=step_cache)
+            components.extend(fp_components)
+            if ref not in all_mtimes:
+                all_mtimes[ref] = {}
+            all_mtimes[ref].update(fp_mtimes)
+
+        # Create/update component FreeCAD objects
+        for label, comp_shape, comp_colors in components:
+            if label in existing_components and label not in matched:
+                comp_obj = existing_components[label]
+                comp_obj.Shape = comp_shape
+                # Ensure prefixed name for migration
+                expected = obj.Name + "_" + label
+                if comp_obj.Label != expected:
+                    comp_obj.Label = expected
+                matched.add(label)
+            else:
+                comp_obj = doc.addObject(
+                    "Part::Feature", obj.Name + "_" + label)
+                comp_obj.Shape = comp_shape
                 obj.addObject(comp_obj)
+            if comp_colors and hasattr(comp_obj, 'ViewObject') \
+                    and comp_obj.ViewObject:
+                try:
+                    comp_obj.ViewObject.DiffuseColor = comp_colors
+                except Exception:
+                    try:
+                        comp_obj.ViewObject.ShapeColor = comp_colors[0][:3]
+                    except Exception:
+                        pass
+
+        # Remove unmatched old components
+        for label, child in existing_components.items():
+            if label not in matched:
+                try:
+                    doc.removeObject(child.Name)
+                except (ReferenceError, Exception) as e:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: Failed to remove old component "
+                        f"'{label}': {e}\n"
+                    )
+
+        # Persist model mtimes
+        if hasattr(obj, 'ComponentMtimes'):
+            obj.ComponentMtimes = json.dumps(all_mtimes)
 
     def _on_outline_edit_start(self, obj):
         """Called when the outline sketch enters edit mode.
@@ -1211,14 +1417,22 @@ class LinkedObject:
             mtime = os.path.getmtime(obj.FileName)
         except OSError:
             return False
-        if not hasattr(self, '_file_mtime') or self._file_mtime is None:
+        stored = ""
+        if hasattr(obj, 'FileMtime'):
+            stored = obj.FileMtime
+        if not stored:
             if obj.Document.Restoring:
                 # During restore — record mtime, skip reload
-                self._file_mtime = mtime
+                if hasattr(obj, 'FileMtime'):
+                    obj.FileMtime = str(mtime)
                 return False
             # First load — need to load
             return True
-        if mtime != self._file_mtime:
+        try:
+            stored_mt = float(stored)
+        except (ValueError, TypeError):
+            return True
+        if mtime != stored_mt:
             return True
         return False
 
@@ -1239,11 +1453,20 @@ class LinkedObject:
         try:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Reloading '{obj.Name}'...\n")
-            self._suppress_execute = False
-            self._file_mtime = None
-            self._remove_children(obj)
-            self.execute(obj)
+            self._ensure_properties(obj)
+            self._suppress_execute = True
+            if hasattr(obj, 'FileMtime'):
+                obj.FileMtime = ""
+            existing = self._remove_board_children(obj)
+            # Call _do_execute directly to avoid race: if we set
+            # _suppress_execute=False then call execute(), a queued
+            # FreeCAD recompute can sneak in and call execute() without
+            # existing_components, doing a full fresh load.
+            self._in_execute = True
+            self._do_execute(obj, existing_components=existing)
         finally:
+            self._in_execute = False
+            self._suppress_execute = False
             if _sketch_observer is not None:
                 FreeCAD.addDocumentObserver(_sketch_observer)
             self._reloading = False
@@ -1255,10 +1478,20 @@ class LinkedObject:
     def loads(self, state):
         if state:
             self.Type = state.get("Type", "LinkedObject")
-        # Set mtime to current value so auto-reload doesn't trigger
-        # immediately after opening a saved file.
-        self._file_mtime = None
         self._board_color = None
+
+    def _ensure_properties(self, obj):
+        """Add hidden properties if they don't exist yet (migration)."""
+        if not hasattr(obj, 'ComponentMtimes'):
+            obj.addProperty(
+                "App::PropertyString", "ComponentMtimes", "LinkedFile",
+                "JSON: per-component model file mtimes for reuse")
+            obj.setPropertyStatus("ComponentMtimes", "Hidden")
+        if not hasattr(obj, 'FileMtime'):
+            obj.addProperty(
+                "App::PropertyString", "FileMtime", "LinkedFile",
+                "Stored mtime of the linked .kicad_pcb file")
+            obj.setPropertyStatus("FileMtime", "Hidden")
 
 
 class LinkedObjectViewProvider:
