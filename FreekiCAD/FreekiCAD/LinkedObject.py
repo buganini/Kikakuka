@@ -764,6 +764,7 @@ class _OutlineSketchObserver:
             parent.Proxy._on_outline_changed(parent)
 
     def slotResetEdit(self, obj):
+        return
         """Called when an object exits edit mode (sketch editor closed)."""
         parent = self._find_linked_parent(obj)
         if parent:
@@ -913,7 +914,12 @@ class LinkedObject:
 
     def _on_outline_changed(self, obj):
         """Called by the sketch observer when the outline sketch is modified.
-        Rebuilds the Edge.Cuts layer in KiCad."""
+        Defers the KiCad update to avoid blocking the observer callback."""
+        from PySide import QtCore
+        QtCore.QTimer.singleShot(0, lambda: self._deferred_send_outline(obj))
+
+    def _deferred_send_outline(self, obj):
+        """Rebuild the Edge.Cuts layer in KiCad (runs outside observer)."""
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Outline sketch changed for '{obj.Name}', "
             "sending to KiCad...\n")
@@ -999,10 +1005,16 @@ class LinkedObject:
 
     def _on_outline_edit_done(self, obj):
         """Called when the outline sketch editor is closed.
-        Saves the board file via KiCad, then reloads."""
+        Defers save+reload to the next event loop iteration to avoid
+        modifying the document inside a document observer callback."""
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Outline sketch editor closed for '{obj.Name}', "
-            "saving board...\n")
+            "deferring save+reload...\n")
+        from PySide import QtCore
+        QtCore.QTimer.singleShot(0, lambda: self._deferred_save_reload(obj))
+
+    def _deferred_save_reload(self, obj):
+        """Save board file and reload (runs outside observer callback)."""
         try:
             board = self._get_kicad_board(obj)
             if board is None:
@@ -1012,7 +1024,7 @@ class LinkedObject:
             self.reload(obj)
         except Exception as ex:
             FreeCAD.Console.PrintWarning(
-                f"FreekiCAD: Failed to save board: {ex}\n")
+                f"FreekiCAD: Failed to save/reload board: {ex}\n")
 
     def _build_outline_sketch(self, sketch, edges):
         """Populate a Sketcher::SketchObject with geometry and coincident
