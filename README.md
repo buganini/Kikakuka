@@ -41,9 +41,10 @@ It creates a few more dimensions for KiCad:
 * FreeCAD Integration (only tested on macOS/Windows)
     * Requires FreeCAD 1.0 or later
     * `FreekiCAD` supports loading multiple .kicad_pcb files into a FreeCAD document
+    * Designed to work with the `Manipulator` workbench and FreeCAD's new built-in transform tool
     * A sketch is provided for real-time board outline editing in FreeCAD
-    * Designed to work with the `Manipulator` workbench and FreeCAD's new builtin transform tool
-    * Auto or manual reloading PCB in-place
+    * Components moved in FreeCAD are synced to KiCad in real time
+    * Auto or manual in-place PCB reloading
     * `kicad-python` is used and the workspace manager handles multiple KiCad instances & API sockets
 
 # Workspace Manager
