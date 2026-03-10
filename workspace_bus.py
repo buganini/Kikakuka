@@ -62,10 +62,16 @@ def _kicad_socket_for_pid(pid):
 
     for name in candidates:
         path = os.path.join(sock_dir, name)
-        print(f"WorkspaceBus: checking socket: {path} "
-              f"exists={os.path.exists(path)}")
         if os.path.exists(path):
             return path
+
+    # On Windows, KiCad/nng uses named pipes
+    if platform.system() == 'Windows':
+        pipes = os.listdir(r'\\.\pipe')
+        for name in candidates:
+            pipe = os.path.join(sock_dir, name)
+            if pipe in pipes:
+                return pipe
 
     return None
 
