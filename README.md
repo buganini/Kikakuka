@@ -125,6 +125,30 @@ Auto tab is off for PCB with manual tabs.
 Drag inside the PCB for moving selected tab, drag outside the PCB for changing the direction for the selected tab.
 ![Manual Tab](screenshots/manual_tab.gif)
 
+# FreeCAD Integration
+* Manually install FreekiCAD to FreeCAD
+    * Open FreeCAD's python console: Menubar -> View -> Panels -> Python Console
+    * Get the installation path by executing `print(os.path.join(App.getUserAppDataDir(), "Mod"))` in the Python console
+    * Create the `Mod` folder if it does not exist
+    * Copy the FreekiCAD folder into the `Mod` folder
+    * Install kicad-python into FreeCAD by executing the following command in the Python console
+    ```
+    import subprocess, os, sys; subprocess.check_call([os.path.join(os.path.dirname(sys.executable), "python"), "-m", "pip", "install", "kicad-python"])
+    ```
+    * Restart FreeCAD
+
+* Activate `Preferences -> Plugins -> Enable KiCad API`, then close KiCad (let Kikakuka manage instances).
+* Make sure the Kikakuka Workspace Manager is running.
+* FreeCAD
+    * Add PCB
+        * Switch to the `FreekiCAD` workbench.
+        * Menubar -> FreekiCAD -> Add KiCad PCB
+    * Reload PCB
+        * Right-click on the board object -> Reload KiCad PCB
+    * Edit Board Shape
+        * Expand the object's children.
+        * Open the sketch with the `_Outline` suffix.
+
 # Run from source (Linux/macOS)
 Make sure your python can import `pcbnew`
 ```
@@ -156,31 +180,6 @@ Run
 ```
 ./env/bin/python3 kikakuka.py
 ```
-
-# FreeCAD Integration
-* Manually install FreekiCAD to FreeCAD
-    * Open FreeCAD's python console: Menubar -> View -> Panels -> Python Console
-    * Get the installation path by executing `print(os.path.join(App.getUserAppDataDir(), "Mod"))` in the Python console
-    * Create the `Mod` folder if it does not exist
-    * Copy the FreekiCAD folder into the `Mod` folder
-    * Install kicad-python into FreeCAD by executing
-```
-    import subprocess, os, sys; subprocess.check_call([os.path.join(os.path.dirname(sys.executable), "python"), "-m", "pip", "install", "kicad-python"])
-```
-    in the Python console
-    * Restart FreeCAD
-
-* Activate `Preferences -> Plugins -> Enable KiCad API`, then close KiCad (let Kikakuka manage instances).
-* Make sure the Kikakuka Workspace Manager is running.
-* FreeCAD
-    * Add PCB
-        * Switch to the `FreekiCAD` workbench.
-        * Menubar -> FreekiCAD -> Add KiCad PCB
-    * Reload PCB
-        * Right-click on the board object -> Reload KiCad PCB
-    * Edit Board Shape
-        * Expand the object's children.
-        * Open the sketch with the `_Outline` suffix.
 
 
 # Run from source (Windows)
