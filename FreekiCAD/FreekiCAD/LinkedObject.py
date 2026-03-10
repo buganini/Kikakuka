@@ -880,7 +880,11 @@ class _OutlineSketchObserver:
             return
         parent = self._find_linked_parent(obj)
         if parent:
-            parent.Proxy._on_outline_changed(parent)
+            proxy = parent.Proxy
+            # Ensure KiCad connection if slotInEdit didn't fire (Windows)
+            if getattr(proxy, '_cached_socket_path', None) is None:
+                proxy._on_outline_edit_start(parent)
+            proxy._on_outline_changed(parent)
 
     def slotResetEdit(self, vobj):
         """Called when an object exits edit mode (sketch editor closed).
@@ -929,7 +933,7 @@ class LinkedObject:
             "App::PropertyBool", "AutoReload", "LinkedFile",
             "Automatically reload when the file changes"
         )
-        obj.AutoReload = False
+        obj.AutoReload = True
         obj.addProperty(
             "App::PropertyString", "ComponentMtimes", "LinkedFile",
             "JSON: per-component model file mtimes for reuse"
