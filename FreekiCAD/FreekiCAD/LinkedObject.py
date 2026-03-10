@@ -426,16 +426,17 @@ def _load_footprint_models(fp_info, thickness, doc, step_cache=None):
                 part_shape = part_shape.transformGeometry(mat)
 
             # Apply model rotation (degrees, X then Y then Z)
+            # KiCad negates all rotation angles when applying 3D models
             origin = FreeCAD.Vector(0, 0, 0)
             if rotation[0] != 0:
                 part_shape.rotate(
-                    origin, FreeCAD.Vector(1, 0, 0), rotation[0])
+                    origin, FreeCAD.Vector(1, 0, 0), -rotation[0])
             if rotation[1] != 0:
                 part_shape.rotate(
-                    origin, FreeCAD.Vector(0, 1, 0), rotation[1])
+                    origin, FreeCAD.Vector(0, 1, 0), -rotation[1])
             if rotation[2] != 0:
                 part_shape.rotate(
-                    origin, FreeCAD.Vector(0, 0, 1), rotation[2])
+                    origin, FreeCAD.Vector(0, 0, 1), -rotation[2])
 
             # Apply model offset (mm in KiCad)
             part_shape.translate(FreeCAD.Vector(
