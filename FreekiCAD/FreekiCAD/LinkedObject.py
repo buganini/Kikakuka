@@ -23,7 +23,12 @@ def _polyline_to_edges(polyline):
         n1 = nodes[(i + 1) % len(nodes)]
         p0 = _vec(n0.point.x, n0.point.y)
         p1 = _vec(n1.point.x, n1.point.y)
-        if hasattr(n1, 'arc') and n1.arc is not None and hasattr(n1.arc, 'mid'):
+        # Check for a real arc mid-point; protobuf defaults to (0,0)
+        # which is not a valid mid-point for board outline arcs.
+        has_arc = (hasattr(n1, 'arc') and n1.arc is not None
+                   and hasattr(n1.arc, 'mid')
+                   and (n1.arc.mid.x != 0 or n1.arc.mid.y != 0))
+        if has_arc:
             pm = _vec(n1.arc.mid.x, n1.arc.mid.y)
             result.append(Part.Arc(p0, pm, p1).toShape())
         else:
@@ -640,9 +645,6 @@ def load_board(filepath):
             else:
                 face = Part.Face(wires[0])
             board_solid = face.extrude(FreeCAD.Vector(0, 0, thickness))
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Board solid created ({thickness}mm thick)\n"
-            )
 
             # --- Drill holes ---
             drill_holes = []
@@ -890,15 +892,10 @@ class _OutlineSketchObserver:
         """Called when an object exits edit mode (sketch editor closed).
         Note: Gui observer passes the ViewProvider, not the App object."""
         obj = vobj.Object
-        print(f"WorkspaceBus: slotResetEdit fired: {obj.Name} "
-              f"(TypeId={obj.TypeId})")
         if obj.Document.Restoring:
             return
         parent = self._find_linked_parent(obj)
-        print(f"WorkspaceBus: slotResetEdit parent={parent}")
         if parent:
-            print(f"WorkspaceBus: slotResetEdit cached_socket="
-                  f"{getattr(parent.Proxy, '_cached_socket_path', 'NOT SET')}")
             parent.Proxy._on_outline_edit_done(parent)
 
 
@@ -1434,8 +1431,6 @@ class LinkedObject:
     def _deferred_save(self, obj):
         """Save board file via kipy (runs outside observer callback).
         The mtime watcher will trigger reload if AutoReload is enabled."""
-        print(f"WorkspaceBus: _deferred_save called for '{obj.Name}', "
-              f"cached_socket={getattr(self, '_cached_socket_path', 'NOT SET')}")
         try:
             board = self._get_kicad_board(obj)
             if board is None:
@@ -1489,10 +1484,6 @@ class LinkedObject:
                         geo_indices.append(idx)
                     else:
                         # Arc
-                        p1 = edge.Vertexes[0].Point
-                        p2 = edge.Vertexes[1].Point
-                        mid = edge.valueAt(
-                            (edge.FirstParameter + edge.LastParameter) / 2)
                         arc = Part.ArcOfCircle(
                             Part.Circle(
                                 FreeCAD.Vector(curve.Center.x, curve.Center.y, 0),
