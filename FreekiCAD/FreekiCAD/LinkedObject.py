@@ -1379,7 +1379,18 @@ class LinkedObject:
                         "FreekiCAD_InitPlacement", "Hidden")
                 except Exception:
                     pass
-            comp_obj.FreekiCAD_InitPlacement = comp_obj.Placement
+                # First load: use full placement as init
+                comp_obj.FreekiCAD_InitPlacement = comp_obj.Placement
+            else:
+                # Reload: only update the constrained axes (Z, pitch, roll);
+                # preserve the user's X/Y and yaw.
+                cur = comp_obj.Placement
+                old_init = comp_obj.FreekiCAD_InitPlacement
+                yaw_old, _, _ = old_init.Rotation.getYawPitchRoll()
+                _, pitch_new, roll_new = cur.Rotation.getYawPitchRoll()
+                comp_obj.FreekiCAD_InitPlacement = FreeCAD.Placement(
+                    FreeCAD.Vector(old_init.Base.x, old_init.Base.y, cur.Base.z),
+                    FreeCAD.Rotation(yaw_old, pitch_new, roll_new))
             if not hasattr(comp_obj, 'FreekiCAD_BackSide'):
                 comp_obj.addProperty(
                     "App::PropertyBool", "FreekiCAD_BackSide",
