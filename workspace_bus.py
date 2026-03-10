@@ -119,8 +119,7 @@ class WorkspaceBus:
 
     *open_file* (optional) is called when a ``resolve`` request arrives
     for a file not yet in the pidmap.  It receives the filepath and
-    should return a PID (or ``None``).  It is run in a background thread
-    so the server can respond immediately with ``status: pending``.
+    should return a PID (or ``None``).
     """
 
     def __init__(self, get_pidmap, open_file=None, remove_pid=None):
@@ -220,10 +219,12 @@ class WorkspaceBus:
     def _resolve_socket(self, msg, pidmap):
         """Resolve the KiCad IPC socket for a file, launching KiCad if needed.
 
-        Returns a response dict with 'action', 'socket', 'pid', and
-        optionally 'pending' (True when KiCad was just launched).
+        Returns a response dict with 'action', 'object', 'socket', 'pid',
+        and optionally 'component'.
         """
         action = msg.get("action", "reload")
+        obj_label = msg.get("object", "")
+        component = msg.get("component", "")
         filepath = msg.get("filepath", "")
         pid = pidmap.get(filepath)
 
@@ -282,11 +283,12 @@ class WorkspaceBus:
 
         resp = {
             "action": action,
+            "object": obj_label,
             "socket": socket_path,
             "pid": pid,
         }
-        if launched:
-            resp["pending"] = True
+        if component:
+            resp["component"] = component
         return resp
 
     # -- message handler ------------------------------------------------
@@ -295,7 +297,7 @@ class WorkspaceBus:
         action = msg.get("action")
         pidmap = self._get_pidmap()
 
-        if action in ("reload", "open-sketch"):
+        if action in ("reload", "open-sketch", "move-component"):
             return self._resolve_socket(msg, pidmap)
 
         elif action == "log":

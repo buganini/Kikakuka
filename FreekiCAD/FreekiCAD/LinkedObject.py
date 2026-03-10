@@ -603,18 +603,13 @@ def _get_board_color(board, filepath):
     return _DEFAULT_SOLDER_MASK_COLOR
 
 
-_PENDING = "pending"
-
-
-def load_board(filepath):
+def load_board(filepath, socket_path):
     """Connect to a running KiCad instance via kipy and build the board
     solid + footprint metadata.
     Returns (board_shape, footprints_data, color, outline_edges, thickness)
     where footprints_data is a list of dicts with ref/position/models info,
     color is (r,g,b) or None, outline_edges is a list of sorted Part edges,
-    and thickness is the board thickness in mm.
-    If board_shape is the sentinel ``_PENDING``, the KiCad socket is not
-    ready yet and the caller should retry later."""
+    and thickness is the board thickness in mm."""
     try:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Loading board {filepath}\n")
@@ -626,29 +621,10 @@ def load_board(filepath):
             BoardPolygon, to_concrete_board_shape,
         )
 
-        # Resolve the KiCad IPC socket for this file via the
-        # Kikakuka workspace manager.  Non-blocking: returns
-        # immediately with pending status if KiCad is still starting.
-        from FreekiCAD.workspace_bus import resolve_kicad_socket
-        FreeCAD.Console.PrintMessage(
-            "FreekiCAD: Resolving KiCad socket...\n")
-        socket_path, pending = resolve_kicad_socket(filepath)
-        if pending:
-            return _PENDING, [], None, [], DEFAULT_PCB_THICKNESS
-        if socket_path is None:
-            return None, [], None, [], DEFAULT_PCB_THICKNESS
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Connecting to KiCad at {socket_path}\n")
-        try:
-            kicad = KiCad(socket_path=f"ipc://{socket_path}")
-            board = kicad.get_board()
-        except Exception as e:
-            err = str(e)
-            if "not ready to reply" in err or "Connection refused" in err or "is busy" in err:
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: KiCad is not ready yet, will retry: {e}\n")
-                return _PENDING, [], None, [], DEFAULT_PCB_THICKNESS
-            raise
+        kicad = KiCad(socket_path=f"ipc://{socket_path}")
+        board = kicad.get_board()
 
         # Load KiCad path variables
         kicad_vars = _load_kicad_env_vars(kicad)
@@ -1066,6 +1042,50 @@ class _OutlineSketchObserver:
             parent.Proxy._on_outline_edit_done(parent)
 
 
+def _find_obj_by_label(label):
+    """Find a LinkedObject FreeCAD object by its Label across all documents."""
+    for doc in FreeCAD.listDocuments().values():
+        for obj in doc.Objects:
+            if obj.Label == label:
+                proxy = getattr(obj, 'Proxy', None)
+                if proxy and getattr(proxy, 'Type', None) == 'LinkedObject':
+                    return obj
+    return None
+
+
+def _handle_bus_response(reply):
+    """Global response handler for workspace bus messages.
+    Dispatches to the appropriate LinkedObject method based on
+    action/object/component."""
+    action = reply.get("action")
+    obj_label = reply.get("object", "")
+    socket_path = reply.get("socket")
+    component = reply.get("component", "")
+
+    if not socket_path:
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD: Bus response has no socket: {reply}\n")
+        return
+
+    obj = _find_obj_by_label(obj_label)
+    if obj is None:
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD: Bus response for unknown object '{obj_label}'\n")
+        return
+
+    proxy = obj.Proxy
+
+    if action == "reload":
+        proxy._handle_reload_response(obj, socket_path)
+    elif action == "open-sketch":
+        proxy._handle_open_sketch_response(obj, socket_path)
+    elif action == "move-component":
+        proxy._handle_move_component_response(obj, socket_path, component)
+    else:
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD: Unknown bus action '{action}'\n")
+
+
 def _ensure_sketch_observer():
     global _sketch_observer
     if _sketch_observer is None:
@@ -1075,6 +1095,9 @@ def _ensure_sketch_observer():
         # Gui observer for slotInEdit / slotResetEdit (edit mode)
         import FreeCADGui
         FreeCADGui.addDocumentObserver(_sketch_observer)
+        # Register the global workspace bus response handler
+        from FreekiCAD.workspace_bus import set_response_handler
+        set_response_handler(_handle_bus_response)
     return _sketch_observer
 
 
@@ -1182,60 +1205,17 @@ class LinkedObject:
         Actual KiCad loading is done by reload()."""
         self._ensure_properties(obj)
 
-    _PENDING_RETRY_LIMIT = 5
-
-    def _schedule_retry(self, obj, existing_components=None,
-                        retry_count=0):
-        """Schedule a retry of _do_execute after a short delay
-        when the KiCad socket is not ready yet."""
-        if retry_count >= self._PENDING_RETRY_LIMIT:
-            FreeCAD.Console.PrintError(
-                f"FreekiCAD: Gave up waiting for KiCad socket "
-                f"after {retry_count} retries for '{obj.Name}'\n")
-            return
-
-        from PySide import QtCore
-        timer = QtCore.QTimer()
-        timer.setSingleShot(True)
-
-        def on_timeout():
-            self._pending_timer = None
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Retrying load for '{obj.Name}' "
-                f"({retry_count + 1}/{self._PENDING_RETRY_LIMIT})...\n")
-            self._in_execute = True
-            outline_name = obj.Name + "_Outline"
-            if _sketch_observer is not None:
-                _sketch_observer.suppress(outline_name)
-            try:
-                self._do_execute(obj,
-                                 existing_components=existing_components,
-                                 retry_count=retry_count + 1)
-            finally:
-                if _sketch_observer is not None:
-                    _sketch_observer.unsuppress(outline_name)
-                self._in_execute = False
-
-        timer.timeout.connect(on_timeout)
-        self._pending_timer = timer  # prevent GC
-        timer.start(1000)
-
-    def _do_execute(self, obj, existing_components=None,
-                    retry_count=0):
+    def _do_execute(self, obj, socket_path, existing_components=None):
         """Internal execute implementation.
         NOTE: board/outline children must be removed BEFORE this method,
         outside of FreeCAD's recompute cycle.
+        *socket_path*: resolved KiCad IPC socket path.
         *existing_components*: optional dict {label: child_obj} of component
         Part::Feature objects to reuse by designator match."""
         import json
 
         board_solid, footprints_data, board_color, outline_edges, thickness = \
-            load_board(obj.FileName)
-
-        if board_solid is _PENDING:
-            self._schedule_retry(obj, existing_components,
-                                 retry_count=retry_count)
-            return
+            load_board(obj.FileName, socket_path)
 
         # Freeze the main window to prevent viewport flashing
         # as children are added one by one.
@@ -1431,23 +1411,22 @@ class LinkedObject:
 
     def _on_outline_edit_start(self, obj):
         """Called when the outline sketch enters edit mode.
-        Suppresses execute() and resolves the KiCad socket path."""
+        Suppresses execute() and sends a fire-and-forget request to
+        resolve the KiCad socket path."""
         self._suppress_execute = True
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Outline sketch opened for '{obj.Name}'\n")
-        from FreekiCAD.workspace_bus import resolve_kicad_socket
-        socket_path, _pending = resolve_kicad_socket(
-            obj.FileName, action="open-sketch")
-        if socket_path is None:
-            FreeCAD.Console.PrintError(
-                "FreekiCAD: Could not resolve KiCad socket\n")
-        else:
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Resolved KiCad socket for '{obj.Name}': "
-                f"{socket_path}\n")
+        from FreekiCAD.workspace_bus import send_request
+        send_request("open-sketch", obj.FileName,
+                     object_label=obj.Label)
+
+    def _handle_open_sketch_response(self, obj, socket_path):
+        """Called when the workspace bus responds to an open-sketch request."""
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Resolved KiCad socket for '{obj.Name}': "
+            f"{socket_path}\n")
         self._cached_socket_path = socket_path
-        if socket_path is not None:
-            self._ensure_kicad_connection(obj)
+        self._ensure_kicad_connection(obj)
 
     _KICAD_CONNECT_RETRIES = 30
 
@@ -1760,7 +1739,9 @@ class LinkedObject:
 
     def reload(self, obj, force=False):
         """Reload from KiCad.  Unless force=True, skips if file mtime
-        hasn't changed (prevents double-scheduled reloads)."""
+        hasn't changed (prevents double-scheduled reloads).
+        Sends a fire-and-forget request; the actual loading happens
+        when the response arrives via _handle_reload_response."""
         if getattr(self, '_reloading', False):
             return
         if not force and not self._check_file_changed(obj):
@@ -1769,25 +1750,38 @@ class LinkedObject:
                 "(file unchanged)\n")
             return
         self._reloading = True
+        self._ensure_properties(obj)
+        from FreekiCAD.workspace_bus import send_request
+        send_request("reload", obj.FileName, object_label=obj.Label)
+
+    def _handle_reload_response(self, obj, socket_path):
+        """Called when the workspace bus responds to a reload request."""
         outline_name = obj.Name + "_Outline"
         if _sketch_observer is not None:
             _sketch_observer.suppress(outline_name)
         try:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Reloading '{obj.Name}'...\n")
-            self._ensure_properties(obj)
             self._suppress_execute = True
             if hasattr(obj, 'FileMtime'):
                 obj.FileMtime = ""
             existing = self._remove_board_children(obj)
             self._in_execute = True
-            self._do_execute(obj, existing_components=existing)
+            self._do_execute(obj, socket_path,
+                             existing_components=existing)
         finally:
             self._in_execute = False
             self._suppress_execute = False
             if _sketch_observer is not None:
                 _sketch_observer.unsuppress(outline_name)
             self._reloading = False
+
+    def _handle_move_component_response(self, obj, socket_path, component):
+        """Called when the workspace bus responds to a move-component request.
+        Placeholder for sending component position back to KiCad."""
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: move-component response for '{obj.Name}' "
+            f"component '{component}' socket={socket_path}\n")
 
     def dumps(self):
         return {"Type": self.Type}
