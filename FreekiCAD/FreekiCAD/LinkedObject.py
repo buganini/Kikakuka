@@ -1257,24 +1257,38 @@ class LinkedObject:
 
     def _get_kicad_board(self, obj):
         """Connect to KiCad and return the board proxy, or None."""
-        from kipy.kicad import KiCad
-        socket_path = getattr(self, '_cached_socket_path', None)
-        if socket_path is None:
-            from FreekiCAD.workspace_bus import resolve_kicad_socket
-            socket_path = resolve_kicad_socket(obj.FileName)
-        if socket_path is None:
-            FreeCAD.Console.PrintError(
-                "FreekiCAD: Could not resolve KiCad socket\n")
-            return None
-        try:
+        import time
+        kicad = getattr(self, '_kicad', None)
+        if kicad is None:
+            from kipy.kicad import KiCad
+            socket_path = getattr(self, '_cached_socket_path', None)
+            if socket_path is None:
+                from FreekiCAD.workspace_bus import resolve_kicad_socket
+                socket_path = resolve_kicad_socket(obj.FileName)
+            if socket_path is None:
+                FreeCAD.Console.PrintError(
+                    "FreekiCAD: Could not resolve KiCad socket\n")
+                return None
             kicad = KiCad(socket_path=f"ipc://{socket_path}")
-            return kicad.get_board()
-        except Exception as e:
-            FreeCAD.Console.PrintError(
-                f"FreekiCAD: Failed to connect to KiCad: {e}\n")
-            from FreekiCAD.workspace_bus import report_error
-            report_error(socket_path, e)
-            return None
+            self._kicad = kicad
+        retries = 5
+        for attempt in range(retries):
+            try:
+                return kicad.get_board()
+            except Exception as e:
+                is_transient = ("Connection refused" in str(e)
+                                or "not ready to reply" in str(e))
+                if is_transient and attempt < retries - 1:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: KiCad not ready, retrying "
+                        f"({attempt + 1}/{retries})...\n")
+                    time.sleep(1)
+                    continue
+                FreeCAD.Console.PrintError(
+                    f"FreekiCAD: Failed to connect to KiCad: {e}\n")
+                from FreekiCAD.workspace_bus import report_error
+                report_error(getattr(self, '_cached_socket_path', '?'), e)
+                return None
 
     def _find_outline_sketch(self, obj):
         """Find the outline sketch child, or None."""
