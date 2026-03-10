@@ -1175,7 +1175,31 @@ class LinkedObject:
         if board_solid is _PENDING:
             self._schedule_retry(obj, existing_components,
                                  retry_count=retry_count)
-            return  # _fit_view will be called when retry succeeds
+            return
+
+        # Freeze the main window to prevent viewport flashing
+        # as children are added one by one.
+        _mw = None
+        try:
+            import FreeCADGui
+            _mw = FreeCADGui.getMainWindow()
+            _mw.setUpdatesEnabled(False)
+        except Exception:
+            _mw = None
+
+        try:
+            self.__do_execute_body(obj, board_solid, footprints_data,
+                                   board_color, outline_edges, thickness,
+                                   existing_components)
+        finally:
+            if _mw is not None:
+                _mw.setUpdatesEnabled(True)
+
+    def __do_execute_body(self, obj, board_solid, footprints_data,
+                          board_color, outline_edges, thickness,
+                          existing_components):
+        import json
+        doc = obj.Document
 
         self._board_color = board_color
 
@@ -1187,8 +1211,6 @@ class LinkedObject:
         except OSError:
             if hasattr(obj, 'FileMtime'):
                 obj.FileMtime = ""
-
-        doc = obj.Document
 
         # Add board outline sketch as a child
         if outline_edges:
