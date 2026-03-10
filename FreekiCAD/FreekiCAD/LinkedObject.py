@@ -524,10 +524,6 @@ def load_board(filepath):
         if pending:
             return _PENDING, [], None, [], DEFAULT_PCB_THICKNESS
         if socket_path is None:
-            FreeCAD.Console.PrintError(
-                "FreekiCAD: Could not resolve KiCad socket for "
-                f"{filepath}. Is the workspace manager running?\n"
-            )
             return None, [], None, [], DEFAULT_PCB_THICKNESS
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Connecting to KiCad at {socket_path}\n")
