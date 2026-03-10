@@ -926,6 +926,7 @@ class _OutlineSketchObserver:
     def __init__(self):
         self._suppressed = set()
         self._constraining = False  # re-entrancy guard
+        self._move_timers = {}  # obj.Name → QTimer for debounce
 
     def suppress(self, name):
         self._suppressed.add(name)
@@ -981,7 +982,13 @@ class _OutlineSketchObserver:
             parent = self._find_component_parent(obj)
             if parent is not None:
                 self._constrain_placement(obj)
+                self._schedule_move_component(obj, parent)
                 return
+            elif hasattr(obj, 'TypeId') and obj.TypeId == "Part::Feature":
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: Placement changed on '{obj.Name}' "
+                    f"(Label='{obj.Label}') but no parent found "
+                    f"(InList={[p.Name for p in obj.InList]})\n")
 
         if prop not in ("Shape", "Geometry"):
             return
@@ -1031,8 +1038,79 @@ class _OutlineSketchObserver:
             finally:
                 self._constraining = False
 
+    def _schedule_move_component(self, obj, parent):
+        """Debounce move-component: schedule a KiCad push after 200ms.
+        Cancels any pending timer for the same component so only the
+        final position during a drag is sent."""
+        name = obj.Name
+        if name in self._move_timers:
+            self._move_timers[name].stop()
+
+        # Extract designator from component label: parentName_REF
+        # Use Label (which we explicitly set) rather than Name
+        # (which FreeCAD may auto-rename to avoid conflicts).
+        label = obj.Label
+        prefix = parent.Name + "_"
+        if not label.startswith(prefix):
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Cannot extract ref from '{label}' "
+                f"(expected prefix '{prefix}')\n")
+            return
+        ref = label[len(prefix):]
+        if not ref:
+            return
+
+        from PySide import QtCore
+        timer = QtCore.QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(
+            lambda: self._send_move_component(obj, parent, ref))
+        self._move_timers[name] = timer
+        timer.start(200)
+
+    def _send_move_component(self, obj, parent, ref):
+        """Send move-component request to workspace bus."""
+        self._move_timers.pop(obj.Name, None)
+        try:
+            if not hasattr(obj, 'FreekiCAD_KiCadX'):
+                return
+            init_p = getattr(obj, 'FreekiCAD_InitPlacement', None)
+            if init_p is None:
+                return
+
+            p = obj.Placement
+            # Compute delta from initial FreeCAD placement
+            delta_x = p.Base.x - init_p.Base.x
+            delta_y = p.Base.y - init_p.Base.y
+            yaw, _, _ = p.Rotation.getYawPitchRoll()
+            init_yaw, _, _ = init_p.Rotation.getYawPitchRoll()
+            delta_yaw = yaw - init_yaw
+
+            # Apply delta to original KiCad coordinates
+            # FreeCAD coords: x_mm, y_mm (Y already negated from KiCad)
+            # KiCad API via kipy Vector2.from_xy_mm takes mm with
+            # KiCad sign convention (Y negated back)
+            new_kicad_x = obj.FreekiCAD_KiCadX + delta_x
+            new_kicad_y = obj.FreekiCAD_KiCadY + delta_y
+            new_kicad_angle = obj.FreekiCAD_KiCadAngle + delta_yaw
+
+            from FreekiCAD.workspace_bus import send_request
+            send_request("move-component", parent.FileName,
+                         object_label=parent.Label, component=ref)
+            # Stash computed coordinates on the proxy for the response
+            # handler to use.
+            parent.Proxy._pending_move = {
+                'ref': ref,
+                'x': new_kicad_x,
+                'y': new_kicad_y,
+                'angle': new_kicad_angle,
+            }
+        except Exception as e:
+            FreeCAD.Console.PrintError(
+                f"FreekiCAD: _send_move_component error: {e}\n")
+
     def slotResetEdit(self, vobj):
-        """Called when an object exits edit mode (sketch editor closed).
+        """Called when an object exits edit mode (sketch/transform closed).
         Note: Gui observer passes the ViewProvider, not the App object."""
         obj = vobj.Object
         if getattr(obj.Document, 'Restoring', False):
@@ -1040,6 +1118,27 @@ class _OutlineSketchObserver:
         parent = self._find_linked_parent(obj)
         if parent:
             parent.Proxy._on_outline_edit_done(parent)
+            return
+        # Component transform tool closed — trigger KiCad save
+        parent = self._find_component_parent(obj)
+        if parent is not None:
+            from PySide import QtCore
+            QtCore.QTimer.singleShot(
+                0, lambda: self._deferred_component_save(parent))
+
+    def _deferred_component_save(self, parent):
+        """Save KiCad board after component transform tool is closed."""
+        proxy = parent.Proxy
+        try:
+            board = proxy._get_kicad_board(parent)
+            if board is None:
+                return
+            board.save()
+            FreeCAD.Console.PrintMessage(
+                "FreekiCAD: Board file saved after component move\n")
+        except Exception as e:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Failed to save board after move: {e}\n")
 
 
 def _find_obj_by_label(label):
@@ -1288,9 +1387,14 @@ class LinkedObject:
         all_mtimes = {}
         matched = set()
         components = []
+        # Map ref → (kicad_x_mm, kicad_y_mm, kicad_angle_deg)
+        # for storing original KiCad coordinates on component objects.
+        kicad_coords = {}
 
         for fp_info in footprints_data:
             ref = fp_info['ref']
+            kicad_coords[ref] = (fp_info['x'], fp_info['y'],
+                                 fp_info['angle'])
 
             # Check if this component can be reused from existing objects
             in_existing = ref in existing_components
@@ -1321,6 +1425,11 @@ class LinkedObject:
                         child = existing_components[ref]
                         if child.Label != expected:
                             child.Label = expected
+                        # Update placement from new KiCad position
+                        kc = kicad_coords.get(ref)
+                        if kc is not None:
+                            self._update_reused_component(
+                                child, kc, thickness, fp_info)
                         for m in fp_info['models']:
                             FreeCAD.Console.PrintMessage(
                                 f"FreekiCAD:   {ref}: reused "
@@ -1401,6 +1510,23 @@ class LinkedObject:
                 except Exception:
                     pass
             comp_obj.FreekiCAD_BackSide = comp_is_back
+            # Store original KiCad coordinates for move-component
+            kc = kicad_coords.get(label)
+            if kc is not None:
+                for pname in ('FreekiCAD_KiCadX', 'FreekiCAD_KiCadY',
+                              'FreekiCAD_KiCadAngle'):
+                    if not hasattr(comp_obj, pname):
+                        comp_obj.addProperty(
+                            "App::PropertyFloat", pname,
+                            "FreekiCAD",
+                            "Original KiCad coordinate")
+                        try:
+                            comp_obj.setPropertyStatus(pname, "Hidden")
+                        except Exception:
+                            pass
+                comp_obj.FreekiCAD_KiCadX = kc[0]
+                comp_obj.FreekiCAD_KiCadY = kc[1]
+                comp_obj.FreekiCAD_KiCadAngle = kc[2]
             if comp_colors and hasattr(comp_obj, 'ViewObject') \
                     and comp_obj.ViewObject:
                 _write_face_colors(comp_obj.ViewObject, comp_colors)
@@ -1419,6 +1545,66 @@ class LinkedObject:
         # Persist model mtimes
         if hasattr(obj, 'ComponentMtimes'):
             obj.ComponentMtimes = json.dumps(all_mtimes)
+
+    def _update_reused_component(self, comp_obj, kc, thickness, fp_info):
+        """Update placement and KiCad coords for a reused component
+        whose 3D model hasn't changed but whose KiCad position may have.
+        *kc* is (new_kicad_x_mm, new_kicad_y_mm, new_kicad_angle_deg)
+        in FreeCAD coordinates (Y already negated)."""
+        if not hasattr(comp_obj, 'FreekiCAD_KiCadX'):
+            return
+        old_x = comp_obj.FreekiCAD_KiCadX
+        old_y = comp_obj.FreekiCAD_KiCadY
+        old_angle = comp_obj.FreekiCAD_KiCadAngle
+        new_x, new_y, new_angle = kc
+
+        dx = new_x - old_x
+        dy = new_y - old_y
+        da = new_angle - old_angle
+
+        if abs(dx) < 1e-6 and abs(dy) < 1e-6 and abs(da) < 1e-4:
+            return  # No change
+
+        # The shape is baked at the old position. Apply a Placement
+        # delta so the component appears at the new position.
+        # Rotation delta around Z at the old footprint position,
+        # then translate by (dx, dy).
+        p = comp_obj.Placement
+        if abs(da) > 1e-4:
+            # Rotate around the old footprint center
+            rot_center = FreeCAD.Vector(old_x, old_y, 0)
+            delta_rot = FreeCAD.Placement(
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), da),
+                rot_center)
+            p = delta_rot.multiply(p)
+        p.Base = FreeCAD.Vector(p.Base.x + dx, p.Base.y + dy, p.Base.z)
+        comp_obj.Placement = p
+
+        # Update stored KiCad coordinates
+        comp_obj.FreekiCAD_KiCadX = new_x
+        comp_obj.FreekiCAD_KiCadY = new_y
+        comp_obj.FreekiCAD_KiCadAngle = new_angle
+
+        # Update InitPlacement constrained axes
+        if hasattr(comp_obj, 'FreekiCAD_InitPlacement'):
+            init_p = comp_obj.FreekiCAD_InitPlacement
+            is_back = getattr(comp_obj, 'FreekiCAD_BackSide', False)
+            fp_z = thickness if not is_back else 0.0
+            yaw_old, _, _ = init_p.Rotation.getYawPitchRoll()
+            comp_obj.FreekiCAD_InitPlacement = FreeCAD.Placement(
+                FreeCAD.Vector(init_p.Base.x + dx, init_p.Base.y + dy,
+                               fp_z),
+                FreeCAD.Rotation(yaw_old - da, 0, 0))
+
+        # Update BackSide
+        is_back = fp_info.get('is_back', False)
+        if hasattr(comp_obj, 'FreekiCAD_BackSide'):
+            comp_obj.FreekiCAD_BackSide = is_back
+
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD:   {comp_obj.Label}: updated placement "
+            f"(Δx={dx:.3f}, Δy={dy:.3f}, Δangle={da:.1f}°)\n")
 
     def _on_outline_edit_start(self, obj):
         """Called when the outline sketch enters edit mode.
@@ -1789,10 +1975,69 @@ class LinkedObject:
 
     def _handle_move_component_response(self, obj, socket_path, component):
         """Called when the workspace bus responds to a move-component request.
-        Placeholder for sending component position back to KiCad."""
-        FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: move-component response for '{obj.Name}' "
-            f"component '{component}' socket={socket_path}\n")
+        Pushes the component's new position/angle to KiCad via kipy."""
+        move = getattr(self, '_pending_move', None)
+        if move is None or move.get('ref') != component:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: No pending move for '{component}'\n")
+            return
+        self._pending_move = None
+
+        try:
+            from kipy.kicad import KiCad
+            from kipy.geometry import Vector2, Angle
+
+            kicad = KiCad(socket_path=f"ipc://{socket_path}")
+            board = kicad.get_board()
+
+            # Find the footprint by reference designator
+            target_fp = None
+            for fp in board.get_footprints():
+                try:
+                    ref = fp.reference_field.text.value
+                except Exception:
+                    continue
+                if ref == component:
+                    target_fp = fp
+                    break
+
+            if target_fp is None:
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: Footprint '{component}' not found "
+                    f"in KiCad board\n")
+                return
+
+            # Apply new position (FreeCAD mm → KiCad mm, negate Y back)
+            new_x = move['x']
+            new_y = -move['y']  # negate Y back to KiCad convention
+            new_angle = move['angle']
+
+            commit = board.begin_commit()
+            target_fp.position = Vector2.from_xy_mm(new_x, new_y)
+            target_fp.orientation = Angle.from_degrees(new_angle)
+            board.update_items([target_fp])
+            board.push_commit(commit,
+                              f"Move {component} from FreeCAD")
+
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Moved '{component}' in KiCad to "
+                f"({new_x:.3f}, {new_y:.3f}) mm, "
+                f"angle {new_angle:.1f}°\n")
+
+            # Update stored mtime so auto-reload doesn't trigger a
+            # redundant full reload after we just pushed this change.
+            try:
+                mt = os.path.getmtime(obj.FileName)
+                if hasattr(obj, 'FileMtime'):
+                    obj.FileMtime = str(mt)
+            except OSError:
+                pass
+
+        except Exception as e:
+            import traceback
+            FreeCAD.Console.PrintError(
+                f"FreekiCAD: Failed to move '{component}' in KiCad: "
+                f"{e}\n{traceback.format_exc()}\n")
 
     def dumps(self):
         return {"Type": self.Type}
