@@ -527,13 +527,14 @@ def load_board(filepath):
             return None, [], None, [], DEFAULT_PCB_THICKNESS
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Connecting to KiCad at {socket_path}\n")
-        kicad = KiCad(socket_path=f"ipc://{socket_path}")
         try:
+            kicad = KiCad(socket_path=f"ipc://{socket_path}")
             board = kicad.get_board()
         except Exception as e:
-            if "not ready to reply" in str(e):
+            err = str(e)
+            if "not ready to reply" in err or "Connection refused" in err or "is busy" in err:
                 FreeCAD.Console.PrintMessage(
-                    "FreekiCAD: KiCad is not ready yet, will retry...\n")
+                    f"FreekiCAD: KiCad is not ready yet, will retry: {e}\n")
                 return _PENDING, [], None, [], DEFAULT_PCB_THICKNESS
             raise
 
@@ -596,6 +597,10 @@ def load_board(filepath):
                         for hole in pwh.holes:
                             edges.extend(
                                 _polyline_to_edges(hole))
+                else:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD:   Unhandled Edge.Cuts shape: "
+                        f"{type(concrete).__name__}\n")
             except Exception as ex:
                 FreeCAD.Console.PrintWarning(
                     f"FreekiCAD:   shape exception: {ex}\n"
@@ -852,8 +857,10 @@ class _OutlineSketchObserver:
                     return parent
         return None
 
-    def slotSetEdit(self, obj):
-        """Called when an object enters edit mode (sketch editor opened)."""
+    def slotInEdit(self, vobj):
+        """Called when an object enters edit mode (sketch editor opened).
+        Note: Gui observer passes the ViewProvider, not the App object."""
+        obj = vobj.Object
         if obj.Document.Restoring:
             return
         parent = self._find_linked_parent(obj)
@@ -875,12 +882,19 @@ class _OutlineSketchObserver:
         if parent:
             parent.Proxy._on_outline_changed(parent)
 
-    def slotResetEdit(self, obj):
-        """Called when an object exits edit mode (sketch editor closed)."""
+    def slotResetEdit(self, vobj):
+        """Called when an object exits edit mode (sketch editor closed).
+        Note: Gui observer passes the ViewProvider, not the App object."""
+        obj = vobj.Object
+        print(f"WorkspaceBus: slotResetEdit fired: {obj.Name} "
+              f"(TypeId={obj.TypeId})")
         if obj.Document.Restoring:
             return
         parent = self._find_linked_parent(obj)
+        print(f"WorkspaceBus: slotResetEdit parent={parent}")
         if parent:
+            print(f"WorkspaceBus: slotResetEdit cached_socket="
+                  f"{getattr(parent.Proxy, '_cached_socket_path', 'NOT SET')}")
             parent.Proxy._on_outline_edit_done(parent)
 
 
@@ -888,7 +902,11 @@ def _ensure_sketch_observer():
     global _sketch_observer
     if _sketch_observer is None:
         _sketch_observer = _OutlineSketchObserver()
+        # App observer for slotChangedObject (geometry changes)
         FreeCAD.addDocumentObserver(_sketch_observer)
+        # Gui observer for slotInEdit / slotResetEdit (edit mode)
+        import FreeCADGui
+        FreeCADGui.addDocumentObserver(_sketch_observer)
     return _sketch_observer
 
 
@@ -899,6 +917,7 @@ class LinkedObject:
     Uses Part::FeaturePython + App::GroupExtensionPython so the object
     has its own Shape and can hold component children in the tree view.
     """
+
 
     def __init__(self, obj):
         obj.addExtension("App::GeoFeatureGroupExtensionPython")
@@ -937,24 +956,10 @@ class LinkedObject:
             self._suppress_execute = True
             if hasattr(obj, 'FileMtime'):
                 obj.FileMtime = ""
-            global _sketch_observer
-            if _sketch_observer is not None:
-                FreeCAD.removeDocumentObserver(_sketch_observer)
-            try:
-                self._remove_children(obj)
-                self._suppress_execute = False
-                self.execute(obj)
-            finally:
-                if _sketch_observer is not None:
-                    FreeCAD.addDocumentObserver(_sketch_observer)
-        elif prop == "AutoReload":
-            if hasattr(obj, "ViewObject") and obj.ViewObject and hasattr(obj.ViewObject, "Proxy"):
-                vp = obj.ViewObject.Proxy
-                if hasattr(vp, '_auto_reload_timer'):
-                    if obj.AutoReload:
-                        vp._auto_reload_timer.start(2000)
-                    else:
-                        vp._auto_reload_timer.stop()
+            self._remove_children(obj)
+            self._suppress_execute = False
+            # mtime watcher (always running) will detect the
+            # cleared FileMtime and trigger reload
 
     def _remove_children(self, obj):
         """Remove all child objects from this group."""
@@ -1004,31 +1009,10 @@ class LinkedObject:
                 f"{', '.join(existing_components.keys())}\n")
         return existing_components
 
-    def execute(self, obj, _existing_components=None):
-        """Load board data from KiCad via kipy, or fall back to a dummy cube."""
-        self._board_color = None
+    def execute(self, obj):
+        """Called by FreeCAD recompute.  Only ensures properties exist.
+        Actual KiCad loading is done by reload()."""
         self._ensure_properties(obj)
-        if not obj.FileName:
-            return
-        if obj.Document.Restoring:
-            return
-
-        if getattr(self, '_suppress_execute', False):
-            return
-        if getattr(self, '_in_execute', False):
-            return
-        if not self._check_file_changed(obj):
-            return
-        self._in_execute = True
-        global _sketch_observer
-        if _sketch_observer is not None:
-            FreeCAD.removeDocumentObserver(_sketch_observer)
-        try:
-            self._do_execute(obj, existing_components=_existing_components)
-        finally:
-            if _sketch_observer is not None:
-                FreeCAD.addDocumentObserver(_sketch_observer)
-            self._in_execute = False
 
     _PENDING_RETRY_LIMIT = 5
 
@@ -1052,16 +1036,16 @@ class LinkedObject:
                 f"FreekiCAD: Retrying load for '{obj.Name}' "
                 f"({retry_count + 1}/{self._PENDING_RETRY_LIMIT})...\n")
             self._in_execute = True
-            global _sketch_observer
+            outline_name = obj.Name + "_Outline"
             if _sketch_observer is not None:
-                FreeCAD.removeDocumentObserver(_sketch_observer)
+                _sketch_observer.suppress(outline_name)
             try:
                 self._do_execute(obj,
                                  existing_components=existing_components,
                                  retry_count=retry_count + 1)
             finally:
                 if _sketch_observer is not None:
-                    FreeCAD.addDocumentObserver(_sketch_observer)
+                    _sketch_observer.unsuppress(outline_name)
                 self._in_execute = False
 
         timer.timeout.connect(on_timeout)
@@ -1244,8 +1228,11 @@ class LinkedObject:
         """Called when the outline sketch enters edit mode.
         Suppresses execute() and resolves the KiCad socket path."""
         self._suppress_execute = True
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Outline sketch opened for '{obj.Name}'\n")
         from FreekiCAD.workspace_bus import resolve_kicad_socket
-        socket_path = resolve_kicad_socket(obj.FileName)
+        socket_path, _pending = resolve_kicad_socket(
+            obj.FileName, action="open-sketch")
         if socket_path is None:
             FreeCAD.Console.PrintError(
                 "FreekiCAD: Could not resolve KiCad socket\n")
@@ -1254,40 +1241,82 @@ class LinkedObject:
                 f"FreekiCAD: Resolved KiCad socket for '{obj.Name}': "
                 f"{socket_path}\n")
         self._cached_socket_path = socket_path
+        if socket_path is not None:
+            self._ensure_kicad_connection(obj)
+
+    _KICAD_CONNECT_RETRIES = 30
+
+    def _ensure_kicad_connection(self, obj, attempt=0):
+        """Establish KiCad connection in the background with retries."""
+        from kipy.kicad import KiCad
+        socket_path = getattr(self, '_cached_socket_path', None)
+        if socket_path is None:
+            return
+        try:
+            kicad = KiCad(socket_path=f"ipc://{socket_path}")
+            kicad.get_board()
+            self._kicad = kicad
+            FreeCAD.Console.PrintMessage(
+                "FreekiCAD: KiCad connection ready\n")
+        except Exception as e:
+            import traceback
+            self._kicad = None
+            err = str(e)
+            limit = self._KICAD_CONNECT_RETRIES
+            if attempt < limit and ("Connection refused" in err
+                                    or "not ready to reply" in err
+                                    or "is busy" in err):
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: KiCad not ready ({type(e).__name__}: {e}), "
+                    f"retrying ({attempt + 1}/{limit})...\n")
+                from PySide import QtCore
+                QtCore.QTimer.singleShot(
+                    1000,
+                    lambda: self._ensure_kicad_connection(obj, attempt + 1))
+            else:
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: Could not pre-connect to KiCad: "
+                    f"{type(e).__name__}: {e}\n"
+                    f"{traceback.format_exc()}\n")
 
     def _get_kicad_board(self, obj):
         """Connect to KiCad and return the board proxy, or None."""
-        import time
-        kicad = getattr(self, '_kicad', None)
-        if kicad is None:
-            from kipy.kicad import KiCad
-            socket_path = getattr(self, '_cached_socket_path', None)
-            if socket_path is None:
-                from FreekiCAD.workspace_bus import resolve_kicad_socket
-                socket_path = resolve_kicad_socket(obj.FileName)
-            if socket_path is None:
-                FreeCAD.Console.PrintError(
-                    "FreekiCAD: Could not resolve KiCad socket\n")
-                return None
-            kicad = KiCad(socket_path=f"ipc://{socket_path}")
-            self._kicad = kicad
+        from PySide import QtCore
+        from kipy.kicad import KiCad
+        socket_path = getattr(self, '_cached_socket_path', None)
+        if socket_path is None:
+            FreeCAD.Console.PrintError(
+                "FreekiCAD: Could not resolve KiCad socket\n")
+            return None
         retries = 5
         for attempt in range(retries):
             try:
+                kicad = getattr(self, '_kicad', None)
+                if kicad is None:
+                    kicad = KiCad(socket_path=f"ipc://{socket_path}")
+                    self._kicad = kicad
                 return kicad.get_board()
             except Exception as e:
+                self._kicad = None
                 is_transient = ("Connection refused" in str(e)
-                                or "not ready to reply" in str(e))
+                                or "not ready to reply" in str(e)
+                                or "is busy" in str(e))
                 if is_transient and attempt < retries - 1:
                     FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: KiCad not ready, retrying "
+                        f"FreekiCAD: KiCad not ready "
+                        f"({type(e).__name__}: {e}), retrying "
                         f"({attempt + 1}/{retries})...\n")
-                    time.sleep(1)
+                    loop = QtCore.QEventLoop()
+                    QtCore.QTimer.singleShot(1000, loop.quit)
+                    loop.exec_()
                     continue
+                import traceback
                 FreeCAD.Console.PrintError(
-                    f"FreekiCAD: Failed to connect to KiCad: {e}\n")
+                    f"FreekiCAD: Failed to connect to KiCad: "
+                    f"{type(e).__name__}: {e}\n"
+                    f"{traceback.format_exc()}\n")
                 from FreekiCAD.workspace_bus import report_error
-                report_error(getattr(self, '_cached_socket_path', '?'), e)
+                report_error(socket_path, e)
                 return None
 
     def _find_outline_sketch(self, obj):
@@ -1390,26 +1419,39 @@ class LinkedObject:
 
     def _on_outline_edit_done(self, obj):
         """Called when the outline sketch editor is closed.
-        Defers save+reload to the next event loop iteration to avoid
+        Defers save to the next event loop iteration to avoid
         modifying the document inside a document observer callback."""
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Outline sketch editor closed for '{obj.Name}', "
-            "deferring save+reload...\n")
+            "deferring save...\n")
         from PySide import QtCore
-        QtCore.QTimer.singleShot(0, lambda: self._deferred_save_reload(obj))
+        QtCore.QTimer.singleShot(0, lambda: self._deferred_save(obj))
 
-    def _deferred_save_reload(self, obj):
-        """Save board file and reload (runs outside observer callback)."""
+    def _deferred_save(self, obj):
+        """Save board file via kipy (runs outside observer callback).
+        The mtime watcher will trigger reload if AutoReload is enabled."""
+        print(f"WorkspaceBus: _deferred_save called for '{obj.Name}', "
+              f"cached_socket={getattr(self, '_cached_socket_path', 'NOT SET')}")
         try:
             board = self._get_kicad_board(obj)
             if board is None:
+                FreeCAD.Console.PrintWarning(
+                    "FreekiCAD: _deferred_save: board is None, "
+                    "cannot save\n")
                 return
             board.save()
             FreeCAD.Console.PrintMessage("FreekiCAD: Board file saved\n")
-            self.reload(obj)
+            # Clear stored mtime so the auto-reload watcher detects the
+            # newly saved file and triggers a reload.
+            if hasattr(obj, 'FileMtime'):
+                obj.FileMtime = ""
         except Exception as ex:
             FreeCAD.Console.PrintWarning(
-                f"FreekiCAD: Failed to save/reload board: {ex}\n")
+                f"FreekiCAD: Failed to save board: {ex}\n")
+        finally:
+            self._kicad = None
+            self._cached_socket_path = None
+            self._suppress_execute = False
 
     def _build_outline_sketch(self, sketch, edges):
         """Populate a Sketcher::SketchObject with geometry and coincident
@@ -1528,9 +1570,9 @@ class LinkedObject:
                 "(file unchanged)\n")
             return
         self._reloading = True
-        global _sketch_observer
+        outline_name = obj.Name + "_Outline"
         if _sketch_observer is not None:
-            FreeCAD.removeDocumentObserver(_sketch_observer)
+            _sketch_observer.suppress(outline_name)
         try:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Reloading '{obj.Name}'...\n")
@@ -1539,17 +1581,13 @@ class LinkedObject:
             if hasattr(obj, 'FileMtime'):
                 obj.FileMtime = ""
             existing = self._remove_board_children(obj)
-            # Call _do_execute directly to avoid race: if we set
-            # _suppress_execute=False then call execute(), a queued
-            # FreeCAD recompute can sneak in and call execute() without
-            # existing_components, doing a full fresh load.
             self._in_execute = True
             self._do_execute(obj, existing_components=existing)
         finally:
             self._in_execute = False
             self._suppress_execute = False
             if _sketch_observer is not None:
-                FreeCAD.addDocumentObserver(_sketch_observer)
+                _sketch_observer.unsuppress(outline_name)
             self._reloading = False
         _fit_view(obj)
 
@@ -1584,23 +1622,29 @@ class LinkedObjectViewProvider:
 
     def attach(self, vobj):
         self.Object = vobj.Object
-        if not vobj.Object.Document.Restoring:
-            _ensure_sketch_observer()
+        _ensure_sketch_observer()
         from PySide import QtCore
         self._auto_reload_timer = QtCore.QTimer()
         self._auto_reload_timer.timeout.connect(lambda: self._auto_reload(vobj))
-        if not vobj.Object.Document.Restoring:
-            if hasattr(vobj.Object, "AutoReload") and vobj.Object.AutoReload:
-                self._auto_reload_timer.start(2000)
+        self._auto_reload_timer.start(2000)
 
     def _auto_reload(self, vobj):
-        """Called by the timer — reload only if the file has changed."""
+        """Called by the timer — reload when file changed.
+        First load (FileMtime empty) always reloads; subsequent
+        changes only reload if AutoReload is enabled."""
         obj = vobj.Object
         if obj.Document.Restoring:
             return
-        if hasattr(obj, "Proxy") and hasattr(obj.Proxy, "_check_file_changed"):
-            if obj.Proxy._check_file_changed(obj):
-                obj.Proxy.reload(obj)
+        if not obj.FileName:
+            return
+        if not hasattr(obj, "Proxy") or not hasattr(obj.Proxy, "_check_file_changed"):
+            return
+        stored = getattr(obj, "FileMtime", "") if hasattr(obj, "FileMtime") else ""
+        first_load = not stored
+        if not first_load and not getattr(obj, "AutoReload", False):
+            return
+        if obj.Proxy._check_file_changed(obj):
+            obj.Proxy.reload(obj)
 
     def getIcon(self):
         return ":/icons/Tree_Part.svg"

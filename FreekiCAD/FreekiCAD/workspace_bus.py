@@ -54,11 +54,15 @@ def _connect(action=None):
             return None
 
 
+def _send(s, msg):
+    """Send a JSON message (fire-and-forget)."""
+    data = json.dumps(msg).encode('utf-8')
+    s.sendall(len(data).to_bytes(4, 'big') + data)
+
+
 def _send_recv(s, msg):
     """Send a JSON message and receive a JSON response."""
-    data = json.dumps(msg).encode('utf-8')
-    # Length-prefixed framing: 4-byte big-endian length + payload
-    s.sendall(len(data).to_bytes(4, 'big') + data)
+    _send(s, msg)
     # Read response length
     header = b''
     while len(header) < 4:
@@ -77,23 +81,23 @@ def _send_recv(s, msg):
     return json.loads(resp_data.decode('utf-8'))
 
 
-def resolve_kicad_socket(filepath):
+def resolve_kicad_socket(filepath, action="reload"):
     """Query the Kikakuka workspace manager for the KiCad IPC socket
     path that owns *filepath*.
 
-    Sends ``{"action": "reload", "filepath": ...}``.  The workspace
-    manager will launch KiCad and wait for the socket if needed.
+    *action* is ``"reload"`` (launch KiCad if needed, sync board) or
+    ``"open-sketch"`` (resolve only, no launch).
 
     Returns ``(socket_path, None)`` on success,
     ``(None, pending)`` if still pending, or
     ``(None, None)`` on error.
     """
-    msg = {"action": "reload", "filepath": filepath}
+    msg = {"action": action, "filepath": filepath}
 
     FreeCAD.Console.PrintMessage(
         f"FreekiCAD: REQ  {msg}\n"
     )
-    s = _connect(action="reload")
+    s = _connect(action=action)
     if s is None:
         FreeCAD.Console.PrintError(
             "FreekiCAD: Could not connect to Kikakuka workspace manager. "
@@ -131,11 +135,11 @@ def resolve_kicad_socket(filepath):
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Socket ready, pending: {pending}\n"
             )
-            return None, pending
-        FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: Resolved KiCad socket: {socket_path}\n"
-        )
-        return socket_path, None
+        else:
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Resolved KiCad socket: {socket_path}\n"
+            )
+        return socket_path, pending
 
     # No socket in response
     FreeCAD.Console.PrintWarning(
@@ -159,7 +163,7 @@ def report_error(socket_path, error):
         if s is None:
             return
         try:
-            _send_recv(s, msg)
+            _send(s, msg)
         finally:
             s.close()
     except Exception:

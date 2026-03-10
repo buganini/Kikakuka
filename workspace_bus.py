@@ -181,8 +181,9 @@ class WorkspaceBus:
                 return
             print(f"WorkspaceBus: REQ  {msg}")
             reply = self._handle(msg)
-            print(f"WorkspaceBus: RESP {reply}")
-            _send_msg(conn, reply)
+            if reply is not None:
+                print(f"WorkspaceBus: RESP {reply}")
+                _send_msg(conn, reply)
         except Exception as e:
             print(f"WorkspaceBus: ERR  {e}")
             try:
@@ -216,8 +217,13 @@ class WorkspaceBus:
 
     # -- action handlers ------------------------------------------------
 
-    def _handle_reload(self, msg, pidmap):
-        """Handle action=reload: resolve socket, launch KiCad if needed."""
+    def _resolve_socket(self, msg, pidmap):
+        """Resolve the KiCad IPC socket for a file, launching KiCad if needed.
+
+        Returns a response dict with 'action', 'socket', 'pid', and
+        optionally 'pending' (True when KiCad was just launched).
+        """
+        action = msg.get("action", "reload")
         filepath = msg.get("filepath", "")
         pid = pidmap.get(filepath)
 
@@ -275,7 +281,7 @@ class WorkspaceBus:
             }
 
         resp = {
-            "action": "reload",
+            "action": action,
             "socket": socket_path,
             "pid": pid,
         }
@@ -286,20 +292,19 @@ class WorkspaceBus:
     # -- message handler ------------------------------------------------
 
     def _handle(self, msg):
-        print("_handle", msg)
         action = msg.get("action")
         pidmap = self._get_pidmap()
 
-        if action == "reload":
-            return self._handle_reload(msg, pidmap)
+        if action in ("reload", "open-sketch"):
+            return self._resolve_socket(msg, pidmap)
 
         elif action == "log":
-            # Log message from FreekiCAD
+            # Log message from FreekiCAD (fire-and-forget, no response)
             level = msg.get("level", "info")
             source = msg.get("source", "unknown")
             message = msg.get("message", "")
             print(f"WorkspaceBus: [{source}] {level}: {message}")
-            return {"status": "ok"}
+            return None
 
         elif action == "list":
             instances = {}
