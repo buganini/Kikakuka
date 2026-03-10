@@ -7,6 +7,24 @@ import Part
 DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 
 
+def _kipy_retry(func, max_retries=10, delay_s=1.0):
+    """Call *func* and retry up to *max_retries* times when KiCad reports
+    'not ready to reply'.  Sleeps *delay_s* seconds between attempts."""
+    import time
+    from kipy.errors import ApiError
+    for attempt in range(max_retries + 1):
+        try:
+            return func()
+        except ApiError as e:
+            if "not ready to reply" in str(e) and attempt < max_retries:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: KiCad not ready, retrying "
+                    f"({attempt + 1}/{max_retries})...\n")
+                time.sleep(delay_s)
+                continue
+            raise
+
+
 def _vec(x_nm, y_nm, z=0):
     """Convert KiCad nanometres to FreeCAD mm, flipping Y."""
     return FreeCAD.Vector(x_nm / 1e6, -y_nm / 1e6, z)
@@ -624,7 +642,7 @@ def load_board(filepath, socket_path):
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Connecting to KiCad at {socket_path}\n")
         kicad = KiCad(socket_path=f"ipc://{socket_path}")
-        board = kicad.get_board()
+        board = _kipy_retry(kicad.get_board)
 
         # Load KiCad path variables
         kicad_vars = _load_kicad_env_vars(kicad)
@@ -1625,9 +1643,7 @@ class LinkedObject:
         self._cached_socket_path = socket_path
         self._ensure_kicad_connection(obj)
 
-    _KICAD_CONNECT_RETRIES = 30
-
-    def _ensure_kicad_connection(self, obj, attempt=0):
+    def _ensure_kicad_connection(self, obj):
         """Establish KiCad connection in the background with retries."""
         from kipy.kicad import KiCad
         socket_path = getattr(self, '_cached_socket_path', None)
@@ -1635,70 +1651,42 @@ class LinkedObject:
             return
         try:
             kicad = KiCad(socket_path=f"ipc://{socket_path}")
-            kicad.get_board()
+            _kipy_retry(kicad.get_board)
             self._kicad = kicad
             FreeCAD.Console.PrintMessage(
                 "FreekiCAD: KiCad connection ready\n")
         except Exception as e:
             import traceback
             self._kicad = None
-            err = str(e)
-            limit = self._KICAD_CONNECT_RETRIES
-            if attempt < limit and ("Connection refused" in err
-                                    or "not ready to reply" in err
-                                    or "is busy" in err):
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: KiCad not ready ({type(e).__name__}: {e}), "
-                    f"retrying ({attempt + 1}/{limit})...\n")
-                from PySide import QtCore
-                QtCore.QTimer.singleShot(
-                    1000,
-                    lambda: self._ensure_kicad_connection(obj, attempt + 1))
-            else:
-                FreeCAD.Console.PrintWarning(
-                    f"FreekiCAD: Could not pre-connect to KiCad: "
-                    f"{type(e).__name__}: {e}\n"
-                    f"{traceback.format_exc()}\n")
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Could not pre-connect to KiCad: "
+                f"{type(e).__name__}: {e}\n"
+                f"{traceback.format_exc()}\n")
 
     def _get_kicad_board(self, obj):
         """Connect to KiCad and return the board proxy, or None."""
-        from PySide import QtCore
         from kipy.kicad import KiCad
         socket_path = getattr(self, '_cached_socket_path', None)
         if socket_path is None:
             FreeCAD.Console.PrintError(
                 "FreekiCAD: Could not resolve KiCad socket\n")
             return None
-        retries = 5
-        for attempt in range(retries):
-            try:
-                kicad = getattr(self, '_kicad', None)
-                if kicad is None:
-                    kicad = KiCad(socket_path=f"ipc://{socket_path}")
-                    self._kicad = kicad
-                return kicad.get_board()
-            except Exception as e:
-                self._kicad = None
-                is_transient = ("Connection refused" in str(e)
-                                or "not ready to reply" in str(e)
-                                or "is busy" in str(e))
-                if is_transient and attempt < retries - 1:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: KiCad not ready "
-                        f"({type(e).__name__}: {e}), retrying "
-                        f"({attempt + 1}/{retries})...\n")
-                    loop = QtCore.QEventLoop()
-                    QtCore.QTimer.singleShot(1000, loop.quit)
-                    loop.exec_()
-                    continue
-                import traceback
-                FreeCAD.Console.PrintError(
-                    f"FreekiCAD: Failed to connect to KiCad: "
-                    f"{type(e).__name__}: {e}\n"
-                    f"{traceback.format_exc()}\n")
-                from FreekiCAD.workspace_bus import report_error
-                report_error(socket_path, e)
-                return None
+        try:
+            kicad = getattr(self, '_kicad', None)
+            if kicad is None:
+                kicad = KiCad(socket_path=f"ipc://{socket_path}")
+                self._kicad = kicad
+            return _kipy_retry(kicad.get_board)
+        except Exception as e:
+            self._kicad = None
+            import traceback
+            FreeCAD.Console.PrintError(
+                f"FreekiCAD: Failed to connect to KiCad: "
+                f"{type(e).__name__}: {e}\n"
+                f"{traceback.format_exc()}\n")
+            from FreekiCAD.workspace_bus import report_error
+            report_error(socket_path, e)
+            return None
 
     def _find_outline_sketch(self, obj):
         """Find the outline sketch child, or None."""
@@ -1988,7 +1976,7 @@ class LinkedObject:
             from kipy.geometry import Vector2, Angle
 
             kicad = KiCad(socket_path=f"ipc://{socket_path}")
-            board = kicad.get_board()
+            board = _kipy_retry(kicad.get_board)
 
             # Find the footprint by reference designator
             target_fp = None
