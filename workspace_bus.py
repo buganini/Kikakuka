@@ -58,12 +58,31 @@ def _kicad_socket_for_pid(pid):
     Returns the path (str) if the socket file exists, else ``None``.
     """
     sock_dir = _kicad_socket_dir()
-    specific = os.path.join(sock_dir, f"api-{pid}.sock")
-    if os.path.exists(specific):
-        return specific
-    default = os.path.join(sock_dir, "api.sock")
-    if os.path.exists(default):
-        return default
+    candidates = [f"api-{pid}.sock", "api.sock"]
+
+    # Check filesystem (Unix domain sockets, or Windows AF_UNIX)
+    for name in candidates:
+        path = os.path.join(sock_dir, name)
+        print(f"WorkspaceBus: checking socket: {path} "
+              f"exists={os.path.exists(path)}")
+        if os.path.exists(path):
+            return path
+
+    # On Windows, KiCad/nng uses named pipes instead of files
+    if platform.system() == 'Windows':
+        try:
+            pipes = os.listdir(r'\\.\pipe')
+        except OSError:
+            pipes = []
+        for name in candidates:
+            matches = [p for p in pipes if name in p]
+            for m in matches:
+                print(f"WorkspaceBus: found pipe: {m}")
+                return m
+        kicad_pipes = [p for p in pipes if 'kicad' in p.lower()]
+        if kicad_pipes:
+            print(f"WorkspaceBus: kicad pipes: {kicad_pipes}")
+
     return None
 
 
