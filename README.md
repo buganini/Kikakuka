@@ -39,6 +39,7 @@ It creates a few more dimensions for KiCad:
     * Convert saved .kkkk_pnl to kicad files in one command
     * Same usage for panelizer & build variants
 * FreeCAD Integration (only tested on macOS/Windows)
+    * Requires FreeCAD 1.0 or later
     * `FreekiCAD` supports loading multiple .kicad_pcb files into a FreeCAD document
     * A sketch is provided for real-time board outline editing in FreeCAD
     * Designed to work with the `Manipulator` workbench
@@ -126,6 +127,8 @@ Drag inside the PCB for moving selected tab, drag outside the PCB for changing t
 ![Manual Tab](screenshots/manual_tab.gif)
 
 # FreeCAD Integration
+Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
+
 * Manually install FreekiCAD to FreeCAD
     * Open FreeCAD's python console: Menubar -> View -> Panels -> Python Console
     * Get the installation path by executing `print(os.path.join(App.getUserAppDataDir(), "Mod"))` in the Python console
