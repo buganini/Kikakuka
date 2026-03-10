@@ -528,7 +528,14 @@ def load_board(filepath):
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Connecting to KiCad at {socket_path}\n")
         kicad = KiCad(socket_path=f"ipc://{socket_path}")
-        board = kicad.get_board()
+        try:
+            board = kicad.get_board()
+        except Exception as e:
+            if "not ready to reply" in str(e):
+                FreeCAD.Console.PrintMessage(
+                    "FreekiCAD: KiCad is not ready yet, will retry...\n")
+                return _PENDING, [], None, [], DEFAULT_PCB_THICKNESS
+            raise
 
         # Load KiCad path variables
         kicad_vars = _load_kicad_env_vars(kicad)
@@ -1059,7 +1066,7 @@ class LinkedObject:
 
         timer.timeout.connect(on_timeout)
         self._pending_timer = timer  # prevent GC
-        timer.start(4000)
+        timer.start(1000)
 
     def _do_execute(self, obj, existing_components=None,
                     retry_count=0):
