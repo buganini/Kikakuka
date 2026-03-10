@@ -43,7 +43,7 @@ def windows_open_file(file_path, filters):
     os.startfile(file_path)
 
     # Wait a moment for the application to launch
-    time.sleep(2)
+    time.sleep(3)
 
     # Get new set of PIDs after launching
     new_pids = set(psutil.pids())
@@ -128,9 +128,9 @@ def windows_bring_pid_to_front(pid):
     print(f"Successfully brought window for PID {pid} to front")
     return True
 
-def macos_open_file(filepath, filters, *open_args):
+def posix_open_file(filepath, filters, *open_args):
     """
-    Opens a file with its default application on macOS and returns the PID
+    Opens a file with its default application on POSIX and returns the PID
     of the launched process.
 
     Args:
@@ -147,7 +147,7 @@ def macos_open_file(filepath, filters, *open_args):
     subprocess.Popen(open_command)
 
     # Wait a moment for the application to launch
-    time.sleep(2)
+    time.sleep(3)
 
     # Get new set of PIDs after launching
     new_pids = set(psutil.pids())
@@ -648,7 +648,7 @@ class WorkspaceUI(PUIView):
 
     def _openStep(self, filepath):
         if platform.system() == 'Darwin':
-            pid = macos_open_file(filepath, ["freecad"], "-a", "FreeCAD", "-n", "-W", "--args")
+            pid = posix_open_file(filepath, ["freecad"], "-a", "FreeCAD", "-n", "-W", "--args")
             if pid:
                 self.main.pidmap[filepath] = pid
         elif platform.system() == 'Windows':
@@ -712,11 +712,11 @@ class MainUI(Application):
         macOS uses ``-g`` so KiCad launches in the background.
         """
         print(f"MainUI: opening KiCad for {filepath}")
-        if platform.system() == 'Darwin':
+        if platform.system() in ['Darwin', 'Linux']:
             open_args = ["-n"]
             if not bring_to_front:
                 open_args.append("-g")
-            pid = macos_open_file(filepath, ["kicad", "pcbnew", "eeschema"], *open_args)
+            pid = posix_open_file(filepath, ["kicad", "pcbnew", "eeschema"], *open_args)
             if pid and bring_to_front:
                 bringToFront(pid)
         elif platform.system() == 'Windows':
