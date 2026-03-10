@@ -38,7 +38,7 @@ It creates a few more dimensions for KiCad:
 * CLI
     * Convert saved .kkkk_pnl to kicad files in one command
     * Same usage for panelizer & build variants
-* FreeCAD Integration
+* FreeCAD Integration (only tested on macOS/Windows)
     * `FreekiCAD` supports loading multiple .kicad_pcb files into a FreeCAD document
     * A sketch is provided for real-time board outline editing in FreeCAD
     * Designed to work with the `Manipulator` workbench
