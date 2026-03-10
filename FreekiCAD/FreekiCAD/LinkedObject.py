@@ -491,13 +491,18 @@ def _get_board_color(board, filepath):
     return _DEFAULT_SOLDER_MASK_COLOR
 
 
+_PENDING = "pending"
+
+
 def load_board(filepath):
     """Connect to a running KiCad instance via kipy and build the board
     solid + footprint metadata.
     Returns (board_shape, footprints_data, color, outline_edges, thickness)
     where footprints_data is a list of dicts with ref/position/models info,
     color is (r,g,b) or None, outline_edges is a list of sorted Part edges,
-    and thickness is the board thickness in mm."""
+    and thickness is the board thickness in mm.
+    If board_shape is the sentinel ``_PENDING``, the KiCad socket is not
+    ready yet and the caller should retry later."""
     try:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Loading board {filepath}\n")
@@ -510,12 +515,14 @@ def load_board(filepath):
         )
 
         # Resolve the KiCad IPC socket for this file via the
-        # Kikakuka workspace manager.  The workspace manager
-        # will start KiCad automatically if needed (async pending).
+        # Kikakuka workspace manager.  Non-blocking: returns
+        # immediately with pending status if KiCad is still starting.
         from FreekiCAD.workspace_bus import resolve_kicad_socket
         FreeCAD.Console.PrintMessage(
             "FreekiCAD: Resolving KiCad socket...\n")
-        socket_path = resolve_kicad_socket(filepath)
+        socket_path, pending = resolve_kicad_socket(filepath)
+        if pending:
+            return _PENDING, [], None, [], DEFAULT_PCB_THICKNESS
         if socket_path is None:
             FreeCAD.Console.PrintError(
                 "FreekiCAD: Could not resolve KiCad socket for "
@@ -798,6 +805,11 @@ def load_board(filepath):
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD: Traceback:\n{traceback.format_exc()}\n"
         )
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD: KiCad API socket was: {socket_path}\n"
+        )
+        from FreekiCAD.workspace_bus import report_error
+        report_error(socket_path, e)
     return None, [], None, [], DEFAULT_PCB_THICKNESS
 
 
@@ -1015,7 +1027,46 @@ class LinkedObject:
                 FreeCAD.addDocumentObserver(_sketch_observer)
             self._in_execute = False
 
-    def _do_execute(self, obj, existing_components=None):
+    _PENDING_RETRY_LIMIT = 5
+
+    def _schedule_retry(self, obj, existing_components=None,
+                        retry_count=0):
+        """Schedule a retry of _do_execute after a short delay
+        when the KiCad socket is not ready yet."""
+        if retry_count >= self._PENDING_RETRY_LIMIT:
+            FreeCAD.Console.PrintError(
+                f"FreekiCAD: Gave up waiting for KiCad socket "
+                f"after {retry_count} retries for '{obj.Name}'\n")
+            return
+
+        from PySide import QtCore
+        timer = QtCore.QTimer()
+        timer.setSingleShot(True)
+
+        def on_timeout():
+            self._pending_timer = None
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Retrying load for '{obj.Name}' "
+                f"({retry_count + 1}/{self._PENDING_RETRY_LIMIT})...\n")
+            self._in_execute = True
+            global _sketch_observer
+            if _sketch_observer is not None:
+                FreeCAD.removeDocumentObserver(_sketch_observer)
+            try:
+                self._do_execute(obj,
+                                 existing_components=existing_components,
+                                 retry_count=retry_count + 1)
+            finally:
+                if _sketch_observer is not None:
+                    FreeCAD.addDocumentObserver(_sketch_observer)
+                self._in_execute = False
+
+        timer.timeout.connect(on_timeout)
+        self._pending_timer = timer  # prevent GC
+        timer.start(4000)
+
+    def _do_execute(self, obj, existing_components=None,
+                    retry_count=0):
         """Internal execute implementation.
         NOTE: board/outline children must be removed BEFORE this method,
         outside of FreeCAD's recompute cycle.
@@ -1025,6 +1076,12 @@ class LinkedObject:
 
         board_solid, footprints_data, board_color, outline_edges, thickness = \
             load_board(obj.FileName)
+
+        if board_solid is _PENDING:
+            self._schedule_retry(obj, existing_components,
+                                 retry_count=retry_count)
+            return
+
         self._board_color = board_color
 
         # Record file modification time
@@ -1206,8 +1263,15 @@ class LinkedObject:
             FreeCAD.Console.PrintError(
                 "FreekiCAD: Could not resolve KiCad socket\n")
             return None
-        kicad = KiCad(socket_path=f"ipc://{socket_path}")
-        return kicad.get_board()
+        try:
+            kicad = KiCad(socket_path=f"ipc://{socket_path}")
+            return kicad.get_board()
+        except Exception as e:
+            FreeCAD.Console.PrintError(
+                f"FreekiCAD: Failed to connect to KiCad: {e}\n")
+            from FreekiCAD.workspace_bus import report_error
+            report_error(socket_path, e)
+            return None
 
     def _find_outline_sketch(self, obj):
         """Find the outline sketch child, or None."""

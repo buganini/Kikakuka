@@ -12,21 +12,19 @@ import socket
 import time
 import FreeCAD
 
-RETRY_INTERVAL = 1.0    # seconds between retries on "pending"
-RESOLVE_TIMEOUT = 60.0  # overall deadline (seconds)
-RECV_TIMEOUT = 5.0      # per-request recv timeout (seconds)
+RECV_TIMEOUT = 30.0     # per-request recv timeout (seconds)
 
 
-def _socket_path():
+def _socket_path(action=None):
     """Return the platform-specific path for the workspace manager socket."""
     if platform.system() == 'Windows':
         return r'\\.\pipe\kikakuka_workspace'
     return '/tmp/kikakuka.sock'
 
 
-def _connect():
+def _connect(action=None):
     """Connect to the workspace manager and return the socket, or None."""
-    path = _socket_path()
+    path = _socket_path(action)
     if platform.system() == 'Windows':
         # Named pipe on Windows – open as a regular file-like socket
         # Python's socket module doesn't support named pipes directly,
@@ -83,75 +81,86 @@ def resolve_kicad_socket(filepath):
     """Query the Kikakuka workspace manager for the KiCad IPC socket
     path that owns *filepath*.
 
-    If the workspace manager needs to start a new KiCad instance it
-    will respond with ``status: pending``.  This function automatically
-    retries until the socket is ready or ``RESOLVE_TIMEOUT`` elapses.
+    Sends ``{"action": "reload", "filepath": ...}``.  The workspace
+    manager will launch KiCad and wait for the socket if needed.
 
-    Returns the socket path string (e.g. ``/tmp/kicad/api-12345.sock``)
-    on success, or ``None`` on failure.  Progress, errors and warnings
-    are printed to the FreeCAD console.
+    Returns ``(socket_path, None)`` on success,
+    ``(None, pending)`` if still pending, or
+    ``(None, None)`` on error.
     """
-    deadline = time.time() + RESOLVE_TIMEOUT
-    msg = {"type": "resolve", "filepath": filepath}
+    msg = {"action": "reload", "filepath": filepath}
 
-    sock_path = _socket_path()
     FreeCAD.Console.PrintMessage(
-        f"FreekiCAD: Workspace bus socket: {sock_path}\n"
+        f"FreekiCAD: REQ  {msg}\n"
+    )
+    s = _connect(action="reload")
+    if s is None:
+        FreeCAD.Console.PrintError(
+            "FreekiCAD: Could not connect to Kikakuka workspace manager. "
+            "Start the workspace manager first.\n"
+        )
+        return None, None
+
+    try:
+        reply = _send_recv(s, msg)
+    except Exception as e:
+        FreeCAD.Console.PrintError(
+            f"FreekiCAD: Workspace manager error: {e}\n"
+        )
+        return None, None
+    finally:
+        s.close()
+
+    FreeCAD.Console.PrintMessage(
+        f"FreekiCAD: RESP {reply}\n"
     )
 
-    while True:
-        FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: REQ  resolve {filepath}\n"
-        )
-        s = _connect()
-        if s is None:
-            FreeCAD.Console.PrintError(
-                "FreekiCAD: Could not connect to Kikakuka workspace manager. "
-                "Start the workspace manager first.\n"
-            )
-            return None
-
-        try:
-            reply = _send_recv(s, msg)
-        except Exception as e:
-            FreeCAD.Console.PrintError(
-                f"FreekiCAD: Workspace manager error: {e}\n"
-            )
-            return None
-        finally:
-            s.close()
-
-        FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: RESP {reply}\n"
-        )
-
-        status = reply.get("status")
-
-        if status == "ok":
-            socket_path = reply["socket"]
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Resolved KiCad socket: {socket_path}\n"
-            )
-            return socket_path
-
-        if status == "pending":
-            action = reply.get("action", "")
-            message = reply.get("message", "")
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Workspace manager: "
-                f"{action} – {message}, retrying...\n"
-            )
-            if time.time() >= deadline:
-                FreeCAD.Console.PrintError(
-                    "FreekiCAD: Timeout waiting for KiCad socket.\n"
-                )
-                return None
-            time.sleep(RETRY_INTERVAL)
-            continue
-
-        # status == "error" or unknown
-        FreeCAD.Console.PrintWarning(
-            f"FreekiCAD: Workspace manager: "
+    status = reply.get("status")
+    if status == "error":
+        FreeCAD.Console.PrintError(
+            f"FreekiCAD: Workspace manager error: "
             f"{reply.get('message', 'unknown error')}\n"
         )
-        return None
+        return None, None
+
+    socket_path = reply.get("socket")
+    pending = reply.get("pending")
+
+    if socket_path:
+        if pending:
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Socket ready, pending: {pending}\n"
+            )
+            return None, pending
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Resolved KiCad socket: {socket_path}\n"
+        )
+        return socket_path, None
+
+    # No socket in response
+    FreeCAD.Console.PrintWarning(
+        f"FreekiCAD: Workspace manager: unexpected response: {reply}\n"
+    )
+    return None, None
+
+
+def report_error(socket_path, error):
+    """Send an error report to the workspace manager when FreekiCAD
+    fails to connect to a KiCad API socket.
+    Best-effort: silently ignores failures."""
+    msg = {
+        "action": "log",
+        "level": "error",
+        "source": "FreekiCAD",
+        "message": f"Failed to connect to KiCad API socket: {socket_path}: {error}",
+    }
+    try:
+        s = _connect(action="log")
+        if s is None:
+            return
+        try:
+            _send_recv(s, msg)
+        finally:
+            s.close()
+    except Exception:
+        pass

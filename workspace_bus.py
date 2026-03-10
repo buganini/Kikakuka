@@ -11,6 +11,7 @@ import platform
 import socket
 import tempfile
 import threading
+import time
 
 WORKSPACE_PORT = 19780  # TCP fallback port for Windows
 
@@ -66,7 +67,7 @@ def _kicad_socket_for_pid(pid):
     return None
 
 
-def _socket_path():
+def _socket_path(action=None):
     """Return the platform-specific path for the workspace manager socket."""
     if platform.system() == 'Windows':
         return None  # Use TCP fallback
@@ -182,86 +183,116 @@ class WorkspaceBus:
         finally:
             conn.close()
 
-    # -- background file opener -----------------------------------------
+    # -- synchronous file opener ----------------------------------------
 
     def _do_open_file(self, filepath):
-        """Run *open_file* in a background thread and clear the
-        _opening flag when done."""
+        """Open KiCad synchronously (blocks the handler thread).
+        Clears the _opening flag when done."""
         try:
             self._open_file(filepath)
         finally:
             with self._opening_lock:
                 self._opening.discard(filepath)
 
+    def _wait_for_socket(self, pid, timeout=10.0):
+        """Poll for the KiCad IPC socket to appear.
+        Returns the socket path or None on timeout."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            sock = _kicad_socket_for_pid(pid)
+            if sock:
+                return sock
+            time.sleep(0.5)
+        return None
+
+    # -- action handlers ------------------------------------------------
+
+    def _handle_reload(self, msg, pidmap):
+        """Handle action=reload: resolve socket, launch KiCad if needed."""
+        filepath = msg.get("filepath", "")
+        pid = pidmap.get(filepath)
+
+        # Discard stale PID if the process is no longer running
+        if pid is not None and not _is_pid_running(pid):
+            print(f"WorkspaceBus: PID {pid} is no longer running, "
+                  f"removing stale entry for {filepath}")
+            if self._remove_pid:
+                self._remove_pid(filepath)
+            pid = None
+
+        launched = False
+        if pid is None and self._open_file:
+            with self._opening_lock:
+                is_opening = filepath in self._opening
+
+            if is_opening:
+                # Another thread is already opening this file,
+                # wait for it to finish
+                print(f"WorkspaceBus: waiting for ongoing open: "
+                      f"{filepath}")
+                for _ in range(30):  # up to 15 seconds
+                    time.sleep(0.5)
+                    with self._opening_lock:
+                        if filepath not in self._opening:
+                            break
+            else:
+                # Launch KiCad synchronously
+                print(f"WorkspaceBus: file not in pidmap, "
+                      f"starting KiCad: {filepath}")
+                with self._opening_lock:
+                    self._opening.add(filepath)
+                self._do_open_file(filepath)
+                launched = True
+
+            # Re-check pidmap after launch/wait
+            pid = self._get_pidmap().get(filepath)
+
+        if pid is None:
+            return {
+                "status": "error",
+                "message": "file not in workspace",
+            }
+
+        # PID is known – find the IPC socket
+        socket_path = _kicad_socket_for_pid(pid)
+        if socket_path is None:
+            socket_path = self._wait_for_socket(pid)
+
+        if socket_path is None:
+            return {
+                "status": "error",
+                "message": f"KiCad running (PID {pid}) but "
+                           f"IPC socket not found",
+            }
+
+        resp = {
+            "action": "reload",
+            "socket": socket_path,
+            "pid": pid,
+        }
+        if launched:
+            resp["pending"] = True
+        return resp
+
     # -- message handler ------------------------------------------------
 
     def _handle(self, msg):
-        msg_type = msg.get("type")
+        print("_handle", msg)
+        action = msg.get("action")
         pidmap = self._get_pidmap()
 
-        if msg_type == "resolve":
-            filepath = msg.get("filepath", "")
-            pid = pidmap.get(filepath)
+        if action == "reload":
+            return self._handle_reload(msg, pidmap)
 
-            # Discard stale PID if the process is no longer running
-            if pid is not None and not _is_pid_running(pid):
-                print(f"WorkspaceBus: PID {pid} is no longer running, "
-                      f"removing stale entry for {filepath}")
-                if self._remove_pid:
-                    self._remove_pid(filepath)
-                pid = None
+        elif action == "log":
+            # Log message from FreekiCAD
+            level = msg.get("level", "info")
+            source = msg.get("source", "unknown")
+            message = msg.get("message", "")
+            print(f"WorkspaceBus: [{source}] {level}: {message}")
+            return {"status": "ok"}
 
-            if pid is None:
-                # Check if we are already opening this file
-                with self._opening_lock:
-                    is_opening = filepath in self._opening
-
-                if is_opening:
-                    return {
-                        "status": "pending",
-                        "action": "opening",
-                        "message": "KiCad is starting",
-                    }
-
-                # Try to start a new KiCad instance
-                if self._open_file:
-                    print(f"WorkspaceBus: file not in pidmap, "
-                          f"starting KiCad: {filepath}")
-                    with self._opening_lock:
-                        self._opening.add(filepath)
-                    threading.Thread(
-                        target=self._do_open_file,
-                        args=(filepath,),
-                        daemon=True,
-                    ).start()
-                    return {
-                        "status": "pending",
-                        "action": "opening",
-                        "message": "starting KiCad instance",
-                    }
-
-                return {
-                    "status": "error",
-                    "message": "file not in workspace",
-                }
-
-            # PID is known – check if the IPC socket is ready
-            socket_path = _kicad_socket_for_pid(pid)
-            if socket_path is None:
-                return {
-                    "status": "pending",
-                    "action": "resolving",
-                    "message": f"KiCad running (PID {pid}), "
-                               f"resolving IPC socket",
-                    "pid": pid,
-                }
-            return {
-                "status": "ok",
-                "socket": socket_path,
-                "pid": pid,
-            }
-
-        elif msg_type == "list":
+        elif action == "list":
             instances = {}
             for filepath, pid in pidmap.items():
                 sock = _kicad_socket_for_pid(pid)
@@ -279,7 +310,7 @@ class WorkspaceBus:
 
         return {
             "status": "error",
-            "message": f"unknown type: {msg_type}",
+            "message": f"unknown action: {action}",
         }
 
     def shutdown(self):
