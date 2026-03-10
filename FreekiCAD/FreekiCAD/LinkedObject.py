@@ -442,7 +442,7 @@ def _load_footprint_models(fp_info, thickness, doc, step_cache=None):
             part_shape.translate(
                 FreeCAD.Vector(fp_x, fp_y, fp_z))
 
-            components.append((ref, part_shape, part_colors))
+            components.append((ref, part_shape, part_colors, is_back))
 
     return components, mtimes
 
@@ -944,10 +944,12 @@ _sketch_observer = None
 
 
 class _OutlineSketchObserver:
-    """Document observer that detects when an outline sketch is modified."""
+    """Document observer that detects when an outline sketch is modified
+    and constrains component Placement to X/Y movement + Z rotation only."""
 
     def __init__(self):
         self._suppressed = set()
+        self._constraining = False  # re-entrancy guard
 
     def suppress(self, name):
         self._suppressed.add(name)
@@ -966,24 +968,50 @@ class _OutlineSketchObserver:
                     return parent
         return None
 
+    def _find_component_parent(self, obj):
+        """Find the LinkedObject parent of a component Part::Feature."""
+        if not hasattr(obj, 'TypeId') or obj.TypeId != "Part::Feature":
+            return None
+        for parent in obj.InList:
+            proxy = getattr(parent, "Proxy", None)
+            if proxy and getattr(proxy, 'Type', None) == 'LinkedObject':
+                # Skip board shape and outline sketch
+                if (obj.Name.endswith("_Board")
+                        or obj.Name.endswith("_Outline")):
+                    return None
+                return parent
+        return None
+
     def slotInEdit(self, vobj):
         """Called when an object enters edit mode (sketch editor opened).
         Note: Gui observer passes the ViewProvider, not the App object."""
         obj = vobj.Object
-        if obj.Document.Restoring:
+        if getattr(obj.Document, 'Restoring', False):
             return
         parent = self._find_linked_parent(obj)
         if parent and hasattr(parent, "Proxy"):
             parent.Proxy._on_outline_edit_start(parent)
 
     def slotChangedObject(self, obj, prop):
+        try:
+            doc = obj.Document
+        except Exception:
+            return
+        if getattr(doc, 'Restoring', False):
+            return
+
+        # Constrain component Placement: only X/Y move + Z rotation
+        if prop == "Placement" and not self._constraining:
+            parent = self._find_component_parent(obj)
+            if parent is not None:
+                self._constrain_placement(obj)
+                return
+
         if prop not in ("Shape", "Geometry"):
             return
         if not hasattr(obj, 'TypeId') or obj.TypeId != "Sketcher::SketchObject":
             return
         if not obj.Name.endswith("_Outline"):
-            return
-        if obj.Document.Restoring:
             return
         if obj.Name in self._suppressed:
             return
@@ -995,11 +1023,43 @@ class _OutlineSketchObserver:
                 proxy._on_outline_edit_start(parent)
             proxy._on_outline_changed(parent)
 
+    def _constrain_placement(self, obj):
+        """Constrain component Placement: allow X/Y move + Z rotation only.
+        Z position, pitch, and roll are locked to the initial placement."""
+        init_p = getattr(obj, 'FreekiCAD_InitPlacement', None)
+        if init_p is None:
+            return
+
+        p = obj.Placement
+        pos = p.Base
+        rot = p.Rotation
+
+        init_z = init_p.Base.z
+        init_yaw, init_pitch, init_roll = init_p.Rotation.getYawPitchRoll()
+
+        # Extract current yaw (Z rotation) — this is the only free rotation
+        yaw, pitch, roll = rot.getYawPitchRoll()
+        needs_fix = False
+
+        if abs(pos.z - init_z) > 1e-6:
+            needs_fix = True
+        if abs(pitch - init_pitch) > 1e-6 or abs(roll - init_roll) > 1e-6:
+            needs_fix = True
+
+        if needs_fix:
+            self._constraining = True
+            try:
+                obj.Placement = FreeCAD.Placement(
+                    FreeCAD.Vector(pos.x, pos.y, init_z),
+                    FreeCAD.Rotation(yaw, init_pitch, init_roll))
+            finally:
+                self._constraining = False
+
     def slotResetEdit(self, vobj):
         """Called when an object exits edit mode (sketch editor closed).
         Note: Gui observer passes the ViewProvider, not the App object."""
         obj = vobj.Object
-        if obj.Document.Restoring:
+        if getattr(obj.Document, 'Restoring', False):
             return
         parent = self._find_linked_parent(obj)
         if parent:
@@ -1315,7 +1375,7 @@ class LinkedObject:
             all_mtimes[ref].update(fp_mtimes)
 
         # Create/update component FreeCAD objects
-        for label, comp_shape, comp_colors in components:
+        for label, comp_shape, comp_colors, comp_is_back in components:
             if label in existing_components and label not in matched:
                 comp_obj = existing_components[label]
                 comp_obj.Shape = comp_shape
@@ -1329,6 +1389,27 @@ class LinkedObject:
                     "Part::Feature", obj.Name + "_" + label)
                 comp_obj.Shape = comp_shape
                 obj.addObject(comp_obj)
+            # Store initial placement and board side for constraint
+            if not hasattr(comp_obj, 'FreekiCAD_InitPlacement'):
+                comp_obj.addProperty(
+                    "App::PropertyPlacement", "FreekiCAD_InitPlacement",
+                    "FreekiCAD", "Initial placement for constraint")
+                try:
+                    comp_obj.setPropertyStatus(
+                        "FreekiCAD_InitPlacement", "Hidden")
+                except Exception:
+                    pass
+            comp_obj.FreekiCAD_InitPlacement = comp_obj.Placement
+            if not hasattr(comp_obj, 'FreekiCAD_BackSide'):
+                comp_obj.addProperty(
+                    "App::PropertyBool", "FreekiCAD_BackSide",
+                    "FreekiCAD", "Component is on back side of board")
+                try:
+                    comp_obj.setPropertyStatus(
+                        "FreekiCAD_BackSide", "Hidden")
+                except Exception:
+                    pass
+            comp_obj.FreekiCAD_BackSide = comp_is_back
             if comp_colors and hasattr(comp_obj, 'ViewObject') \
                     and comp_obj.ViewObject:
                 _write_face_colors(comp_obj.ViewObject, comp_colors)
