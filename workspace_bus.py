@@ -13,28 +13,10 @@ import tempfile
 import threading
 import time
 
+import psutil
+
 WORKSPACE_PORT = 19780  # TCP fallback port for Windows
 
-
-def _is_pid_running(pid):
-    """Return True if a process with *pid* is still alive."""
-    try:
-        import psutil
-        return psutil.pid_exists(pid)
-    except ImportError:
-        if platform.system() == 'Windows':
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-            handle = kernel32.OpenProcess(0x100000, False, pid)  # SYNCHRONIZE
-            if handle:
-                kernel32.CloseHandle(handle)
-                return True
-            return False
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
 
 
 def _kicad_socket_dir():
@@ -229,7 +211,7 @@ class WorkspaceBus:
         pid = pidmap.get(filepath)
 
         # Discard stale PID if the process is no longer running
-        if pid is not None and not _is_pid_running(pid):
+        if pid is not None and not psutil.pid_exists(pid):
             print(f"WorkspaceBus: PID {pid} is no longer running, "
                   f"removing stale entry for {filepath}")
             if self._remove_pid:

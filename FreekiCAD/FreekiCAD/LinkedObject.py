@@ -9,14 +9,16 @@ DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 
 def _kipy_retry(func, max_retries=10, delay_s=1.0):
     """Call *func* and retry up to *max_retries* times when KiCad reports
-    'not ready to reply'.  Sleeps *delay_s* seconds between attempts."""
+    AS_NOT_READY or AS_BUSY.  Sleeps *delay_s* seconds between attempts."""
     import time
     from kipy.errors import ApiError
+    from kipy.proto.common import ApiStatusCode
+    _RETRYABLE = (ApiStatusCode.AS_NOT_READY, ApiStatusCode.AS_BUSY)
     for attempt in range(max_retries + 1):
         try:
             return func()
         except ApiError as e:
-            if "not ready to reply" in str(e) and attempt < max_retries:
+            if e.code in _RETRYABLE and attempt < max_retries:
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: KiCad not ready, retrying "
                     f"({attempt + 1}/{max_retries})...\n")
