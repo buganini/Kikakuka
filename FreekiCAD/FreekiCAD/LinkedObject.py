@@ -1906,8 +1906,8 @@ class LinkedObject:
                 normal = normal * -1
 
             rot_placement = self._bend_board(
-                board_obj, p0, line_dir, normal, radius, angle_rad,
-                half_t)
+                board_obj, p0, p1, line_dir, normal, radius,
+                angle_rad, half_t)
 
             if rot_placement is None:
                 continue
@@ -1929,24 +1929,28 @@ class LinkedObject:
                     child.Placement = rot_placement.multiply(
                         child.Placement)
 
-    def _bend_board(self, board_obj, origin, line_dir, normal,
+    def _bend_board(self, board_obj, p0, p1, line_dir, normal,
                     radius, max_angle, half_thickness):
         """Cut the board at the bend line, rotate the moving half.
 
         Uses boolean cut/common to split the board solid, then
         transformShape to bake the rotation into geometry so that
         subsequent bends can cut the already-bent shape.
+
+        The cutting box is limited to the bend line's extent along
+        line_dir so that concave regions outside the line are not cut.
         """
         shape = board_obj.Shape
         bb = shape.BoundBox
         up = FreeCAD.Vector(0, 0, 1)
 
-        # Half-space box covering the moving side (positive-normal)
+        # Cutting box limited to the bend line's extent along line_dir.
+        # Only extends in the normal direction (moving side) and Z.
         diag = bb.DiagonalLength + 50
-        c1 = origin - line_dir * diag - up * diag
-        c2 = origin + line_dir * diag - up * diag
-        c3 = origin + line_dir * diag + up * diag
-        c4 = origin - line_dir * diag + up * diag
+        c1 = p0 - up * diag
+        c2 = p1 - up * diag
+        c3 = p1 + up * diag
+        c4 = p0 + up * diag
         cut_face = Part.Face(Part.makePolygon([c1, c2, c3, c4, c1]))
         moving_box = cut_face.extrude(normal * diag)
 
@@ -1976,7 +1980,7 @@ class LinkedObject:
         bend_axis = up.cross(normal)
         bend_axis.normalize()
         rot = FreeCAD.Rotation(bend_axis, math.degrees(max_angle))
-        pivot = origin + up * (half_thickness - radius)
+        pivot = p0 + up * (half_thickness - radius)
         rot_placement = FreeCAD.Placement(
             FreeCAD.Vector(0, 0, 0), rot, pivot)
 
