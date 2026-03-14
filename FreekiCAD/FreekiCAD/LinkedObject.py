@@ -957,6 +957,66 @@ def load_board(filepath, socket_path):
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Valid bend lines: {len(bend_lines)}\n")
 
+        # Filter out bend lines that overlap or cross each other
+        if len(bend_lines) > 1:
+            skip = set()
+            for i in range(len(bend_lines)):
+                if i in skip:
+                    continue
+                a0x, a0y = bend_lines[i]['start'].x, bend_lines[i]['start'].y
+                a1x, a1y = bend_lines[i]['end'].x, bend_lines[i]['end'].y
+                for j in range(i + 1, len(bend_lines)):
+                    if j in skip:
+                        continue
+                    b0x, b0y = bend_lines[j]['start'].x, bend_lines[j]['start'].y
+                    b1x, b1y = bend_lines[j]['end'].x, bend_lines[j]['end'].y
+                    dx, dy = a1x - a0x, a1y - a0y
+                    ex, ey = b1x - b0x, b1y - b0y
+                    denom = dx * ey - dy * ex
+                    if abs(denom) > 1e-12:
+                        # Non-parallel: check if segments cross
+                        t = ((b0x - a0x) * ey - (b0y - a0y) * ex) / denom
+                        u = ((b0x - a0x) * dy - (b0y - a0y) * dx) / denom
+                        if 0 <= t <= 1 and 0 <= u <= 1:
+                            skip.add(i)
+                            skip.add(j)
+                            FreeCAD.Console.PrintWarning(
+                                f"FreekiCAD: Bend lines "
+                                f"{bend_lines[i]['uuid'][:8]} and "
+                                f"{bend_lines[j]['uuid'][:8]} cross, "
+                                f"ignoring both\n")
+                            break
+                    else:
+                        # Parallel: check colinear overlap
+                        la = (dx * dx + dy * dy) ** 0.5
+                        if la < 1e-9:
+                            continue
+                        dnx, dny = dx / la, dy / la
+                        # Perpendicular distance
+                        rx, ry = b0x - a0x, b0y - a0y
+                        proj = rx * dnx + ry * dny
+                        px, py = rx - dnx * proj, ry - dny * proj
+                        perp_dist = (px * px + py * py) ** 0.5
+                        if perp_dist > 0.5:
+                            continue
+                        # Projection overlap
+                        b_lo = rx * dnx + ry * dny
+                        b_hi = (b1x - a0x) * dnx + (b1y - a0y) * dny
+                        if b_lo > b_hi:
+                            b_lo, b_hi = b_hi, b_lo
+                        if la > b_lo + 0.5 and b_hi > 0.5:
+                            skip.add(i)
+                            skip.add(j)
+                            FreeCAD.Console.PrintWarning(
+                                f"FreekiCAD: Bend lines "
+                                f"{bend_lines[i]['uuid'][:8]} and "
+                                f"{bend_lines[j]['uuid'][:8]} overlap, "
+                                f"ignoring both\n")
+                            break
+            if skip:
+                bend_lines = [bl for k, bl in enumerate(bend_lines)
+                              if k not in skip]
+
         return (board_solid, footprints_data, board_color, outline_edges,
                 thickness, bend_lines)
 
