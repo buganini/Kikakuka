@@ -1504,6 +1504,7 @@ class LinkedObject:
         finally:
             if _mw is not None:
                 _mw.setUpdatesEnabled(True)
+        _fit_view(obj)
 
     def __do_execute_body(self, obj, board_solid, footprints_data,
                           board_color, outline_edges, thickness,
@@ -1864,6 +1865,7 @@ class LinkedObject:
                                   thickness)
         finally:
             self._bending = False
+        _fit_view(obj)
 
     def _apply_bends(self, obj, board_obj, bend_children, thickness):
         """Apply bending deformation to the board shape."""
