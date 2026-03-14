@@ -949,9 +949,9 @@ def load_board(filepath, socket_path):
                         continue
                     t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / denom
                     u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / denom
-                    if 0 <= t <= 1 and 0 <= u <= 1:
+                    if 0 <= t <= 1 and 0 <= u < 1:
                         hits += 1
-                if hits >= 2:
+                if hits >= 2 and hits % 2 == 0:
                     valid_bends.append(bl)
             bend_lines = valid_bends
             FreeCAD.Console.PrintMessage(
