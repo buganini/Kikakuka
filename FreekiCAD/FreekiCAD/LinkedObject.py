@@ -627,10 +627,12 @@ def _get_board_color(board, filepath):
 def load_board(filepath, socket_path):
     """Connect to a running KiCad instance via kipy and build the board
     solid + footprint metadata.
-    Returns (board_shape, footprints_data, color, outline_edges, thickness)
-    where footprints_data is a list of dicts with ref/position/models info,
-    color is (r,g,b) or None, outline_edges is a list of sorted Part edges,
-    and thickness is the board thickness in mm."""
+    Returns (board_shape, footprints_data, color, outline_edges, thickness,
+    bend_lines) where footprints_data is a list of dicts with ref/position/
+    models info, color is (r,g,b) or None, outline_edges is a list of sorted
+    Part edges, thickness is the board thickness in mm, and bend_lines is a
+    list of dicts with uuid/start/end for each valid line on the User.4
+    layer."""
     try:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Loading board {filepath}\n")
@@ -719,6 +721,26 @@ def load_board(filepath, socket_path):
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Edge.Cuts edges collected: {len(edges)}\n"
         )
+
+        # --- Bend lines (User.4 layer) ---
+        bend_lines = []
+        for s in all_shapes:
+            if s.layer != BoardLayer.BL_User_4:
+                continue
+            try:
+                concrete = to_concrete_board_shape(s)
+                if concrete is None:
+                    continue
+                if isinstance(concrete, BoardSegment):
+                    bend_lines.append({
+                        'uuid': s.id.value,
+                        'start': _vec(concrete.start.x, concrete.start.y),
+                        'end': _vec(concrete.end.x, concrete.end.y),
+                    })
+            except Exception:
+                continue
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: User.4 bend lines: {len(bend_lines)}\n")
 
         # Get board thickness from stackup
         thickness = DEFAULT_PCB_THICKNESS
@@ -909,7 +931,34 @@ def load_board(filepath, socket_path):
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Found {len(footprints_data)} footprints with 3D models\n"
         )
-        return board_solid, footprints_data, board_color, outline_edges, thickness
+
+        # Filter bend lines: keep only those crossing the outline at 2+ points
+        if bend_lines and outline_edges:
+            valid_bends = []
+            for bl in bend_lines:
+                ax, ay = bl['start'].x, bl['start'].y
+                bx, by = bl['end'].x, bl['end'].y
+                hits = 0
+                for edge in outline_edges:
+                    v0 = edge.Vertexes[0].Point
+                    v1 = edge.Vertexes[1].Point
+                    cx, cy = v0.x, v0.y
+                    dx, dy = v1.x, v1.y
+                    denom = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx)
+                    if abs(denom) < 1e-12:
+                        continue
+                    t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / denom
+                    u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / denom
+                    if 0 <= t <= 1 and 0 <= u <= 1:
+                        hits += 1
+                if hits >= 2:
+                    valid_bends.append(bl)
+            bend_lines = valid_bends
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Valid bend lines: {len(bend_lines)}\n")
+
+        return (board_solid, footprints_data, board_color, outline_edges,
+                thickness, bend_lines)
 
     except Exception as e:
         import traceback
@@ -924,7 +973,7 @@ def load_board(filepath, socket_path):
         )
         from FreekiCAD.workspace_bus import report_error
         report_error(socket_path, e)
-    return None, [], None, [], DEFAULT_PCB_THICKNESS
+    return None, [], None, [], DEFAULT_PCB_THICKNESS, []
 
 
 def _fit_view(obj):
@@ -935,6 +984,72 @@ def _fit_view(obj):
         FreeCADGui.SendMsgToActiveView("ViewFit")
     except Exception:
         pass
+
+
+class BendLine:
+    """FeaturePython proxy for a bend-line child object."""
+
+    Type = "BendLine"
+
+    def __init__(self, obj, uuid=""):
+        obj.Proxy = self
+        obj.addProperty(
+            "App::PropertyString", "UUID",
+            "Bending", "KiCad UUID of the bend line")
+        obj.UUID = uuid
+        try:
+            obj.setPropertyStatus("UUID", "Hidden")
+        except Exception:
+            pass
+        obj.addProperty(
+            "App::PropertyLength", "Radius",
+            "Bending", "Bend radius")
+        obj.Radius = 0.0
+        obj.addProperty(
+            "App::PropertyAngle", "Angle",
+            "Bending", "Bend angle")
+        obj.Angle = 0.0
+        obj.addProperty(
+            "App::PropertyBool", "Active",
+            "Bending", "Enable bending for this line")
+        obj.Active = True
+
+    def execute(self, obj):
+        pass
+
+    def onChanged(self, obj, prop):
+        if prop not in ("Radius", "Angle", "Active"):
+            return
+        if not obj.InList:
+            return
+        from PySide import QtCore
+        if hasattr(self, '_rebend_timer'):
+            self._rebend_timer.stop()
+
+        def _do_rebend():
+            for parent in obj.InList:
+                proxy = getattr(parent, "Proxy", None)
+                if proxy and getattr(proxy, 'Type', None) == 'LinkedObject':
+                    proxy._rebend(parent)
+                    break
+
+        self._rebend_timer = QtCore.QTimer()
+        self._rebend_timer.setSingleShot(True)
+        self._rebend_timer.timeout.connect(_do_rebend)
+        self._rebend_timer.start(50)
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+    def onDocumentRestored(self, obj):
+        if not hasattr(obj, "Active"):
+            obj.addProperty(
+                "App::PropertyBool", "Active",
+                "Bending", "Enable bending for this line")
+            obj.Active = True
 
 
 _sketch_observer = None
@@ -980,6 +1095,18 @@ class _OutlineSketchObserver:
                 return parent
         return None
 
+    def _is_bending_active(self, parent):
+        """True when EnableBending is on and at least one bend child
+        has Active=True and a non-zero Angle."""
+        if not getattr(parent, 'EnableBending', False):
+            return False
+        for c in parent.Group:
+            proxy = getattr(c, 'Proxy', None)
+            if proxy and getattr(proxy, 'Type', None) == 'BendLine':
+                if c.Active and c.Angle.Value != 0:
+                    return True
+        return False
+
     def slotInEdit(self, vobj):
         """Called when an object enters edit mode (sketch editor opened).
         Note: Gui observer passes the ViewProvider, not the App object."""
@@ -1002,6 +1129,10 @@ class _OutlineSketchObserver:
         if prop == "Placement" and not self._constraining:
             parent = self._find_component_parent(obj)
             if parent is not None:
+                # Skip when bending is active — placement changes are
+                # cosmetic (applied by the bend transform).
+                if self._is_bending_active(parent):
+                    return
                 self._constrain_placement(obj)
                 self._schedule_move_component(obj, parent)
                 return
@@ -1242,6 +1373,11 @@ class LinkedObject:
         )
         obj.AutoReload = True
         obj.addProperty(
+            "App::PropertyBool", "EnableBending", "LinkedFile",
+            "Enable flex PCB bending deformation"
+        )
+        obj.EnableBending = True
+        obj.addProperty(
             "App::PropertyString", "ComponentMtimes", "LinkedFile",
             "JSON: per-component model file mtimes for reuse"
         )
@@ -1256,6 +1392,10 @@ class LinkedObject:
         self._board_color = None
 
     def onChanged(self, obj, prop):
+        if prop == "EnableBending":
+            if not obj.Document.Restoring:
+                self._rebend(obj)
+            return
         if prop not in ("FileName", "AutoReload"):
             return
         if prop == "FileName":
@@ -1292,12 +1432,15 @@ class LinkedObject:
                 )
 
     def _remove_board_children(self, obj):
-        """Remove outline sketch and board shape children, keep components.
-        Returns dict of {ref: child_obj} for existing component objects,
-        where ref is the designator with the parent name prefix stripped."""
+        """Remove outline sketch and board shape children, keep components
+        and bend lines.
+        Returns (existing_components, existing_bends) where
+        existing_components is {ref: child_obj} and
+        existing_bends is {uuid: child_obj}."""
         doc = obj.Document
         prefix = obj.Name + "_"
         existing_components = {}
+        existing_bends = {}
         for child in list(obj.Group):
             if child.Name.endswith("_Outline") or child.Name.endswith("_Board"):
                 try:
@@ -1306,6 +1449,9 @@ class LinkedObject:
                     FreeCAD.Console.PrintWarning(
                         f"FreekiCAD: Failed to remove child: {e}\n"
                     )
+            elif getattr(getattr(child, 'Proxy', None),
+                         'Type', None) == 'BendLine':
+                existing_bends[child.UUID] = child
             else:
                 # Strip parent name prefix to get the designator ref
                 label = child.Label
@@ -1318,24 +1464,27 @@ class LinkedObject:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Existing components: "
                 f"{', '.join(existing_components.keys())}\n")
-        return existing_components
+        return existing_components, existing_bends
 
     def execute(self, obj):
         """Called by FreeCAD recompute.  Only ensures properties exist.
         Actual KiCad loading is done by reload()."""
         self._ensure_properties(obj)
 
-    def _do_execute(self, obj, socket_path, existing_components=None):
+    def _do_execute(self, obj, socket_path, existing_components=None,
+                    existing_bends=None):
         """Internal execute implementation.
         NOTE: board/outline children must be removed BEFORE this method,
         outside of FreeCAD's recompute cycle.
         *socket_path*: resolved KiCad IPC socket path.
         *existing_components*: optional dict {label: child_obj} of component
-        Part::Feature objects to reuse by designator match."""
+        Part::Feature objects to reuse by designator match.
+        *existing_bends*: optional dict {uuid: child_obj} of bend line
+        objects to preserve radius/angle on reload."""
         import json
 
-        board_solid, footprints_data, board_color, outline_edges, thickness = \
-            load_board(obj.FileName, socket_path)
+        board_solid, footprints_data, board_color, outline_edges, thickness, \
+            bend_lines = load_board(obj.FileName, socket_path)
 
         # Freeze the main window to prevent viewport flashing
         # as children are added one by one.
@@ -1350,14 +1499,16 @@ class LinkedObject:
         try:
             self.__do_execute_body(obj, board_solid, footprints_data,
                                    board_color, outline_edges, thickness,
-                                   existing_components)
+                                   bend_lines, existing_components,
+                                   existing_bends)
         finally:
             if _mw is not None:
                 _mw.setUpdatesEnabled(True)
 
     def __do_execute_body(self, obj, board_solid, footprints_data,
                           board_color, outline_edges, thickness,
-                          existing_components):
+                          bend_lines, existing_components,
+                          existing_bends):
         import json
         doc = obj.Document
 
@@ -1381,6 +1532,7 @@ class LinkedObject:
 
         # Add board shape as a child
         if board_solid:
+            self._unbent_board_shape = board_solid.copy()
             board_obj = doc.addObject("Part::Feature", obj.Name + "_Board")
             board_obj.Shape = board_solid
             if board_color:
@@ -1392,6 +1544,34 @@ class LinkedObject:
                 except Exception:
                     pass
             obj.addObject(board_obj)
+
+        # Add / update bend line children
+        if existing_bends is None:
+            existing_bends = {}
+        seen_uuids = set()
+        half_z = thickness / 2.0
+        for bl in bend_lines:
+            uuid = bl['uuid']
+            seen_uuids.add(uuid)
+            p0 = FreeCAD.Vector(bl['start'].x, bl['start'].y, half_z)
+            p1 = FreeCAD.Vector(bl['end'].x, bl['end'].y, half_z)
+            if uuid in existing_bends:
+                bend_obj = existing_bends[uuid]
+                bend_obj.Shape = Part.makeLine(p0, p1)
+            else:
+                bend_obj = doc.addObject(
+                    "Part::FeaturePython", obj.Name + "_Bend")
+                BendLine(bend_obj, uuid)
+                bend_obj.Shape = Part.makeLine(p0, p1)
+                obj.addObject(bend_obj)
+                bend_obj.ViewObject.Proxy = 0
+        # Remove stale bend lines no longer in KiCad
+        for uuid, bend_obj in existing_bends.items():
+            if uuid not in seen_uuids:
+                try:
+                    doc.removeObject(bend_obj.Name)
+                except Exception:
+                    pass
 
         # Load component 3D models on demand, reusing where possible
         if existing_components is None:
@@ -1567,6 +1747,25 @@ class LinkedObject:
         if hasattr(obj, 'ComponentMtimes'):
             obj.ComponentMtimes = json.dumps(all_mtimes)
 
+        self._board_thickness = thickness
+
+        # Apply bending deformation for active bend lines
+        bend_children = [c for c in obj.Group
+                         if getattr(getattr(c, 'Proxy', None),
+                                    'Type', None) == 'BendLine']
+        enable = getattr(obj, 'EnableBending', True)
+        active_bends = [c for c in bend_children
+                        if c.Active and c.Angle.Value != 0
+                        and c.Radius.Value >= 0]
+        if enable and active_bends:
+            board_obj = None
+            for c in obj.Group:
+                if c.Name.endswith("_Board"):
+                    board_obj = c
+                    break
+            if board_obj:
+                self._apply_bends(obj, board_obj, active_bends, thickness)
+
     def _update_reused_component(self, comp_obj, kc, thickness, fp_info):
         """Update placement and KiCad coords for a reused component
         whose 3D model hasn't changed but whose KiCad position may have.
@@ -1626,6 +1825,184 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD:   {comp_obj.Label}: updated placement "
             f"(Δx={dx:.3f}, Δy={dy:.3f}, Δangle={da:.1f}°)\n")
+
+    def _rebend(self, obj):
+        """Re-apply bending after Radius/Angle/Active or EnableBending
+        changes on a bend line."""
+        self._bending = True
+        try:
+            thickness = getattr(self, '_board_thickness',
+                                DEFAULT_PCB_THICKNESS)
+
+            board_obj = None
+            for c in obj.Group:
+                if c.Name.endswith("_Board"):
+                    board_obj = c
+                    break
+
+            # Restore original board shape
+            if board_obj and hasattr(self, '_unbent_board_shape'):
+                board_obj.Shape = self._unbent_board_shape.copy()
+
+            # Reset bend line placements to identity
+            for c in obj.Group:
+                if getattr(getattr(c, 'Proxy', None),
+                           'Type', None) == 'BendLine':
+                    c.Placement = FreeCAD.Placement()
+
+            # Re-apply all active bends
+            bend_children = [
+                c for c in obj.Group
+                if getattr(getattr(c, 'Proxy', None),
+                           'Type', None) == 'BendLine']
+            enable = getattr(obj, 'EnableBending', True)
+            active_bends = [c for c in bend_children
+                            if c.Active and c.Angle.Value != 0
+                            and c.Radius.Value >= 0]
+            if enable and active_bends and board_obj:
+                self._apply_bends(obj, board_obj, active_bends,
+                                  thickness)
+        finally:
+            self._bending = False
+
+    def _apply_bends(self, obj, board_obj, bend_children, thickness):
+        """Apply bending deformation to the board shape."""
+        self._bending = True
+        try:
+            self.__apply_bends_impl(obj, board_obj, bend_children,
+                                    thickness)
+        finally:
+            self._bending = False
+
+    def __apply_bends_impl(self, obj, board_obj, bend_children, thickness):
+        unbent = getattr(self, '_unbent_board_shape', board_obj.Shape)
+        if hasattr(unbent, 'CenterOfMass'):
+            mass_center = unbent.CenterOfMass
+        elif unbent.Solids:
+            mass_center = unbent.Solids[0].CenterOfMass
+        else:
+            mass_center = unbent.BoundBox.Center
+        half_t = thickness / 2.0
+
+        for bend_obj in bend_children:
+            angle_deg = bend_obj.Angle.Value
+            radius = bend_obj.Radius.Value
+            if angle_deg == 0 or radius < 0:
+                continue
+
+            angle_rad = math.radians(angle_deg)
+
+            verts = bend_obj.Shape.Vertexes
+            p0 = FreeCAD.Vector(verts[0].Point.x, verts[0].Point.y, 0)
+            p1 = FreeCAD.Vector(verts[1].Point.x, verts[1].Point.y, 0)
+            line_dir = p1 - p0
+            line_dir.normalize()
+            normal = FreeCAD.Vector(-line_dir.y, line_dir.x, 0)
+
+            # Stationary side contains mass center
+            mc_dist = (FreeCAD.Vector(mass_center.x, mass_center.y, 0)
+                       - p0).dot(normal)
+            if mc_dist > 0:
+                normal = normal * -1
+
+            rot_placement = self._bend_board(
+                board_obj, p0, line_dir, normal, radius, angle_rad,
+                half_t)
+
+            if rot_placement is None:
+                continue
+
+            # Move other bend lines on the moving side
+            for child in obj.Group:
+                if getattr(getattr(child, 'Proxy', None),
+                           'Type', None) != 'BendLine':
+                    continue
+                if child.Name == bend_obj.Name:
+                    continue
+                bl_verts = child.Shape.Vertexes
+                bl_mid = FreeCAD.Vector(
+                    (bl_verts[0].Point.x + bl_verts[1].Point.x) / 2,
+                    (bl_verts[0].Point.y + bl_verts[1].Point.y) / 2,
+                    0)
+                d = (bl_mid - p0).dot(normal)
+                if d > 0:
+                    child.Placement = rot_placement.multiply(
+                        child.Placement)
+
+    def _bend_board(self, board_obj, origin, line_dir, normal,
+                    radius, max_angle, half_thickness):
+        """Cut the board at the bend line, rotate the moving half.
+
+        Uses boolean cut/common to split the board solid, then
+        transformShape to bake the rotation into geometry so that
+        subsequent bends can cut the already-bent shape.
+        """
+        shape = board_obj.Shape
+        bb = shape.BoundBox
+        up = FreeCAD.Vector(0, 0, 1)
+
+        # Half-space box covering the moving side (positive-normal)
+        diag = bb.DiagonalLength + 50
+        c1 = origin - line_dir * diag - up * diag
+        c2 = origin + line_dir * diag - up * diag
+        c3 = origin + line_dir * diag + up * diag
+        c4 = origin - line_dir * diag + up * diag
+        cut_face = Part.Face(Part.makePolygon([c1, c2, c3, c4, c1]))
+        moving_box = cut_face.extrude(normal * diag)
+
+        input_solids = shape.Solids if shape.Solids else [shape]
+        stationary = []
+        moving = []
+        for inp in input_solids:
+            try:
+                stat_part = inp.cut(moving_box)
+                for s in (stat_part.Solids or [stat_part]):
+                    if s.Volume > 1e-6:
+                        stationary.append(s)
+            except Exception:
+                stationary.append(inp)
+                continue
+            try:
+                move_part = inp.common(moving_box)
+                for s in (move_part.Solids or [move_part]):
+                    if s.Volume > 1e-6:
+                        moving.append(s)
+            except Exception:
+                pass
+
+        if not moving:
+            return None
+
+        bend_axis = up.cross(normal)
+        bend_axis.normalize()
+        rot = FreeCAD.Rotation(bend_axis, math.degrees(max_angle))
+        pivot = origin + up * (half_thickness - radius)
+        rot_placement = FreeCAD.Placement(
+            FreeCAD.Vector(0, 0, 0), rot, pivot)
+
+        bent_moving = []
+        for s in moving:
+            moved = s.copy()
+            moved.transformShape(rot_placement.toMatrix())
+            bent_moving.append(moved)
+
+        # Preserve board color
+        saved_color = None
+        try:
+            saved_color = board_obj.ViewObject.ShapeColor
+        except Exception:
+            pass
+
+        all_solids = stationary + bent_moving
+        board_obj.Shape = Part.makeCompound(all_solids)
+
+        if saved_color:
+            try:
+                board_obj.ViewObject.ShapeColor = saved_color
+            except Exception:
+                pass
+
+        return rot_placement
 
     def _on_outline_edit_start(self, obj):
         """Called when the outline sketch enters edit mode.
@@ -1953,10 +2330,11 @@ class LinkedObject:
             self._suppress_execute = True
             if hasattr(obj, 'FileMtime'):
                 obj.FileMtime = ""
-            existing = self._remove_board_children(obj)
+            existing_comps, existing_bends = self._remove_board_children(obj)
             self._in_execute = True
             self._do_execute(obj, socket_path,
-                             existing_components=existing)
+                             existing_components=existing_comps,
+                             existing_bends=existing_bends)
         finally:
             self._in_execute = False
             self._suppress_execute = False
