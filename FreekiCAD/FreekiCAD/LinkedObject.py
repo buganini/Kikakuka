@@ -1750,6 +1750,18 @@ class LinkedObject:
 
         self._board_thickness = thickness
 
+        # Sort children: sketch, board, bend lines, components
+        def _child_sort_key(c):
+            if c.Name.endswith("_Outline"):
+                return (0, c.Label)
+            if c.Name.endswith("_Board"):
+                return (1, c.Label)
+            if getattr(getattr(c, 'Proxy', None),
+                       'Type', None) == 'BendLine':
+                return (2, c.Label)
+            return (3, c.Label)
+        obj.Group = sorted(obj.Group, key=_child_sort_key)
+
         # Apply bending deformation for active bend lines
         bend_children = [c for c in obj.Group
                          if getattr(getattr(c, 'Proxy', None),
