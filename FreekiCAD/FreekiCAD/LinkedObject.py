@@ -1286,7 +1286,7 @@ class _OutlineSketchObserver:
         """Send move-component request to workspace bus."""
         self._move_timers.pop(obj.Name, None)
         try:
-            if not hasattr(obj, 'FreekiCAD_KiCadX'):
+            if not hasattr(obj, 'X'):
                 return
             init_p = getattr(obj, 'FreekiCAD_InitPlacement', None)
             if init_p is None:
@@ -1304,9 +1304,9 @@ class _OutlineSketchObserver:
             # FreeCAD coords: x_mm, y_mm (Y already negated from KiCad)
             # KiCad API via kipy Vector2.from_xy_mm takes mm with
             # KiCad sign convention (Y negated back)
-            new_kicad_x = obj.FreekiCAD_KiCadX + delta_x
-            new_kicad_y = obj.FreekiCAD_KiCadY + delta_y
-            new_kicad_angle = obj.FreekiCAD_KiCadAngle + delta_yaw
+            new_kicad_x = obj.X + delta_x
+            new_kicad_y = obj.Y + delta_y
+            new_kicad_angle = obj.Rotation + delta_yaw
 
             from FreekiCAD.workspace_bus import send_request
             send_request("move-component", parent.FileName,
@@ -1777,20 +1777,23 @@ class LinkedObject:
             # Store original KiCad coordinates for move-component
             kc = kicad_coords.get(label)
             if kc is not None:
-                for pname in ('FreekiCAD_KiCadX', 'FreekiCAD_KiCadY',
-                              'FreekiCAD_KiCadAngle'):
+                for pname, ptype in (
+                        ('X', 'App::PropertyDistance'),
+                        ('Y', 'App::PropertyDistance'),
+                        ('Rotation', 'App::PropertyAngle')):
                     if not hasattr(comp_obj, pname):
                         comp_obj.addProperty(
-                            "App::PropertyFloat", pname,
-                            "FreekiCAD",
-                            "Original KiCad coordinate")
+                            ptype, pname,
+                            "KiCad",
+                            "KiCad coordinate")
                         try:
-                            comp_obj.setPropertyStatus(pname, "Hidden")
+                            comp_obj.setPropertyStatus(
+                                pname, "ReadOnly")
                         except Exception:
                             pass
-                comp_obj.FreekiCAD_KiCadX = kc[0]
-                comp_obj.FreekiCAD_KiCadY = kc[1]
-                comp_obj.FreekiCAD_KiCadAngle = kc[2]
+                comp_obj.X = kc[0]
+                comp_obj.Y = kc[1]
+                comp_obj.Rotation = kc[2]
             if comp_colors and hasattr(comp_obj, 'ViewObject') \
                     and comp_obj.ViewObject:
                 _write_face_colors(comp_obj.ViewObject, comp_colors)
@@ -1830,7 +1833,7 @@ class LinkedObject:
         # include a stale bend transform from a previous session.
         self._unbent_placements = {}
         for c in obj.Group:
-            if hasattr(c, 'FreekiCAD_KiCadX'):
+            if hasattr(c, 'X'):
                 init_p = getattr(c, 'FreekiCAD_InitPlacement', None)
                 if init_p is not None:
                     self._unbent_placements[c.Name] = init_p.copy()
@@ -1864,11 +1867,11 @@ class LinkedObject:
         whose 3D model hasn't changed but whose KiCad position may have.
         *kc* is (new_kicad_x_mm, new_kicad_y_mm, new_kicad_angle_deg)
         in FreeCAD coordinates (Y already negated)."""
-        if not hasattr(comp_obj, 'FreekiCAD_KiCadX'):
+        if not hasattr(comp_obj, 'X'):
             return
-        old_x = comp_obj.FreekiCAD_KiCadX
-        old_y = comp_obj.FreekiCAD_KiCadY
-        old_angle = comp_obj.FreekiCAD_KiCadAngle
+        old_x = comp_obj.X
+        old_y = comp_obj.Y
+        old_angle = comp_obj.Rotation
         new_x, new_y, new_angle = kc
 
         dx = new_x - old_x
@@ -1895,9 +1898,9 @@ class LinkedObject:
         comp_obj.Placement = p
 
         # Update stored KiCad coordinates
-        comp_obj.FreekiCAD_KiCadX = new_x
-        comp_obj.FreekiCAD_KiCadY = new_y
-        comp_obj.FreekiCAD_KiCadAngle = new_angle
+        comp_obj.X = new_x
+        comp_obj.Y = new_y
+        comp_obj.Rotation = new_angle
 
         # Update InitPlacement constrained axes
         if hasattr(comp_obj, 'FreekiCAD_InitPlacement'):
@@ -1943,7 +1946,7 @@ class LinkedObject:
             if not hasattr(self, '_unbent_placements'):
                 self._unbent_placements = {}
                 for c in obj.Group:
-                    if hasattr(c, 'FreekiCAD_KiCadX'):
+                    if hasattr(c, 'X'):
                         init_p = getattr(
                             c, 'FreekiCAD_InitPlacement', None)
                         if init_p is not None:
@@ -2027,7 +2030,7 @@ class LinkedObject:
             # Move components and other bend lines on the moving side
             bend_obj_name = bend_obj.Name
             for child in obj.Group:
-                is_comp = hasattr(child, 'FreekiCAD_KiCadX')
+                is_comp = hasattr(child, 'X')
                 is_bend = (
                     getattr(getattr(child, 'Proxy', None),
                             'Type', None) == 'BendLine'
@@ -2036,8 +2039,8 @@ class LinkedObject:
                     continue
 
                 if is_comp:
-                    pt = FreeCAD.Vector(child.FreekiCAD_KiCadX,
-                                       child.FreekiCAD_KiCadY, 0)
+                    pt = FreeCAD.Vector(child.X,
+                                       child.Y, 0)
                 else:
                     bl_verts = child.Shape.Vertexes
                     pt = FreeCAD.Vector(
