@@ -1827,12 +1827,20 @@ class LinkedObject:
             return (3, c.Label)
         obj.Group = sorted(obj.Group, key=_child_sort_key)
 
-        # Store unbent placements for bend lines before bending.
+        # Store unbent placements for bend lines and components.
         self._unbent_placements = {}
         for c in obj.Group:
             if getattr(getattr(c, 'Proxy', None),
                        'Type', None) == 'BendLine':
                 self._unbent_placements[c.Name] = c.Placement.copy()
+            elif hasattr(c, 'X'):
+                init_p = getattr(c, 'FreekiCAD_InitPlacement', None)
+                if init_p is not None:
+                    self._unbent_placements[c.Name] = init_p.copy()
+                    c.Placement = init_p.copy()
+                else:
+                    self._unbent_placements[c.Name] = \
+                        c.Placement.copy()
 
         # Apply bending deformation for active bend lines
         bend_children = [c for c in obj.Group
@@ -1929,7 +1937,7 @@ class LinkedObject:
             if board_obj and hasattr(self, '_unbent_board_shape'):
                 board_obj.Shape = self._unbent_board_shape.copy()
 
-            # Restore unbent placements for bend lines.
+            # Restore unbent placements for bend lines and components.
             if not hasattr(self, '_unbent_placements'):
                 self._unbent_placements = {}
                 for c in obj.Group:
@@ -1937,6 +1945,15 @@ class LinkedObject:
                                'Type', None) == 'BendLine':
                         self._unbent_placements[c.Name] = \
                             c.Placement.copy()
+                    elif hasattr(c, 'X'):
+                        init_p = getattr(
+                            c, 'FreekiCAD_InitPlacement', None)
+                        if init_p is not None:
+                            self._unbent_placements[c.Name] = \
+                                init_p.copy()
+                        else:
+                            self._unbent_placements[c.Name] = \
+                                c.Placement.copy()
             for c in obj.Group:
                 if c.Name in self._unbent_placements:
                     c.Placement = \
@@ -1976,14 +1993,15 @@ class LinkedObject:
         else:
             mass_center = unbent.BoundBox.Center
         half_t = thickness / 2.0
+        up = FreeCAD.Vector(0, 0, 1)
 
+        # --- Phase 1: collect bend info from flat positions ---
+        bend_info = []
         for bend_obj in bend_children:
             angle_deg = bend_obj.Angle.Value
             radius = bend_obj.Radius.Value
             if angle_deg == 0 or radius < 0:
                 continue
-
-            angle_rad = math.radians(angle_deg)
 
             verts = bend_obj.Shape.Vertexes
             p0 = FreeCAD.Vector(verts[0].Point.x, verts[0].Point.y, 0)
@@ -1992,11 +2010,64 @@ class LinkedObject:
             line_dir.normalize()
             normal = FreeCAD.Vector(-line_dir.y, line_dir.x, 0)
 
-            # Stationary side contains mass center
             mc_dist = (FreeCAD.Vector(mass_center.x, mass_center.y, 0)
                        - p0).dot(normal)
             if mc_dist > 0:
                 normal = normal * -1
+
+            bend_info.append((bend_obj, p0, p1, line_dir, normal,
+                              math.radians(angle_deg), radius))
+
+        if not bend_info:
+            return
+
+        # --- Phase 2: cut flat board with all bend faces, classify
+        #     pieces via BFS to find which bends each piece crosses ---
+        bb = unbent.BoundBox
+        diag = bb.DiagonalLength + 50
+        cut_faces = []
+        for _, p0, p1, _, _, _, _ in bend_info:
+            c1 = p0 - up * diag
+            c2 = p1 - up * diag
+            c3 = p1 + up * diag
+            c4 = p0 + up * diag
+            cut_faces.append(
+                Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
+
+        try:
+            fused, _map = unbent.generalFuse(cut_faces)
+            pieces = [s for s in fused.Solids if s.Volume > 1e-6]
+        except Exception:
+            pieces = []
+
+        # Classify via BFS from stationary piece
+        piece_bend_sets = self._classify_pieces_bfs(
+            pieces, cut_faces, mass_center, half_t, bend_info)
+
+        # Map components to pieces using flat (X, Y) in 2D
+        comp_bend_sets = {}
+        for child in obj.Group:
+            if not hasattr(child, 'X'):
+                continue
+            pt = FreeCAD.Vector(
+                float(child.X), float(child.Y), half_t)
+            for pi, piece in enumerate(pieces):
+                if piece.isInside(pt, 0.5, True):
+                    comp_bend_sets[child.Name] = piece_bend_sets[pi]
+                    break
+            else:
+                # Component outside board: dot-product fallback
+                pt_2d = FreeCAD.Vector(pt.x, pt.y, 0)
+                fb = set()
+                for bi, (_, p0, _, _, normal, _, _) in enumerate(
+                        bend_info):
+                    if (pt_2d - p0).dot(normal) > 0:
+                        fb.add(bi)
+                comp_bend_sets[child.Name] = fb
+
+        # --- Phase 3: apply bends sequentially, move components ---
+        for bi, (bend_obj, p0, p1, line_dir, normal,
+                 angle_rad, radius) in enumerate(bend_info):
 
             rot_placement = self._bend_board(
                 board_obj, p0, p1, line_dir, normal, radius,
@@ -2024,6 +2095,81 @@ class LinkedObject:
                 if d > 0:
                     child.Placement = rot_placement.multiply(
                         child.Placement)
+
+            # Move components whose flat piece is affected by this bend
+            for child in obj.Group:
+                if child.Name not in comp_bend_sets:
+                    continue
+                if bi in comp_bend_sets[child.Name]:
+                    child.Placement = rot_placement.multiply(
+                        child.Placement)
+
+    def _classify_pieces_bfs(self, pieces, cut_faces, mass_center,
+                             half_t, bend_info):
+        """BFS from the stationary piece to determine which bends
+        each piece must cross to reach the stationary region."""
+        n = len(pieces)
+        if n == 0:
+            return []
+
+        # Find stationary piece (contains mass center)
+        mc_pt = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
+        stationary_idx = 0
+        for pi, piece in enumerate(pieces):
+            if piece.isInside(mc_pt, 0.5, True):
+                stationary_idx = pi
+                break
+
+        # Build adjacency graph: pieces that are touching are
+        # neighbors, labeled by the cutting face between them.
+        tol = 0.05
+        adjacency = [[] for _ in range(n)]
+        for i in range(n):
+            for j in range(i + 1, n):
+                d = pieces[i].distToShape(pieces[j])[0]
+                if d > tol:
+                    continue
+                # Find which cutting face separates them
+                mid = (pieces[i].CenterOfMass
+                       + pieces[j].CenterOfMass) * 0.5
+                mid_v = Part.Vertex(mid)
+                best_bi = None
+                best_d = float('inf')
+                for bi, cf in enumerate(cut_faces):
+                    cd = cf.distToShape(mid_v)[0]
+                    if cd < best_d:
+                        best_d = cd
+                        best_bi = bi
+                if best_bi is not None:
+                    adjacency[i].append((j, best_bi))
+                    adjacency[j].append((i, best_bi))
+
+        # BFS: shortest path (fewest bends crossed) from stationary
+        piece_bend_sets = [None] * n
+        piece_bend_sets[stationary_idx] = set()
+        queue = [stationary_idx]
+        while queue:
+            cur = queue.pop(0)
+            for nbr, bi in adjacency[cur]:
+                new_set = piece_bend_sets[cur] | {bi}
+                if (piece_bend_sets[nbr] is None
+                        or len(new_set) < len(piece_bend_sets[nbr])):
+                    piece_bend_sets[nbr] = new_set
+                    queue.append(nbr)
+
+        # Unreachable pieces: dot-product fallback
+        for pi in range(n):
+            if piece_bend_sets[pi] is None:
+                cm = pieces[pi].CenterOfMass
+                cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
+                fb = set()
+                for bi, (_, p0, _, _, normal, _, _) in enumerate(
+                        bend_info):
+                    if (cm_2d - p0).dot(normal) > 0:
+                        fb.add(bi)
+                piece_bend_sets[pi] = fb
+
+        return piece_bend_sets
 
     def _bend_board(self, board_obj, p0, p1, line_dir, normal,
                     radius, max_angle, half_thickness):
