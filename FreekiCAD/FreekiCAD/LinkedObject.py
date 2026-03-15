@@ -1866,9 +1866,9 @@ class LinkedObject:
         in FreeCAD coordinates (Y already negated)."""
         if not hasattr(comp_obj, 'X'):
             return
-        old_x = comp_obj.X
-        old_y = comp_obj.Y
-        old_angle = comp_obj.Rotation
+        old_x = float(comp_obj.X)
+        old_y = float(comp_obj.Y)
+        old_angle = float(comp_obj.Rotation)
         new_x, new_y, new_angle = kc
 
         dx = new_x - old_x
@@ -2067,16 +2067,33 @@ class LinkedObject:
                         fb.add(bi)
                 comp_bend_sets[child.Name] = fb
 
-        # --- Phase 3: apply bends sequentially, move components ---
+        # --- Phase 3: apply bends sequentially using pre-cut pieces ---
+        # Use the pieces from Phase 2 directly instead of re-cutting
+        # the board, which would incorrectly slice already-bent 3D
+        # geometry.
+        up = FreeCAD.Vector(0, 0, 1)
+        piece_shapes = [p.copy() for p in pieces]
+
         for bi, (bend_obj, p0, p1, line_dir, normal,
                  angle_rad, radius) in enumerate(bend_info):
 
-            rot_placement = self._bend_board(
-                board_obj, p0, p1, line_dir, normal, radius,
-                angle_rad, half_t)
+            bend_axis = up.cross(normal)
+            bend_axis.normalize()
+            rot = FreeCAD.Rotation(
+                bend_axis, math.degrees(angle_rad))
+            pivot = p0 + up * half_t
+            rot_placement = FreeCAD.Placement(
+                FreeCAD.Vector(0, 0, 0), rot, pivot)
 
-            if rot_placement is None:
-                continue
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: bend {bi}: angle={math.degrees(angle_rad):.1f}°, "
+                f"pivot={pivot}, axis={bend_axis}\n")
+
+            # Transform pieces whose bend_set includes this bend
+            for pi in range(len(piece_shapes)):
+                if bi in piece_bend_sets[pi]:
+                    piece_shapes[pi].transformShape(
+                        rot_placement.toMatrix())
 
             # Move other bend lines on the moving side
             bend_obj_name = bend_obj.Name
@@ -2105,6 +2122,22 @@ class LinkedObject:
                 if bi in comp_bend_sets[child.Name]:
                     child.Placement = rot_placement.multiply(
                         child.Placement)
+
+        # Update board shape with all bent pieces
+        saved_color = None
+        try:
+            saved_color = board_obj.ViewObject.ShapeColor
+        except Exception:
+            pass
+
+        board_obj.Shape = Part.makeCompound(
+            [s for s in piece_shapes if s.Volume > 1e-6])
+
+        if saved_color:
+            try:
+                board_obj.ViewObject.ShapeColor = saved_color
+            except Exception:
+                pass
 
     def _classify_pieces_bfs(self, pieces, cut_faces, mass_center,
                              half_t, bend_info):
@@ -2185,6 +2218,16 @@ class LinkedObject:
         bb = shape.BoundBox
         up = FreeCAD.Vector(0, 0, 1)
 
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: _bend_board: p0={p0}, p1={p1}, "
+            f"normal={normal}, angle={math.degrees(max_angle):.1f}°, "
+            f"radius={radius}\n")
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD:   board bb: "
+            f"({bb.XMin:.2f},{bb.YMin:.2f},{bb.ZMin:.2f})-"
+            f"({bb.XMax:.2f},{bb.YMax:.2f},{bb.ZMax:.2f}), "
+            f"n_solids={len(shape.Solids)}\n")
+
         # Build a cutting face from the bend line segment, extended in Z.
         diag = bb.DiagonalLength + 50
         c1 = p0 - up * diag
@@ -2196,7 +2239,9 @@ class LinkedObject:
         # Split the board at the cutting face
         try:
             fused, _map = shape.generalFuse([cut_face])
-        except Exception:
+        except Exception as e:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD:   generalFuse failed: {e}\n")
             return None
 
         # Classify resulting solids by which side of the bend line
@@ -2209,20 +2254,34 @@ class LinkedObject:
             cm = s.CenterOfMass
             cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
             d = (cm_2d - p0).dot(normal)
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD:   solid vol={s.Volume:.2f}, "
+                f"cm=({cm.x:.2f},{cm.y:.2f},{cm.z:.2f}), "
+                f"d={d:.2f} -> {'MOVE' if d > 0 else 'STAY'}\n")
             if d > 0:
                 moving.append(s)
             else:
                 stationary.append(s)
 
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD:   stationary={len(stationary)}, "
+            f"moving={len(moving)}\n")
+
         if not moving:
+            FreeCAD.Console.PrintWarning(
+                "FreekiCAD:   no moving solids found!\n")
             return None
 
         bend_axis = up.cross(normal)
         bend_axis.normalize()
         rot = FreeCAD.Rotation(bend_axis, math.degrees(max_angle))
-        pivot = p0 + up * (half_thickness - radius)
+        pivot = p0 + up * half_thickness
         rot_placement = FreeCAD.Placement(
             FreeCAD.Vector(0, 0, 0), rot, pivot)
+
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD:   bend_axis={bend_axis}, "
+            f"pivot={pivot}\n")
 
         bent_moving = []
         for s in moving:
