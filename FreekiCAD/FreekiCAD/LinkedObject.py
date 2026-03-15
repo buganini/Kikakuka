@@ -1975,7 +1975,6 @@ class LinkedObject:
                                   thickness)
         finally:
             self._bending = False
-        _fit_view(obj)
 
     def _apply_bends(self, obj, board_obj, bend_children, thickness):
         """Apply bending deformation to the board shape."""
@@ -2027,14 +2026,54 @@ class LinkedObject:
         #     pieces via BFS to find which bends each piece crosses ---
         bb = unbent.BoundBox
         diag = bb.DiagonalLength + 50
-        cut_faces = []
-        for _, p0, p1, _, _, _, _ in bend_info:
-            c1 = p0 - up * diag
-            c2 = p1 - up * diag
-            c3 = p1 + up * diag
-            c4 = p0 + up * diag
-            cut_faces.append(
-                Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
+        thickness = half_t * 2
+
+        # Compute inset for each bend: half the arc length at inner
+        # radius.  inset = 0 at angle 0, piR/4 at 90deg, piR/2 at
+        # 180deg.
+        insets = []
+        for _, _, _, _, _, angle_rad, radius in bend_info:
+            insets.append(radius * abs(angle_rad) / 2.0)
+
+        # Build cutting faces.  For radius > 0 bends, cut at ±inset
+        # from the bend line (two faces per bend); for radius == 0,
+        # cut at the bend line itself (one face).
+        cut_faces = []          # all faces for generalFuse
+        bend_face_indices = []  # per bend: list of indices into cut_faces
+        for bi, (_, p0, p1, _, normal, _, _) in enumerate(bend_info):
+            indices = []
+            ins = insets[bi]
+            if ins > 1e-6:
+                # Stationary-side inset face
+                sp0 = p0 - normal * ins
+                sp1 = p1 - normal * ins
+                c1 = sp0 - up * diag
+                c2 = sp1 - up * diag
+                c3 = sp1 + up * diag
+                c4 = sp0 + up * diag
+                indices.append(len(cut_faces))
+                cut_faces.append(
+                    Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
+                # Moving-side inset face
+                mp0 = p0 + normal * ins
+                mp1 = p1 + normal * ins
+                c1 = mp0 - up * diag
+                c2 = mp1 - up * diag
+                c3 = mp1 + up * diag
+                c4 = mp0 + up * diag
+                indices.append(len(cut_faces))
+                cut_faces.append(
+                    Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
+            else:
+                # Sharp bend: single face at bend line
+                c1 = p0 - up * diag
+                c2 = p1 - up * diag
+                c3 = p1 + up * diag
+                c4 = p0 + up * diag
+                indices.append(len(cut_faces))
+                cut_faces.append(
+                    Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
+            bend_face_indices.append(indices)
 
         try:
             fused, _map = unbent.generalFuse(cut_faces)
@@ -2042,9 +2081,16 @@ class LinkedObject:
         except Exception:
             pieces = []
 
+        # Build face-index -> bend-index mapping for BFS
+        face_to_bend = {}
+        for bi, indices in enumerate(bend_face_indices):
+            for fi in indices:
+                face_to_bend[fi] = bi
+
         # Classify via BFS from stationary piece
         piece_bend_sets = self._classify_pieces_bfs(
-            pieces, cut_faces, mass_center, half_t, bend_info)
+            pieces, cut_faces, face_to_bend, mass_center, half_t,
+            bend_info)
 
         # Map components to pieces using flat (X, Y) in 2D
         comp_bend_sets = {}
@@ -2074,6 +2120,23 @@ class LinkedObject:
         up = FreeCAD.Vector(0, 0, 1)
         piece_shapes = [p.copy() for p in pieces]
 
+        # Identify strip pieces for each bend with inset > 0.
+        # A strip piece's center of mass is between ±inset of the
+        # bend line in the normal direction.
+        strip_pieces = set()  # piece indices to exclude from final shape
+        arc_solids = []       # arc solids to add in place of strips
+        for bi, (_, p0, p1, line_dir, normal,
+                 angle_rad, radius) in enumerate(bend_info):
+            ins = insets[bi]
+            if ins < 1e-6:
+                continue
+            for pi, piece in enumerate(pieces):
+                cm = piece.CenterOfMass
+                cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
+                d = (cm_2d - p0).dot(normal)
+                if abs(d) < ins - 1e-6:
+                    strip_pieces.add(pi)
+
         for bi, (bend_obj, p0, p1, line_dir, normal,
                  angle_rad, radius) in enumerate(bend_info):
 
@@ -2089,8 +2152,11 @@ class LinkedObject:
                 f"FreekiCAD: bend {bi}: angle={math.degrees(angle_rad):.1f}°, "
                 f"pivot={pivot}, axis={bend_axis}\n")
 
-            # Transform pieces whose bend_set includes this bend
+            # Transform non-strip pieces whose bend_set includes this
+            # bend
             for pi in range(len(piece_shapes)):
+                if pi in strip_pieces:
+                    continue
                 if bi in piece_bend_sets[pi]:
                     piece_shapes[pi].transformShape(
                         rot_placement.toMatrix())
@@ -2123,15 +2189,18 @@ class LinkedObject:
                     child.Placement = rot_placement.multiply(
                         child.Placement)
 
-        # Update board shape with all bent pieces
+        # Update board shape: non-strip pieces + arc solids
         saved_color = None
         try:
             saved_color = board_obj.ViewObject.ShapeColor
         except Exception:
             pass
 
-        board_obj.Shape = Part.makeCompound(
-            [s for s in piece_shapes if s.Volume > 1e-6])
+        final = [piece_shapes[pi] for pi in range(len(piece_shapes))
+                 if pi not in strip_pieces
+                 and piece_shapes[pi].Volume > 1e-6]
+        final.extend(arc_solids)
+        board_obj.Shape = Part.makeCompound(final)
 
         if saved_color:
             try:
@@ -2139,10 +2208,14 @@ class LinkedObject:
             except Exception:
                 pass
 
-    def _classify_pieces_bfs(self, pieces, cut_faces, mass_center,
-                             half_t, bend_info):
+    def _classify_pieces_bfs(self, pieces, cut_faces, face_to_bend,
+                             mass_center, half_t, bend_info):
         """BFS from the stationary piece to determine which bends
-        each piece must cross to reach the stationary region."""
+        each piece must cross to reach the stationary region.
+
+        *face_to_bend* maps each index in *cut_faces* to the bend
+        index it belongs to (a bend with inset produces two faces
+        that both map to the same bend index)."""
         n = len(pieces)
         if n == 0:
             return []
@@ -2156,7 +2229,7 @@ class LinkedObject:
                 break
 
         # Build adjacency graph: pieces that are touching are
-        # neighbors, labeled by the cutting face between them.
+        # neighbors, labeled by the bend that separates them.
         tol = 0.05
         adjacency = [[] for _ in range(n)]
         for i in range(n):
@@ -2164,20 +2237,22 @@ class LinkedObject:
                 d = pieces[i].distToShape(pieces[j])[0]
                 if d > tol:
                     continue
-                # Find which cutting face separates them
+                # Find which cutting face separates them, then map
+                # to the bend index.
                 mid = (pieces[i].CenterOfMass
                        + pieces[j].CenterOfMass) * 0.5
                 mid_v = Part.Vertex(mid)
-                best_bi = None
+                best_fi = None
                 best_d = float('inf')
-                for bi, cf in enumerate(cut_faces):
+                for fi, cf in enumerate(cut_faces):
                     cd = cf.distToShape(mid_v)[0]
                     if cd < best_d:
                         best_d = cd
-                        best_bi = bi
-                if best_bi is not None:
-                    adjacency[i].append((j, best_bi))
-                    adjacency[j].append((i, best_bi))
+                        best_fi = fi
+                if best_fi is not None:
+                    bi = face_to_bend.get(best_fi, best_fi)
+                    adjacency[i].append((j, bi))
+                    adjacency[j].append((i, bi))
 
         # BFS: shortest path (fewest bends crossed) from stationary
         piece_bend_sets = [None] * n
@@ -2205,6 +2280,87 @@ class LinkedObject:
                 piece_bend_sets[pi] = fb
 
         return piece_bend_sets
+
+    def _build_bend_arc(self, p0, p1, line_dir, normal, inset,
+                        angle_rad, half_t, rot_placement):
+        """Build an arc solid that fills the gap left by removing the
+        strip between ±inset of the bend line.
+
+        The arc has concentric-circle top/bottom surfaces:
+        - Arc centre directly above the stationary cut edge
+        - Inner radius = bend radius R
+        - Outer radius = R + thickness
+        - Angular span = bend angle (inner concave, outer convex)
+
+        Returns a Part.Shape solid, or None on failure.
+        """
+        up = FreeCAD.Vector(0, 0, 1)
+        thickness = half_t * 2
+
+        # Recover the original bend radius from inset = R * |angle| / 2
+        abs_angle = abs(angle_rad)
+        if abs_angle < 1e-6:
+            return None
+        radius = inset / (abs_angle / 2.0)
+        if radius < 1e-6:
+            return None
+
+        r_inner = radius
+        r_outer = radius + thickness
+
+        # Arc centre: directly above the stationary cut edge at
+        # height (thickness + radius).  ST and SB lie exactly on
+        # the inner/outer circles by construction.
+        arc_ctr = (p0 - normal * inset
+                   + up * (thickness + radius))
+
+        # Stationary end: directly below arc centre, on the circles
+        ST = arc_ctr - up * r_inner   # top surface, inner circle
+        SB = arc_ctr - up * r_outer   # bottom surface, outer circle
+
+        # Moving end: rotate stationary points by bend angle around
+        # the arc centre.  This preserves distances → stays on circles.
+        bend_axis = up.cross(normal)
+        bend_axis.normalize()
+        arc_rot = FreeCAD.Rotation(
+            bend_axis, math.degrees(angle_rad))
+        arc_plc = FreeCAD.Placement(
+            FreeCAD.Vector(0, 0, 0), arc_rot, arc_ctr)
+        MT_bent = arc_plc.multVec(ST)
+        MB_bent = arc_plc.multVec(SB)
+
+        # Midpoints at half the bend angle on each circle
+        half_rot = FreeCAD.Rotation(
+            bend_axis, math.degrees(angle_rad / 2.0))
+        half_plc = FreeCAD.Placement(
+            FreeCAD.Vector(0, 0, 0), half_rot, arc_ctr)
+        mid_top = half_plc.multVec(ST)
+        mid_bot = half_plc.multVec(SB)
+
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: _build_bend_arc:\n"
+            f"  arc_ctr={arc_ctr}, R={radius:.4f}, "
+            f"r_inner={r_inner:.4f}, r_outer={r_outer:.4f}\n"
+            f"  ST={ST}\n  SB={SB}\n"
+            f"  MT_bent={MT_bent}\n  MB_bent={MB_bent}\n"
+            f"  mid_top={mid_top}\n  mid_bot={mid_bot}\n")
+
+        # Build cross-section wire
+        e_stat = Part.LineSegment(SB, ST).toShape()
+        e_top = Part.Arc(ST, mid_top, MT_bent).toShape()
+        e_move = Part.LineSegment(MT_bent, MB_bent).toShape()
+        e_bot = Part.Arc(MB_bent, mid_bot, SB).toShape()
+
+        wire = Part.Wire([e_stat, e_top, e_move, e_bot])
+        face = Part.Face(wire)
+
+        # Extrude along the bend line
+        ext_vec = p1 - p0
+        if ext_vec.Length < 1e-6:
+            return None
+
+        arc_solid = face.extrude(ext_vec)
+        return arc_solid
 
     def _bend_board(self, board_obj, p0, p1, line_dir, normal,
                     radius, max_angle, half_thickness):
