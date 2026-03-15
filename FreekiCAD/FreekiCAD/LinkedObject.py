@@ -1922,6 +1922,8 @@ class LinkedObject:
     def _rebend(self, obj):
         """Re-apply bending after Radius/Angle/Active or EnableBending
         changes on a bend line."""
+        if not hasattr(self, '_unbent_board_shape'):
+            return
         self._bending = True
         try:
             thickness = getattr(self, '_board_thickness',
