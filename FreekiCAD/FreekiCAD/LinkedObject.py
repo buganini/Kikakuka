@@ -1827,22 +1827,11 @@ class LinkedObject:
             return (3, c.Label)
         obj.Group = sorted(obj.Group, key=_child_sort_key)
 
-        # Store unbent placements before bending.
-        # For components, use FreekiCAD_InitPlacement (the true unbent
-        # value) and reset Placement to it — the saved Placement may
-        # include a stale bend transform from a previous session.
+        # Store unbent placements for bend lines before bending.
         self._unbent_placements = {}
         for c in obj.Group:
-            if hasattr(c, 'X'):
-                init_p = getattr(c, 'FreekiCAD_InitPlacement', None)
-                if init_p is not None:
-                    self._unbent_placements[c.Name] = init_p.copy()
-                    c.Placement = init_p.copy()
-                else:
-                    self._unbent_placements[c.Name] = \
-                        c.Placement.copy()
-            elif getattr(getattr(c, 'Proxy', None),
-                         'Type', None) == 'BendLine':
+            if getattr(getattr(c, 'Proxy', None),
+                       'Type', None) == 'BendLine':
                 self._unbent_placements[c.Name] = c.Placement.copy()
 
         # Apply bending deformation for active bend lines
@@ -1940,23 +1929,12 @@ class LinkedObject:
             if board_obj and hasattr(self, '_unbent_board_shape'):
                 board_obj.Shape = self._unbent_board_shape.copy()
 
-            # Restore unbent placements for components and bend lines.
-            # If _unbent_placements doesn't exist yet (e.g. document
-            # restore), build it from FreekiCAD_InitPlacement.
+            # Restore unbent placements for bend lines.
             if not hasattr(self, '_unbent_placements'):
                 self._unbent_placements = {}
                 for c in obj.Group:
-                    if hasattr(c, 'X'):
-                        init_p = getattr(
-                            c, 'FreekiCAD_InitPlacement', None)
-                        if init_p is not None:
-                            self._unbent_placements[c.Name] = \
-                                init_p.copy()
-                        else:
-                            self._unbent_placements[c.Name] = \
-                                c.Placement.copy()
-                    elif getattr(getattr(c, 'Proxy', None),
-                                 'Type', None) == 'BendLine':
+                    if getattr(getattr(c, 'Proxy', None),
+                               'Type', None) == 'BendLine':
                         self._unbent_placements[c.Name] = \
                             c.Placement.copy()
             for c in obj.Group:
@@ -2027,27 +2005,20 @@ class LinkedObject:
             if rot_placement is None:
                 continue
 
-            # Move components and other bend lines on the moving side
+            # Move other bend lines on the moving side
             bend_obj_name = bend_obj.Name
             for child in obj.Group:
-                is_comp = hasattr(child, 'X')
-                is_bend = (
-                    getattr(getattr(child, 'Proxy', None),
-                            'Type', None) == 'BendLine'
-                    and child.Name != bend_obj_name)
-                if not (is_comp or is_bend):
+                if (getattr(getattr(child, 'Proxy', None),
+                            'Type', None) != 'BendLine'
+                        or child.Name == bend_obj_name):
                     continue
 
-                if is_comp:
-                    pt = FreeCAD.Vector(child.X,
-                                       child.Y, 0)
-                else:
-                    bl_verts = child.Shape.Vertexes
-                    pt = FreeCAD.Vector(
-                        (bl_verts[0].Point.x
-                         + bl_verts[1].Point.x) / 2,
-                        (bl_verts[0].Point.y
-                         + bl_verts[1].Point.y) / 2, 0)
+                bl_verts = child.Shape.Vertexes
+                pt = FreeCAD.Vector(
+                    (bl_verts[0].Point.x
+                     + bl_verts[1].Point.x) / 2,
+                    (bl_verts[0].Point.y
+                     + bl_verts[1].Point.y) / 2, 0)
 
                 d = (pt - p0).dot(normal)
                 if d > 0:
