@@ -1824,12 +1824,22 @@ class LinkedObject:
             return (3, c.Label)
         obj.Group = sorted(obj.Group, key=_child_sort_key)
 
-        # Store unbent placements before bending
+        # Store unbent placements before bending.
+        # For components, use FreekiCAD_InitPlacement (the true unbent
+        # value) and reset Placement to it — the saved Placement may
+        # include a stale bend transform from a previous session.
         self._unbent_placements = {}
         for c in obj.Group:
-            if hasattr(c, 'FreekiCAD_KiCadX') or \
-                    getattr(getattr(c, 'Proxy', None),
-                            'Type', None) == 'BendLine':
+            if hasattr(c, 'FreekiCAD_KiCadX'):
+                init_p = getattr(c, 'FreekiCAD_InitPlacement', None)
+                if init_p is not None:
+                    self._unbent_placements[c.Name] = init_p.copy()
+                    c.Placement = init_p.copy()
+                else:
+                    self._unbent_placements[c.Name] = \
+                        c.Placement.copy()
+            elif getattr(getattr(c, 'Proxy', None),
+                         'Type', None) == 'BendLine':
                 self._unbent_placements[c.Name] = c.Placement.copy()
 
         # Apply bending deformation for active bend lines
@@ -1927,13 +1937,23 @@ class LinkedObject:
             if board_obj and hasattr(self, '_unbent_board_shape'):
                 board_obj.Shape = self._unbent_board_shape.copy()
 
-            # Restore unbent placements for components and bend lines
+            # Restore unbent placements for components and bend lines.
+            # If _unbent_placements doesn't exist yet (e.g. document
+            # restore), build it from FreekiCAD_InitPlacement.
             if not hasattr(self, '_unbent_placements'):
                 self._unbent_placements = {}
                 for c in obj.Group:
-                    if hasattr(c, 'FreekiCAD_KiCadX') or \
-                            getattr(getattr(c, 'Proxy', None),
-                                    'Type', None) == 'BendLine':
+                    if hasattr(c, 'FreekiCAD_KiCadX'):
+                        init_p = getattr(
+                            c, 'FreekiCAD_InitPlacement', None)
+                        if init_p is not None:
+                            self._unbent_placements[c.Name] = \
+                                init_p.copy()
+                        else:
+                            self._unbent_placements[c.Name] = \
+                                c.Placement.copy()
+                    elif getattr(getattr(c, 'Proxy', None),
+                                 'Type', None) == 'BendLine':
                         self._unbent_placements[c.Name] = \
                             c.Placement.copy()
             for c in obj.Group:
