@@ -1191,7 +1191,9 @@ class _OutlineSketchObserver:
             if parent is not None:
                 # Skip when bending is active — placement changes are
                 # cosmetic (applied by the bend transform).
-                if self._is_bending_active(parent):
+                proxy = getattr(parent, "Proxy", None)
+                if (proxy and getattr(proxy, '_bending', False)) \
+                        or self._is_bending_active(parent):
                     return
                 self._constrain_placement(obj)
                 self._schedule_move_component(obj, parent)
@@ -1822,6 +1824,14 @@ class LinkedObject:
             return (3, c.Label)
         obj.Group = sorted(obj.Group, key=_child_sort_key)
 
+        # Store unbent placements before bending
+        self._unbent_placements = {}
+        for c in obj.Group:
+            if hasattr(c, 'FreekiCAD_KiCadX') or \
+                    getattr(getattr(c, 'Proxy', None),
+                            'Type', None) == 'BendLine':
+                self._unbent_placements[c.Name] = c.Placement.copy()
+
         # Apply bending deformation for active bend lines
         bend_children = [c for c in obj.Group
                          if getattr(getattr(c, 'Proxy', None),
@@ -1917,11 +1927,19 @@ class LinkedObject:
             if board_obj and hasattr(self, '_unbent_board_shape'):
                 board_obj.Shape = self._unbent_board_shape.copy()
 
-            # Reset bend line placements to identity
+            # Restore unbent placements for components and bend lines
+            if not hasattr(self, '_unbent_placements'):
+                self._unbent_placements = {}
+                for c in obj.Group:
+                    if hasattr(c, 'FreekiCAD_KiCadX') or \
+                            getattr(getattr(c, 'Proxy', None),
+                                    'Type', None) == 'BendLine':
+                        self._unbent_placements[c.Name] = \
+                            c.Placement.copy()
             for c in obj.Group:
-                if getattr(getattr(c, 'Proxy', None),
-                           'Type', None) == 'BendLine':
-                    c.Placement = FreeCAD.Placement()
+                if c.Name in self._unbent_placements:
+                    c.Placement = \
+                        self._unbent_placements[c.Name].copy()
 
             # Re-apply all active bends
             bend_children = [
@@ -1986,67 +2004,73 @@ class LinkedObject:
             if rot_placement is None:
                 continue
 
-            # Move other bend lines on the moving side
+            # Move components and other bend lines on the moving side
+            bend_obj_name = bend_obj.Name
             for child in obj.Group:
-                if getattr(getattr(child, 'Proxy', None),
-                           'Type', None) != 'BendLine':
+                is_comp = hasattr(child, 'FreekiCAD_KiCadX')
+                is_bend = (
+                    getattr(getattr(child, 'Proxy', None),
+                            'Type', None) == 'BendLine'
+                    and child.Name != bend_obj_name)
+                if not (is_comp or is_bend):
                     continue
-                if child.Name == bend_obj.Name:
-                    continue
-                bl_verts = child.Shape.Vertexes
-                bl_mid = FreeCAD.Vector(
-                    (bl_verts[0].Point.x + bl_verts[1].Point.x) / 2,
-                    (bl_verts[0].Point.y + bl_verts[1].Point.y) / 2,
-                    0)
-                d = (bl_mid - p0).dot(normal)
+
+                if is_comp:
+                    pt = FreeCAD.Vector(child.FreekiCAD_KiCadX,
+                                       child.FreekiCAD_KiCadY, 0)
+                else:
+                    bl_verts = child.Shape.Vertexes
+                    pt = FreeCAD.Vector(
+                        (bl_verts[0].Point.x
+                         + bl_verts[1].Point.x) / 2,
+                        (bl_verts[0].Point.y
+                         + bl_verts[1].Point.y) / 2, 0)
+
+                d = (pt - p0).dot(normal)
                 if d > 0:
                     child.Placement = rot_placement.multiply(
                         child.Placement)
 
     def _bend_board(self, board_obj, p0, p1, line_dir, normal,
                     radius, max_angle, half_thickness):
-        """Cut the board at the bend line, rotate the moving half.
+        """Cut the board at the bend line segment, rotate the moving half.
 
-        Uses boolean cut/common to split the board solid, then
-        transformShape to bake the rotation into geometry so that
-        subsequent bends can cut the already-bent shape.
-
-        The cutting box is limited to the bend line's extent along
-        line_dir so that concave regions outside the line are not cut.
+        Uses generalFuse with a cutting face (the bend line extruded in Z)
+        to split the board exactly where the segment crosses it.  Concave
+        regions that don't cross the bend line are never touched.
         """
         shape = board_obj.Shape
         bb = shape.BoundBox
         up = FreeCAD.Vector(0, 0, 1)
 
-        # Cutting box limited to the bend line's extent along line_dir.
-        # Only extends in the normal direction (moving side) and Z.
+        # Build a cutting face from the bend line segment, extended in Z.
         diag = bb.DiagonalLength + 50
         c1 = p0 - up * diag
         c2 = p1 - up * diag
         c3 = p1 + up * diag
         c4 = p0 + up * diag
         cut_face = Part.Face(Part.makePolygon([c1, c2, c3, c4, c1]))
-        moving_box = cut_face.extrude(normal * diag)
 
-        input_solids = shape.Solids if shape.Solids else [shape]
+        # Split the board at the cutting face
+        try:
+            fused, _map = shape.generalFuse([cut_face])
+        except Exception:
+            return None
+
+        # Classify resulting solids by which side of the bend line
+        # their center of mass falls on.
         stationary = []
         moving = []
-        for inp in input_solids:
-            try:
-                stat_part = inp.cut(moving_box)
-                for s in (stat_part.Solids or [stat_part]):
-                    if s.Volume > 1e-6:
-                        stationary.append(s)
-            except Exception:
-                stationary.append(inp)
+        for s in fused.Solids:
+            if s.Volume < 1e-6:
                 continue
-            try:
-                move_part = inp.common(moving_box)
-                for s in (move_part.Solids or [move_part]):
-                    if s.Volume > 1e-6:
-                        moving.append(s)
-            except Exception:
-                pass
+            cm = s.CenterOfMass
+            cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
+            d = (cm_2d - p0).dot(normal)
+            if d > 0:
+                moving.append(s)
+            else:
+                stationary.append(s)
 
         if not moving:
             return None
