@@ -2088,7 +2088,7 @@ class LinkedObject:
                 face_to_bend[fi] = bi
 
         # Classify via BFS from stationary piece
-        piece_bend_sets = self._classify_pieces_bfs(
+        piece_bend_sets, bfs_tree = self._classify_pieces_bfs(
             pieces, cut_faces, face_to_bend, mass_center, half_t,
             bend_info)
 
@@ -2238,6 +2238,13 @@ class LinkedObject:
                     child.Placement = rot_placement.multiply(
                         child.Placement)
 
+        # Draw BFS tree arrows at unbent positions
+        if pieces:
+            self._draw_debug_arrows(
+                obj, pieces, piece_bend_sets, bfs_tree,
+                strip_pieces, strip_to_bend,
+                bend_info, insets, half_t)
+
         # Update board shape with all pieces (including bent wedges)
         saved_color = None
         try:
@@ -2254,6 +2261,80 @@ class LinkedObject:
             except Exception:
                 pass
 
+    def _draw_debug_arrows(self, obj, pieces, piece_bend_sets,
+                            bfs_tree, strip_pieces, strip_to_bend,
+                            bend_info, insets, half_t):
+        """Draw debug arrows showing the BFS tree from fixed to
+        moving pieces.  Each piece is labeled fixed/moving/wedge."""
+        doc = obj.Document
+        up = FreeCAD.Vector(0, 0, 1)
+        thickness = half_t * 2
+
+        edges = []
+        labels = []  # (center, label_text)
+
+        for pi, piece in enumerate(pieces):
+            cm = piece.CenterOfMass
+            # Classify piece
+            if pi in strip_pieces:
+                label = f"W{strip_to_bend[pi]}"
+            elif not piece_bend_sets[pi]:
+                label = "F"
+            else:
+                bends = sorted(piece_bend_sets[pi])
+                label = "M" + ",".join(str(b) for b in bends)
+            labels.append((cm, label))
+
+            # Draw arrow from parent to this piece
+            parent_info = bfs_tree.get(pi)
+            if parent_info and parent_info[0] is not None:
+                parent_idx, bend_crossed = parent_info
+                parent_cm = pieces[parent_idx].CenterOfMass
+                start = FreeCAD.Vector(
+                    parent_cm.x, parent_cm.y,
+                    thickness)
+                end = FreeCAD.Vector(
+                    cm.x, cm.y, thickness)
+                dist = start.distanceToPoint(end)
+                if dist > 0.01:
+                    edges.append(Part.makeLine(start, end))
+                    d = (end - start) * (1.0 / dist)
+                    hl = min(0.3, dist * 0.2)
+                    perp = FreeCAD.Vector(-d.y, d.x, 0)
+                    base = end - d * hl
+                    edges.append(Part.makeLine(
+                        end, base + perp * hl * 0.4))
+                    edges.append(Part.makeLine(
+                        end, base - perp * hl * 0.4))
+
+        # Reuse existing debug arrows object or create new one
+        debug_name = obj.Name + "_DebugArrows"
+        debug_obj = None
+        for c in obj.Group:
+            if c.Name == debug_name:
+                debug_obj = c
+                break
+        if edges:
+            if debug_obj is None:
+                debug_obj = doc.addObject("Part::Feature", debug_name)
+                obj.addObject(debug_obj)
+                try:
+                    debug_obj.ViewObject.LineColor = (1.0, 0.0, 0.0)
+                    debug_obj.ViewObject.LineWidth = 2.0
+                    debug_obj.ViewObject.Visibility = False
+                except Exception:
+                    pass
+            debug_obj.Shape = Part.makeCompound(edges)
+        elif debug_obj is not None:
+            debug_obj.Shape = Part.Shape()  # empty
+
+        # Log the classification
+        for pi, (cm, label) in enumerate(labels):
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: piece {pi}: {label}"
+                f" vol={pieces[pi].Volume:.4f}"
+                f" cm=({cm.x:.2f},{cm.y:.2f},{cm.z:.2f})\n")
+
     def _classify_pieces_bfs(self, pieces, cut_faces, face_to_bend,
                              mass_center, half_t, bend_info):
         """BFS from the stationary piece to determine which bends
@@ -2261,10 +2342,14 @@ class LinkedObject:
 
         *face_to_bend* maps each index in *cut_faces* to the bend
         index it belongs to (a bend with inset produces two faces
-        that both map to the same bend index)."""
+        that both map to the same bend index).
+
+        Returns (piece_bend_sets, bfs_tree) where bfs_tree is a dict
+        mapping piece index → (parent_piece_index, bend_index_crossed).
+        The stationary piece maps to (None, None)."""
         n = len(pieces)
         if n == 0:
-            return []
+            return [], {}
 
         # Find stationary piece (contains mass center)
         mc_pt = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
@@ -2303,6 +2388,7 @@ class LinkedObject:
         # BFS: shortest path (fewest bends crossed) from stationary
         piece_bend_sets = [None] * n
         piece_bend_sets[stationary_idx] = set()
+        bfs_tree = {stationary_idx: (None, None)}
         queue = [stationary_idx]
         while queue:
             cur = queue.pop(0)
@@ -2311,6 +2397,7 @@ class LinkedObject:
                 if (piece_bend_sets[nbr] is None
                         or len(new_set) < len(piece_bend_sets[nbr])):
                     piece_bend_sets[nbr] = new_set
+                    bfs_tree[nbr] = (cur, bi)
                     queue.append(nbr)
 
         # Unreachable pieces: dot-product fallback
@@ -2324,8 +2411,9 @@ class LinkedObject:
                     if (cm_2d - p0).dot(normal) > 0:
                         fb.add(bi)
                 piece_bend_sets[pi] = fb
+                bfs_tree[pi] = (stationary_idx, -1)
 
-        return piece_bend_sets
+        return piece_bend_sets, bfs_tree
 
     def _bend_board(self, board_obj, p0, p1, line_dir, normal,
                     radius, max_angle, half_thickness):
