@@ -1975,7 +1975,6 @@ class LinkedObject:
                                   thickness)
         finally:
             self._bending = False
-        _fit_view(obj)
 
     def _apply_bends(self, obj, board_obj, bend_children, thickness):
         """Apply bending deformation to the board shape."""
