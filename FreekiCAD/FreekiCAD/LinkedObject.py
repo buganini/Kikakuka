@@ -2138,9 +2138,16 @@ class LinkedObject:
         for bi, (bend_obj, p0, p1, line_dir, normal,
                  angle_rad, radius) in enumerate(bend_info):
 
-            bend_axis = up.cross(normal)
+            # Use current world-space position of bend line
+            # (previous bends may have moved it via Placement).
+            plc = bend_obj.Placement
+            cur_normal = plc.Rotation.multVec(normal)
+            cur_up = plc.Rotation.multVec(up)
+            cur_p0 = plc.multVec(p0)
+
+            bend_axis = cur_up.cross(cur_normal)
             bend_axis.normalize()
-            pivot = p0 + up * half_t
+            pivot = cur_p0 + cur_up * half_t
 
             rot = FreeCAD.Rotation(
                 bend_axis, math.degrees(angle_rad))
