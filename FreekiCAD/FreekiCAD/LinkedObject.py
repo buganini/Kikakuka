@@ -1576,6 +1576,7 @@ class LinkedObject:
         doc = obj.Document
 
         self._board_color = board_color
+        self._outline_edges = outline_edges or []
 
         # Record file modification time
         try:
@@ -1997,6 +1998,7 @@ class LinkedObject:
         up = FreeCAD.Vector(0, 0, 1)
 
         # --- Phase 1: collect bend info from flat positions ---
+        outline_edges = getattr(self, '_outline_edges', [])
         bend_info = []
         for bend_obj in bend_children:
             angle_deg = bend_obj.Angle.Value
@@ -2028,53 +2030,68 @@ class LinkedObject:
         diag = bb.DiagonalLength + 50
         thickness = half_t * 2
 
-        # Compute inset for each bend: half the arc length at the
-        # bend radius.  inset = R * |angle| / 2
-        # Width of wedge = 2 * pi * R * (angle/360) = R * angle_rad
+        # Compute inset for each bend
         insets = []
         for _, _, _, _, _, angle_rad, radius in bend_info:
             insets.append(radius * abs(angle_rad) / 2.0)
 
-        # Build cutting faces.  For radius > 0 bends, cut at ±inset
-        # from the bend line (two faces per bend); for radius == 0,
-        # cut at the bend line itself (one face).
-        cut_faces = []          # all faces for generalFuse
-        bend_face_indices = []  # per bend: list of indices into cut_faces
+        # --- Phase 2a: 2D cut plan ---
+        # Trim bend lines to outline, create virtual cut lines from
+        # trimmed segments, trim virtual lines.  Result: a list of
+        # (seg_p0, seg_p1, side, bend_idx) tuples.
+        # side: 'S' stationary, 'M' moving, 'C' center (sharp bend)
+        cut_plan = []
+        trimmed_bend_segs = []  # per bend: list of (sp0, sp1)
         for bi, (_, p0, p1, _, normal, _, _) in enumerate(bend_info):
-            indices = []
             ins = insets[bi]
-            if ins > 1e-6:
-                # Stationary-side cut face at -inset
-                sp0 = p0 - normal * ins
-                sp1 = p1 - normal * ins
-                c1 = sp0 - up * diag
-                c2 = sp1 - up * diag
-                c3 = sp1 + up * diag
-                c4 = sp0 + up * diag
-                indices.append(len(cut_faces))
-                cut_faces.append(
-                    Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
-                # Moving-side cut face at +inset
-                mp0 = p0 + normal * ins
-                mp1 = p1 + normal * ins
-                c1 = mp0 - up * diag
-                c2 = mp1 - up * diag
-                c3 = mp1 + up * diag
-                c4 = mp0 + up * diag
-                indices.append(len(cut_faces))
-                cut_faces.append(
-                    Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
-            else:
-                # Sharp bend: single face at bend line
-                c1 = p0 - up * diag
-                c2 = p1 - up * diag
-                c3 = p1 + up * diag
-                c4 = p0 + up * diag
-                indices.append(len(cut_faces))
-                cut_faces.append(
-                    Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
-            bend_face_indices.append(indices)
+            # Step 1: trim bend line to outline
+            bl_segs = self._trim_line_to_outline(
+                p0, p1, outline_edges)
+            if not bl_segs:
+                bl_segs = [(p0, p1)]
+            trimmed_bend_segs.append(bl_segs)
 
+            if ins > 1e-6:
+                # Step 2: for each bend segment, create virtual
+                # cut lines at ±inset, limited to the segment extent
+                for bl_sp0, bl_sp1 in bl_segs:
+                    s_p0 = bl_sp0 - normal * ins
+                    s_p1 = bl_sp1 - normal * ins
+                    m_p0 = bl_sp0 + normal * ins
+                    m_p1 = bl_sp1 + normal * ins
+                    # Step 3: trim virtual lines to outline
+                    s_segs = self._trim_line_to_outline(
+                        s_p0, s_p1, outline_edges)
+                    if not s_segs:
+                        s_segs = [(s_p0, s_p1)]
+                    m_segs = self._trim_line_to_outline(
+                        m_p0, m_p1, outline_edges)
+                    if not m_segs:
+                        m_segs = [(m_p0, m_p1)]
+                    for sp0, sp1 in s_segs:
+                        cut_plan.append((sp0, sp1, 'S', bi))
+                    for mp0, mp1 in m_segs:
+                        cut_plan.append((mp0, mp1, 'M', bi))
+            else:
+                # Sharp bend: use trimmed bend line directly
+                for sp0, sp1 in bl_segs:
+                    cut_plan.append((sp0, sp1, 'C', bi))
+
+        # --- Phase 2b: create 3D cutting faces from 2D plan ---
+        cut_faces = []
+        bend_face_indices = []  # per bend: list of cut_face indices
+        for bi in range(len(bend_info)):
+            bend_face_indices.append([])
+        for sp0, sp1, side, bi in cut_plan:
+            c1 = sp0 - up * diag
+            c2 = sp1 - up * diag
+            c3 = sp1 + up * diag
+            c4 = sp0 + up * diag
+            bend_face_indices[bi].append(len(cut_faces))
+            cut_faces.append(
+                Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
+
+        # --- Phase 2c: cut board and classify ---
         try:
             fused, _map = unbent.generalFuse(cut_faces)
             pieces = [s for s in fused.Solids if s.Volume > 1e-6]
@@ -2146,8 +2163,10 @@ class LinkedObject:
         piece_shapes = [p.copy() for p in pieces]
 
         # Identify strip (wedge) pieces for each bend with inset > 0.
-        # A strip piece's center of mass is between ±inset of the
-        # bend line in the normal direction.
+        # A strip piece's center of mass must be:
+        # 1. Between ±inset of the bend line in the normal direction
+        # 2. Along a trimmed bend line segment (not an island from
+        #    virtual cuts crossing concave areas)
         strip_pieces = set()
         strip_to_bend = {}
         for bi, (_, p0, p1, line_dir, normal,
@@ -2155,11 +2174,26 @@ class LinkedObject:
             ins = insets[bi]
             if ins < 1e-6:
                 continue
+            bl_segs = trimmed_bend_segs[bi]
             for pi, piece in enumerate(pieces):
                 cm = piece.CenterOfMass
                 cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
                 d = (cm_2d - p0).dot(normal)
-                if abs(d) < ins - 1e-6:
+                if abs(d) >= ins - 1e-6:
+                    continue
+                # Check if piece overlaps any trimmed bend segment
+                # by projecting piece center onto bend line direction
+                t = (cm_2d - p0).dot(line_dir)
+                on_bend = False
+                for sp0, sp1 in bl_segs:
+                    t0 = (sp0 - p0).dot(line_dir)
+                    t1 = (sp1 - p0).dot(line_dir)
+                    if t0 > t1:
+                        t0, t1 = t1, t0
+                    if t0 - 0.1 <= t <= t1 + 0.1:
+                        on_bend = True
+                        break
+                if on_bend:
                     strip_pieces.add(pi)
                     strip_to_bend[pi] = bi
 
@@ -2245,6 +2279,9 @@ class LinkedObject:
                 strip_pieces, strip_to_bend,
                 bend_info, insets, half_t)
 
+        # Draw trimmed cut segments at unbent positions
+        self._draw_debug_cuts(obj, cut_plan, thickness)
+
         # Update board shape with all pieces (including bent wedges)
         saved_color = None
         try:
@@ -2260,6 +2297,91 @@ class LinkedObject:
                 board_obj.ViewObject.ShapeColor = saved_color
             except Exception:
                 pass
+
+    def _draw_debug_cuts(self, obj, debug_cut_segs, thickness):
+        """Draw trimmed cutting segments as colored lines at z=thickness.
+
+        Colors: green=stationary-side, blue=moving-side, cyan=center.
+        Hidden by default.
+        """
+        doc = obj.Document
+        debug_name = obj.Name + "_DebugCuts"
+        debug_obj = doc.getObject(debug_name)
+
+        if not debug_cut_segs:
+            if debug_obj is not None:
+                debug_obj.Shape = Part.Shape()
+            return
+
+        edges = []
+        for sp0, sp1, side, bi in debug_cut_segs:
+            start = FreeCAD.Vector(sp0.x, sp0.y, thickness)
+            end = FreeCAD.Vector(sp1.x, sp1.y, thickness)
+            if start.distanceToPoint(end) > 0.001:
+                edges.append(Part.makeLine(start, end))
+
+        if not edges:
+            if debug_obj is not None:
+                debug_obj.Shape = Part.Shape()
+            return
+
+        if debug_obj is None:
+            debug_obj = doc.addObject("Part::Feature", debug_name)
+            try:
+                debug_obj.ViewObject.LineColor = (0.0, 1.0, 0.0)
+                debug_obj.ViewObject.LineWidth = 3.0
+                debug_obj.ViewObject.Visibility = False
+            except Exception:
+                pass
+        debug_obj.Shape = Part.makeCompound(edges)
+
+    def _trim_line_to_outline(self, p0, p1, outline_edges):
+        """Trim a 2D line to the board outline, returning segments
+        inside the board.
+
+        Returns a list of (seg_p0, seg_p1) pairs.  Each segment is
+        extended by 1 µm at both ends for numerical safety.
+        """
+        ax, ay = p0.x, p0.y
+        bx, by = p1.x, p1.y
+        dx, dy = bx - ax, by - ay
+        line_len = (dx * dx + dy * dy) ** 0.5
+        if line_len < 1e-9:
+            return []
+
+        hits = []
+        for edge in outline_edges:
+            vs = edge.Vertexes
+            if len(vs) < 2:
+                continue
+            cx, cy = vs[0].Point.x, vs[0].Point.y
+            ex, ey = vs[1].Point.x, vs[1].Point.y
+            fx, fy = ex - cx, ey - cy
+            denom = dx * fy - dy * fx
+            if abs(denom) < 1e-12:
+                continue
+            t = ((cx - ax) * fy - (cy - ay) * fx) / denom
+            u = ((cx - ax) * dy - (cy - ay) * dx) / denom
+            if -0.01 <= t <= 1.01 and 0 <= u < 1:
+                hits.append(t)
+
+        if len(hits) < 2:
+            return []
+
+        hits.sort()
+        segments = []
+        for i in range(0, len(hits) - 1, 2):
+            t0 = hits[i]
+            t1 = hits[i + 1]
+            sp = FreeCAD.Vector(ax + dx * t0, ay + dy * t0, 0)
+            ep = FreeCAD.Vector(ax + dx * t1, ay + dy * t1, 0)
+            seg_dir = ep - sp
+            seg_len = seg_dir.Length
+            if seg_len < 1e-6:
+                continue
+            ext = seg_dir * (0.001 / seg_len)
+            segments.append((sp - ext, ep + ext))
+        return segments
 
     def _draw_debug_arrows(self, obj, pieces, piece_bend_sets,
                             bfs_tree, strip_pieces, strip_to_bend,
@@ -2309,15 +2431,10 @@ class LinkedObject:
 
         # Reuse existing debug arrows object or create new one
         debug_name = obj.Name + "_DebugArrows"
-        debug_obj = None
-        for c in obj.Group:
-            if c.Name == debug_name:
-                debug_obj = c
-                break
+        debug_obj = doc.getObject(debug_name)
         if edges:
             if debug_obj is None:
                 debug_obj = doc.addObject("Part::Feature", debug_name)
-                obj.addObject(debug_obj)
                 try:
                     debug_obj.ViewObject.LineColor = (1.0, 0.0, 0.0)
                     debug_obj.ViewObject.LineWidth = 2.0
