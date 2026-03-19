@@ -2026,14 +2026,54 @@ class LinkedObject:
         #     pieces via BFS to find which bends each piece crosses ---
         bb = unbent.BoundBox
         diag = bb.DiagonalLength + 50
-        cut_faces = []
-        for _, p0, p1, _, _, _, _ in bend_info:
-            c1 = p0 - up * diag
-            c2 = p1 - up * diag
-            c3 = p1 + up * diag
-            c4 = p0 + up * diag
-            cut_faces.append(
-                Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
+        thickness = half_t * 2
+
+        # Compute inset for each bend: half the arc length at the
+        # bend radius.  inset = R * |angle| / 2
+        # Width of wedge = 2 * pi * R * (angle/360) = R * angle_rad
+        insets = []
+        for _, _, _, _, _, angle_rad, radius in bend_info:
+            insets.append(radius * abs(angle_rad) / 2.0)
+
+        # Build cutting faces.  For radius > 0 bends, cut at ±inset
+        # from the bend line (two faces per bend); for radius == 0,
+        # cut at the bend line itself (one face).
+        cut_faces = []          # all faces for generalFuse
+        bend_face_indices = []  # per bend: list of indices into cut_faces
+        for bi, (_, p0, p1, _, normal, _, _) in enumerate(bend_info):
+            indices = []
+            ins = insets[bi]
+            if ins > 1e-6:
+                # Stationary-side cut face at -inset
+                sp0 = p0 - normal * ins
+                sp1 = p1 - normal * ins
+                c1 = sp0 - up * diag
+                c2 = sp1 - up * diag
+                c3 = sp1 + up * diag
+                c4 = sp0 + up * diag
+                indices.append(len(cut_faces))
+                cut_faces.append(
+                    Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
+                # Moving-side cut face at +inset
+                mp0 = p0 + normal * ins
+                mp1 = p1 + normal * ins
+                c1 = mp0 - up * diag
+                c2 = mp1 - up * diag
+                c3 = mp1 + up * diag
+                c4 = mp0 + up * diag
+                indices.append(len(cut_faces))
+                cut_faces.append(
+                    Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
+            else:
+                # Sharp bend: single face at bend line
+                c1 = p0 - up * diag
+                c2 = p1 - up * diag
+                c3 = p1 + up * diag
+                c4 = p0 + up * diag
+                indices.append(len(cut_faces))
+                cut_faces.append(
+                    Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
+            bend_face_indices.append(indices)
 
         try:
             fused, _map = unbent.generalFuse(cut_faces)
@@ -2041,9 +2081,16 @@ class LinkedObject:
         except Exception:
             pieces = []
 
+        # Build face-index -> bend-index mapping for BFS
+        face_to_bend = {}
+        for bi, indices in enumerate(bend_face_indices):
+            for fi in indices:
+                face_to_bend[fi] = bi
+
         # Classify via BFS from stationary piece
         piece_bend_sets = self._classify_pieces_bfs(
-            pieces, cut_faces, mass_center, half_t, bend_info)
+            pieces, cut_faces, face_to_bend, mass_center, half_t,
+            bend_info)
 
         # Map components to pieces using flat (X, Y) in 2D
         comp_bend_sets = {}
@@ -2067,32 +2114,64 @@ class LinkedObject:
                 comp_bend_sets[child.Name] = fb
 
         # --- Phase 3: apply bends sequentially using pre-cut pieces ---
-        # Use the pieces from Phase 2 directly instead of re-cutting
-        # the board, which would incorrectly slice already-bent 3D
-        # geometry.
         up = FreeCAD.Vector(0, 0, 1)
         piece_shapes = [p.copy() for p in pieces]
+
+        # Identify strip (wedge) pieces for each bend with inset > 0.
+        # A strip piece's center of mass is between ±inset of the
+        # bend line in the normal direction.
+        strip_pieces = set()
+        strip_to_bend = {}
+        for bi, (_, p0, p1, line_dir, normal,
+                 angle_rad, radius) in enumerate(bend_info):
+            ins = insets[bi]
+            if ins < 1e-6:
+                continue
+            for pi, piece in enumerate(pieces):
+                cm = piece.CenterOfMass
+                cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
+                d = (cm_2d - p0).dot(normal)
+                if abs(d) < ins - 1e-6:
+                    strip_pieces.add(pi)
+                    strip_to_bend[pi] = bi
 
         for bi, (bend_obj, p0, p1, line_dir, normal,
                  angle_rad, radius) in enumerate(bend_info):
 
             bend_axis = up.cross(normal)
             bend_axis.normalize()
+            pivot = p0 + up * half_t
+
             rot = FreeCAD.Rotation(
                 bend_axis, math.degrees(angle_rad))
-            pivot = p0 + up * half_t
             rot_placement = FreeCAD.Placement(
                 FreeCAD.Vector(0, 0, 0), rot, pivot)
+
+            # Half-angle rotation for strip (wedge) pieces
+            half_rot = FreeCAD.Rotation(
+                bend_axis, math.degrees(angle_rad / 2.0))
+            half_placement = FreeCAD.Placement(
+                FreeCAD.Vector(0, 0, 0), half_rot, pivot)
 
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: bend {bi}: angle={math.degrees(angle_rad):.1f}°, "
                 f"pivot={pivot}, axis={bend_axis}\n")
 
-            # Transform pieces whose bend_set includes this bend
+            # Transform pieces whose bend_set includes this bend.
+            # Strip pieces get full rotation for OTHER bends, but
+            # only half rotation for their OWN bend.
             for pi in range(len(piece_shapes)):
+                if pi in strip_pieces and strip_to_bend.get(pi) == bi:
+                    continue  # own strips get half rotation below
                 if bi in piece_bend_sets[pi]:
                     piece_shapes[pi].transformShape(
                         rot_placement.toMatrix())
+
+            # Rotate this bend's own strip (wedge) pieces by half angle
+            for pi in sorted(strip_to_bend):
+                if strip_to_bend[pi] == bi:
+                    piece_shapes[pi].transformShape(
+                        half_placement.toMatrix())
 
             # Move other bend lines on the moving side
             bend_obj_name = bend_obj.Name
@@ -2122,7 +2201,7 @@ class LinkedObject:
                     child.Placement = rot_placement.multiply(
                         child.Placement)
 
-        # Update board shape with all bent pieces
+        # Update board shape with all pieces (including bent wedges)
         saved_color = None
         try:
             saved_color = board_obj.ViewObject.ShapeColor
@@ -2130,7 +2209,7 @@ class LinkedObject:
             pass
 
         board_obj.Shape = Part.makeCompound(
-            [s for s in piece_shapes if s.Volume > 1e-6])
+            [s for s in piece_shapes if s.isValid() and s.Volume > 1e-6])
 
         if saved_color:
             try:
@@ -2138,10 +2217,14 @@ class LinkedObject:
             except Exception:
                 pass
 
-    def _classify_pieces_bfs(self, pieces, cut_faces, mass_center,
-                             half_t, bend_info):
+    def _classify_pieces_bfs(self, pieces, cut_faces, face_to_bend,
+                             mass_center, half_t, bend_info):
         """BFS from the stationary piece to determine which bends
-        each piece must cross to reach the stationary region."""
+        each piece must cross to reach the stationary region.
+
+        *face_to_bend* maps each index in *cut_faces* to the bend
+        index it belongs to (a bend with inset produces two faces
+        that both map to the same bend index)."""
         n = len(pieces)
         if n == 0:
             return []
@@ -2163,20 +2246,22 @@ class LinkedObject:
                 d = pieces[i].distToShape(pieces[j])[0]
                 if d > tol:
                     continue
-                # Find which cutting face separates them
+                # Find which cutting face separates them, then map
+                # to the bend index.
                 mid = (pieces[i].CenterOfMass
                        + pieces[j].CenterOfMass) * 0.5
                 mid_v = Part.Vertex(mid)
-                best_bi = None
+                best_fi = None
                 best_d = float('inf')
-                for bi, cf in enumerate(cut_faces):
+                for fi, cf in enumerate(cut_faces):
                     cd = cf.distToShape(mid_v)[0]
                     if cd < best_d:
                         best_d = cd
-                        best_bi = bi
-                if best_bi is not None:
-                    adjacency[i].append((j, best_bi))
-                    adjacency[j].append((i, best_bi))
+                        best_fi = fi
+                if best_fi is not None:
+                    bi = face_to_bend.get(best_fi, best_fi)
+                    adjacency[i].append((j, bi))
+                    adjacency[j].append((i, bi))
 
         # BFS: shortest path (fewest bends crossed) from stationary
         piece_bend_sets = [None] * n
