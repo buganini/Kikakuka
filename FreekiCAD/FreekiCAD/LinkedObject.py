@@ -2113,6 +2113,34 @@ class LinkedObject:
                         fb.add(bi)
                 comp_bend_sets[child.Name] = fb
 
+        # Map bend lines to pieces using flat midpoint
+        bendline_bend_sets = {}
+        for child in obj.Group:
+            if (getattr(getattr(child, 'Proxy', None),
+                        'Type', None) != 'BendLine'):
+                continue
+            bl_verts = child.Shape.Vertexes
+            if len(bl_verts) < 2:
+                continue
+            pt = FreeCAD.Vector(
+                (bl_verts[0].Point.x + bl_verts[1].Point.x) / 2,
+                (bl_verts[0].Point.y + bl_verts[1].Point.y) / 2,
+                half_t)
+            for pi, piece in enumerate(pieces):
+                if piece.isInside(pt, 0.5, True):
+                    bendline_bend_sets[child.Name] = \
+                        piece_bend_sets[pi]
+                    break
+            else:
+                # Fallback: dot-product
+                pt_2d = FreeCAD.Vector(pt.x, pt.y, 0)
+                fb = set()
+                for bi, (_, p0, _, _, normal, _, _) in enumerate(
+                        bend_info):
+                    if (pt_2d - p0).dot(normal) > 0:
+                        fb.add(bi)
+                bendline_bend_sets[child.Name] = fb
+
         # --- Phase 3: apply bends sequentially using pre-cut pieces ---
         up = FreeCAD.Vector(0, 0, 1)
         piece_shapes = [p.copy() for p in pieces]
@@ -2180,23 +2208,25 @@ class LinkedObject:
                     piece_shapes[pi].transformShape(
                         half_placement.toMatrix())
 
-            # Move other bend lines on the moving side
+            # Move bend lines using BFS classification (consistent
+            # with piece rotation).  Own bend line gets half rotation
+            # when inset > 0 (matching strip pieces).
             bend_obj_name = bend_obj.Name
+            ins = insets[bi]
             for child in obj.Group:
                 if (getattr(getattr(child, 'Proxy', None),
-                            'Type', None) != 'BendLine'
-                        or child.Name == bend_obj_name):
+                            'Type', None) != 'BendLine'):
+                    continue
+                if child.Name not in bendline_bend_sets:
                     continue
 
-                bl_verts = child.Shape.Vertexes
-                pt = FreeCAD.Vector(
-                    (bl_verts[0].Point.x
-                     + bl_verts[1].Point.x) / 2,
-                    (bl_verts[0].Point.y
-                     + bl_verts[1].Point.y) / 2, 0)
+                if child.Name == bend_obj_name:
+                    if ins > 1e-6:
+                        child.Placement = half_placement.multiply(
+                            child.Placement)
+                    continue
 
-                d = (pt - p0).dot(normal)
-                if d > 0:
+                if bi in bendline_bend_sets[child.Name]:
                     child.Placement = rot_placement.multiply(
                         child.Placement)
 
