@@ -1304,9 +1304,9 @@ class _OutlineSketchObserver:
             # FreeCAD coords: x_mm, y_mm (Y already negated from KiCad)
             # KiCad API via kipy Vector2.from_xy_mm takes mm with
             # KiCad sign convention (Y negated back)
-            new_kicad_x = obj.X + delta_x
-            new_kicad_y = obj.Y + delta_y
-            new_kicad_angle = obj.Rotation + delta_yaw
+            new_kicad_x = float(obj.X) + delta_x
+            new_kicad_y = float(obj.Y) + delta_y
+            new_kicad_angle = float(obj.Rotation) + delta_yaw
 
             from FreekiCAD.workspace_bus import send_request
             send_request("move-component", parent.FileName,
@@ -1849,16 +1849,15 @@ class LinkedObject:
                                     'Type', None) == 'BendLine']
         enable = getattr(obj, 'EnableBending', True)
         active_bends = [c for c in bend_children
-                        if c.Active and c.Angle.Value != 0
-                        and c.Radius.Value >= 0]
-        if enable and active_bends:
-            board_obj = None
-            for c in obj.Group:
-                if c.Name.endswith("_Board"):
-                    board_obj = c
-                    break
-            if board_obj:
-                self._apply_bends(obj, board_obj, active_bends, thickness)
+                        if c.Active and c.Radius.Value >= 0]
+        board_obj = None
+        for c in obj.Group:
+            if c.Name.endswith("_Board"):
+                board_obj = c
+                break
+        if board_obj and bend_children:
+            self._apply_bends(obj, board_obj, bend_children,
+                              thickness, enable_bending=enable)
 
     def _update_reused_component(self, comp_obj, kc, thickness, fp_info):
         """Update placement and KiCad coords for a reused component
@@ -1977,16 +1976,18 @@ class LinkedObject:
         finally:
             self._bending = False
 
-    def _apply_bends(self, obj, board_obj, bend_children, thickness):
+    def _apply_bends(self, obj, board_obj, bend_children, thickness,
+                     enable_bending=True):
         """Apply bending deformation to the board shape."""
         self._bending = True
         try:
             self.__apply_bends_impl(obj, board_obj, bend_children,
-                                    thickness)
+                                    thickness, enable_bending)
         finally:
             self._bending = False
 
-    def __apply_bends_impl(self, obj, board_obj, bend_children, thickness):
+    def __apply_bends_impl(self, obj, board_obj, bend_children,
+                           thickness, enable_bending=True):
         unbent = getattr(self, '_unbent_board_shape', board_obj.Shape)
         if hasattr(unbent, 'CenterOfMass'):
             mass_center = unbent.CenterOfMass
@@ -2003,7 +2004,7 @@ class LinkedObject:
         for bend_obj in bend_children:
             angle_deg = bend_obj.Angle.Value
             radius = bend_obj.Radius.Value
-            if angle_deg == 0 or radius < 0:
+            if radius < 0:
                 continue
 
             verts = bend_obj.Shape.Vertexes
@@ -2052,30 +2053,63 @@ class LinkedObject:
             trimmed_bend_segs.append(bl_segs)
 
             if ins > 1e-6:
-                # Step 2: for each bend segment, create virtual
-                # cut lines at ±inset, limited to the segment extent
-                for bl_sp0, bl_sp1 in bl_segs:
-                    s_p0 = bl_sp0 - normal * ins
-                    s_p1 = bl_sp1 - normal * ins
-                    m_p0 = bl_sp0 + normal * ins
-                    m_p1 = bl_sp1 + normal * ins
-                    # Step 3: trim virtual lines to outline
-                    s_segs = self._trim_line_to_outline(
-                        s_p0, s_p1, outline_edges)
-                    if not s_segs:
-                        s_segs = [(s_p0, s_p1)]
-                    m_segs = self._trim_line_to_outline(
-                        m_p0, m_p1, outline_edges)
-                    if not m_segs:
-                        m_segs = [(m_p0, m_p1)]
-                    for sp0, sp1 in s_segs:
-                        cut_plan.append((sp0, sp1, 'S', bi))
-                    for mp0, mp1 in m_segs:
-                        cut_plan.append((mp0, mp1, 'M', bi))
+                # Step 2: create virtual cut lines at ±inset from
+                # the full bend line, then trim to outline.
+                # Validation step below discards segments that
+                # don't overlap with trimmed bend line.
+                s_p0 = p0 - normal * ins
+                s_p1 = p1 - normal * ins
+                m_p0 = p0 + normal * ins
+                m_p1 = p1 + normal * ins
+                s_segs = self._trim_line_to_outline(
+                    s_p0, s_p1, outline_edges)
+                if not s_segs:
+                    s_segs = [(s_p0, s_p1)]
+                m_segs = self._trim_line_to_outline(
+                    m_p0, m_p1, outline_edges)
+                if not m_segs:
+                    m_segs = [(m_p0, m_p1)]
+                for sp0, sp1 in s_segs:
+                    cut_plan.append((sp0, sp1, 'S', bi))
+                for mp0, mp1 in m_segs:
+                    cut_plan.append((mp0, mp1, 'M', bi))
             else:
                 # Sharp bend: use trimmed bend line directly
                 for sp0, sp1 in bl_segs:
                     cut_plan.append((sp0, sp1, 'C', bi))
+
+        # Validate cut plan: discard virtual cut segments whose
+        # moving side doesn't contain the parent bend line.
+        # Project each cut segment's midpoint onto the bend line
+        # direction and check it falls within a trimmed bend segment.
+        validated_plan = []
+        for sp0, sp1, side, bi in cut_plan:
+            if side == 'C':
+                # Center cuts (sharp bends) are always valid
+                validated_plan.append((sp0, sp1, side, bi))
+                continue
+            _, p0, _, line_dir, _, _, _ = bend_info[bi]
+            mid = (sp0 + sp1) * 0.5
+            mid_2d = FreeCAD.Vector(mid.x, mid.y, 0)
+            t = (mid_2d - p0).dot(line_dir)
+            on_bend = False
+            for bl_sp0, bl_sp1 in trimmed_bend_segs[bi]:
+                t0 = (bl_sp0 - p0).dot(line_dir)
+                t1 = (bl_sp1 - p0).dot(line_dir)
+                if t0 > t1:
+                    t0, t1 = t1, t0
+                if t0 - 0.1 <= t <= t1 + 0.1:
+                    on_bend = True
+                    break
+            if on_bend:
+                validated_plan.append((sp0, sp1, side, bi))
+            else:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: discard cut bend={bi} side={side}"
+                    f" t={t:.3f}"
+                    f" ({sp0.x:.2f},{sp0.y:.2f})"
+                    f"-({sp1.x:.2f},{sp1.y:.2f})\n")
+        cut_plan = validated_plan
 
         # --- Phase 2b: create 3D cutting faces from 2D plan ---
         cut_faces = []
@@ -2199,6 +2233,11 @@ class LinkedObject:
 
         for bi, (bend_obj, p0, p1, line_dir, normal,
                  angle_rad, radius) in enumerate(bend_info):
+            # Skip rotation/movement for angle=0 or inactive bends,
+            # or when bending is disabled (planning/debug only)
+            if abs(angle_rad) < 1e-9 or not enable_bending \
+                    or not bend_obj.Active:
+                continue
 
             # Use current world-space position of bend line
             # (previous bends may have moved it via Placement).
