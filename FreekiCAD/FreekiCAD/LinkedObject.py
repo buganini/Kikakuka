@@ -2172,9 +2172,10 @@ class LinkedObject:
         face_to_bend = face_to_micro
 
         # Classify via BFS from stationary piece
-        piece_bend_sets, bfs_tree = self._classify_pieces_bfs(
-            pieces, cut_faces, face_to_bend, mass_center, half_t,
-            bend_info, cut_plan)
+        piece_bend_sets, bfs_tree, adjacency = \
+            self._classify_pieces_bfs(
+                pieces, cut_faces, face_to_bend, mass_center,
+                half_t, bend_info, cut_plan)
 
         # Map components to pieces using flat (X, Y) in 2D
         comp_bend_sets = {}
@@ -2197,10 +2198,21 @@ class LinkedObject:
                         fb.add(bi)
                 comp_bend_sets[child.Name] = fb
 
-        # Map bend lines to pieces using flat midpoint.
-        # Store both the set and the piece index (for multiplier).
+        # Map bend lines to pieces.
+        # For each bend line, find its own micro-bend(s) and
+        # assign it to the piece on the STATIONARY side (the
+        # piece that does NOT have the bend's own micro-bend).
+        # This ensures the bend line gets the correct rotations.
         bendline_bend_sets = {}
         bendline_piece_idx = {}  # child.Name → piece index
+
+        # Build mapping: bend_obj.Name → set of own micro indices
+        bendline_own_micros = {}
+        for mi, (_, bobj, _, _, _, _) in enumerate(
+                micro_bend_info):
+            bendline_own_micros.setdefault(
+                bobj.Name, set()).add(mi)
+
         for child in obj.Group:
             if (getattr(getattr(child, 'Proxy', None),
                         'Type', None) != 'BendLine'):
@@ -2212,12 +2224,47 @@ class LinkedObject:
                 (bl_verts[0].Point.x + bl_verts[1].Point.x) / 2,
                 (bl_verts[0].Point.y + bl_verts[1].Point.y) / 2,
                 half_t)
+
+            own_mis = bendline_own_micros.get(child.Name, set())
+
+            # Find the piece containing this point
+            found_pi = None
             for pi, piece in enumerate(pieces):
                 if piece.isInside(pt, 0.5, True):
-                    bendline_bend_sets[child.Name] = \
-                        piece_bend_sets[pi]
-                    bendline_piece_idx[child.Name] = pi
+                    found_pi = pi
                     break
+
+            # Use adjacency to find the piece on the stationary
+            # side of the bend's own micro-bend.  This is the
+            # piece adjacent to the own cut that does NOT have
+            # the own micro-bend in its multiplier.
+            if own_mis:
+                stat_pi = None
+                for mi_own in own_mis:
+                    for pi_a in range(len(pieces)):
+                        for nbr, mi_adj in adjacency[pi_a]:
+                            if mi_adj != mi_own:
+                                continue
+                            # pi_a and nbr separated by mi_own
+                            if mi_own not in \
+                                    piece_bend_sets[pi_a]:
+                                stat_pi = pi_a
+                            elif mi_own not in \
+                                    piece_bend_sets[nbr]:
+                                stat_pi = nbr
+                            if stat_pi is not None:
+                                break
+                        if stat_pi is not None:
+                            break
+                    if stat_pi is not None:
+                        break
+                if stat_pi is not None:
+                    found_pi = stat_pi
+
+            if found_pi is not None:
+                bendline_bend_sets[child.Name] = \
+                    piece_bend_sets[found_pi]
+                bendline_piece_idx[child.Name] = found_pi
             else:
                 pt_2d = FreeCAD.Vector(pt.x, pt.y, 0)
                 fb = set()
@@ -2226,6 +2273,33 @@ class LinkedObject:
                     if (pt_2d - p0).dot(normal) > 0:
                         fb.add(bi)
                 bendline_bend_sets[child.Name] = fb
+
+        # Log bend line piece assignments
+        for child in obj.Group:
+            if (getattr(getattr(child, 'Proxy', None),
+                        'Type', None) != 'BendLine'):
+                continue
+            bl_pi = bendline_piece_idx.get(child.Name)
+            bl_set = bendline_bend_sets.get(child.Name, set())
+            if bl_pi is not None:
+                chain = []
+                cur = bl_pi
+                while cur is not None:
+                    entry = bfs_tree.get(cur)
+                    if entry is None:
+                        break
+                    parent, mi_crossed = entry
+                    if parent is not None and mi_crossed is not None \
+                            and mi_crossed >= 0:
+                        chain.append(str(mi_crossed))
+                    cur = parent
+                chain.reverse()
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: bendline {child.Name}"
+                    f" in piece {bl_pi}"
+                    f" set={sorted(bl_set)}"
+                    f" chain=[{'→'.join(chain) if chain else '(root)'}]"
+                    f"\n")
 
         # --- Phase 3: apply bends sequentially using pre-cut pieces ---
         up = FreeCAD.Vector(0, 0, 1)
@@ -2749,7 +2823,7 @@ class LinkedObject:
                 piece_bend_sets[pi] = fb
                 bfs_tree[pi] = (stationary_idx, -1)
 
-        return piece_bend_sets, bfs_tree
+        return piece_bend_sets, bfs_tree, adjacency
 
     def _bend_board(self, board_obj, p0, p1, line_dir, normal,
                     radius, max_angle, half_thickness):
