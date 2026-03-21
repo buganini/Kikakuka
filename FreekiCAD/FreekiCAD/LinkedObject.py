@@ -2388,11 +2388,15 @@ class LinkedObject:
                     plc_rot.toMatrix())
 
             # Move bend lines using piece multiplier.
+            # Skip the bend line's OWN micro-bend.
+            mi_bend_obj_name = bend_obj.Name
             for child in obj.Group:
                 if (getattr(getattr(child, 'Proxy', None),
                             'Type', None) != 'BendLine'):
                     continue
                 if child.Name not in bendline_bend_sets:
+                    continue
+                if child.Name == mi_bend_obj_name:
                     continue
                 bl_pi = bendline_piece_idx.get(child.Name)
                 if bl_pi is not None:
