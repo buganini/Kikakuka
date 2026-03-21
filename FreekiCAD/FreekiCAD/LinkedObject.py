@@ -2036,10 +2036,12 @@ class LinkedObject:
         diag = bb.DiagonalLength + 50
         thickness = half_t * 2
 
-        # Compute inset for each bend
+        # Compute inset for each bend using r_eff = R + half_t
+        # (always > 0, so all bends produce wedges)
         insets = []
         for _, _, _, _, _, angle_rad, radius in bend_info:
-            insets.append(radius * abs(angle_rad) / 2.0)
+            r_eff = radius + half_t
+            insets.append(r_eff * abs(angle_rad) / 2.0)
 
         # --- Phase 2a: 2D cut plan ---
         # Each cut carries full bend info + moving_normal flag.
@@ -2056,43 +2058,33 @@ class LinkedObject:
                 bl_segs = [(p0, p1)]
             trimmed_bend_segs.append(bl_segs)
 
-            if ins > 1e-6:
-                s_p0 = p0 - normal * ins
-                s_p1 = p1 - normal * ins
-                m_p0 = p0 + normal * ins
-                m_p1 = p1 + normal * ins
-                s_segs = self._trim_line_to_outline(
-                    s_p0, s_p1, outline_edges)
-                if not s_segs:
-                    s_segs = [(s_p0, s_p1)]
-                m_segs = self._trim_line_to_outline(
-                    m_p0, m_p1, outline_edges)
-                if not m_segs:
-                    m_segs = [(m_p0, m_p1)]
-                # moving_normal = normal (toward moving side)
-                for sp0, sp1 in s_segs:
-                    cut_plan.append((sp0, sp1, 'S', bi,
-                                     angle_rad, radius, p0, normal,
-                                     bend_obj_ref, normal))
-                for mp0, mp1 in m_segs:
-                    cut_plan.append((mp0, mp1, 'M', bi,
-                                     angle_rad, radius, p0, normal,
-                                     bend_obj_ref, normal))
-            else:
-                # Sharp bend: moving_normal = normal
-                for sp0, sp1 in bl_segs:
-                    cut_plan.append((sp0, sp1, 'C', bi,
-                                     angle_rad, radius, p0, normal,
-                                     bend_obj_ref, normal))
+            # All bends have inset > 0 (r_eff always > 0)
+            s_p0 = p0 - normal * ins
+            s_p1 = p1 - normal * ins
+            m_p0 = p0 + normal * ins
+            m_p1 = p1 + normal * ins
+            s_segs = self._trim_line_to_outline(
+                s_p0, s_p1, outline_edges)
+            if not s_segs:
+                s_segs = [(s_p0, s_p1)]
+            m_segs = self._trim_line_to_outline(
+                m_p0, m_p1, outline_edges)
+            if not m_segs:
+                m_segs = [(m_p0, m_p1)]
+            for sp0, sp1 in s_segs:
+                cut_plan.append((sp0, sp1, 'S', bi,
+                                 angle_rad, radius, p0, normal,
+                                 bend_obj_ref, normal))
+            for mp0, mp1 in m_segs:
+                cut_plan.append((mp0, mp1, 'M', bi,
+                                 angle_rad, radius, p0, normal,
+                                 bend_obj_ref, normal))
 
         # Validate: discard virtual cuts whose midpoint doesn't
         # project onto a trimmed bend segment.
         validated_plan = []
         for entry in cut_plan:
             sp0, sp1, side, bi = entry[0], entry[1], entry[2], entry[3]
-            if side == 'C':
-                validated_plan.append(entry)
-                continue
             _, p0_ref, _, line_dir_ref, _, _, _ = bend_info[bi]
             mid = (sp0 + sp1) * 0.5
             mid_2d = FreeCAD.Vector(mid.x, mid.y, 0)
@@ -2141,11 +2133,7 @@ class LinkedObject:
 
             key = (bi, side)
             if key not in group_to_micro:
-                ins = insets[bi]
-                if ins > 1e-6:
-                    micro_angle = angle_rad / 2.0
-                else:
-                    micro_angle = angle_rad
+                micro_angle = angle_rad / 2.0
                 mi = len(micro_bend_info)
                 group_to_micro[key] = mi
                 micro_bend_info.append((micro_angle, bend_obj_ref,
