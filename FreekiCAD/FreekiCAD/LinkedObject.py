@@ -1440,6 +1440,11 @@ class LinkedObject:
         )
         obj.EnableBending = True
         obj.addProperty(
+            "App::PropertyBool", "ShowDebug", "LinkedFile",
+            "Show debug arrows and cut lines"
+        )
+        obj.ShowDebug = False
+        obj.addProperty(
             "App::PropertyString", "ComponentMtimes", "LinkedFile",
             "JSON: per-component model file mtimes for reuse"
         )
@@ -2037,15 +2042,14 @@ class LinkedObject:
             insets.append(radius * abs(angle_rad) / 2.0)
 
         # --- Phase 2a: 2D cut plan ---
-        # Trim bend lines to outline, create virtual cut lines from
-        # trimmed segments, trim virtual lines.  Result: a list of
-        # (seg_p0, seg_p1, side, bend_idx) tuples.
-        # side: 'S' stationary, 'M' moving, 'C' center (sharp bend)
+        # Each cut carries full bend info + moving_normal flag.
+        # Format: (seg_p0, seg_p1, side, bi, angle_rad, radius,
+        #          p0, normal, bend_obj, moving_normal)
         cut_plan = []
         trimmed_bend_segs = []  # per bend: list of (sp0, sp1)
-        for bi, (_, p0, p1, _, normal, _, _) in enumerate(bend_info):
+        for bi, (bend_obj_ref, p0, p1, line_dir, normal,
+                 angle_rad, radius) in enumerate(bend_info):
             ins = insets[bi]
-            # Step 1: trim bend line to outline
             bl_segs = self._trim_line_to_outline(
                 p0, p1, outline_edges)
             if not bl_segs:
@@ -2053,10 +2057,6 @@ class LinkedObject:
             trimmed_bend_segs.append(bl_segs)
 
             if ins > 1e-6:
-                # Step 2: create virtual cut lines at ±inset from
-                # the full bend line, then trim to outline.
-                # Validation step below discards segments that
-                # don't overlap with trimmed bend line.
                 s_p0 = p0 - normal * ins
                 s_p1 = p1 - normal * ins
                 m_p0 = p0 + normal * ins
@@ -2069,61 +2069,97 @@ class LinkedObject:
                     m_p0, m_p1, outline_edges)
                 if not m_segs:
                     m_segs = [(m_p0, m_p1)]
+                # moving_normal = normal (toward moving side)
                 for sp0, sp1 in s_segs:
-                    cut_plan.append((sp0, sp1, 'S', bi))
+                    cut_plan.append((sp0, sp1, 'S', bi,
+                                     angle_rad, radius, p0, normal,
+                                     bend_obj_ref, normal))
                 for mp0, mp1 in m_segs:
-                    cut_plan.append((mp0, mp1, 'M', bi))
+                    cut_plan.append((mp0, mp1, 'M', bi,
+                                     angle_rad, radius, p0, normal,
+                                     bend_obj_ref, normal))
             else:
-                # Sharp bend: use trimmed bend line directly
+                # Sharp bend: moving_normal = normal
                 for sp0, sp1 in bl_segs:
-                    cut_plan.append((sp0, sp1, 'C', bi))
+                    cut_plan.append((sp0, sp1, 'C', bi,
+                                     angle_rad, radius, p0, normal,
+                                     bend_obj_ref, normal))
 
-        # Validate cut plan: discard virtual cut segments whose
-        # moving side doesn't contain the parent bend line.
-        # Project each cut segment's midpoint onto the bend line
-        # direction and check it falls within a trimmed bend segment.
+        # Validate: discard virtual cuts whose midpoint doesn't
+        # project onto a trimmed bend segment.
         validated_plan = []
-        for sp0, sp1, side, bi in cut_plan:
+        for entry in cut_plan:
+            sp0, sp1, side, bi = entry[0], entry[1], entry[2], entry[3]
             if side == 'C':
-                # Center cuts (sharp bends) are always valid
-                validated_plan.append((sp0, sp1, side, bi))
+                validated_plan.append(entry)
                 continue
-            _, p0, _, line_dir, _, _, _ = bend_info[bi]
+            _, p0_ref, _, line_dir_ref, _, _, _ = bend_info[bi]
             mid = (sp0 + sp1) * 0.5
             mid_2d = FreeCAD.Vector(mid.x, mid.y, 0)
-            t = (mid_2d - p0).dot(line_dir)
+            t = (mid_2d - p0_ref).dot(line_dir_ref)
             on_bend = False
             for bl_sp0, bl_sp1 in trimmed_bend_segs[bi]:
-                t0 = (bl_sp0 - p0).dot(line_dir)
-                t1 = (bl_sp1 - p0).dot(line_dir)
+                t0 = (bl_sp0 - p0_ref).dot(line_dir_ref)
+                t1 = (bl_sp1 - p0_ref).dot(line_dir_ref)
                 if t0 > t1:
                     t0, t1 = t1, t0
                 if t0 - 0.1 <= t <= t1 + 0.1:
                     on_bend = True
                     break
             if on_bend:
-                validated_plan.append((sp0, sp1, side, bi))
+                validated_plan.append(entry)
             else:
                 FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: discard cut bend={bi} side={side}"
+                    f"FreekiCAD: discard cut side={side}"
                     f" t={t:.3f}"
                     f" ({sp0.x:.2f},{sp0.y:.2f})"
                     f"-({sp1.x:.2f},{sp1.y:.2f})\n")
         cut_plan = validated_plan
 
         # --- Phase 2b: create 3D cutting faces from 2D plan ---
+        # Group cut_plan entries by (bi, side) → same micro-bend.
+        # Multiple trimmed segments of the same cut share one
+        # micro-bend index.
+        # Inset bends: S and M sides → 2 micro-bends (angle/2 each).
+        # Sharp bends: C side → 1 micro-bend (full angle).
         cut_faces = []
-        bend_face_indices = []  # per bend: list of cut_face indices
-        for bi in range(len(bend_info)):
-            bend_face_indices.append([])
-        for sp0, sp1, side, bi in cut_plan:
+        micro_bend_info = []  # per micro-bend: (angle, bend_obj,
+                              #   p0, normal, radius, orig_bi)
+        # Map (bi, side) → micro-bend index
+        group_to_micro = {}
+        # Map cut_face index → micro-bend index
+        face_to_micro = {}
+
+        for entry in cut_plan:
+            sp0, sp1 = entry[0], entry[1]
+            side, bi = entry[2], entry[3]
+            angle_rad = entry[4]
+            radius = entry[5]
+            p0_ref = entry[6]
+            normal_ref = entry[7]
+            bend_obj_ref = entry[8]
+
+            key = (bi, side)
+            if key not in group_to_micro:
+                ins = insets[bi]
+                if ins > 1e-6:
+                    micro_angle = angle_rad / 2.0
+                else:
+                    micro_angle = angle_rad
+                mi = len(micro_bend_info)
+                group_to_micro[key] = mi
+                micro_bend_info.append((micro_angle, bend_obj_ref,
+                                        p0_ref, normal_ref,
+                                        radius, bi))
+
+            fi = len(cut_faces)
             c1 = sp0 - up * diag
             c2 = sp1 - up * diag
             c3 = sp1 + up * diag
             c4 = sp0 + up * diag
-            bend_face_indices[bi].append(len(cut_faces))
             cut_faces.append(
                 Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
+            face_to_micro[fi] = group_to_micro[key]
 
         # --- Phase 2c: cut board and classify ---
         try:
@@ -2132,16 +2168,13 @@ class LinkedObject:
         except Exception:
             pieces = []
 
-        # Build face-index -> bend-index mapping for BFS
-        face_to_bend = {}
-        for bi, indices in enumerate(bend_face_indices):
-            for fi in indices:
-                face_to_bend[fi] = bi
+        # face_to_bend maps cut face index → micro-bend index
+        face_to_bend = face_to_micro
 
         # Classify via BFS from stationary piece
         piece_bend_sets, bfs_tree = self._classify_pieces_bfs(
             pieces, cut_faces, face_to_bend, mass_center, half_t,
-            bend_info)
+            bend_info, cut_plan)
 
         # Map components to pieces using flat (X, Y) in 2D
         comp_bend_sets = {}
@@ -2164,8 +2197,10 @@ class LinkedObject:
                         fb.add(bi)
                 comp_bend_sets[child.Name] = fb
 
-        # Map bend lines to pieces using flat midpoint
+        # Map bend lines to pieces using flat midpoint.
+        # Store both the set and the piece index (for multiplier).
         bendline_bend_sets = {}
+        bendline_piece_idx = {}  # child.Name → piece index
         for child in obj.Group:
             if (getattr(getattr(child, 'Proxy', None),
                         'Type', None) != 'BendLine'):
@@ -2181,9 +2216,9 @@ class LinkedObject:
                 if piece.isInside(pt, 0.5, True):
                     bendline_bend_sets[child.Name] = \
                         piece_bend_sets[pi]
+                    bendline_piece_idx[child.Name] = pi
                     break
             else:
-                # Fallback: dot-product
                 pt_2d = FreeCAD.Vector(pt.x, pt.y, 0)
                 fb = set()
                 for bi, (_, p0, _, _, normal, _, _) in enumerate(
@@ -2231,16 +2266,99 @@ class LinkedObject:
                     strip_pieces.add(pi)
                     strip_to_bend[pi] = bi
 
-        for bi, (bend_obj, p0, p1, line_dir, normal,
-                 angle_rad, radius) in enumerate(bend_info):
-            # Skip rotation/movement for angle=0 or inactive bends,
-            # or when bending is disabled (planning/debug only)
-            if abs(angle_rad) < 1e-9 or not enable_bending \
+        # Compute bend processing order from BFS traversal
+        stationary_idx = 0
+        mc_pt = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
+        for pi, piece in enumerate(pieces):
+            if piece.isInside(mc_pt, 0.5, True):
+                stationary_idx = pi
+                break
+        bend_order = []
+        seen_bends = set()
+        bfs_visit = {stationary_idx}
+        bfs_q = [stationary_idx]
+        while bfs_q:
+            cur = bfs_q.pop(0)
+            entry = bfs_tree.get(cur)
+            if entry and entry[1] is not None and entry[1] >= 0:
+                bi = entry[1]
+                if bi not in seen_bends:
+                    bend_order.append(bi)
+                    seen_bends.add(bi)
+            for pi in range(len(pieces)):
+                if pi in bfs_visit:
+                    continue
+                e = bfs_tree.get(pi)
+                if e and e[0] == cur:
+                    bfs_visit.add(pi)
+                    bfs_q.append(pi)
+        # Add any bends not in BFS tree
+        for bi in range(len(bend_info)):
+            if bi not in seen_bends:
+                bend_order.append(bi)
+                seen_bends.add(bi)
+
+        # Compute per-piece micro-bend multiplier from BFS chain.
+        # Each crossing uses the micro-bend (cut face) index.
+        # Same micro-bend crossed twice → reentrance → cancels.
+        piece_micro_mult = [{} for _ in range(len(pieces))]
+        for pi in range(len(pieces)):
+            chain = []
+            cur = pi
+            while cur is not None:
+                entry = bfs_tree.get(cur)
+                if entry is None:
+                    break
+                parent, mi_crossed = entry
+                if parent is not None and mi_crossed >= 0:
+                    chain.append(mi_crossed)
+                cur = parent
+            chain.reverse()
+            acc = set()
+            for mi in chain:
+                if mi in acc:
+                    piece_micro_mult[pi][mi] = \
+                        piece_micro_mult[pi].get(mi, 0) - 1
+                    acc.discard(mi)
+                else:
+                    piece_micro_mult[pi][mi] = \
+                        piece_micro_mult[pi].get(mi, 0) + 1
+                    acc.add(mi)
+
+        # Group micro-bends by their source bend_obj for
+        # shared pivot computation.
+        # Process in BFS traversal order of micro-bends.
+        micro_order = []
+        seen_mi = set()
+        bfs_visit2 = {stationary_idx}
+        bfs_q2 = [stationary_idx]
+        while bfs_q2:
+            cur = bfs_q2.pop(0)
+            entry = bfs_tree.get(cur)
+            if entry and entry[1] is not None and entry[1] >= 0:
+                mi = entry[1]
+                if mi not in seen_mi:
+                    micro_order.append(mi)
+                    seen_mi.add(mi)
+            for pi2 in range(len(pieces)):
+                if pi2 in bfs_visit2:
+                    continue
+                e = bfs_tree.get(pi2)
+                if e and e[0] == cur:
+                    bfs_visit2.add(pi2)
+                    bfs_q2.append(pi2)
+        for mi in range(len(micro_bend_info)):
+            if mi not in seen_mi:
+                micro_order.append(mi)
+                seen_mi.add(mi)
+
+        for mi in micro_order:
+            micro_angle, bend_obj, p0, normal, radius, orig_bi = \
+                micro_bend_info[mi]
+            if abs(micro_angle) < 1e-9 or not enable_bending \
                     or not bend_obj.Active:
                 continue
 
-            # Use current world-space position of bend line
-            # (previous bends may have moved it via Placement).
             plc = bend_obj.Placement
             cur_normal = plc.Rotation.multVec(normal)
             cur_up = plc.Rotation.multVec(up)
@@ -2250,76 +2368,97 @@ class LinkedObject:
             bend_axis.normalize()
             pivot = cur_p0 + cur_up * half_t
 
-            rot = FreeCAD.Rotation(
-                bend_axis, math.degrees(angle_rad))
-            rot_placement = FreeCAD.Placement(
-                FreeCAD.Vector(0, 0, 0), rot, pivot)
-
-            # Half-angle rotation for strip (wedge) pieces
-            half_rot = FreeCAD.Rotation(
-                bend_axis, math.degrees(angle_rad / 2.0))
-            half_placement = FreeCAD.Placement(
-                FreeCAD.Vector(0, 0, 0), half_rot, pivot)
-
             FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: bend {bi}: angle={math.degrees(angle_rad):.1f}°, "
-                f"pivot={pivot}, axis={bend_axis}\n")
+                f"FreekiCAD: micro {mi}:"
+                f" angle={math.degrees(micro_angle):.1f}°,"
+                f" orig_bi={orig_bi},"
+                f" pivot={pivot}, axis={bend_axis}\n")
 
-            # Transform pieces whose bend_set includes this bend.
-            # Strip pieces get full rotation for OTHER bends, but
-            # only half rotation for their OWN bend.
+            # Transform pieces based on their multiplier
             for pi in range(len(piece_shapes)):
-                if pi in strip_pieces and strip_to_bend.get(pi) == bi:
-                    continue  # own strips get half rotation below
-                if bi in piece_bend_sets[pi]:
-                    piece_shapes[pi].transformShape(
-                        rot_placement.toMatrix())
+                mult = piece_micro_mult[pi].get(mi, 0)
+                if mult == 0:
+                    continue
+                eff_angle = micro_angle * mult
+                rot = FreeCAD.Rotation(
+                    bend_axis, math.degrees(eff_angle))
+                plc_rot = FreeCAD.Placement(
+                    FreeCAD.Vector(0, 0, 0), rot, pivot)
+                piece_shapes[pi].transformShape(
+                    plc_rot.toMatrix())
 
-            # Rotate this bend's own strip (wedge) pieces by half angle
-            for pi in sorted(strip_to_bend):
-                if strip_to_bend[pi] == bi:
-                    piece_shapes[pi].transformShape(
-                        half_placement.toMatrix())
-
-            # Move bend lines using BFS classification (consistent
-            # with piece rotation).  Own bend line gets half rotation
-            # when inset > 0 (matching strip pieces).
-            bend_obj_name = bend_obj.Name
-            ins = insets[bi]
+            # Move bend lines using piece multiplier.
             for child in obj.Group:
                 if (getattr(getattr(child, 'Proxy', None),
                             'Type', None) != 'BendLine'):
                     continue
                 if child.Name not in bendline_bend_sets:
                     continue
-
-                if child.Name == bend_obj_name:
-                    if ins > 1e-6:
-                        child.Placement = half_placement.multiply(
-                            child.Placement)
+                bl_pi = bendline_piece_idx.get(child.Name)
+                if bl_pi is not None:
+                    bl_mult = piece_micro_mult[bl_pi].get(mi, 0)
+                else:
+                    bl_mult = 1 if mi in \
+                        bendline_bend_sets[child.Name] else 0
+                if bl_mult == 0:
                     continue
+                eff_angle = micro_angle * bl_mult
+                rot_bl = FreeCAD.Rotation(
+                    bend_axis, math.degrees(eff_angle))
+                plc_bl = FreeCAD.Placement(
+                    FreeCAD.Vector(0, 0, 0), rot_bl, pivot)
+                child.Placement = plc_bl.multiply(
+                    child.Placement)
 
-                if bi in bendline_bend_sets[child.Name]:
-                    child.Placement = rot_placement.multiply(
-                        child.Placement)
-
-            # Move components whose flat piece is affected by this bend
+            # Move components using micro-bend index
             for child in obj.Group:
                 if child.Name not in comp_bend_sets:
                     continue
-                if bi in comp_bend_sets[child.Name]:
-                    child.Placement = rot_placement.multiply(
+                if mi in comp_bend_sets[child.Name]:
+                    rot = FreeCAD.Rotation(
+                        bend_axis, math.degrees(micro_angle))
+                    rot_plc = FreeCAD.Placement(
+                        FreeCAD.Vector(0, 0, 0), rot, pivot)
+                    child.Placement = rot_plc.multiply(
                         child.Placement)
 
-        # Draw BFS tree arrows at unbent positions
-        if pieces:
+        # Log final positions after all transforms
+        for pi in range(len(piece_shapes)):
+            s = piece_shapes[pi]
+            if s.isValid() and s.Volume > 1e-6:
+                orig = pieces[pi].CenterOfMass
+                final = s.CenterOfMass
+                dist = orig.distanceToPoint(final)
+                if dist > 0.001:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: piece {pi} moved"
+                        f" {dist:.3f}mm to"
+                        f" ({final.x:.2f},{final.y:.2f},"
+                        f"{final.z:.2f})\n")
+
+        # Draw debug visualizations if enabled
+        show_debug = getattr(obj, 'ShowDebug', False)
+        if show_debug and pieces:
             self._draw_debug_arrows(
                 obj, pieces, piece_bend_sets, bfs_tree,
                 strip_pieces, strip_to_bend,
                 bend_info, insets, half_t)
-
-        # Draw trimmed cut segments at unbent positions
-        self._draw_debug_cuts(obj, cut_plan, thickness)
+            self._draw_debug_cuts(obj, cut_plan, thickness)
+        else:
+            # Log piece classification even without debug shapes
+            for pi in range(len(pieces)):
+                cm = pieces[pi].CenterOfMass
+                if pi in strip_pieces:
+                    label = f"W{strip_to_bend[pi]}"
+                elif not piece_bend_sets[pi]:
+                    label = "F"
+                else:
+                    bends = sorted(piece_bend_sets[pi])
+                    label = "M" + ",".join(str(b) for b in bends)
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: piece {pi}: {label}"
+                    f" vol={pieces[pi].Volume:.4f}"
+                    f" cm=({cm.x:.2f},{cm.y:.2f},{cm.z:.2f})\n")
 
         # Update board shape with all pieces (including bent wedges)
         saved_color = None
@@ -2486,23 +2625,35 @@ class LinkedObject:
 
         # Log the classification
         for pi, (cm, label) in enumerate(labels):
+            # Build chain from stationary
+            chain = []
+            cur = pi
+            while cur is not None:
+                entry = bfs_tree.get(cur)
+                if entry is None:
+                    break
+                parent, bi_crossed = entry
+                if parent is not None:
+                    chain.append(bi_crossed)
+                cur = parent
+            chain.reverse()
+            chain_str = "→".join(str(b) for b in chain) if chain \
+                else "(root)"
+
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: piece {pi}: {label}"
                 f" vol={pieces[pi].Volume:.4f}"
-                f" cm=({cm.x:.2f},{cm.y:.2f},{cm.z:.2f})\n")
+                f" cm=({cm.x:.2f},{cm.y:.2f},{cm.z:.2f})"
+                f" chain=[{chain_str}]\n")
 
     def _classify_pieces_bfs(self, pieces, cut_faces, face_to_bend,
-                             mass_center, half_t, bend_info):
-        """BFS from the stationary piece to determine which bends
-        each piece must cross to reach the stationary region.
+                             mass_center, half_t, bend_info, cut_plan):
+        """BFS from the stationary piece with maximum-set preference.
 
-        *face_to_bend* maps each index in *cut_faces* to the bend
-        index it belongs to (a bend with inset produces two faces
-        that both map to the same bend index).
+        All crossings ADD the bend (union, sets only grow).
+        Prefers larger sets to handle reentrance correctly.
 
-        Returns (piece_bend_sets, bfs_tree) where bfs_tree is a dict
-        mapping piece index → (parent_piece_index, bend_index_crossed).
-        The stationary piece maps to (None, None)."""
+        Returns (piece_bend_sets, bfs_tree)."""
         n = len(pieces)
         if n == 0:
             return [], {}
@@ -2515,8 +2666,10 @@ class LinkedObject:
                 stationary_idx = pi
                 break
 
-        # Build adjacency graph: pieces that are touching are
-        # neighbors, labeled by the cutting face between them.
+        # Build adjacency graph with directional cut edges.
+        # Cut-crossing edges go stationary→moving only (prevents
+        # over-propagation with larger-set preference).
+        # Non-cut edges are bidirectional with bi=-1.
         tol = 0.05
         adjacency = [[] for _ in range(n)]
         for i in range(n):
@@ -2524,8 +2677,6 @@ class LinkedObject:
                 d = pieces[i].distToShape(pieces[j])[0]
                 if d > tol:
                     continue
-                # Find which cutting face separates them, then map
-                # to the bend index.
                 mid = (pieces[i].CenterOfMass
                        + pieces[j].CenterOfMass) * 0.5
                 mid_v = Part.Vertex(mid)
@@ -2536,12 +2687,33 @@ class LinkedObject:
                     if cd < best_d:
                         best_d = cd
                         best_fi = fi
-                if best_fi is not None:
-                    bi = face_to_bend.get(best_fi, best_fi)
-                    adjacency[i].append((j, bi))
-                    adjacency[j].append((i, bi))
+                # Check if a cut face actually touches BOTH
+                # pieces (not just nearest to midpoint).
+                found_cut = False
+                for fi, cf in enumerate(cut_faces):
+                    di_cf = pieces[i].distToShape(cf)[0]
+                    dj_cf = pieces[j].distToShape(cf)[0]
+                    if di_cf < tol and dj_cf < tol:
+                        mi = face_to_bend.get(fi, fi)
+                        adjacency[i].append((j, mi))
+                        adjacency[j].append((i, mi))
+                        found_cut = True
+                        break
+                if not found_cut:
+                    adjacency[i].append((j, -1))
+                    adjacency[j].append((i, -1))
 
-        # BFS: shortest path (fewest bends crossed) from stationary
+        # Log adjacency graph
+        for pi in range(n):
+            edges = []
+            for nbr, bi in adjacency[pi]:
+                edges.append(f"{nbr}(b{bi})")
+            if edges:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: adj {pi} → {', '.join(edges)}\n")
+
+        # BFS: strict first-visit, all crossings add the bend.
+        # No re-visiting, no re-queuing — first path wins.
         piece_bend_sets = [None] * n
         piece_bend_sets[stationary_idx] = set()
         bfs_tree = {stationary_idx: (None, None)}
@@ -2549,12 +2721,16 @@ class LinkedObject:
         while queue:
             cur = queue.pop(0)
             for nbr, bi in adjacency[cur]:
-                new_set = piece_bend_sets[cur] | {bi}
-                if (piece_bend_sets[nbr] is None
-                        or len(new_set) < len(piece_bend_sets[nbr])):
-                    piece_bend_sets[nbr] = new_set
-                    bfs_tree[nbr] = (cur, bi)
-                    queue.append(nbr)
+                if piece_bend_sets[nbr] is not None:
+                    continue  # already visited
+                if bi >= 0:
+                    piece_bend_sets[nbr] = \
+                        piece_bend_sets[cur] | {bi}
+                else:
+                    piece_bend_sets[nbr] = \
+                        piece_bend_sets[cur].copy()
+                bfs_tree[nbr] = (cur, bi)
+                queue.append(nbr)
 
         # Unreachable pieces: dot-product fallback
         for pi in range(n):
