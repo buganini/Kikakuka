@@ -2570,7 +2570,8 @@ class LinkedObject:
             return
 
         edges = []
-        for sp0, sp1, side, bi in debug_cut_segs:
+        for entry in debug_cut_segs:
+            sp0, sp1, side = entry[0], entry[1], entry[2]
             start = FreeCAD.Vector(sp0.x, sp0.y, thickness)
             end = FreeCAD.Vector(sp1.x, sp1.y, thickness)
             if start.distanceToPoint(end) > 0.001:
@@ -2583,6 +2584,7 @@ class LinkedObject:
 
         if debug_obj is None:
             debug_obj = doc.addObject("Part::Feature", debug_name)
+            obj.addObject(debug_obj)
             try:
                 debug_obj.ViewObject.LineColor = (0.0, 1.0, 0.0)
                 debug_obj.ViewObject.LineWidth = 3.0
@@ -2691,6 +2693,7 @@ class LinkedObject:
         if edges:
             if debug_obj is None:
                 debug_obj = doc.addObject("Part::Feature", debug_name)
+                obj.addObject(debug_obj)
                 try:
                     debug_obj.ViewObject.LineColor = (1.0, 0.0, 0.0)
                     debug_obj.ViewObject.LineWidth = 2.0
@@ -3350,6 +3353,11 @@ class LinkedObject:
                 "App::PropertyString", "FileMtime", "LinkedFile",
                 "Stored mtime of the linked .kicad_pcb file")
             obj.setPropertyStatus("FileMtime", "Hidden")
+        if not hasattr(obj, 'ShowDebug'):
+            obj.addProperty(
+                "App::PropertyBool", "ShowDebug", "LinkedFile",
+                "Show debug arrows and cut lines")
+            obj.ShowDebug = False
 
 
 class LinkedObjectViewProvider:
