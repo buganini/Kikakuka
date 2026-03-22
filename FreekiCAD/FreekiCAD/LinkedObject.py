@@ -2700,7 +2700,16 @@ class LinkedObject:
             s_side = bend_s_side.get(bi, 'S')
             sweep_angle = angle_rad_bi
             if s_side == 'M':
+                # Swapped bend: cur_p0 is at geometric M.
+                # Negate slicing direction.
                 cur_normal = cur_normal * (-1)
+                # Recompute CoC from geometric S edge position.
+                # geometric S = cur_p0 + negated_normal * 2*ins
+                geo_s_p0 = cur_p0 + cur_normal * (2 * ins)
+                bend_sign_w = -1.0 if micro_angle_s > 0 else 1.0
+                stat_w = geo_s_p0 + cur_up * half_t
+                coc = stat_w + cur_up * (r_eff * bend_sign_w)
+                pivot = coc
 
             # Save CoC offset for bend line (applied after lofts)
             if bi not in coc_offsets:
@@ -2754,11 +2763,19 @@ class LinkedObject:
             #   3. Translate slice center to arc position
             #   4. Rotate slice to be tangent to arc
             eps = 0.001
+            # Find actual piece position along cur_normal.
+            # Subsequent micro rotations may have shifted the
+            # piece from cur_p0.  Compute offset and adjust.
+            flat_cm = positioned_flat.CenterOfMass
+            d_offset = (flat_cm - cur_p0).dot(cur_normal)
+            # If piece drifted, re-center slicing on piece
+            d_start = 0.0
+            if d_offset < -eps or d_offset > 2 * ins + eps:
+                d_start = d_offset - ins
             wires_list = []
             for si in range(N_SLICES + 1):
                 frac = si / float(N_SLICES)
-                # Slice position on flat wedge (cur_p0 is at S edge)
-                d = eps + frac * (2 * ins - 2 * eps)
+                d = d_start + eps + frac * (2 * ins - 2 * eps)
                 slice_pt = cur_p0 + cur_normal * d
                 plane_dist = (slice_pt.x * cur_normal.x
                               + slice_pt.y * cur_normal.y
