@@ -2744,26 +2744,17 @@ class LinkedObject:
             # be flipped.  This is per CUT, not per bend —
             # different segments of the same bend can have
             # different orientations.
-            # Flip detection: compare distance from piece's
-            # flat CenterOfMass to nearest S vs M cut_mid.
-            # If closer to M → piece is on geometric M side → flip.
-            # Uses flat-board coordinates (no Placement transform).
-            piece_cm_flat = pieces[pi].CenterOfMass
-            s_mids_f = bend_seg_mids.get(bi, [])
-            m_mids_f = bend_m_seg_mids.get(bi, [])
-            min_s_d = float('inf')
-            for sm in s_mids_f:
-                d2 = (piece_cm_flat.x - sm.x) ** 2 + \
-                     (piece_cm_flat.y - sm.y) ** 2
-                if d2 < min_s_d:
-                    min_s_d = d2
-            min_m_d = float('inf')
-            for mm in m_mids_f:
-                d2 = (piece_cm_flat.x - mm.x) ** 2 + \
-                     (piece_cm_flat.y - mm.y) ** 2
-                if d2 < min_m_d:
-                    min_m_d = d2
-            dot_side = 1.0 if min_m_d < min_s_d else -1.0
+            # Flip detection: check BFS entry edge.  If this
+            # wedge was reached via an M edge of its own bend,
+            # it entered from the M side (curl-back) → flip.
+            # This is exact — no distance comparison needed.
+            entry = bfs_tree.get(pi, (None, None))
+            entry_mi = entry[1]
+            dot_side = -1.0  # default: no flip
+            if entry_mi is not None and entry_mi <= -2:
+                entry_bi = -(entry_mi + 2)
+                if entry_bi == bi:
+                    dot_side = 1.0  # entered from M of this bend
             # dot > 0 = geometric M side, dot < 0 = geometric S
             flip = (dot_side > 0)
             sweep_angle = angle_rad_bi
@@ -2799,39 +2790,24 @@ class LinkedObject:
             s_mult = piece_micro_mult[pi].get(s_mi, 0)
             actual_s_angle = micro_angle_s * s_mult
 
-            # Use pre-saved shape (from Phase 3, before this micro's
-            # rotation) — already in micro_pivots space, no un-rotation
-            # needed.  Fall back to piece_shapes + un-rotation if
-            # no pre-shape saved.
-            pre_shape = wedge_pre_shapes.get(pi)
-            if pre_shape is not None:
-                positioned_flat = pre_shape.copy()
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD:   s_mult={s_mult}"
-                    f" micro_angle={math.degrees(micro_angle_s):.1f}°"
-                    f" pre_shape=saved (no un-rot)"
-                    f" piece_cm=({pre_shape.CenterOfMass.x:.2f}"
-                    f",{pre_shape.CenterOfMass.y:.2f}"
-                    f",{pre_shape.CenterOfMass.z:.2f})"
-                    f"\n")
-            else:
-                positioned_flat = piece_shapes[pi].copy()
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD:   s_mult={s_mult}"
-                    f" micro_angle={math.degrees(micro_angle_s):.1f}°"
-                    f" un_rot={math.degrees(-actual_s_angle):.1f}°"
-                    f" pre_shape=current"
-                    f" piece_cm=({piece_shapes[pi].CenterOfMass.x:.2f}"
-                    f",{piece_shapes[pi].CenterOfMass.y:.2f}"
-                    f",{piece_shapes[pi].CenterOfMass.z:.2f})"
-                    f"\n")
-                if abs(actual_s_angle) > 1e-9:
-                    un_rot = FreeCAD.Rotation(
-                        bend_axis, math.degrees(-actual_s_angle))
-                    un_plc = FreeCAD.Placement(
-                        FreeCAD.Vector(0, 0, 0), un_rot, pivot)
-                    positioned_flat.transformShape(
-                        un_plc.toMatrix())
+            # Un-rotate the bent piece to get flat position
+            # matching micro_pivots space.
+            positioned_flat = piece_shapes[pi].copy()
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD:   s_mult={s_mult}"
+                f" micro_angle={math.degrees(micro_angle_s):.1f}°"
+                f" un_rot={math.degrees(-actual_s_angle):.1f}°"
+                f" piece_cm=({piece_shapes[pi].CenterOfMass.x:.2f}"
+                f",{piece_shapes[pi].CenterOfMass.y:.2f}"
+                f",{piece_shapes[pi].CenterOfMass.z:.2f})"
+                f"\n")
+            if abs(actual_s_angle) > 1e-9:
+                un_rot = FreeCAD.Rotation(
+                    bend_axis, math.degrees(-actual_s_angle))
+                un_plc = FreeCAD.Placement(
+                    FreeCAD.Vector(0, 0, 0), un_rot, pivot)
+                positioned_flat.transformShape(
+                    un_plc.toMatrix())
 
             # Slice the flat wedge at each position, then
             # move each slice to its arc position.
