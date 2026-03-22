@@ -2441,6 +2441,7 @@ class LinkedObject:
                 seen_mi.add(mi)
 
         micro_pivots = {}  # mi → saved pivot data for wedge loft
+        wedge_pre_shapes = {}  # pi → shape copy before this bend's rotation
         for mi in micro_order:
             micro_angle, bend_obj, cut_mid, normal, radius, orig_bi = \
                 micro_bend_info[mi]
@@ -2473,6 +2474,14 @@ class LinkedObject:
                 FreeCAD.Vector(cur_up),
                 FreeCAD.Vector(bend_axis),
                 FreeCAD.Vector(pivot))
+
+            # Save wedge piece shapes NOW (before rotation),
+            # so the loft uses shapes in the same space as
+            # micro_pivots.  Subsequent micro-bends will rotate
+            # piece_shapes further, creating a mismatch.
+            for wpi in strip_pieces:
+                if strip_to_bend.get(wpi) == orig_bi:
+                    wedge_pre_shapes[wpi] = piece_shapes[wpi].copy()
 
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: micro {mi}:"
@@ -2587,18 +2596,58 @@ class LinkedObject:
             # Sweep angle = full bend angle, rotate around CoC
             sweep_angle = angle_rad_bi
 
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: wedge pi={pi} bi={bi}"
+                f" sweep={math.degrees(sweep_angle):.1f}°"
+                f" s_mi={s_mi}"
+                f" ins={ins:.4f}"
+                f" r_eff={r_eff:.4f}"
+                f" cur_p0=({cur_p0.x:.2f},{cur_p0.y:.2f},{cur_p0.z:.2f})"
+                f" normal=({cur_normal.x:.3f},{cur_normal.y:.3f},{cur_normal.z:.3f})"
+                f" up=({cur_up.x:.3f},{cur_up.y:.3f},{cur_up.z:.3f})"
+                f" axis=({bend_axis.x:.3f},{bend_axis.y:.3f},{bend_axis.z:.3f})"
+                f" coc=({coc.x:.2f},{coc.y:.2f},{coc.z:.2f})"
+                f"\n")
+
             # Un-rotate the bent wedge to get the flat position.
             # Use actual multiplier — curl-back wedges may have
             # mult=0 (S micro-bend cancelled), so don't un-rotate.
             s_mult = piece_micro_mult[pi].get(s_mi, 0)
             actual_s_angle = micro_angle_s * s_mult
-            positioned_flat = piece_shapes[pi].copy()
-            if abs(actual_s_angle) > 1e-9:
-                un_rot = FreeCAD.Rotation(
-                    bend_axis, math.degrees(-actual_s_angle))
-                un_plc = FreeCAD.Placement(
-                    FreeCAD.Vector(0, 0, 0), un_rot, pivot)
-                positioned_flat.transformShape(un_plc.toMatrix())
+
+            # Use pre-saved shape (from Phase 3, before this micro's
+            # rotation) — already in micro_pivots space, no un-rotation
+            # needed.  Fall back to piece_shapes + un-rotation if
+            # no pre-shape saved.
+            pre_shape = wedge_pre_shapes.get(pi)
+            if pre_shape is not None:
+                positioned_flat = pre_shape.copy()
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   s_mult={s_mult}"
+                    f" micro_angle={math.degrees(micro_angle_s):.1f}°"
+                    f" pre_shape=saved (no un-rot)"
+                    f" piece_cm=({pre_shape.CenterOfMass.x:.2f}"
+                    f",{pre_shape.CenterOfMass.y:.2f}"
+                    f",{pre_shape.CenterOfMass.z:.2f})"
+                    f"\n")
+            else:
+                positioned_flat = piece_shapes[pi].copy()
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   s_mult={s_mult}"
+                    f" micro_angle={math.degrees(micro_angle_s):.1f}°"
+                    f" un_rot={math.degrees(-actual_s_angle):.1f}°"
+                    f" pre_shape=current"
+                    f" piece_cm=({piece_shapes[pi].CenterOfMass.x:.2f}"
+                    f",{piece_shapes[pi].CenterOfMass.y:.2f}"
+                    f",{piece_shapes[pi].CenterOfMass.z:.2f})"
+                    f"\n")
+                if abs(actual_s_angle) > 1e-9:
+                    un_rot = FreeCAD.Rotation(
+                        bend_axis, math.degrees(-actual_s_angle))
+                    un_plc = FreeCAD.Placement(
+                        FreeCAD.Vector(0, 0, 0), un_rot, pivot)
+                    positioned_flat.transformShape(
+                        un_plc.toMatrix())
 
             # Slice the flat wedge at each position, then
             # move each slice to its arc position.
@@ -2646,6 +2695,8 @@ class LinkedObject:
             # Last wire is from frac=1.0 in the loop above
             # (rotated base wire at full sweep angle)
 
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD:   slices={len(wires_list)}/{N_SLICES+1}\n")
             if len(wires_list) >= 2:
                 try:
                     loft = Part.makeLoft(wires_list, True, True)
