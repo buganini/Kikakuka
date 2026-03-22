@@ -3084,23 +3084,53 @@ class LinkedObject:
                         best_d = cd
                         best_fi = fi
                 # Find the best cut face touching BOTH pieces.
-                # Prefer "shallower" cuts: M faces (no rotation)
-                # over S faces (adds rotation).  When a thin sliver
-                # between close cuts (e.g. 4M and 0S) is missing,
-                # this picks the M face so pieces don't get extra
-                # rotation from the adjacent S face.
+                # Prefer nearest to midpoint, M over S as tiebreaker.
+                # Validate with cross-product + projection: both
+                # COMs must be on opposite sides of the cut segment
+                # and at least one must project onto the segment range.
                 found_cut = False
                 best_touch_fi = None
-                best_touch_rank = (float('inf'), 1)  # (dist, is_S)
+                best_touch_rank = (float('inf'), 1)
+                cm_i = pieces[i].CenterOfMass
+                cm_j = pieces[j].CenterOfMass
                 for fi, cf in enumerate(cut_faces):
                     di_cf = pieces[i].distToShape(cf)[0]
                     dj_cf = pieces[j].distToShape(cf)[0]
                     if di_cf < tol and dj_cf < tol:
+                        # Validate: cross-product side test +
+                        # projection onto segment range.
+                        sp0_e, sp1_e = cut_plan[fi][0], cut_plan[fi][1]
+                        sdx = sp1_e.x - sp0_e.x
+                        sdy = sp1_e.y - sp0_e.y
+                        sl2 = sdx * sdx + sdy * sdy
+                        if sl2 < 1e-12:
+                            continue
+                        vix = cm_i.x - sp0_e.x
+                        viy = cm_i.y - sp0_e.y
+                        vjx = cm_j.x - sp0_e.x
+                        vjy = cm_j.y - sp0_e.y
+                        ci_ = sdx * viy - sdy * vix
+                        cj_ = sdx * vjy - sdy * vjx
+                        if ci_ * cj_ >= 0:
+                            continue  # same side, skip
+                        # Projection: the closer COM (smaller
+                        # perpendicular distance) must project
+                        # within the segment range.  This filters
+                        # endpoint artifacts where a piece in the
+                        # gap touches a cut face at its edge.
+                        ti = (vix * sdx + viy * sdy) / sl2
+                        tj = (vjx * sdx + vjy * sdy) / sl2
+                        sl = sl2 ** 0.5
+                        pi_ = abs(ci_) / sl  # perp dist i
+                        pj_ = abs(cj_) / sl  # perp dist j
+                        # The closer piece's t must be in range
+                        t_close = ti if pi_ < pj_ else tj
+                        if t_close < -0.1 or t_close > 1.1:
+                            continue  # endpoint artifact
                         mi = face_to_bend.get(fi, -1)
-                        is_s = 1 if mi >= 0 else 0  # S=1, M/-1=0
+                        is_s = 1 if mi >= 0 else 0
                         cd = cf.distToShape(mid_v)[0]
-                        rank = (round(cd, 2), is_s)  # nearest first,
-                        # M over S as tiebreaker for same distance
+                        rank = (round(cd, 2), is_s)
                         if rank < best_touch_rank:
                             best_touch_rank = rank
                             best_touch_fi = fi
