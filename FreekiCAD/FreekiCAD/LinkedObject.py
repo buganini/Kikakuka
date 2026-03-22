@@ -2563,35 +2563,16 @@ class LinkedObject:
                 f" orig_bi={orig_bi},"
                 f" pivot={pivot}, axis={bend_axis}\n")
 
-            # Rotate pieces by full angle around per-piece CoC.
-            # Each piece uses the CoC from its nearest S segment
-            # (per cut, not per bend).
-            seg_mids_r = bend_seg_mids.get(orig_bi, [])
+            # Rotate pieces by full angle around CoC.
             for pi in range(len(piece_shapes)):
                 mult = piece_micro_mult[pi].get(mi, 0)
                 if mult == 0:
                     continue
                 eff_angle = micro_angle * mult
-                # Per-piece pivot from nearest segment
-                pi_pivot = pivot
-                if len(seg_mids_r) > 1:
-                    pcm = pieces[pi].CenterOfMass
-                    best_sm = None
-                    best_d2 = float('inf')
-                    for sm in seg_mids_r:
-                        d2 = (pcm.x - sm.x) ** 2 + \
-                             (pcm.y - sm.y) ** 2
-                        if d2 < best_d2:
-                            best_d2 = d2
-                            best_sm = sm
-                    pp0 = plc.multVec(best_sm)
-                    pp_stat = pp0 + cur_up * half_t
-                    pi_pivot = pp_stat + cur_up * (
-                        r_eff_bi * bend_sign)
                 rot = FreeCAD.Rotation(
                     bend_axis, math.degrees(eff_angle))
                 plc_rot = FreeCAD.Placement(
-                    FreeCAD.Vector(0, 0, 0), rot, pi_pivot)
+                    FreeCAD.Vector(0, 0, 0), rot, pivot)
                 piece_shapes[pi].transformShape(
                     plc_rot.toMatrix())
 
@@ -2615,26 +2596,10 @@ class LinkedObject:
                 if bl_mult == 0:
                     continue
                 eff_angle = micro_angle * bl_mult
-                # Per-piece pivot for bend lines too
-                bl_pivot = pivot
-                if len(seg_mids_r) > 1 and bl_pi is not None:
-                    bcm = pieces[bl_pi].CenterOfMass
-                    best_sm = None
-                    best_d2 = float('inf')
-                    for sm in seg_mids_r:
-                        d2 = (bcm.x - sm.x) ** 2 + \
-                             (bcm.y - sm.y) ** 2
-                        if d2 < best_d2:
-                            best_d2 = d2
-                            best_sm = sm
-                    bp0 = plc.multVec(best_sm)
-                    bp_stat = bp0 + cur_up * half_t
-                    bl_pivot = bp_stat + cur_up * (
-                        r_eff_bi * bend_sign)
                 rot_bl = FreeCAD.Rotation(
                     bend_axis, math.degrees(eff_angle))
                 plc_bl = FreeCAD.Placement(
-                    FreeCAD.Vector(0, 0, 0), rot_bl, bl_pivot)
+                    FreeCAD.Vector(0, 0, 0), rot_bl, pivot)
                 child.Placement = plc_bl.multiply(
                     child.Placement)
 
@@ -2643,27 +2608,10 @@ class LinkedObject:
                 if child.Name not in comp_bend_sets:
                     continue
                 if mi in comp_bend_sets[child.Name]:
-                    # Per-component pivot from nearest segment
-                    comp_pivot = pivot
-                    if len(seg_mids_r) > 1 and hasattr(child, 'X'):
-                        cx = float(child.X)
-                        cy = float(child.Y)
-                        best_sm = None
-                        best_d2 = float('inf')
-                        for sm in seg_mids_r:
-                            d2 = (cx - sm.x) ** 2 + \
-                                 (cy - sm.y) ** 2
-                            if d2 < best_d2:
-                                best_d2 = d2
-                                best_sm = sm
-                        cp0 = plc.multVec(best_sm)
-                        cp_stat = cp0 + cur_up * half_t
-                        comp_pivot = cp_stat + cur_up * (
-                            r_eff_bi * bend_sign)
                     rot = FreeCAD.Rotation(
                         bend_axis, math.degrees(micro_angle))
                     rot_plc = FreeCAD.Placement(
-                        FreeCAD.Vector(0, 0, 0), rot, comp_pivot)
+                        FreeCAD.Vector(0, 0, 0), rot, pivot)
                     child.Placement = rot_plc.multiply(
                         child.Placement)
 
@@ -2744,25 +2692,14 @@ class LinkedObject:
             # be flipped.  This is per CUT, not per bend —
             # different segments of the same bend can have
             # different orientations.
-            # Flip detection: check BFS entry edge.  If this
-            # wedge was reached via an M edge of its own bend,
-            # it entered from the M side (curl-back) → flip.
-            # This is exact — no distance comparison needed.
-            entry = bfs_tree.get(pi, (None, None))
-            entry_mi = entry[1]
-            dot_side = -1.0  # default: no flip
-            if entry_mi is not None and entry_mi <= -2:
-                entry_bi = -(entry_mi + 2)
-                if entry_bi == bi:
-                    dot_side = 1.0  # entered from M of this bend
-            # dot > 0 = geometric M side, dot < 0 = geometric S
-            flip = (dot_side > 0)
+            # Flip only for swapped bends: S is at geometric M
+            # position, so slicing direction reverses.
+            # M-entry (curl-back) does NOT need flip — the
+            # un-rotation brings the piece to the flat position
+            # between S and M regardless of entry direction.
+            s_side = bend_s_side.get(bi, 'S')
             sweep_angle = angle_rad_bi
-            if flip:
-                # Only negate slicing direction, NOT sweep angle.
-                # The arc always curves the same physical direction
-                # around the same CoC.  Only the slice positions
-                # change (going from new-S toward new-M).
+            if s_side == 'M':
                 cur_normal = cur_normal * (-1)
 
             # Save CoC offset for bend line (applied after lofts)
@@ -2772,7 +2709,7 @@ class LinkedObject:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: wedge pi={pi} bi={bi}"
                 f" sweep={math.degrees(sweep_angle):.1f}°"
-                f" flip={'Y' if flip else 'N'}"
+                f" flip=N"
                 f" s_mi={s_mi}"
                 f" ins={ins:.4f}"
                 f" r_eff={r_eff:.4f}"
@@ -2883,22 +2820,40 @@ class LinkedObject:
             saved = micro_pivots.get(mi)
             if saved is None:
                 continue
-            saved_plc_c, s_p0, s_normal, s_up, s_axis, \
-                s_pivot = saved
+            _, s_p0, s_normal, s_up, s_axis, s_pivot = saved
+            coc = s_pivot
             angle_rad_bi = bend_info[orig_bi][5]
             r_eff_bi = radius + half_t
-            bend_sign_c = -1.0 if micro_angle > 0 else 1.0
-            seg_mids_c = bend_seg_mids.get(orig_bi, [])
+
+            # S edge (stationary) and M edge (moving) in current
+            # space.  s_p0 is at the S cut position (cut_mid).
+            mid_stat = s_p0 + s_up * half_t
+            mid_flat = s_p0 + s_normal * (2 * ins_bi) \
+                + s_up * half_t
+
+            # Expected: stationary edge rotated by full angle
+            rot_full = FreeCAD.Rotation(
+                s_axis, math.degrees(angle_rad_bi))
+            plc_full = FreeCAD.Placement(
+                FreeCAD.Vector(0, 0, 0), rot_full, coc)
+            mid_expected = plc_full.multVec(mid_stat)
+
+            # Actual: M edge rotated by full angle
+            mid_actual = plc_full.multVec(mid_flat)
+
+            correction = mid_expected - mid_actual
 
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: correction mi {mi} (bend {orig_bi}):"
                 f" ins={ins_bi:.4f}"
                 f" r_eff={r_eff_bi:.4f}"
                 f" angle={math.degrees(angle_rad_bi):.1f}°"
-                f" segs={len(seg_mids_c)}\n")
+                f" |corr|={correction.Length:.4f}\n")
 
-            # Apply per-piece correction: each piece uses the
-            # CoC from its nearest S segment.
+            if correction.Length < 1e-6:
+                continue
+
+            # Apply to non-wedge pieces that cross this micro-bend
             for pi in range(len(piece_shapes)):
                 is_own_wedge = (pi in strip_pieces
                                 and strip_to_bend.get(pi) == orig_bi)
@@ -2907,35 +2862,9 @@ class LinkedObject:
                 mult_s = piece_micro_mult[pi].get(mi, 0)
                 if mult_s == 0:
                     continue
-                # Per-piece CoC from nearest segment
-                cp0 = s_p0
-                if len(seg_mids_c) > 1:
-                    pcm = pieces[pi].CenterOfMass
-                    best_sm = None
-                    best_d2 = float('inf')
-                    for sm in seg_mids_c:
-                        d2 = (pcm.x - sm.x) ** 2 + \
-                             (pcm.y - sm.y) ** 2
-                        if d2 < best_d2:
-                            best_d2 = d2
-                            best_sm = sm
-                    cp0 = saved_plc_c.multVec(best_sm)
-                c_stat = cp0 + s_up * half_t
-                c_pivot = c_stat + s_up * (
-                    r_eff_bi * bend_sign_c)
-                c_flat = cp0 + s_normal * (2 * ins_bi) \
-                    + s_up * half_t
-                rot_f = FreeCAD.Rotation(
-                    s_axis, math.degrees(angle_rad_bi))
-                plc_f = FreeCAD.Placement(
-                    FreeCAD.Vector(0, 0, 0), rot_f, c_pivot)
-                c_exp = plc_f.multVec(c_stat)
-                c_act = plc_f.multVec(c_flat)
-                corr = c_exp - c_act
-                if corr.Length > 1e-6:
-                    piece_shapes[pi].translate(corr)
+                piece_shapes[pi].translate(correction)
 
-            # Apply correction to bend lines (per-piece pivot)
+            # Apply to bend lines
             for child in obj.Group:
                 if (getattr(getattr(child, 'Proxy', None),
                             'Type', None) != 'BendLine'):
@@ -2944,64 +2873,17 @@ class LinkedObject:
                 if bl_pi is None:
                     continue
                 bl_mult = piece_micro_mult[bl_pi].get(mi, 0)
-                if bl_mult == 0:
-                    continue
-                bp0 = s_p0
-                if len(seg_mids_c) > 1 and bl_pi is not None:
-                    bcm = pieces[bl_pi].CenterOfMass
-                    best_sm = None
-                    best_d2 = float('inf')
-                    for sm in seg_mids_c:
-                        d2 = (bcm.x - sm.x) ** 2 + \
-                             (bcm.y - sm.y) ** 2
-                        if d2 < best_d2:
-                            best_d2 = d2
-                            best_sm = sm
-                    bp0 = saved_plc_c.multVec(best_sm)
-                bs = bp0 + s_up * half_t
-                bpv = bs + s_up * (r_eff_bi * bend_sign_c)
-                bf = bp0 + s_normal * (2 * ins_bi) \
-                    + s_up * half_t
-                rf = FreeCAD.Rotation(
-                    s_axis, math.degrees(angle_rad_bi))
-                pf = FreeCAD.Placement(
-                    FreeCAD.Vector(0, 0, 0), rf, bpv)
-                bl_corr = pf.multVec(bs) - pf.multVec(bf)
-                if bl_corr.Length > 1e-6:
+                if bl_mult > 0:
                     child.Placement.Base = \
-                        child.Placement.Base + bl_corr
+                        child.Placement.Base + correction
 
-            # Apply correction to components (per-piece pivot)
+            # Apply to components
             for child in obj.Group:
                 if child.Name not in comp_bend_sets:
                     continue
-                if mi not in comp_bend_sets[child.Name]:
-                    continue
-                cp0 = s_p0
-                if len(seg_mids_c) > 1 and hasattr(child, 'X'):
-                    cx = float(child.X)
-                    cy = float(child.Y)
-                    best_sm = None
-                    best_d2 = float('inf')
-                    for sm in seg_mids_c:
-                        d2 = (cx - sm.x) ** 2 + \
-                             (cy - sm.y) ** 2
-                        if d2 < best_d2:
-                            best_d2 = d2
-                            best_sm = sm
-                    cp0 = saved_plc_c.multVec(best_sm)
-                cs = cp0 + s_up * half_t
-                cpv = cs + s_up * (r_eff_bi * bend_sign_c)
-                cf = cp0 + s_normal * (2 * ins_bi) \
-                    + s_up * half_t
-                rf = FreeCAD.Rotation(
-                    s_axis, math.degrees(angle_rad_bi))
-                pf = FreeCAD.Placement(
-                    FreeCAD.Vector(0, 0, 0), rf, cpv)
-                c_corr = pf.multVec(cs) - pf.multVec(cf)
-                if c_corr.Length > 1e-6:
+                if mi in comp_bend_sets[child.Name]:
                     child.Placement.Base = \
-                        child.Placement.Base + c_corr
+                        child.Placement.Base + correction
 
         # Move bend lines to first S cut line's CoC (#9,
         # visual only, no effect on other geometry).
