@@ -2139,6 +2139,7 @@ class LinkedObject:
         # M faces encoded as -(orig_bi+2), non-cut = -1
         face_to_micro = {}
         s_group = {}  # (bi, 'S') → mi, groups S segments per bend
+        bend_seg_mids = {}  # bi → [cut_mid, ...] per S segment
 
         for entry in cut_plan:
             sp0, sp1 = entry[0], entry[1]
@@ -2166,14 +2167,18 @@ class LinkedObject:
                 # S cuts: full angle, grouped per bend for
                 # correct curl-back XOR cancellation
                 key = (bi, 'S')
+                cut_mid = (sp0 + sp1) * 0.5
                 if key not in s_group:
                     mi = len(micro_bend_info)
                     s_group[key] = mi
-                    cut_mid = (sp0 + sp1) * 0.5
                     micro_bend_info.append((angle_rad, bend_obj_ref,
                                             cut_mid, normal_ref,
                                             radius, bi))
                 face_to_micro[fi] = s_group[key]
+                # Store ALL segment cut_mids per bend (for
+                # per-segment CoC in wedge loft)
+                bend_seg_mids.setdefault(bi, []).append(
+                    FreeCAD.Vector(cut_mid))
 
         # --- Phase 2c: cut board and classify ---
         try:
@@ -2583,10 +2588,34 @@ class LinkedObject:
             saved = micro_pivots.get(s_mi)
             if saved is None:
                 continue
-            _, cur_p0, cur_normal, cur_up, bend_axis, pivot = saved
+            saved_plc, cur_p0, cur_normal, cur_up, bend_axis, \
+                pivot = saved
             bend_obj_bi = bend_info[bi][0]
 
-            # CoC = saved pivot (already computed as CoC in Phase 3)
+            # Per-segment CoC: find the nearest segment to this
+            # wedge piece's flat CenterOfMass.  The grouped
+            # micro_pivots uses one segment's position, but each
+            # wedge piece needs its own segment's CoC.
+            seg_mids = bend_seg_mids.get(bi, [])
+            if len(seg_mids) > 1:
+                # Multiple segments: find nearest to piece CM
+                # (in local coords via inverse Placement)
+                piece_cm = pieces[pi].CenterOfMass  # flat board
+                best_mid = None
+                best_d = float('inf')
+                for sm in seg_mids:
+                    d = piece_cm.distanceToPoint(sm)
+                    if d < best_d:
+                        best_d = d
+                        best_mid = sm
+                # Recompute cur_p0 and CoC from this segment's
+                # position using the saved Placement
+                cur_p0 = saved_plc.multVec(best_mid)
+                bend_sign = -1.0 if micro_angle_s > 0 else 1.0
+                stat_edge_mid = cur_p0 + cur_up * half_t
+                pivot = stat_edge_mid + cur_up * (
+                    r_eff * bend_sign)
+
             coc = pivot
 
             # Save CoC offset for bend line (applied after lofts)
@@ -2602,6 +2631,7 @@ class LinkedObject:
                 f" s_mi={s_mi}"
                 f" ins={ins:.4f}"
                 f" r_eff={r_eff:.4f}"
+                f" segs={len(seg_mids)}"
                 f" cur_p0=({cur_p0.x:.2f},{cur_p0.y:.2f},{cur_p0.z:.2f})"
                 f" normal=({cur_normal.x:.3f},{cur_normal.y:.3f},{cur_normal.z:.3f})"
                 f" up=({cur_up.x:.3f},{cur_up.y:.3f},{cur_up.z:.3f})"
