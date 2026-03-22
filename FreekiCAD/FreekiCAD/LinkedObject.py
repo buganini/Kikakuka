@@ -2795,8 +2795,9 @@ class LinkedObject:
                 else:
                     bends = sorted(piece_bend_sets[pi])
                     label = "M" + ",".join(str(b) for b in bends)
-                # Build path notation
-                path = []
+                # Build path notation — S/M from traversal order:
+                # odd crossing of a bend = S, even = M
+                raw_path = []
                 cur = pi
                 while cur is not None:
                     entry = bfs_tree.get(cur)
@@ -2805,13 +2806,22 @@ class LinkedObject:
                     parent, bi_crossed = entry
                     if parent is not None:
                         if bi_crossed >= 0:
-                            orig_bi = micro_bend_info[bi_crossed][5]
-                            path.append(f"{orig_bi}S")
+                            raw_path.append(
+                                micro_bend_info[bi_crossed][5])
                         elif bi_crossed <= -2:
-                            path.append(f"{-bi_crossed - 2}M")
+                            raw_path.append(-bi_crossed - 2)
                     cur = parent
-                path.reverse()
-                path_str = "/".join(path) if path else "(root)"
+                raw_path.reverse()
+                path_parts = []
+                bend_cross_count = {}
+                for orig_bi in raw_path:
+                    bend_cross_count[orig_bi] = \
+                        bend_cross_count.get(orig_bi, 0) + 1
+                    sm = "S" if bend_cross_count[orig_bi] % 2 == 1 \
+                        else "M"
+                    path_parts.append(f"{orig_bi}{sm}")
+                path_str = "/".join(path_parts) if path_parts \
+                    else "(root)"
                 # Find source bend line name
                 bl_name = ""
                 for child in obj.Group:
@@ -2997,10 +3007,9 @@ class LinkedObject:
         elif debug_obj is not None:
             debug_obj.Shape = Part.Shape()  # empty
 
-        # Log the classification
+        # Log the classification — S/M from traversal order
         for pi, (cm, label) in enumerate(labels):
-            # Build path from stationary in notation like 5S/4M/0S
-            path = []
+            raw_path = []
             if micro_bend_info is not None:
                 cur = pi
                 while cur is not None:
@@ -3010,14 +3019,20 @@ class LinkedObject:
                     parent, bi_crossed = entry
                     if parent is not None:
                         if bi_crossed >= 0:
-                            orig_bi = micro_bend_info[bi_crossed][5]
-                            path.append(f"{orig_bi}S")
+                            raw_path.append(
+                                micro_bend_info[bi_crossed][5])
                         elif bi_crossed <= -2:
-                            path.append(f"{-bi_crossed - 2}M")
-                        # skip -1 (non-cut edge, no notation)
+                            raw_path.append(-bi_crossed - 2)
                     cur = parent
-                path.reverse()
-            path_str = "/".join(path) if path else "(root)"
+                raw_path.reverse()
+            path_parts = []
+            bend_cc = {}
+            for orig_bi in raw_path:
+                bend_cc[orig_bi] = bend_cc.get(orig_bi, 0) + 1
+                sm = "S" if bend_cc[orig_bi] % 2 == 1 else "M"
+                path_parts.append(f"{orig_bi}{sm}")
+            path_str = "/".join(path_parts) if path_parts \
+                else "(root)"
 
             # Find source bend line name
             bl_name = ""
