@@ -3063,7 +3063,10 @@ class LinkedObject:
         # Cut-crossing edges go stationary→moving only (prevents
         # over-propagation with larger-set preference).
         # Non-cut edges are bidirectional with bi=-1.
-        tol = 0.05
+        # TODO: adjacency after generalFuse is topology, not
+        # proximity — should use shared faces/edges instead of
+        # distToShape with a tolerance.
+        tol = 0.01
         adjacency = [[] for _ in range(n)]
         for i in range(n):
             for j in range(i + 1, n):
