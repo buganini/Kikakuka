@@ -2135,7 +2135,8 @@ class LinkedObject:
         cut_faces = []
         micro_bend_info = []  # per micro-bend: (angle, bend_obj,
                               #   cut_mid, normal, radius, orig_bi)
-        # Map cut_face index → micro-bend index (-1 for M faces)
+        # Map cut_face index → micro-bend index
+        # M faces encoded as -(orig_bi+2), non-cut = -1
         face_to_micro = {}
         s_group = {}  # (bi, 'S') → mi, groups S segments per bend
 
@@ -2158,7 +2159,9 @@ class LinkedObject:
 
             if side == 'M':
                 # M cuts: geometry only, no rotation
-                face_to_micro[fi] = -1
+                # Encode as -(bi+2) so we can distinguish
+                # M-of-bend-X from non-cut edges (-1)
+                face_to_micro[fi] = -(bi + 2)
             else:
                 # S cuts: full angle, grouped per bend for
                 # correct curl-back XOR cancellation
@@ -2186,7 +2189,7 @@ class LinkedObject:
         piece_bend_sets, bfs_tree, adjacency = \
             self._classify_pieces_bfs(
                 pieces, cut_faces, face_to_bend, mass_center,
-                half_t, bend_info, cut_plan)
+                half_t, bend_info, cut_plan, micro_bend_info)
 
         # Map components to pieces using flat (X, Y) in 2D
         comp_bend_sets = {}
@@ -2778,7 +2781,8 @@ class LinkedObject:
             self._draw_debug_arrows(
                 obj, pieces, piece_bend_sets, bfs_tree,
                 strip_pieces, strip_to_bend,
-                bend_info, insets, half_t)
+                bend_info, insets, half_t,
+                micro_bend_info, bendline_piece_idx)
             self._draw_debug_cuts(obj, cut_plan, thickness)
         else:
             # Log piece classification even without debug shapes
@@ -2791,10 +2795,39 @@ class LinkedObject:
                 else:
                     bends = sorted(piece_bend_sets[pi])
                     label = "M" + ",".join(str(b) for b in bends)
+                # Build path notation
+                path = []
+                cur = pi
+                while cur is not None:
+                    entry = bfs_tree.get(cur)
+                    if entry is None:
+                        break
+                    parent, bi_crossed = entry
+                    if parent is not None:
+                        if bi_crossed >= 0:
+                            orig_bi = micro_bend_info[bi_crossed][5]
+                            path.append(f"{orig_bi}S")
+                        elif bi_crossed <= -2:
+                            path.append(f"{-bi_crossed - 2}M")
+                    cur = parent
+                path.reverse()
+                path_str = "/".join(path) if path else "(root)"
+                # Find source bend line name
+                bl_name = ""
+                for child in obj.Group:
+                    if (getattr(getattr(child, 'Proxy', None),
+                                'Type', None) != 'BendLine'):
+                        continue
+                    bl_pi = bendline_piece_idx.get(child.Name)
+                    if bl_pi == pi:
+                        bl_name = f" bl={child.Name}"
+                        break
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: piece {pi}: {label}"
+                    f" path=[{path_str}]"
                     f" vol={pieces[pi].Volume:.4f}"
-                    f" cm=({cm.x:.2f},{cm.y:.2f},{cm.z:.2f})\n")
+                    f" cm=({cm.x:.2f},{cm.y:.2f},{cm.z:.2f})"
+                    f"{bl_name}\n")
 
         # Update board shape with all pieces (including bent wedges)
         saved_color = None
@@ -2901,7 +2934,9 @@ class LinkedObject:
 
     def _draw_debug_arrows(self, obj, pieces, piece_bend_sets,
                             bfs_tree, strip_pieces, strip_to_bend,
-                            bend_info, insets, half_t):
+                            bend_info, insets, half_t,
+                            micro_bend_info=None,
+                            bendline_piece_idx=None):
         """Draw debug arrows showing the BFS tree from fixed to
         moving pieces.  Each piece is labeled fixed/moving/wedge."""
         doc = obj.Document
@@ -2964,29 +2999,48 @@ class LinkedObject:
 
         # Log the classification
         for pi, (cm, label) in enumerate(labels):
-            # Build chain from stationary
-            chain = []
-            cur = pi
-            while cur is not None:
-                entry = bfs_tree.get(cur)
-                if entry is None:
-                    break
-                parent, bi_crossed = entry
-                if parent is not None:
-                    chain.append(bi_crossed)
-                cur = parent
-            chain.reverse()
-            chain_str = "→".join(str(b) for b in chain) if chain \
-                else "(root)"
+            # Build path from stationary in notation like 5S/4M/0S
+            path = []
+            if micro_bend_info is not None:
+                cur = pi
+                while cur is not None:
+                    entry = bfs_tree.get(cur)
+                    if entry is None:
+                        break
+                    parent, bi_crossed = entry
+                    if parent is not None:
+                        if bi_crossed >= 0:
+                            orig_bi = micro_bend_info[bi_crossed][5]
+                            path.append(f"{orig_bi}S")
+                        elif bi_crossed <= -2:
+                            path.append(f"{-bi_crossed - 2}M")
+                        # skip -1 (non-cut edge, no notation)
+                    cur = parent
+                path.reverse()
+            path_str = "/".join(path) if path else "(root)"
+
+            # Find source bend line name
+            bl_name = ""
+            if bendline_piece_idx is not None:
+                for child in obj.Group:
+                    if (getattr(getattr(child, 'Proxy', None),
+                                'Type', None) != 'BendLine'):
+                        continue
+                    bl_pi = bendline_piece_idx.get(child.Name)
+                    if bl_pi == pi:
+                        bl_name = f" bl={child.Name}"
+                        break
 
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: piece {pi}: {label}"
+                f" path=[{path_str}]"
                 f" vol={pieces[pi].Volume:.4f}"
                 f" cm=({cm.x:.2f},{cm.y:.2f},{cm.z:.2f})"
-                f" chain=[{chain_str}]\n")
+                f"{bl_name}\n")
 
     def _classify_pieces_bfs(self, pieces, cut_faces, face_to_bend,
-                             mass_center, half_t, bend_info, cut_plan):
+                             mass_center, half_t, bend_info, cut_plan,
+                             micro_bend_info=None):
         """BFS from the stationary piece with maximum-set preference.
 
         All crossings ADD the bend (union, sets only grow).
@@ -3026,27 +3080,52 @@ class LinkedObject:
                     if cd < best_d:
                         best_d = cd
                         best_fi = fi
-                # Check if a cut face actually touches BOTH
-                # pieces (not just nearest to midpoint).
+                # Find the best cut face touching BOTH pieces.
+                # Prefer "shallower" cuts: M faces (no rotation)
+                # over S faces (adds rotation).  When a thin sliver
+                # between close cuts (e.g. 4M and 0S) is missing,
+                # this picks the M face so pieces don't get extra
+                # rotation from the adjacent S face.
                 found_cut = False
+                best_touch_fi = None
+                best_touch_rank = (1, float('inf'))  # (is_S, dist)
                 for fi, cf in enumerate(cut_faces):
                     di_cf = pieces[i].distToShape(cf)[0]
                     dj_cf = pieces[j].distToShape(cf)[0]
                     if di_cf < tol and dj_cf < tol:
                         mi = face_to_bend.get(fi, -1)
-                        adjacency[i].append((j, mi))
-                        adjacency[j].append((i, mi))
-                        found_cut = True
-                        break
+                        is_s = 1 if mi >= 0 else 0  # S=1, M/-1=0
+                        cd = cf.distToShape(mid_v)[0]
+                        rank = (is_s, cd)
+                        if rank < best_touch_rank:
+                            best_touch_rank = rank
+                            best_touch_fi = fi
+                if best_touch_fi is not None:
+                    mi = face_to_bend.get(best_touch_fi, -1)
+                    adjacency[i].append((j, mi))
+                    adjacency[j].append((i, mi))
+                    found_cut = True
                 if not found_cut:
                     adjacency[i].append((j, -1))
                     adjacency[j].append((i, -1))
+
+        # Helper to decode edge label for logging
+        def _edge_label(bi):
+            if bi >= 0 and micro_bend_info is not None:
+                orig_bi = micro_bend_info[bi][5]
+                return f"{orig_bi}S"
+            elif bi <= -2:
+                return f"{-bi - 2}M"
+            elif bi >= 0:
+                return f"b{bi}"
+            else:
+                return "-"
 
         # Log adjacency graph
         for pi in range(n):
             edges = []
             for nbr, bi in adjacency[pi]:
-                edges.append(f"{nbr}(b{bi})")
+                edges.append(f"{nbr}({_edge_label(bi)})")
             if edges:
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: adj {pi} → {', '.join(edges)}\n")
