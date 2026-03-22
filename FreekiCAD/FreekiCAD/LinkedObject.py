@@ -3088,7 +3088,7 @@ class LinkedObject:
                 # rotation from the adjacent S face.
                 found_cut = False
                 best_touch_fi = None
-                best_touch_rank = (1, float('inf'))  # (is_S, dist)
+                best_touch_rank = (float('inf'), 1)  # (dist, is_S)
                 for fi, cf in enumerate(cut_faces):
                     di_cf = pieces[i].distToShape(cf)[0]
                     dj_cf = pieces[j].distToShape(cf)[0]
@@ -3096,7 +3096,8 @@ class LinkedObject:
                         mi = face_to_bend.get(fi, -1)
                         is_s = 1 if mi >= 0 else 0  # S=1, M/-1=0
                         cd = cf.distToShape(mid_v)[0]
-                        rank = (is_s, cd)
+                        rank = (round(cd, 2), is_s)  # nearest first,
+                        # M over S as tiebreaker for same distance
                         if rank < best_touch_rank:
                             best_touch_rank = rank
                             best_touch_fi = fi
