@@ -1082,11 +1082,27 @@ class BendLine:
             return
         if not obj.InList:
             return
-        from PySide import QtCore
+        from PySide import QtCore, QtWidgets
+
+        # Defer rebend until property editing is finished.
+        # If a spin box or line edit is focused, wait for
+        # editing to complete (focus lost) instead of
+        # triggering on every keystroke.
         if hasattr(self, '_rebend_timer'):
             self._rebend_timer.stop()
 
         def _do_rebend():
+            # Check if a property editor widget is still focused
+            app = QtWidgets.QApplication.instance()
+            if app:
+                w = app.focusWidget()
+                if w and isinstance(
+                        w, (QtWidgets.QDoubleSpinBox,
+                            QtWidgets.QSpinBox,
+                            QtWidgets.QLineEdit)):
+                    # Still editing — retry later
+                    self._rebend_timer.start(1000)
+                    return
             for parent in obj.InList:
                 proxy = getattr(parent, "Proxy", None)
                 if proxy and getattr(proxy, 'Type', None) == 'LinkedObject':
@@ -1096,7 +1112,7 @@ class BendLine:
         self._rebend_timer = QtCore.QTimer()
         self._rebend_timer.setSingleShot(True)
         self._rebend_timer.timeout.connect(_do_rebend)
-        self._rebend_timer.start(50)
+        self._rebend_timer.start(1000)
 
     def dumps(self):
         return None
@@ -2036,12 +2052,16 @@ class LinkedObject:
         diag = bb.DiagonalLength + 50
         thickness = half_t * 2
 
-        # Compute inset for each bend using r_eff = R + half_t
-        # (always > 0, so all bends produce wedges)
+        # Compute inset for each bend using r_eff = R + T/θ
+        # inset = r_eff * |θ| / 2 = R*|θ|/2 + T/2
         insets = []
         for _, _, _, _, _, angle_rad, radius in bend_info:
-            r_eff = radius + half_t
-            insets.append(r_eff * abs(angle_rad) / 2.0)
+            abs_a = abs(angle_rad)
+            if abs_a < 1e-9:
+                insets.append(0.0)
+            else:
+                r_eff = radius + half_t
+                insets.append(r_eff * abs_a / 2.0)
 
         # --- Phase 2a: 2D cut plan ---
         # Each cut carries full bend info + moving_normal flag.
@@ -2109,18 +2129,15 @@ class LinkedObject:
         cut_plan = validated_plan
 
         # --- Phase 2b: create 3D cutting faces from 2D plan ---
-        # Group cut_plan entries by (bi, side) → same micro-bend.
-        # Multiple trimmed segments of the same cut share one
-        # micro-bend index.
-        # Inset bends: S and M sides → 2 micro-bends (angle/2 each).
-        # Sharp bends: C side → 1 micro-bend (full angle).
+        # Each S cut segment → independent micro-bend (full angle).
+        # M cuts → geometry only (no micro-bend, no rotation).
+        # After 2D planning, everything is per cut line.
         cut_faces = []
         micro_bend_info = []  # per micro-bend: (angle, bend_obj,
-                              #   p0, normal, radius, orig_bi)
-        # Map (bi, side) → micro-bend index
-        group_to_micro = {}
-        # Map cut_face index → micro-bend index
+                              #   cut_mid, normal, radius, orig_bi)
+        # Map cut_face index → micro-bend index (-1 for M faces)
         face_to_micro = {}
+        s_group = {}  # (bi, 'S') → mi, groups S segments per bend
 
         for entry in cut_plan:
             sp0, sp1 = entry[0], entry[1]
@@ -2131,15 +2148,6 @@ class LinkedObject:
             normal_ref = entry[7]
             bend_obj_ref = entry[8]
 
-            key = (bi, side)
-            if key not in group_to_micro:
-                micro_angle = angle_rad / 2.0
-                mi = len(micro_bend_info)
-                group_to_micro[key] = mi
-                micro_bend_info.append((micro_angle, bend_obj_ref,
-                                        p0_ref, normal_ref,
-                                        radius, bi))
-
             fi = len(cut_faces)
             c1 = sp0 - up * diag
             c2 = sp1 - up * diag
@@ -2147,7 +2155,22 @@ class LinkedObject:
             c4 = sp0 + up * diag
             cut_faces.append(
                 Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
-            face_to_micro[fi] = group_to_micro[key]
+
+            if side == 'M':
+                # M cuts: geometry only, no rotation
+                face_to_micro[fi] = -1
+            else:
+                # S cuts: full angle, grouped per bend for
+                # correct curl-back XOR cancellation
+                key = (bi, 'S')
+                if key not in s_group:
+                    mi = len(micro_bend_info)
+                    s_group[key] = mi
+                    cut_mid = (sp0 + sp1) * 0.5
+                    micro_bend_info.append((angle_rad, bend_obj_ref,
+                                            cut_mid, normal_ref,
+                                            radius, bi))
+                face_to_micro[fi] = s_group[key]
 
         # --- Phase 2c: cut board and classify ---
         try:
@@ -2414,8 +2437,9 @@ class LinkedObject:
                 micro_order.append(mi)
                 seen_mi.add(mi)
 
+        micro_pivots = {}  # mi → saved pivot data for wedge loft
         for mi in micro_order:
-            micro_angle, bend_obj, p0, normal, radius, orig_bi = \
+            micro_angle, bend_obj, cut_mid, normal, radius, orig_bi = \
                 micro_bend_info[mi]
             if abs(micro_angle) < 1e-9 or not enable_bending \
                     or not bend_obj.Active:
@@ -2424,11 +2448,28 @@ class LinkedObject:
             plc = bend_obj.Placement
             cur_normal = plc.Rotation.multVec(normal)
             cur_up = plc.Rotation.multVec(up)
-            cur_p0 = plc.multVec(p0)
+            cur_p0 = plc.multVec(cut_mid)
 
             bend_axis = cur_up.cross(cur_normal)
             bend_axis.normalize()
-            pivot = cur_p0 + cur_up * half_t
+
+            # CoC per cut line: stationary edge at half-thickness,
+            # offset by r_eff perpendicular to board mid-plane.
+            # cut_mid is already at the S edge position.
+            r_eff_bi = radius + half_t
+            bend_sign = -1.0 if micro_angle > 0 else 1.0
+            stat_edge_mid = cur_p0 + cur_up * half_t
+            pivot = stat_edge_mid + cur_up * (
+                r_eff_bi * bend_sign)
+
+            # Save pivot data for wedge loft
+            micro_pivots[mi] = (
+                plc.copy(),
+                FreeCAD.Vector(cur_p0),
+                FreeCAD.Vector(cur_normal),
+                FreeCAD.Vector(cur_up),
+                FreeCAD.Vector(bend_axis),
+                FreeCAD.Vector(pivot))
 
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: micro {mi}:"
@@ -2436,7 +2477,9 @@ class LinkedObject:
                 f" orig_bi={orig_bi},"
                 f" pivot={pivot}, axis={bend_axis}\n")
 
-            # Transform pieces based on their multiplier
+            # Rotate pieces by full angle around CoC.
+            # Wedge pieces also rotate here; the loft replaces
+            # their shape later.
             for pi in range(len(piece_shapes)):
                 mult = piece_micro_mult[pi].get(mi, 0)
                 if mult == 0:
@@ -2501,6 +2544,233 @@ class LinkedObject:
                         f" {dist:.3f}mm to"
                         f" ({final.x:.2f},{final.y:.2f},"
                         f"{final.z:.2f})\n")
+
+        # Bend wedge pieces into arcs via loft between
+        # rotated cross-sections.
+        # N_SLICES per wedge: at least 16, or 1 per degree
+        # (computed per wedge below)
+        coc_offsets = {}  # bi → (bend_obj, first_s_mi)
+        for pi in sorted(strip_to_bend):
+            bi = strip_to_bend[pi]
+            _, p0_bi, p1_bi, line_dir_bi, normal_bi, \
+                angle_rad_bi, radius_bi = bend_info[bi]
+            ins = insets[bi]
+            abs_a = abs(angle_rad_bi)
+            r_eff = radius_bi + half_t
+            N_SLICES = max(
+                int(math.ceil(abs(math.degrees(angle_rad_bi)))),
+                16)
+
+            # Find the S micro-bend for this bend
+            s_mi = s_group.get((bi, 'S'))
+            if s_mi is None:
+                continue
+            micro_angle_s = micro_bend_info[s_mi][0]
+
+            # Use saved pivot data from Phase 3
+            saved = micro_pivots.get(s_mi)
+            if saved is None:
+                continue
+            _, cur_p0, cur_normal, cur_up, bend_axis, pivot = saved
+            bend_obj_bi = bend_info[bi][0]
+
+            # CoC = saved pivot (already computed as CoC in Phase 3)
+            coc = pivot
+
+            # Save CoC offset for bend line (applied after lofts)
+            if bi not in coc_offsets:
+                coc_offsets[bi] = (bend_obj_bi, s_mi)
+
+            # Sweep angle = full bend angle, rotate around CoC
+            sweep_angle = angle_rad_bi
+
+            # Un-rotate the bent wedge to get the flat position.
+            # Use actual multiplier — curl-back wedges may have
+            # mult=0 (S micro-bend cancelled), so don't un-rotate.
+            s_mult = piece_micro_mult[pi].get(s_mi, 0)
+            actual_s_angle = micro_angle_s * s_mult
+            positioned_flat = piece_shapes[pi].copy()
+            if abs(actual_s_angle) > 1e-9:
+                un_rot = FreeCAD.Rotation(
+                    bend_axis, math.degrees(-actual_s_angle))
+                un_plc = FreeCAD.Placement(
+                    FreeCAD.Vector(0, 0, 0), un_rot, pivot)
+                positioned_flat.transformShape(un_plc.toMatrix())
+
+            # Slice the flat wedge at each position, then
+            # move each slice to its arc position.
+            # For each slice at fraction frac:
+            #   1. Slice positioned_flat at d along cur_normal
+            #   2. Compute arc position at angle frac*sweep
+            #   3. Translate slice center to arc position
+            #   4. Rotate slice to be tangent to arc
+            eps = 0.001
+            wires_list = []
+            for si in range(N_SLICES + 1):
+                frac = si / float(N_SLICES)
+                # Slice position on flat wedge (cur_p0 is at S edge)
+                d = eps + frac * (2 * ins - 2 * eps)
+                slice_pt = cur_p0 + cur_normal * d
+                plane_dist = (slice_pt.x * cur_normal.x
+                              + slice_pt.y * cur_normal.y
+                              + slice_pt.z * cur_normal.z)
+                try:
+                    wires = positioned_flat.slice(
+                        cur_normal, plane_dist)
+                except Exception:
+                    wires = []
+                if not wires:
+                    continue
+
+                w = wires[0].copy()
+                slice_angle = frac * sweep_angle
+
+                # Compensate: translate slice back to stationary
+                # edge in flat space, then rotate to arc position
+                # around CoC.  Two separate transforms to avoid
+                # rotating the translation vector.
+                trans_vec = cur_normal * (-d)
+                w.translate(trans_vec)
+                if abs(slice_angle) > 1e-9:
+                    rot_s = FreeCAD.Rotation(
+                        bend_axis, math.degrees(slice_angle))
+                    plc_s = FreeCAD.Placement(
+                        FreeCAD.Vector(0, 0, 0), rot_s, coc)
+                    w.transformShape(plc_s.toMatrix())
+
+                wires_list.append(w)
+
+            # Last wire is from frac=1.0 in the loop above
+            # (rotated base wire at full sweep angle)
+
+            if len(wires_list) >= 2:
+                try:
+                    loft = Part.makeLoft(wires_list, True, True)
+                    if loft.Volume > 1e-9:
+                        piece_shapes[pi] = loft
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD: wedge loft solid:"
+                            f" vol={loft.Volume:.4f}\n")
+                except Exception as e:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: wedge loft failed for"
+                        f" piece {pi}: {e}\n")
+
+        # Correct moving pieces per cut line: the wedge wraps
+        # around CoC carrying the moving part, but pieces were
+        # rotated from their flat M-edge position.  Correction
+        # aligns them with the wedge endpoint.
+        for mi in range(len(micro_bend_info)):
+            micro_angle, bend_obj, cut_mid, normal, radius, \
+                orig_bi = micro_bend_info[mi]
+            ins_bi = insets[orig_bi]
+            if ins_bi < 1e-6:
+                continue
+            saved = micro_pivots.get(mi)
+            if saved is None:
+                continue
+            _, s_p0, s_normal, s_up, s_axis, s_pivot = saved
+            coc = s_pivot
+            angle_rad_bi = bend_info[orig_bi][5]
+            r_eff_bi = radius + half_t
+
+            # S edge (stationary) and M edge (moving) in current
+            # space.  s_p0 is at the S cut position (cut_mid).
+            mid_stat = s_p0 + s_up * half_t
+            mid_flat = s_p0 + s_normal * (2 * ins_bi) \
+                + s_up * half_t
+
+            # Expected: stationary edge rotated by full angle
+            rot_full = FreeCAD.Rotation(
+                s_axis, math.degrees(angle_rad_bi))
+            plc_full = FreeCAD.Placement(
+                FreeCAD.Vector(0, 0, 0), rot_full, coc)
+            mid_expected = plc_full.multVec(mid_stat)
+
+            # Actual: M edge rotated by full angle
+            mid_actual = plc_full.multVec(mid_flat)
+
+            correction = mid_expected - mid_actual
+
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: correction mi {mi} (bend {orig_bi}):"
+                f" ins={ins_bi:.4f}"
+                f" r_eff={r_eff_bi:.4f}"
+                f" angle={math.degrees(angle_rad_bi):.1f}°"
+                f" |corr|={correction.Length:.4f}\n")
+
+            if correction.Length < 1e-6:
+                continue
+
+            # Apply to non-wedge pieces that cross this micro-bend
+            for pi in range(len(piece_shapes)):
+                is_own_wedge = (pi in strip_pieces
+                                and strip_to_bend.get(pi) == orig_bi)
+                if is_own_wedge:
+                    continue
+                mult_s = piece_micro_mult[pi].get(mi, 0)
+                if mult_s == 0:
+                    continue
+                piece_shapes[pi].translate(correction)
+
+            # Apply to bend lines
+            for child in obj.Group:
+                if (getattr(getattr(child, 'Proxy', None),
+                            'Type', None) != 'BendLine'):
+                    continue
+                bl_pi = bendline_piece_idx.get(child.Name)
+                if bl_pi is None:
+                    continue
+                bl_mult = piece_micro_mult[bl_pi].get(mi, 0)
+                if bl_mult > 0:
+                    child.Placement.Base = \
+                        child.Placement.Base + correction
+
+            # Apply to components
+            for child in obj.Group:
+                if child.Name not in comp_bend_sets:
+                    continue
+                if mi in comp_bend_sets[child.Name]:
+                    child.Placement.Base = \
+                        child.Placement.Base + correction
+
+        # Move bend lines to first S cut line's CoC (#9,
+        # visual only, no effect on other geometry).
+        for bi, (bl_obj, first_mi) in coc_offsets.items():
+            saved = micro_pivots.get(first_mi)
+            if saved is None:
+                continue
+
+            # Recompute CoC from FINAL Placement of bend line
+            _, p0_bi, _, _, normal_bi, _, _ = bend_info[bi]
+            final_plc = bl_obj.Placement
+            final_bend_p0 = final_plc.multVec(p0_bi)
+            final_up = final_plc.Rotation.multVec(up)
+            final_normal = final_plc.Rotation.multVec(normal_bi)
+            ins_bi = insets[bi]
+
+            # Bend center at half-thickness
+            final_center = final_bend_p0 + final_up * half_t
+
+            # CoC = stationary edge + r_eff * sign * up
+            r_eff_bi = micro_bend_info[first_mi][4] + half_t
+            angle_bi = micro_bend_info[first_mi][0]
+            bend_sign_bi = -1.0 if angle_bi > 0 else 1.0
+            final_stat_mid = final_bend_p0 - final_normal * ins_bi \
+                + final_up * half_t
+            final_coc = final_stat_mid + final_up * (
+                r_eff_bi * bend_sign_bi)
+
+            offset_vec = final_coc - final_center
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: bend {bi} CoC:"
+                f" coc=({final_coc.x:.2f},{final_coc.y:.2f},"
+                f"{final_coc.z:.2f})"
+                f" off=({offset_vec.x:.3f},{offset_vec.y:.3f},"
+                f"{offset_vec.z:.3f})\n")
+            new_base = bl_obj.Placement.Base + offset_vec
+            bl_obj.Placement = FreeCAD.Placement(
+                new_base, bl_obj.Placement.Rotation)
 
         # Draw debug visualizations if enabled
         show_debug = getattr(obj, 'ShowDebug', False)
@@ -2763,7 +3033,7 @@ class LinkedObject:
                     di_cf = pieces[i].distToShape(cf)[0]
                     dj_cf = pieces[j].distToShape(cf)[0]
                     if di_cf < tol and dj_cf < tol:
-                        mi = face_to_bend.get(fi, fi)
+                        mi = face_to_bend.get(fi, -1)
                         adjacency[i].append((j, mi))
                         adjacency[j].append((i, mi))
                         found_cut = True
