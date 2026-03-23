@@ -2538,9 +2538,28 @@ class LinkedObject:
 
             # CoC per cut line: stationary edge at half-thickness,
             # offset by r_eff perpendicular to board mid-plane.
-            # cut_mid is already at the S edge position.
+            # Determine bend_sign from parent piece position
+            # (topology), not from angle sign (geometry).
+            # The CoC is on the same side as the parent piece
+            # (concave/inside of curve).
             r_eff_bi = radius + half_t
-            bend_sign = -1.0 if micro_angle > 0 else 1.0
+            stat_edge_mid = cur_p0 + cur_up * half_t
+            # Find the parent (stationary-side) piece for this
+            # micro-bend to determine CoC direction.
+            bend_sign = -1.0 if micro_angle > 0 else 1.0  # fallback
+            for pi_chk in range(len(pieces)):
+                mult_chk = piece_micro_mult[pi_chk].get(mi, 0)
+                if mult_chk == 0:
+                    continue
+                parent_pi = bfs_tree.get(pi_chk, (None,))[0]
+                if parent_pi is not None:
+                    parent_cm = piece_shapes[parent_pi].CenterOfMass
+                    vec_to_parent = parent_cm - stat_edge_mid
+                    dot_up = (vec_to_parent.x * cur_up.x
+                              + vec_to_parent.y * cur_up.y
+                              + vec_to_parent.z * cur_up.z)
+                    bend_sign = 1.0 if dot_up > 0 else -1.0
+                    break
             stat_edge_mid = cur_p0 + cur_up * half_t
             pivot = stat_edge_mid + cur_up * (
                 r_eff_bi * bend_sign)
@@ -2552,7 +2571,8 @@ class LinkedObject:
                 FreeCAD.Vector(cur_normal),
                 FreeCAD.Vector(cur_up),
                 FreeCAD.Vector(bend_axis),
-                FreeCAD.Vector(pivot))
+                FreeCAD.Vector(pivot),
+                bend_sign)
 
             # Save wedge piece shapes NOW (before rotation),
             # so the loft uses shapes in the same space as
@@ -2661,7 +2681,8 @@ class LinkedObject:
             if saved is None:
                 continue
             saved_plc, cur_p0, cur_normal, cur_up, bend_axis, \
-                pivot = saved
+                saved_pivot, saved_bend_sign = saved
+            pivot = saved_pivot
             bend_obj_bi = bend_info[bi][0]
 
             # Per-segment CoC: find the nearest segment to this
@@ -2681,12 +2702,12 @@ class LinkedObject:
                         best_d = d
                         best_mid = sm
                 # Recompute cur_p0 and CoC from this segment's
-                # position using the saved Placement
+                # position using the saved Placement and
+                # bend_sign from Phase 3 (parent-based).
                 cur_p0 = saved_plc.multVec(best_mid)
-                bend_sign = -1.0 if micro_angle_s > 0 else 1.0
                 stat_edge_mid = cur_p0 + cur_up * half_t
                 pivot = stat_edge_mid + cur_up * (
-                    r_eff * bend_sign)
+                    r_eff * saved_bend_sign)
 
             coc = pivot
 
@@ -2844,7 +2865,7 @@ class LinkedObject:
             saved = micro_pivots.get(mi)
             if saved is None:
                 continue
-            _, s_p0, s_normal, s_up, s_axis, s_pivot = saved
+            _, s_p0, s_normal, s_up, s_axis, s_pivot, _ = saved
             coc = s_pivot
             angle_rad_bi = bend_info[orig_bi][5]
             r_eff_bi = radius + half_t
