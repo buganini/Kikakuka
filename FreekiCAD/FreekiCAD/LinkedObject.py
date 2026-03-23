@@ -2356,6 +2356,13 @@ class LinkedObject:
                 bend_seg_mids.setdefault(bi, []).append(
                     FreeCAD.Vector(cut_mid))
                 bend_s_mis.setdefault(bi, []).append(mi)
+                negated = " (negated)" if s_side == 'M' else ""
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: mi={mi} bend={bi}"
+                    f" seg={seg_idx}"
+                    f" angle={math.degrees(angle_rad):.1f}°"
+                    f" normal=({normal_ref.x:.3f},{normal_ref.y:.3f},{normal_ref.z:.3f})"
+                    f"{negated}\n")
 
         # Re-run BFS with correct S/M labels
         face_to_bend = face_to_micro
