@@ -1461,6 +1461,11 @@ class LinkedObject:
         )
         obj.ShowDebug = False
         obj.addProperty(
+            "App::PropertyBool", "DebugBoard", "LinkedFile",
+            "Show each board piece as a separate child object"
+        )
+        obj.DebugBoard = False
+        obj.addProperty(
             "App::PropertyString", "ComponentMtimes", "LinkedFile",
             "JSON: per-component model file mtimes for reuse"
         )
@@ -3012,6 +3017,71 @@ class LinkedObject:
             except Exception:
                 pass
 
+        # Debug board: create child objects for each piece
+        debug_board = getattr(obj, 'DebugBoard', False)
+        debug_grp_name = obj.Name + "_DebugPieces"
+        doc = obj.Document
+        # Remove old debug pieces
+        old_grp = doc.getObject(debug_grp_name)
+        if old_grp:
+            for child in old_grp.Group:
+                doc.removeObject(child.Name)
+            doc.removeObject(debug_grp_name)
+        if debug_board and pieces:
+            grp = doc.addObject(
+                "App::DocumentObjectGroup", debug_grp_name)
+            if grp not in obj.Group:
+                obj.addObject(grp)
+            for pi in range(len(piece_shapes)):
+                s = piece_shapes[pi]
+                if not s.isValid() or s.Volume < 1e-6:
+                    continue
+                # Build label and path
+                if pi in strip_pieces:
+                    lbl = f"W{strip_to_bend[pi]}"
+                elif not piece_bend_sets[pi]:
+                    lbl = "F"
+                else:
+                    bends = sorted(piece_bend_sets[pi])
+                    lbl = "M" + ",".join(str(b) for b in bends)
+                path = []
+                cur = pi
+                while cur is not None:
+                    entry = bfs_tree.get(cur)
+                    if entry is None:
+                        break
+                    parent, bi_crossed = entry
+                    if parent is not None:
+                        if bi_crossed >= 0:
+                            obi = micro_bend_info[bi_crossed][5]
+                            path.append(f"{obi}S")
+                        elif bi_crossed <= -2:
+                            path.append(f"{-bi_crossed-2}M")
+                    cur = parent
+                path.reverse()
+                path_str = "/".join(path) if path \
+                    else "(root)"
+                pname = f"{debug_grp_name}_{pi}"
+                pobj = doc.addObject("Part::Feature", pname)
+                pobj.Shape = s
+                pobj.Label = f"p{pi}_{lbl}"
+                # Add readonly properties
+                if not hasattr(pobj, 'PieceName'):
+                    pobj.addProperty(
+                        "App::PropertyString", "PieceName",
+                        "Debug", "Piece classification")
+                    pobj.setPropertyStatus("PieceName",
+                                           "ReadOnly")
+                pobj.PieceName = lbl
+                if not hasattr(pobj, 'Chain'):
+                    pobj.addProperty(
+                        "App::PropertyString", "Chain",
+                        "Debug", "BFS path from root")
+                    pobj.setPropertyStatus("Chain",
+                                           "ReadOnly")
+                pobj.Chain = path_str
+                grp.addObject(pobj)
+
     def _draw_debug_cuts(self, obj, debug_cut_segs, thickness):
         """Draw trimmed cutting segments as colored lines at z=thickness.
 
@@ -3898,6 +3968,11 @@ class LinkedObject:
                 "App::PropertyBool", "ShowDebug", "LinkedFile",
                 "Show debug arrows and cut lines")
             obj.ShowDebug = False
+        if not hasattr(obj, 'DebugBoard'):
+            obj.addProperty(
+                "App::PropertyBool", "DebugBoard", "LinkedFile",
+                "Show each board piece as a separate child object")
+            obj.DebugBoard = False
 
 
 class LinkedObjectViewProvider:
