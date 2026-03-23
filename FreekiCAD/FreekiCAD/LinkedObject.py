@@ -2714,11 +2714,7 @@ class LinkedObject:
                                 f" → sign={bend_sign:.0f}\n")
                         break
                 bend_sign_cache[orig_bi] = bend_sign
-            # Pivot on bend line center (not S-face), so all
-            # segments of the same bend have colinear pivots.
-            ins_bi = insets[orig_bi]
-            bend_line_p0 = cur_p0 + cur_normal * ins_bi
-            stat_edge_mid = bend_line_p0 + cur_up * half_t
+            stat_edge_mid = cur_p0 + cur_up * half_t
             pivot = stat_edge_mid + cur_up * (
                 r_eff_bi * bend_sign)
             FreeCAD.Console.PrintMessage(
