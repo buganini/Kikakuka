@@ -3134,8 +3134,8 @@ class LinkedObject:
 
             offset_vec = final_coc - final_center
             FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: bend {bi} CoC:"
-                f" coc=({final_coc.x:.2f},{final_coc.y:.2f},"
+                f"FreekiCAD: bendline {bl_obj.Name} (mi={first_mi})"
+                f" CoC=({final_coc.x:.2f},{final_coc.y:.2f},"
                 f"{final_coc.z:.2f})"
                 f" off=({offset_vec.x:.3f},{offset_vec.y:.3f},"
                 f"{offset_vec.z:.3f})\n")
