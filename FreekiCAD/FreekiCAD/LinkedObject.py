@@ -2563,12 +2563,10 @@ class LinkedObject:
                 bend_order.append(bi)
                 seen_bends.add(bi)
 
-        # Compute per-piece micro-bend multiplier from BFS chain.
-        # Each crossing uses the micro-bend (cut face) index.
-        # Same micro-bend crossed twice → reentrance → cancels.
+        # Per-cut: each mi crossed in BFS chain → piece is on
+        # M-side of that cut (value 1).  No accumulation/cancel.
         piece_micro_mult = [{} for _ in range(len(pieces))]
         for pi in range(len(pieces)):
-            chain = []
             cur = pi
             while cur is not None:
                 entry = bfs_tree.get(cur)
@@ -2576,19 +2574,8 @@ class LinkedObject:
                     break
                 parent, mi_crossed = entry
                 if parent is not None and mi_crossed >= 0:
-                    chain.append(mi_crossed)
+                    piece_micro_mult[pi][mi_crossed] = 1
                 cur = parent
-            chain.reverse()
-            acc = set()
-            for mi in chain:
-                if mi in acc:
-                    piece_micro_mult[pi][mi] = \
-                        piece_micro_mult[pi].get(mi, 0) - 1
-                    acc.discard(mi)
-                else:
-                    piece_micro_mult[pi][mi] = \
-                        piece_micro_mult[pi].get(mi, 0) + 1
-                    acc.add(mi)
 
         # Group micro-bends by their source bend_obj for
         # shared pivot computation.
@@ -2923,9 +2910,9 @@ class LinkedObject:
                 f" coc=({coc.x:.2f},{coc.y:.2f},{coc.z:.2f})"
                 f"\n")
 
-            s_mult = sum(piece_micro_mult[pi].get(mi_chk, 0)
-                         for mi_chk in bend_s_mis.get(bi, []))
-            s_mult = s_mult % 2 if s_mult >= 0 else -((-s_mult) % 2)
+            # Count how many mi's of this bend the piece crosses
+            s_mult = sum(1 for mi_chk in bend_s_mis.get(bi, [])
+                         if piece_micro_mult[pi].get(mi_chk, 0))
             positioned_flat = wedge_pre_shapes[pi].copy() \
                 if pi in wedge_pre_shapes \
                 else piece_shapes[pi].copy()
@@ -3184,8 +3171,7 @@ class LinkedObject:
                                 f"{-bi_crossed - 2}M")
                     cur = parent
                 path.reverse()
-                # Collapse consecutive same-bend M crossings
-                # (gap traversals between segments cancel out).
+                # Collapse consecutive same-bend M crossings.
                 cleaned = []
                 for p in path:
                     if (cleaned and cleaned[-1] == p
