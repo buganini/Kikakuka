@@ -2758,7 +2758,9 @@ class LinkedObject:
                 mult = piece_micro_mult[pi].get(mi, 0)
                 if mult == 0:
                     continue
-                eff_angle = micro_angle * mult
+                # geo-M entry: fold back (opposite direction)
+                sign = -1.0 if mi_bfs_side.get(mi) == 'M' else 1.0
+                eff_angle = micro_angle * mult * sign
                 rot = FreeCAD.Rotation(
                     bend_axis, math.degrees(eff_angle))
                 plc_rot = FreeCAD.Placement(
@@ -2890,6 +2892,9 @@ class LinkedObject:
             coc = saved_pivot
 
             sweep_angle = micro_angle_s
+            # geo-M entry: sweep opposite direction (fold back)
+            if mi_bfs_side.get(s_mi) == 'M':
+                sweep_angle = -sweep_angle
 
             # Save CoC offset for bend line (applied after lofts)
             if bi not in coc_offsets:
@@ -3021,6 +3026,9 @@ class LinkedObject:
             _, s_p0, s_normal, s_up, s_axis, s_pivot, _ = saved
             coc = s_pivot
             mi_angle = micro_bend_info[mi][0]
+            # geo-M entry: fold back (opposite direction)
+            if mi_bfs_side.get(mi) == 'M':
+                mi_angle = -mi_angle
             r_eff_bi = radius + half_t
 
             # S edge (stationary) and M edge (moving) in current
