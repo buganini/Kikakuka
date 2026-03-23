@@ -2903,7 +2903,7 @@ class LinkedObject:
             # bend line.  No swapped/multi-segment recomputation.
             coc = saved_pivot
 
-            sweep_angle = angle_rad_bi
+            sweep_angle = micro_angle_s
 
             # Save CoC offset for bend line (applied after lofts)
             if bi not in coc_offsets:
@@ -3034,7 +3034,7 @@ class LinkedObject:
                 continue
             _, s_p0, s_normal, s_up, s_axis, s_pivot, _ = saved
             coc = s_pivot
-            angle_rad_bi = bend_info[orig_bi][5]
+            mi_angle = micro_bend_info[mi][0]
             r_eff_bi = radius + half_t
 
             # S edge (stationary) and M edge (moving) in current
@@ -3046,7 +3046,7 @@ class LinkedObject:
 
             # Expected: stationary edge rotated by full angle
             rot_full = FreeCAD.Rotation(
-                s_axis, math.degrees(angle_rad_bi))
+                s_axis, math.degrees(mi_angle))
             plc_full = FreeCAD.Placement(
                 FreeCAD.Vector(0, 0, 0), rot_full, coc)
             mid_expected = plc_full.multVec(mid_stat)
@@ -3060,7 +3060,7 @@ class LinkedObject:
                 f"FreekiCAD: correction mi {mi} (bend {orig_bi}):"
                 f" ins={ins_bi:.4f}"
                 f" r_eff={r_eff_bi:.4f}"
-                f" angle={math.degrees(angle_rad_bi):.1f}°"
+                f" angle={math.degrees(mi_angle):.1f}°"
                 f" |corr|={correction.Length:.4f}\n")
 
             if correction.Length < 1e-6:
