@@ -2706,10 +2706,19 @@ class LinkedObject:
             if bi not in coc_offsets:
                 coc_offsets[bi] = (bend_obj_bi, s_mi)
 
+            # BFS entry info
+            entry = bfs_tree.get(pi, (None, None))
+            entry_mi = entry[1]
+            m_entry = False
+            if entry_mi is not None and entry_mi <= -2:
+                if -(entry_mi + 2) == bi:
+                    m_entry = True
+
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: wedge pi={pi} bi={bi}"
                 f" sweep={math.degrees(sweep_angle):.1f}°"
-                f" flip=N"
+                f" swapped={'Y' if s_side == 'M' else 'N'}"
+                f" m_entry={'Y' if m_entry else 'N'}"
                 f" s_mi={s_mi}"
                 f" ins={ins:.4f}"
                 f" r_eff={r_eff:.4f}"
@@ -2745,6 +2754,17 @@ class LinkedObject:
                     FreeCAD.Vector(0, 0, 0), un_rot, pivot)
                 positioned_flat.transformShape(
                     un_plc.toMatrix())
+
+            # Log flat position relative to slicing range
+            flat_cm = positioned_flat.CenterOfMass
+            d_off = (flat_cm - cur_p0).dot(cur_normal)
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD:   flat_cm=({flat_cm.x:.2f}"
+                f",{flat_cm.y:.2f},{flat_cm.z:.2f})"
+                f" d_offset={d_off:.4f}"
+                f" slice_range=[0,{2*ins:.4f}]"
+                f" {'IN' if -0.01 < d_off < 2*ins+0.01 else 'OUT'}"
+                f"\n")
 
             # Slice the flat wedge at each position, then
             # move each slice to its arc position.
