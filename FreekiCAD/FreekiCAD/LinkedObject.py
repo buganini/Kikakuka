@@ -2478,30 +2478,10 @@ class LinkedObject:
             bl_pi = bendline_piece_idx.get(child.Name)
             bl_set = bendline_bend_sets.get(child.Name, set())
             if bl_pi is not None:
-                chain = []
-                cur = bl_pi
-                while cur is not None:
-                    entry = bfs_tree.get(cur)
-                    if entry is None:
-                        break
-                    parent, mi_crossed = entry
-                    if parent is not None and mi_crossed is not None:
-                        if mi_crossed >= 0:
-                            obi = micro_bend_info[mi_crossed][5]
-                            seg = mi_seg_idx.get(mi_crossed, 0)
-                            chain.append(f"{obi}.{seg}S")
-                        elif mi_crossed <= -2 and m_face_to_bend:
-                            b, s = m_face_to_bend.get(
-                                mi_crossed, (-mi_crossed-2, 0))
-                            chain.append(f"{b}.{s}M")
-                    cur = parent
-                chain.reverse()
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: bendline {child.Name}"
                     f" in piece {bl_pi}"
-                    f" set={sorted(bl_set)}"
-                    f" chain=[{'→'.join(chain) if chain else '(root)'}]"
-                    f"\n")
+                    f" set={sorted(bl_set)}\n")
 
         # --- Phase 3: apply bends sequentially using pre-cut pieces ---
         up = FreeCAD.Vector(0, 0, 1)
