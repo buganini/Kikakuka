@@ -2306,6 +2306,7 @@ class LinkedObject:
         m_face_counter = 0
         m_face_to_bend = {}  # unique_m_id → (bi, seg_idx)
         mi_seg_idx = {}  # mi → seg_idx (for S faces)
+        mi_bfs_side = {}  # mi → 'S' or 'M' (which geo side is BFS-S)
         # Derive segment index from face_to_seg pairing:
         # paired S and M faces share the same sid, so they
         # get the same seg_idx within their bend.
@@ -2343,26 +2344,24 @@ class LinkedObject:
                 data = cut_plan_data[fi]
                 angle_rad, bend_obj_ref, cut_mid, normal_ref, \
                     radius, _ = data
-                # For swapped segments (BFS-S = geo-M), negate
-                # normal and angle so cur_normal always points
-                # from BFS-S into the wedge.
-                if s_side == 'M':
-                    normal_ref = normal_ref * -1
-                    angle_rad = -angle_rad
+                # Per-cut: no negation — normal/angle from bend
+                # geometry used as-is for all segments.
                 micro_bend_info.append((angle_rad, bend_obj_ref,
                                         cut_mid, normal_ref,
                                         radius, bi))
                 face_to_micro[fi] = mi
+                mi_bfs_side[mi] = s_side  # 'S' or 'M' geo side
                 bend_seg_mids.setdefault(bi, []).append(
                     FreeCAD.Vector(cut_mid))
                 bend_s_mis.setdefault(bi, []).append(mi)
-                negated = " (negated)" if s_side == 'M' else ""
+                geo_side_label = "geo-S" if s_side == 'S' \
+                    else "geo-M"
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: mi={mi} bend={bi}"
                     f" seg={seg_idx}"
                     f" angle={math.degrees(angle_rad):.1f}°"
                     f" normal=({normal_ref.x:.3f},{normal_ref.y:.3f},{normal_ref.z:.3f})"
-                    f"{negated}\n")
+                    f" bfs-S={geo_side_label}\n")
 
         # Re-run BFS with correct S/M labels
         face_to_bend = face_to_micro
@@ -2854,6 +2853,10 @@ class LinkedObject:
                 continue
             saved_plc, cur_p0, cur_normal, cur_up, bend_axis, \
                 saved_pivot, saved_bend_sign = saved
+            # For geo-M entry segments, flip slicing direction
+            # so it goes from BFS-S face into the wedge.
+            if mi_bfs_side.get(s_mi) == 'M':
+                cur_normal = cur_normal * -1
             pivot = saved_pivot
             bend_obj_bi = bend_info[bi][0]
 
