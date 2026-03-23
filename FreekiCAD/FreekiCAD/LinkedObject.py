@@ -2302,14 +2302,12 @@ class LinkedObject:
             s = seg_s_side[sid]
             key = (bi, s)
             if key not in logged_segs:
-                swapped = 'SWAPPED' if s == 'M' else ''
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: bend {bi}"
-                    f" S-side=geo-{s} {swapped}\n")
+                    f" S-side=geo-{s}\n")
                 logged_segs.add(key)
         s_group = {}
         bend_seg_mids = {}
-        bend_m_seg_mids = {}
         bend_s_mis = {}  # bi → list of mi's (one per S segment)
         # Per-cut labeling: each S and M face gets a unique ID
         # with a segment index within its bend, displayed as
@@ -2317,7 +2315,6 @@ class LinkedObject:
         m_face_counter = 0
         m_face_to_bend = {}  # unique_m_id → (bi, seg_idx)
         mi_seg_idx = {}  # mi → seg_idx (for S faces)
-        mi_s_side = {}  # mi → 'S' or 'M' (which geo side = BFS-S)
         # Derive segment index from face_to_seg pairing:
         # paired S and M faces share the same sid, so they
         # get the same seg_idx within their bend.
@@ -2347,20 +2344,20 @@ class LinkedObject:
                 m_face_to_bend[m_id] = (bi, seg_idx)
                 face_to_micro[fi] = m_id
                 m_face_counter += 1
-                # Store M segment mids for flip detection
-                data = cut_plan_data[fi]
-                cut_mid_m = data[2]
-                bend_m_seg_mids.setdefault(bi, []).append(
-                    FreeCAD.Vector(cut_mid_m))
             else:
                 # Per-cut: each S face gets its own micro-bend
                 mi = len(micro_bend_info)
                 s_group[(bi, fi)] = mi
                 mi_seg_idx[mi] = seg_idx
-                mi_s_side[mi] = s_side
                 data = cut_plan_data[fi]
                 angle_rad, bend_obj_ref, cut_mid, normal_ref, \
                     radius, _ = data
+                # For swapped segments (BFS-S = geo-M), negate
+                # normal and angle so cur_normal always points
+                # from BFS-S into the wedge.
+                if s_side == 'M':
+                    normal_ref = normal_ref * -1
+                    angle_rad = -angle_rad
                 micro_bend_info.append((angle_rad, bend_obj_ref,
                                         cut_mid, normal_ref,
                                         radius, bi))
@@ -2667,6 +2664,7 @@ class LinkedObject:
 
         micro_pivots = {}  # mi → saved pivot data for wedge loft
         wedge_pre_shapes = {}  # pi → shape copy before this bend's rotation
+        bend_sign_cache = {}  # orig_bi → bend_sign (shared by all segments)
         for mi in micro_order:
             micro_angle, bend_obj, cut_mid, normal, radius, orig_bi = \
                 micro_bend_info[mi]
@@ -2684,40 +2682,59 @@ class LinkedObject:
 
             # CoC per cut line: stationary edge at half-thickness,
             # offset by r_eff perpendicular to board mid-plane.
-            # Each mi computes its own bend_sign — curl-back
-            # crossings need the opposite sign from the first
-            # crossing of the same bend.
+            # Each mi computes its own bend_sign from the
+            # parent piece position (topology-based).
             r_eff_bi = radius + half_t
             stat_edge_mid = cur_p0 + cur_up * half_t
             # Find the parent (stationary-side) piece for this
             # micro-bend to determine CoC direction.
-            bend_sign = -1.0 if micro_angle > 0 else 1.0  # fallback
-            for pi_chk in range(len(pieces)):
-                mult_chk = piece_micro_mult[pi_chk].get(mi, 0)
-                if mult_chk == 0:
-                    continue
-                parent_pi = bfs_tree.get(pi_chk, (None,))[0]
-                if parent_pi is not None:
-                    parent_cm = piece_shapes[parent_pi].CenterOfMass
-                    vec_to_parent = parent_cm - stat_edge_mid
-                    dot_up = (vec_to_parent.x * cur_up.x
-                              + vec_to_parent.y * cur_up.y
-                              + vec_to_parent.z * cur_up.z)
-                    vlen = vec_to_parent.Length
-                    if vlen > 1e-6 and abs(dot_up / vlen) > 0.05:
-                        bend_sign = 1.0 if dot_up > 0 else -1.0
-                        FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD: bend_sign mi={mi}:"
-                            f" topology dot_up/|v|="
-                            f"{dot_up/vlen:.4f}"
-                            f" → sign={bend_sign:.0f}\n")
-                    else:
-                        FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD: bend_sign mi={mi}:"
-                            f" FALLBACK (dot_up/|v|="
-                            f"{dot_up/vlen:.4f} < 0.05)"
-                            f" → sign={bend_sign:.0f}\n")
-                    break
+            # bend_sign: reuse per-bend cached value if available
+            # (all segments of the same bend share the same CoC
+            # side).  Otherwise compute from topology and cache.
+            orig_angle = bend_info[orig_bi][5]
+            if orig_bi in bend_sign_cache:
+                bend_sign = bend_sign_cache[orig_bi]
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: bend_sign mi={mi}:"
+                    f" cached → sign={bend_sign:.0f}\n")
+            else:
+                bend_sign = -1.0 if orig_angle > 0 else 1.0
+                for pi_chk in range(len(pieces)):
+                    mult_chk = piece_micro_mult[pi_chk].get(
+                        mi, 0)
+                    if mult_chk == 0:
+                        continue
+                    parent_pi = bfs_tree.get(
+                        pi_chk, (None,))[0]
+                    if parent_pi is not None:
+                        parent_cm = \
+                            piece_shapes[parent_pi].CenterOfMass
+                        vec_to_parent = \
+                            parent_cm - stat_edge_mid
+                        dot_up = (
+                            vec_to_parent.x * cur_up.x
+                            + vec_to_parent.y * cur_up.y
+                            + vec_to_parent.z * cur_up.z)
+                        vlen = vec_to_parent.Length
+                        if vlen > 1e-6 \
+                                and abs(dot_up / vlen) > 0.05:
+                            bend_sign = \
+                                1.0 if dot_up > 0 else -1.0
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD: bend_sign"
+                                f" mi={mi}:"
+                                f" topology dot_up/|v|="
+                                f"{dot_up/vlen:.4f}"
+                                f" → sign={bend_sign:.0f}\n")
+                        else:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD: bend_sign"
+                                f" mi={mi}:"
+                                f" FALLBACK (dot_up/|v|="
+                                f"{dot_up/vlen:.4f}"
+                                f" < 0.05)"
+                                f" → sign={bend_sign:.0f}\n")
+                        break
                 bend_sign_cache[orig_bi] = bend_sign
             stat_edge_mid = cur_p0 + cur_up * half_t
             pivot = stat_edge_mid + cur_up * (
@@ -2881,33 +2898,12 @@ class LinkedObject:
                 pivot = stat_edge_mid + cur_up * (
                     r_eff * saved_bend_sign)
 
-            coc = pivot
+            # Always use Phase 3 pivot as coc — all segments of
+            # the same bend must have colinear coc along the
+            # bend line.  No swapped/multi-segment recomputation.
+            coc = saved_pivot
 
-            # For swapped bends (BFS enters from geometric M
-            # side), shift slice origin and CoC to the geometric
-            # S edge.  The physical CoC is on the inside of the
-            # bend (geometric S) regardless of BFS traversal
-            # direction.  Don't negate normal — shift origin
-            # instead so slicing goes geo-S → geo-M.
-            s_side = mi_s_side.get(s_mi, 'S')
             sweep_angle = angle_rad_bi
-            if s_side == 'M':
-                geo_s_mids = bend_m_seg_mids.get(bi, [])
-                if geo_s_mids:
-                    piece_cm = pieces[pi].CenterOfMass
-                    best_mid = geo_s_mids[0]
-                    if len(geo_s_mids) > 1:
-                        best_d = float('inf')
-                        for sm in geo_s_mids:
-                            d_chk = piece_cm.distanceToPoint(
-                                sm)
-                            if d_chk < best_d:
-                                best_d = d_chk
-                                best_mid = sm
-                    cur_p0 = saved_plc.multVec(best_mid)
-                    stat_edge_mid = cur_p0 + cur_up * half_t
-                    coc = stat_edge_mid + cur_up * (
-                        r_eff * saved_bend_sign)
 
             # Save CoC offset for bend line (applied after lofts)
             if bi not in coc_offsets:
@@ -2924,7 +2920,6 @@ class LinkedObject:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: wedge pi={pi} bi={bi}"
                 f" sweep={math.degrees(sweep_angle):.1f}°"
-                f" swapped={'Y' if s_side == 'M' else 'N'}"
                 f" m_entry={'Y' if m_entry else 'N'}"
                 f" s_mi={s_mi}"
                 f" ins={ins:.4f}"
@@ -3043,13 +3038,10 @@ class LinkedObject:
             r_eff_bi = radius + half_t
 
             # S edge (stationary) and M edge (moving) in current
-            # space.  s_p0 is at the S cut position (cut_mid).
-            # For swapped bends, the M edge is in the opposite
-            # direction (toward geometric S, not geometric M).
+            # space.  s_normal points from BFS-S into the wedge
+            # (toward BFS-M), so M edge is at +2*ins.
             mid_stat = s_p0 + s_up * half_t
-            s_side_corr = mi_s_side.get(mi, 'S')
-            m_dir = -1.0 if s_side_corr == 'M' else 1.0
-            mid_flat = s_p0 + s_normal * (m_dir * 2 * ins_bi) \
+            mid_flat = s_p0 + s_normal * (2 * ins_bi) \
                 + s_up * half_t
 
             # Expected: stationary edge rotated by full angle
