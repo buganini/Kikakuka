@@ -2296,16 +2296,7 @@ class LinkedObject:
 
         # --- Phase 2b-2: assign S/M and create micro-bends ---
         # Log per-segment S/M.
-        logged_segs = set()
-        for sid in sorted(seg_s_side):
-            bi = seg_to_bend.get(sid, -1)
-            s = seg_s_side[sid]
-            key = (bi, s)
-            if key not in logged_segs:
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: bend {bi}"
-                    f" S-side=geo-{s}\n")
-                logged_segs.add(key)
+        # (per-bend S-side logging removed — per-cut makes it irrelevant)
         s_group = {}
         bend_seg_mids = {}
         bend_s_mis = {}  # bi → list of mi's (one per S segment)
