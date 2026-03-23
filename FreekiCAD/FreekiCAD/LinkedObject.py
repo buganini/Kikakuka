@@ -1215,10 +1215,12 @@ class _OutlineSketchObserver:
                 self._schedule_move_component(obj, parent)
                 return
             elif hasattr(obj, 'TypeId') and obj.TypeId == "Part::Feature":
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: Placement changed on '{obj.Name}' "
-                    f"(Label='{obj.Label}') but no parent found "
-                    f"(InList={[p.Name for p in obj.InList]})\n")
+                # Skip debug piece objects (created by DebugBoard)
+                if '_DebugPieces_' not in obj.Name:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: Placement changed on '{obj.Name}' "
+                        f"(Label='{obj.Label}') but no parent found "
+                        f"(InList={[p.Name for p in obj.InList]})\n")
 
         if prop not in ("Shape", "Geometry"):
             return
@@ -2316,8 +2318,11 @@ class LinkedObject:
         m_face_to_bend = {}  # unique_m_id → (bi, seg_idx)
         mi_seg_idx = {}  # mi → seg_idx (for S faces)
         mi_s_side = {}  # mi → 'S' or 'M' (which geo side = BFS-S)
-        bend_s_count = {}  # bi → count of S segments so far
-        bend_m_count = {}  # bi → count of M segments so far
+        # Derive segment index from face_to_seg pairing:
+        # paired S and M faces share the same sid, so they
+        # get the same seg_idx within their bend.
+        sid_to_seg_idx = {}  # sid → seg_idx
+        bend_seg_count = {}  # bi → next seg_idx
         for fi in range(len(cut_faces)):
             bi = face_bend.get(fi)
             if bi is None:
@@ -2327,11 +2332,17 @@ class LinkedObject:
             sid = face_to_seg.get(fi)
             s_side = seg_s_side.get(sid, 'S') if sid is not None \
                 else 'S'
+            # Assign seg_idx from pairing: same sid → same idx
+            if sid is not None and sid in sid_to_seg_idx:
+                seg_idx = sid_to_seg_idx[sid]
+            else:
+                seg_idx = bend_seg_count.get(bi, 0)
+                bend_seg_count[bi] = seg_idx + 1
+                if sid is not None:
+                    sid_to_seg_idx[sid] = seg_idx
             is_s = (geo_side == s_side)
             if not is_s:
                 # Per-cut: each M face gets a unique negative ID
-                seg_idx = bend_m_count.get(bi, 0)
-                bend_m_count[bi] = seg_idx + 1
                 m_id = -(m_face_counter + len(bend_info) + 2)
                 m_face_to_bend[m_id] = (bi, seg_idx)
                 face_to_micro[fi] = m_id
@@ -2343,8 +2354,6 @@ class LinkedObject:
                     FreeCAD.Vector(cut_mid_m))
             else:
                 # Per-cut: each S face gets its own micro-bend
-                seg_idx = bend_s_count.get(bi, 0)
-                bend_s_count[bi] = seg_idx + 1
                 mi = len(micro_bend_info)
                 s_group[(bi, fi)] = mi
                 mi_seg_idx[mi] = seg_idx
@@ -2634,6 +2643,28 @@ class LinkedObject:
                 micro_order.append(mi)
                 seen_mi.add(mi)
 
+        # For each (component, bend), find the nearest mi so
+        # component rotation uses the closest segment's pivot.
+        comp_nearest_mi = {}  # (child.Name, orig_bi) → mi
+        for child in obj.Group:
+            if child.Name not in comp_bend_sets:
+                continue
+            if not hasattr(child, 'X'):
+                continue
+            comp_pos = FreeCAD.Vector(
+                float(child.X), float(child.Y), 0)
+            for obi in comp_bend_sets[child.Name]:
+                best_mi = None
+                best_d = float('inf')
+                for mi_chk in bend_s_mis.get(obi, []):
+                    cut_mid_chk = micro_bend_info[mi_chk][2]
+                    d = comp_pos.distanceToPoint(cut_mid_chk)
+                    if d < best_d:
+                        best_d = d
+                        best_mi = mi_chk
+                if best_mi is not None:
+                    comp_nearest_mi[(child.Name, obi)] = best_mi
+
         micro_pivots = {}  # mi → saved pivot data for wedge loft
         wedge_pre_shapes = {}  # pi → shape copy before this bend's rotation
         for mi in micro_order:
@@ -2764,19 +2795,22 @@ class LinkedObject:
                     child.Placement)
 
             # Move components using bend index.
-            # Only rotate once per bend (use first mi of bend).
-            first_mi_of_bend = bend_s_mis.get(orig_bi, [None])[0]
-            if mi == first_mi_of_bend:
-                for child in obj.Group:
-                    if child.Name not in comp_bend_sets:
-                        continue
-                    if orig_bi in comp_bend_sets[child.Name]:
-                        rot = FreeCAD.Rotation(
-                            bend_axis, math.degrees(micro_angle))
-                        rot_plc = FreeCAD.Placement(
-                            FreeCAD.Vector(0, 0, 0), rot, pivot)
-                        child.Placement = rot_plc.multiply(
-                            child.Placement)
+            # Each component rotates around the nearest segment's
+            # pivot (comp_nearest_mi), not always the first mi.
+            for child in obj.Group:
+                if child.Name not in comp_bend_sets:
+                    continue
+                if orig_bi not in comp_bend_sets[child.Name]:
+                    continue
+                if comp_nearest_mi.get(
+                        (child.Name, orig_bi)) != mi:
+                    continue
+                rot = FreeCAD.Rotation(
+                    bend_axis, math.degrees(micro_angle))
+                rot_plc = FreeCAD.Placement(
+                    FreeCAD.Vector(0, 0, 0), rot, pivot)
+                child.Placement = rot_plc.multiply(
+                    child.Placement)
 
         # Log final positions after all transforms
         for pi in range(len(piece_shapes)):
@@ -2903,21 +2937,13 @@ class LinkedObject:
                 f" coc=({coc.x:.2f},{coc.y:.2f},{coc.z:.2f})"
                 f"\n")
 
-            # Use wedge_pre_shapes: saved at the same time as
-            # micro_pivots, so coordinates match exactly.
-            # This avoids drift from subsequent micro-bend
-            # rotations that moved piece_shapes after
-            # micro_pivots was saved (curl-back fix).
-            # Per-cut: BFS chain may cross a different segment
-            # of the same bend.  Sum mult across all mi's of
-            # this bend to get the effective crossing count.
             s_mult = sum(piece_micro_mult[pi].get(mi_chk, 0)
                          for mi_chk in bend_s_mis.get(bi, []))
-            # Odd crossings = 1 (rotated), even = 0 (cancelled)
             s_mult = s_mult % 2 if s_mult >= 0 else -((-s_mult) % 2)
             positioned_flat = wedge_pre_shapes[pi].copy() \
                 if pi in wedge_pre_shapes \
                 else piece_shapes[pi].copy()
+
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD:   s_mult={s_mult}"
                 f" micro_angle={math.degrees(micro_angle_s):.1f}°"
@@ -3076,14 +3102,17 @@ class LinkedObject:
                     child.Placement.Base = \
                         child.Placement.Base + correction
 
-            # Apply to components (once per bend, using first mi)
-            if mi == bend_s_mis.get(orig_bi, [None])[0]:
-                for child in obj.Group:
-                    if child.Name not in comp_bend_sets:
-                        continue
-                    if orig_bi in comp_bend_sets[child.Name]:
-                        child.Placement.Base = \
-                            child.Placement.Base + correction
+            # Apply to components (nearest mi per component)
+            for child in obj.Group:
+                if child.Name not in comp_bend_sets:
+                    continue
+                if orig_bi not in comp_bend_sets[child.Name]:
+                    continue
+                if comp_nearest_mi.get(
+                        (child.Name, orig_bi)) != mi:
+                    continue
+                child.Placement.Base = \
+                    child.Placement.Base + correction
 
         # Move bend lines to first S cut line's CoC (#9,
         # visual only, no effect on other geometry).
