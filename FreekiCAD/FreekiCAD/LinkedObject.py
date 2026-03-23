@@ -2755,12 +2755,11 @@ class LinkedObject:
                 if (pi in strip_pieces
                         and strip_to_mi.get(pi) == mi):
                     continue
-                mult = piece_micro_mult[pi].get(mi, 0)
-                if mult == 0:
+                if piece_micro_mult[pi].get(mi, 0) == 0:
                     continue
                 # geo-M entry: fold back (opposite direction)
                 sign = -1.0 if mi_bfs_side.get(mi) == 'M' else 1.0
-                eff_angle = micro_angle * mult * sign
+                eff_angle = micro_angle * sign
                 rot = FreeCAD.Rotation(
                     bend_axis, math.degrees(eff_angle))
                 plc_rot = FreeCAD.Placement(
@@ -2787,7 +2786,8 @@ class LinkedObject:
                         bendline_bend_sets[child.Name] else 0
                 if bl_mult == 0:
                     continue
-                eff_angle = micro_angle * bl_mult
+                sign = -1.0 if mi_bfs_side.get(mi) == 'M' else 1.0
+                eff_angle = micro_angle * sign
                 rot_bl = FreeCAD.Rotation(
                     bend_axis, math.degrees(eff_angle))
                 plc_bl = FreeCAD.Placement(
