@@ -1999,10 +1999,15 @@ class LinkedObject:
     def __apply_bends_impl(self, obj, board_obj, bend_children,
                            thickness, enable_bending=True):
         unbent = getattr(self, '_unbent_board_shape', board_obj.Shape)
-        if hasattr(unbent, 'CenterOfMass'):
+        # Use the largest solid's center of mass as the reference
+        # point for bend normal orientation.  CenterOfMass of the
+        # whole shape can fall outside the board (e.g. a square with
+        # a center hole).  The largest solid is the most reliable.
+        if unbent.Solids:
+            largest = max(unbent.Solids, key=lambda s: s.Volume)
+            mass_center = largest.CenterOfMass
+        elif hasattr(unbent, 'CenterOfMass'):
             mass_center = unbent.CenterOfMass
-        elif unbent.Solids:
-            mass_center = unbent.Solids[0].CenterOfMass
         else:
             mass_center = unbent.BoundBox.Center
         half_t = thickness / 2.0
@@ -2537,13 +2542,11 @@ class LinkedObject:
                     strip_to_mi[pi] = mi_val
                     break
 
-        # Compute bend processing order from BFS traversal
-        stationary_idx = 0
-        mc_pt = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
-        for pi, piece in enumerate(pieces):
-            if piece.isInside(mc_pt, 0.5, True):
-                stationary_idx = pi
-                break
+        # Compute bend processing order from BFS traversal.
+        # Stationary piece = largest piece (most reliable; mass
+        # center can fall outside the board for shapes with holes).
+        stationary_idx = max(range(len(pieces)),
+                             key=lambda pi: pieces[pi].Volume)
         bend_order = []
         seen_bends = set()
         bfs_visit = {stationary_idx}
@@ -3459,13 +3462,10 @@ class LinkedObject:
         if n == 0:
             return [], {}
 
-        # Find stationary piece (contains mass center)
-        mc_pt = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
-        stationary_idx = 0
-        for pi, piece in enumerate(pieces):
-            if piece.isInside(mc_pt, 0.5, True):
-                stationary_idx = pi
-                break
+        # Stationary piece = largest piece (most reliable; mass
+        # center can fall outside the board for shapes with holes).
+        stationary_idx = max(range(n),
+                             key=lambda pi: pieces[pi].Volume)
 
         # Build adjacency graph with directional cut edges.
         # Cut-crossing edges go stationary→moving only (prevents
