@@ -2598,6 +2598,15 @@ class LinkedObject:
                 micro_order.append(mi)
                 seen_mi.add(mi)
 
+        # Track accumulated transform per piece (for virtual_plc).
+        piece_plc = [FreeCAD.Placement() for _ in range(len(pieces))]
+        # Save original bend placements before Phase 3 modifies them.
+        bend_plc_original = {}
+        for child in obj.Group:
+            proxy = getattr(child, 'Proxy', None)
+            if proxy and getattr(proxy, 'Type', None) == 'BendLine':
+                bend_plc_original[child.Name] = child.Placement.copy()
+
         micro_pivots = {}  # mi → saved pivot data for wedge loft
         wedge_pre_shapes = {}  # pi → shape copy before this bend's rotation
         for mi in micro_order:
@@ -2609,35 +2618,51 @@ class LinkedObject:
 
             plc = bend_obj.Placement
 
-            # Build absolute transform: compose same-bend mi
-            # rotations that affect the S-side parent piece.
-            # Find the S-side parent: the BFS parent of this mi's
-            # wedge piece.
+            # Find the S-side parent piece of this mi's wedge.
+            # Its accumulated piece_plc will be used to build
+            # virtual_plc for the cut geometry transform.
             s_parent_pi = None
+            mi_is_m_entry = False
+            mi_wpi = None
             for wpi in strip_pieces:
                 if strip_to_mi.get(wpi) == mi:
-                    s_parent_pi = bfs_tree.get(wpi, (None,))[0]
+                    mi_wpi = wpi
+                    # Check if M-entry (re-entry) wedge
+                    entry = bfs_tree.get(wpi, (None, None))
+                    entry_mi_val = entry[1] if entry else None
+                    mi_is_m_entry = (entry_mi_val is not None
+                                     and entry_mi_val <= -2
+                                     and -(entry_mi_val + 2) == orig_bi)
+                    if mi_is_m_entry:
+                        # M-entry: use S-side neighbor instead of
+                        # BFS parent.  The BFS parent is on the M-side
+                        # and has a different accumulated transform.
+                        # The S-side neighbor (through the S-cut mi)
+                        # has the correct transform for the cut.
+                        for nbr, mi_adj in adjacency[wpi]:
+                            if mi_adj == mi:
+                                s_parent_pi = nbr
+                                break
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD: mi {mi} M-entry:"
+                            f" S-side neighbor={s_parent_pi}"
+                            f" (BFS parent={entry[0]})\n")
+                    else:
+                        s_parent_pi = bfs_tree.get(wpi, (None,))[0]
                     break
 
-            virtual_plc = plc
+            # Build virtual_plc from the S-parent's accumulated
+            # transform composed with the bend's original placement.
+            # This correctly interleaves same-bend and cross-bend
+            # rotations (chain composition gets the order wrong
+            # because 3D rotations don't commute).
+            plc_original = bend_plc_original.get(
+                bend_obj.Name, plc)
             if s_parent_pi is not None:
-                for prev_mi in micro_order:
-                    if prev_mi == mi:
-                        break
-                    if prev_mi not in micro_pivots:
-                        continue
-                    if micro_bend_info[prev_mi][5] != orig_bi:
-                        continue
-                    if prev_mi not in piece_mi_set[s_parent_pi]:
-                        continue
-                    _, _, _, _, prev_axis, prev_pivot = \
-                        micro_pivots[prev_mi]
-                    prev_angle = micro_bend_info[prev_mi][0]
-                    rot_prev = FreeCAD.Rotation(
-                        prev_axis, math.degrees(prev_angle))
-                    plc_prev = FreeCAD.Placement(
-                        FreeCAD.Vector(0, 0, 0), rot_prev, prev_pivot)
-                    virtual_plc = plc_prev.multiply(virtual_plc)
+                virtual_plc = piece_plc[s_parent_pi].multiply(
+                    plc_original)
+            else:
+                virtual_plc = plc_original
 
             cur_normal = virtual_plc.Rotation.multVec(normal)
             cur_up = virtual_plc.Rotation.multVec(up)
@@ -2671,7 +2696,22 @@ class LinkedObject:
             # piece_shapes further, creating a mismatch.
             for wpi in strip_pieces:
                 if strip_to_mi.get(wpi) == mi:
-                    wedge_pre_shapes[wpi] = piece_shapes[wpi].copy()
+                    if mi_is_m_entry and s_parent_pi is not None:
+                        # M-entry: the wedge's piece_shapes has been
+                        # rotated by the M-side path's mi_set, which
+                        # differs from the S-side neighbor's.  Rebuild
+                        # from the flat piece with the S-side neighbor's
+                        # accumulated transform.
+                        shape = pieces[wpi].copy()
+                        shape.transformShape(
+                            piece_plc[s_parent_pi].toMatrix())
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD: mi {mi} M-entry"
+                            f" pre_shape: rebuilt from flat"
+                            f" using S-side piece_plc\n")
+                    else:
+                        shape = piece_shapes[wpi].copy()
+                    wedge_pre_shapes[wpi] = shape
 
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: micro {mi}:"
@@ -2680,16 +2720,16 @@ class LinkedObject:
                 f" pivot={pivot}, axis={bend_axis}\n")
 
             # Rotate pieces by full angle around CoC.
+            rot = FreeCAD.Rotation(
+                bend_axis, math.degrees(micro_angle))
+            plc_rot = FreeCAD.Placement(
+                FreeCAD.Vector(0, 0, 0), rot, pivot)
             for pi in range(len(piece_shapes)):
                 if mi not in piece_mi_set[pi]:
                     continue
-                eff_angle = micro_angle
-                rot = FreeCAD.Rotation(
-                    bend_axis, math.degrees(eff_angle))
-                plc_rot = FreeCAD.Placement(
-                    FreeCAD.Vector(0, 0, 0), rot, pivot)
                 piece_shapes[pi].transformShape(
                     plc_rot.toMatrix())
+                piece_plc[pi] = plc_rot.multiply(piece_plc[pi])
 
             # Move bend lines using piece multiplier.
             # Skip the bend line's OWN micro-bend.
