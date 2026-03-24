@@ -2166,7 +2166,7 @@ class LinkedObject:
         # Both geometric sides get the same label (bi) initially.
         # S/M is determined AFTER a preliminary BFS.
         face_to_micro = {}  # fi → label (initially all bi)
-        face_geo_side = {}  # fi → geometric side ('S' or 'M')
+        face_topo_side = {}  # fi → topological side ('S' or 'M')
         face_bend = {}      # fi → bi
         cut_plan_data = {}  # fi → (angle_rad, bend_obj, cut_mid,
                             #       normal, radius, bi)
@@ -2189,7 +2189,7 @@ class LinkedObject:
                 Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
 
             cut_mid = (sp0 + sp1) * 0.5
-            face_geo_side[fi] = side
+            face_topo_side[fi] = side
             face_bend[fi] = bi
             # All faces labelled with bi for preliminary BFS
             face_to_micro[fi] = bi
@@ -2233,7 +2233,7 @@ class LinkedObject:
                 for fi2 in faces_bi[i + 1:]:
                     if fi2 in paired:
                         continue
-                    if face_geo_side[fi1] == face_geo_side[fi2]:
+                    if face_topo_side[fi1] == face_topo_side[fi2]:
                         continue
                     # Find shared pieces
                     shared = (face_adj_pieces.get(fi1, set()) &
@@ -2274,14 +2274,16 @@ class LinkedObject:
                 pieces, cut_faces, face_to_seg, mass_center,
                 half_t, bend_info, cut_plan, None, log=False)
 
-        # Determine S/M per segment from BFS direction.
-        seg_s_side = {}
+        # Determine BFS parent piece per segment.
+        seg_bfs_side = {}
+        seg_parent_pi = {}   # sid → parent piece index
         for pi, (parent, mi_crossed) in prelim_tree.items():
             if mi_crossed is None or mi_crossed < 0 or parent is None:
                 continue
             sid = mi_crossed
-            if sid in seg_s_side:
+            if sid in seg_bfs_side:
                 continue
+            seg_parent_pi[sid] = parent
             for fi in range(len(cut_faces)):
                 if face_to_seg.get(fi) != sid:
                     continue
@@ -2289,10 +2291,10 @@ class LinkedObject:
                 dp = pieces[parent].distToShape(
                     cut_faces[fi])[0]
                 if di < 0.01 and dp < 0.01:
-                    seg_s_side[sid] = face_geo_side[fi]
+                    seg_bfs_side[sid] = face_topo_side[fi]
                     break
-            if sid not in seg_s_side:
-                seg_s_side[sid] = 'S'
+            if sid not in seg_bfs_side:
+                seg_bfs_side[sid] = 'S'
 
         # --- Phase 2b-2: assign S/M and create micro-bends ---
         # Log per-segment S/M.
@@ -2306,7 +2308,6 @@ class LinkedObject:
         m_face_counter = 0
         m_face_to_bend = {}  # unique_m_id → (bi, seg_idx)
         mi_seg_idx = {}  # mi → seg_idx (for S faces)
-        mi_bfs_side = {}  # mi → 'S' or 'M' (which geo side is BFS-S)
         # Derive segment index from face_to_seg pairing:
         # paired S and M faces share the same sid, so they
         # get the same seg_idx within their bend.
@@ -2316,10 +2317,10 @@ class LinkedObject:
             bi = face_bend.get(fi)
             if bi is None:
                 continue
-            geo_side = face_geo_side[fi]
+            topo_side = face_topo_side[fi]
             # Per-segment S/M from BFS direction
             sid = face_to_seg.get(fi)
-            s_side = seg_s_side.get(sid, 'S') if sid is not None \
+            s_side = seg_bfs_side.get(sid, 'S') if sid is not None \
                 else 'S'
             # Assign seg_idx from pairing: same sid → same idx
             if sid is not None and sid in sid_to_seg_idx:
@@ -2329,7 +2330,7 @@ class LinkedObject:
                 bend_seg_count[bi] = seg_idx + 1
                 if sid is not None:
                     sid_to_seg_idx[sid] = seg_idx
-            is_s = (geo_side == s_side)
+            is_s = (topo_side == s_side)
             if not is_s:
                 # Per-cut: each M face gets a unique negative ID
                 m_id = -(m_face_counter + len(bend_info) + 2)
@@ -2344,24 +2345,26 @@ class LinkedObject:
                 data = cut_plan_data[fi]
                 angle_rad, bend_obj_ref, cut_mid, normal_ref, \
                     radius, _ = data
-                # Per-cut: no negation — normal/angle from bend
-                # geometry used as-is for all segments.
+                # Per-cut: orient normal away from BFS parent
+                # (from S-side into wedge) using parent piece position.
+                parent_pi = seg_parent_pi.get(sid)
+                if parent_pi is not None:
+                    parent_cm = pieces[parent_pi].CenterOfMass
+                    if (parent_cm - cut_mid).dot(normal_ref) > 0:
+                        normal_ref = normal_ref * -1
                 micro_bend_info.append((angle_rad, bend_obj_ref,
                                         cut_mid, normal_ref,
                                         radius, bi))
                 face_to_micro[fi] = mi
-                mi_bfs_side[mi] = s_side  # 'S' or 'M' geo side
                 bend_seg_mids.setdefault(bi, []).append(
                     FreeCAD.Vector(cut_mid))
                 bend_s_mis.setdefault(bi, []).append(mi)
-                geo_side_label = "geo-S" if s_side == 'S' \
-                    else "geo-M"
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: mi={mi} bend={bi}"
                     f" seg={seg_idx}"
                     f" angle={math.degrees(angle_rad):.1f}°"
                     f" normal=({normal_ref.x:.3f},{normal_ref.y:.3f},{normal_ref.z:.3f})"
-                    f" bfs-S={geo_side_label}\n")
+                    f"\n")
 
         # Re-run BFS with correct S/M labels
         face_to_bend = face_to_micro
@@ -2373,7 +2376,7 @@ class LinkedObject:
                 mi_seg_idx=mi_seg_idx)
 
         # Map components to pieces using flat (X, Y) in 2D
-        comp_bend_sets = {}
+        comp_piece_idx = {}  # child.Name → pi
         for child in obj.Group:
             if not hasattr(child, 'X'):
                 continue
@@ -2381,17 +2384,8 @@ class LinkedObject:
                 float(child.X), float(child.Y), half_t)
             for pi, piece in enumerate(pieces):
                 if piece.isInside(pt, 0.5, True):
-                    comp_bend_sets[child.Name] = piece_bend_sets[pi]
+                    comp_piece_idx[child.Name] = pi
                     break
-            else:
-                # Component outside board: dot-product fallback
-                pt_2d = FreeCAD.Vector(pt.x, pt.y, 0)
-                fb = set()
-                for bi, (_, p0, _, _, normal, _, _) in enumerate(
-                        bend_info):
-                    if (pt_2d - p0).dot(normal) > 0:
-                        fb.add(bi)
-                comp_bend_sets[child.Name] = fb
 
         # Map bend lines to pieces.
         # For each bend line, find its own micro-bend(s) and
@@ -2563,9 +2557,9 @@ class LinkedObject:
                 bend_order.append(bi)
                 seen_bends.add(bi)
 
-        # Per-cut: each mi crossed in BFS chain → piece is on
-        # M-side of that cut (value 1).  No accumulation/cancel.
-        piece_micro_mult = [{} for _ in range(len(pieces))]
+        # Per-cut: set of mi's crossed in BFS chain from root.
+        # If mi is in the set, piece is on the M-side of that cut.
+        piece_mi_set = [set() for _ in range(len(pieces))]
         for pi in range(len(pieces)):
             cur = pi
             while cur is not None:
@@ -2574,7 +2568,7 @@ class LinkedObject:
                     break
                 parent, mi_crossed = entry
                 if parent is not None and mi_crossed >= 0:
-                    piece_micro_mult[pi][mi_crossed] = 1
+                    piece_mi_set[pi].add(mi_crossed)
                 cur = parent
 
         # Group micro-bends by their source bend_obj for
@@ -2604,31 +2598,8 @@ class LinkedObject:
                 micro_order.append(mi)
                 seen_mi.add(mi)
 
-        # For each (component, bend), find the nearest mi so
-        # component rotation uses the closest segment's pivot.
-        comp_nearest_mi = {}  # (child.Name, orig_bi) → mi
-        for child in obj.Group:
-            if child.Name not in comp_bend_sets:
-                continue
-            if not hasattr(child, 'X'):
-                continue
-            comp_pos = FreeCAD.Vector(
-                float(child.X), float(child.Y), 0)
-            for obi in comp_bend_sets[child.Name]:
-                best_mi = None
-                best_d = float('inf')
-                for mi_chk in bend_s_mis.get(obi, []):
-                    cut_mid_chk = micro_bend_info[mi_chk][2]
-                    d = comp_pos.distanceToPoint(cut_mid_chk)
-                    if d < best_d:
-                        best_d = d
-                        best_mi = mi_chk
-                if best_mi is not None:
-                    comp_nearest_mi[(child.Name, obi)] = best_mi
-
         micro_pivots = {}  # mi → saved pivot data for wedge loft
         wedge_pre_shapes = {}  # pi → shape copy before this bend's rotation
-        bend_sign_cache = {}  # orig_bi → bend_sign (shared by all segments)
         for mi in micro_order:
             micro_angle, bend_obj, cut_mid, normal, radius, orig_bi = \
                 micro_bend_info[mi]
@@ -2637,87 +2608,62 @@ class LinkedObject:
                 continue
 
             plc = bend_obj.Placement
-            cur_normal = plc.Rotation.multVec(normal)
-            cur_up = plc.Rotation.multVec(up)
-            cur_p0 = plc.multVec(cut_mid)
+
+            # Build absolute transform: compose same-bend mi
+            # rotations that affect the S-side parent piece.
+            # Find the S-side parent: the BFS parent of this mi's
+            # wedge piece.
+            s_parent_pi = None
+            for wpi in strip_pieces:
+                if strip_to_mi.get(wpi) == mi:
+                    s_parent_pi = bfs_tree.get(wpi, (None,))[0]
+                    break
+
+            virtual_plc = plc
+            if s_parent_pi is not None:
+                for prev_mi in micro_order:
+                    if prev_mi == mi:
+                        break
+                    if prev_mi not in micro_pivots:
+                        continue
+                    if micro_bend_info[prev_mi][5] != orig_bi:
+                        continue
+                    if prev_mi not in piece_mi_set[s_parent_pi]:
+                        continue
+                    _, _, _, _, prev_axis, prev_pivot = \
+                        micro_pivots[prev_mi]
+                    prev_angle = micro_bend_info[prev_mi][0]
+                    rot_prev = FreeCAD.Rotation(
+                        prev_axis, math.degrees(prev_angle))
+                    plc_prev = FreeCAD.Placement(
+                        FreeCAD.Vector(0, 0, 0), rot_prev, prev_pivot)
+                    virtual_plc = plc_prev.multiply(virtual_plc)
+
+            cur_normal = virtual_plc.Rotation.multVec(normal)
+            cur_up = virtual_plc.Rotation.multVec(up)
+            cur_p0 = virtual_plc.multVec(cut_mid)
 
             bend_axis = cur_up.cross(cur_normal)
             bend_axis.normalize()
 
-            # CoC per cut line: stationary edge at half-thickness,
-            # offset by r_eff perpendicular to board mid-plane.
-            # Each mi computes its own bend_sign from the
-            # parent piece position (topology-based).
+            # CoC: inner radius of the fold.
             r_eff_bi = radius + half_t
+            bend_sign = -1.0 if micro_angle > 0 else 1.0
             stat_edge_mid = cur_p0 + cur_up * half_t
-            # Find the parent (stationary-side) piece for this
-            # micro-bend to determine CoC direction.
-            # bend_sign: reuse per-bend cached value if available
-            # (all segments of the same bend share the same CoC
-            # side).  Otherwise compute from topology and cache.
-            orig_angle = bend_info[orig_bi][5]
-            if orig_bi in bend_sign_cache:
-                bend_sign = bend_sign_cache[orig_bi]
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: bend_sign mi={mi}:"
-                    f" cached → sign={bend_sign:.0f}\n")
-            else:
-                bend_sign = -1.0 if orig_angle > 0 else 1.0
-                for pi_chk in range(len(pieces)):
-                    mult_chk = piece_micro_mult[pi_chk].get(
-                        mi, 0)
-                    if mult_chk == 0:
-                        continue
-                    parent_pi = bfs_tree.get(
-                        pi_chk, (None,))[0]
-                    if parent_pi is not None:
-                        parent_cm = \
-                            piece_shapes[parent_pi].CenterOfMass
-                        vec_to_parent = \
-                            parent_cm - stat_edge_mid
-                        dot_up = (
-                            vec_to_parent.x * cur_up.x
-                            + vec_to_parent.y * cur_up.y
-                            + vec_to_parent.z * cur_up.z)
-                        vlen = vec_to_parent.Length
-                        if vlen > 1e-6 \
-                                and abs(dot_up / vlen) > 0.05:
-                            bend_sign = \
-                                1.0 if dot_up > 0 else -1.0
-                            FreeCAD.Console.PrintMessage(
-                                f"FreekiCAD: bend_sign"
-                                f" mi={mi}:"
-                                f" topology dot_up/|v|="
-                                f"{dot_up/vlen:.4f}"
-                                f" → sign={bend_sign:.0f}\n")
-                        else:
-                            FreeCAD.Console.PrintMessage(
-                                f"FreekiCAD: bend_sign"
-                                f" mi={mi}:"
-                                f" FALLBACK (dot_up/|v|="
-                                f"{dot_up/vlen:.4f}"
-                                f" < 0.05)"
-                                f" → sign={bend_sign:.0f}\n")
-                        break
-                bend_sign_cache[orig_bi] = bend_sign
-            stat_edge_mid = cur_p0 + cur_up * half_t
-            pivot = stat_edge_mid + cur_up * (
-                r_eff_bi * bend_sign)
+            pivot = stat_edge_mid + cur_up * (r_eff_bi * bend_sign)
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: mi {mi} CoC:"
                 f" pivot=({pivot.x:.4f},{pivot.y:.4f},"
-                f"{pivot.z:.4f})"
-                f" sign={bend_sign:.0f}\n")
+                f"{pivot.z:.4f})\n")
 
             # Save pivot data for wedge loft
             micro_pivots[mi] = (
-                plc.copy(),
+                virtual_plc.copy(),
                 FreeCAD.Vector(cur_p0),
                 FreeCAD.Vector(cur_normal),
                 FreeCAD.Vector(cur_up),
                 FreeCAD.Vector(bend_axis),
-                FreeCAD.Vector(pivot),
-                bend_sign)
+                FreeCAD.Vector(pivot))
 
             # Save wedge piece shapes NOW (before rotation),
             # so the loft uses shapes in the same space as
@@ -2734,19 +2680,10 @@ class LinkedObject:
                 f" pivot={pivot}, axis={bend_axis}\n")
 
             # Rotate pieces by full angle around CoC.
-            # Skip wedge pieces for their OWN bend — the loft
-            # will replace piece_shapes[pi] and needs it to stay
-            # in pre-mi space so subsequent rotations start from
-            # the correct position (aligned with the loft).
             for pi in range(len(piece_shapes)):
-                if (pi in strip_pieces
-                        and strip_to_mi.get(pi) == mi):
+                if mi not in piece_mi_set[pi]:
                     continue
-                if piece_micro_mult[pi].get(mi, 0) == 0:
-                    continue
-                # geo-M entry: fold back (opposite direction)
-                sign = -1.0 if mi_bfs_side.get(mi) == 'M' else 1.0
-                eff_angle = micro_angle * sign
+                eff_angle = micro_angle
                 rot = FreeCAD.Rotation(
                     bend_axis, math.degrees(eff_angle))
                 plc_rot = FreeCAD.Placement(
@@ -2767,14 +2704,13 @@ class LinkedObject:
                     continue
                 bl_pi = bendline_piece_idx.get(child.Name)
                 if bl_pi is not None:
-                    bl_mult = piece_micro_mult[bl_pi].get(mi, 0)
+                    bl_mult = int(mi in piece_mi_set[bl_pi])
                 else:
                     bl_mult = 1 if orig_bi in \
                         bendline_bend_sets[child.Name] else 0
                 if bl_mult == 0:
                     continue
-                sign = -1.0 if mi_bfs_side.get(mi) == 'M' else 1.0
-                eff_angle = micro_angle * sign
+                eff_angle = micro_angle
                 rot_bl = FreeCAD.Rotation(
                     bend_axis, math.degrees(eff_angle))
                 plc_bl = FreeCAD.Placement(
@@ -2782,16 +2718,12 @@ class LinkedObject:
                 child.Placement = plc_bl.multiply(
                     child.Placement)
 
-            # Move components using bend index.
-            # Each component rotates around the nearest segment's
-            # pivot (comp_nearest_mi), not always the first mi.
+            # Move components: same rotation as their piece
             for child in obj.Group:
-                if child.Name not in comp_bend_sets:
+                cpi = comp_piece_idx.get(child.Name)
+                if cpi is None:
                     continue
-                if orig_bi not in comp_bend_sets[child.Name]:
-                    continue
-                if comp_nearest_mi.get(
-                        (child.Name, orig_bi)) != mi:
+                if mi not in piece_mi_set[cpi]:
                     continue
                 rot = FreeCAD.Rotation(
                     bend_axis, math.degrees(micro_angle))
@@ -2841,23 +2773,16 @@ class LinkedObject:
             if saved is None:
                 continue
             saved_plc, cur_p0, cur_normal, cur_up, bend_axis, \
-                saved_pivot, saved_bend_sign = saved
-            # For geo-M entry segments, flip slicing direction
-            # so it goes from BFS-S face into the wedge.
-            if mi_bfs_side.get(s_mi) == 'M':
-                cur_normal = cur_normal * -1
+                saved_pivot = saved
+            # Phase 3 already built the chain-based virtual_plc.
+            # Use saved values directly — no re-composition needed.
             pivot = saved_pivot
             bend_obj_bi = bend_info[bi][0]
 
-            # Per-segment CoC: find the nearest segment to this
-            # wedge piece's flat CenterOfMass.  The grouped
-            # micro_pivots uses one segment's position, but each
-            # wedge piece needs its own segment's CoC.
+            # Per-segment CoC: find nearest segment for multi-seg
             seg_mids = bend_seg_mids.get(bi, [])
             if len(seg_mids) > 1:
-                # Multiple segments: find nearest to piece CM
-                # (in local coords via inverse Placement)
-                piece_cm = pieces[pi].CenterOfMass  # flat board
+                piece_cm = pieces[pi].CenterOfMass
                 best_mid = None
                 best_d = float('inf')
                 for sm in seg_mids:
@@ -2865,23 +2790,14 @@ class LinkedObject:
                     if d < best_d:
                         best_d = d
                         best_mid = sm
-                # Recompute cur_p0 and CoC from this segment's
-                # position using the saved Placement and
-                # bend_sign from Phase 3 (parent-based).
                 cur_p0 = saved_plc.multVec(best_mid)
+                bs = -1.0 if micro_angle_s > 0 else 1.0
                 stat_edge_mid = cur_p0 + cur_up * half_t
-                pivot = stat_edge_mid + cur_up * (
-                    r_eff * saved_bend_sign)
+                pivot = stat_edge_mid + cur_up * (r_eff * bs)
 
-            # Always use Phase 3 pivot as coc — all segments of
-            # the same bend must have colinear coc along the
-            # bend line.  No swapped/multi-segment recomputation.
             coc = saved_pivot
 
             sweep_angle = micro_angle_s
-            # geo-M entry: sweep opposite direction (fold back)
-            if mi_bfs_side.get(s_mi) == 'M':
-                sweep_angle = -sweep_angle
 
             # Save CoC offset for bend line (applied after lofts)
             if bi not in coc_offsets:
@@ -2912,7 +2828,7 @@ class LinkedObject:
 
             # Count how many mi's of this bend the piece crosses
             s_mult = sum(1 for mi_chk in bend_s_mis.get(bi, [])
-                         if piece_micro_mult[pi].get(mi_chk, 0))
+                         if mi_chk in piece_mi_set[pi])
             positioned_flat = wedge_pre_shapes[pi].copy() \
                 if pi in wedge_pre_shapes \
                 else piece_shapes[pi].copy()
@@ -3010,12 +2926,9 @@ class LinkedObject:
             saved = micro_pivots.get(mi)
             if saved is None:
                 continue
-            _, s_p0, s_normal, s_up, s_axis, s_pivot, _ = saved
+            _, s_p0, s_normal, s_up, s_axis, s_pivot = saved
             coc = s_pivot
             mi_angle = micro_bend_info[mi][0]
-            # geo-M entry: fold back (opposite direction)
-            if mi_bfs_side.get(mi) == 'M':
-                mi_angle = -mi_angle
             r_eff_bi = radius + half_t
 
             # S edge (stationary) and M edge (moving) in current
@@ -3053,8 +2966,7 @@ class LinkedObject:
                                 and strip_to_mi.get(pi) == mi)
                 if is_own_wedge:
                     continue
-                mult_s = piece_micro_mult[pi].get(mi, 0)
-                if mult_s == 0:
+                if mi not in piece_mi_set[pi]:
                     continue
                 piece_shapes[pi].translate(correction)
 
@@ -3070,19 +2982,17 @@ class LinkedObject:
                 bl_pi = bendline_piece_idx.get(child.Name)
                 if bl_pi is None:
                     continue
-                bl_mult = piece_micro_mult[bl_pi].get(mi, 0)
+                bl_mult = int(mi in piece_mi_set[bl_pi])
                 if bl_mult > 0:
                     child.Placement.Base = \
                         child.Placement.Base + correction
 
-            # Apply to components (nearest mi per component)
+            # Apply correction to components
             for child in obj.Group:
-                if child.Name not in comp_bend_sets:
+                cpi = comp_piece_idx.get(child.Name)
+                if cpi is None:
                     continue
-                if orig_bi not in comp_bend_sets[child.Name]:
-                    continue
-                if comp_nearest_mi.get(
-                        (child.Name, orig_bi)) != mi:
+                if mi not in piece_mi_set[cpi]:
                     continue
                 child.Placement.Base = \
                     child.Placement.Base + correction
@@ -3105,15 +3015,13 @@ class LinkedObject:
             # Bend center at half-thickness
             final_center = final_bend_p0 + final_up * half_t
 
-            # CoC = stationary edge + r_eff * sign * up
-            # Use saved bend_sign from Phase 3 (topology-based)
-            # to stay consistent with the wedge arc CoC.
+            # CoC = inner radius of the fold
             r_eff_bi = micro_bend_info[first_mi][4] + half_t
-            bend_sign_bi = saved[6]  # saved_bend_sign
+            mi_angle_c = micro_bend_info[first_mi][0]
+            bs_c = -1.0 if mi_angle_c > 0 else 1.0
             final_stat_mid = final_bend_p0 - final_normal * ins_bi \
                 + final_up * half_t
-            final_coc = final_stat_mid + final_up * (
-                r_eff_bi * bend_sign_bi)
+            final_coc = final_stat_mid + final_up * (r_eff_bi * bs_c)
 
             offset_vec = final_coc - final_center
             FreeCAD.Console.PrintMessage(
