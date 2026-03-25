@@ -759,6 +759,7 @@ def load_board(filepath, socket_path):
 
         board_solid = None
         outline_edges = []
+        board_face = None
         if edges:
             sorted_groups = Part.sortEdges(edges)
             outline_edges = sorted_groups[0]
@@ -771,6 +772,8 @@ def load_board(filepath, socket_path):
             else:
                 face = Part.Face(wires[0])
             board_solid = face.extrude(FreeCAD.Vector(0, 0, thickness))
+
+            board_face = face
 
             # --- Drill holes ---
             drill_holes = []
@@ -932,27 +935,23 @@ def load_board(filepath, socket_path):
             f"FreekiCAD: Found {len(footprints_data)} footprints with 3D models\n"
         )
 
-        # Filter bend lines: keep only those crossing the outline at 2+ points
-        if bend_lines and outline_edges:
+        # Filter bend lines: keep only those with segments inside
+        # the board (trimmed by expanded outline).
+        if bend_lines and board_face is not None:
             valid_bends = []
             for bl in bend_lines:
-                ax, ay = bl['start'].x, bl['start'].y
-                bx, by = bl['end'].x, bl['end'].y
-                hits = 0
-                for edge in outline_edges:
-                    v0 = edge.Vertexes[0].Point
-                    v1 = edge.Vertexes[1].Point
-                    cx, cy = v0.x, v0.y
-                    dx, dy = v1.x, v1.y
-                    denom = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx)
-                    if abs(denom) < 1e-12:
-                        continue
-                    t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / denom
-                    u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / denom
-                    if 0 <= t <= 1 and 0 <= u < 1:
-                        hits += 1
-                if hits >= 2 and hits % 2 == 0:
+                p0 = FreeCAD.Vector(bl['start'].x, bl['start'].y, 0)
+                p1 = FreeCAD.Vector(bl['end'].x, bl['end'].y, 0)
+                segs = LinkedObject._trim_line_to_outline(
+                    None, p0, p1, board_face)
+                if segs:
                     valid_bends.append(bl)
+                else:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: reject bend {bl.get('uuid', '?')[:8]}"
+                        f" no segments inside board"
+                        f" ({p0.x:.2f},{p0.y:.2f})"
+                        f"-({p1.x:.2f},{p1.y:.2f})\n")
             bend_lines = valid_bends
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Valid bend lines: {len(bend_lines)}\n")
@@ -1018,7 +1017,7 @@ def load_board(filepath, socket_path):
                               if k not in skip]
 
         return (board_solid, footprints_data, board_color, outline_edges,
-                thickness, bend_lines)
+                thickness, bend_lines, board_face)
 
     except Exception as e:
         import traceback
@@ -1033,7 +1032,7 @@ def load_board(filepath, socket_path):
         )
         from FreekiCAD.workspace_bus import report_error
         report_error(socket_path, e)
-    return None, [], None, [], DEFAULT_PCB_THICKNESS, []
+    return None, [], None, [], DEFAULT_PCB_THICKNESS, [], None
 
 
 def _fit_view(obj):
@@ -1573,8 +1572,9 @@ class LinkedObject:
         objects to preserve radius/angle on reload."""
         import json
 
-        board_solid, footprints_data, board_color, outline_edges, thickness, \
-            bend_lines = load_board(obj.FileName, socket_path)
+        board_solid, footprints_data, board_color, outline_edges, \
+            thickness, bend_lines, board_face = \
+            load_board(obj.FileName, socket_path)
 
         # Freeze the main window to prevent viewport flashing
         # as children are added one by one.
@@ -1590,7 +1590,8 @@ class LinkedObject:
             self.__do_execute_body(obj, board_solid, footprints_data,
                                    board_color, outline_edges, thickness,
                                    bend_lines, existing_components,
-                                   existing_bends)
+                                   existing_bends,
+                                   board_face)
         finally:
             if _mw is not None:
                 _mw.setUpdatesEnabled(True)
@@ -1599,12 +1600,14 @@ class LinkedObject:
     def __do_execute_body(self, obj, board_solid, footprints_data,
                           board_color, outline_edges, thickness,
                           bend_lines, existing_components,
-                          existing_bends):
+                          existing_bends,
+                          board_face=None):
         import json
         doc = obj.Document
 
         self._board_color = board_color
         self._outline_edges = outline_edges or []
+        self._board_face = board_face
 
         # Record file modification time
         try:
@@ -2026,7 +2029,7 @@ class LinkedObject:
         up = FreeCAD.Vector(0, 0, 1)
 
         # --- Phase 1: collect bend info from flat positions ---
-        outline_edges = getattr(self, '_outline_edges', [])
+        board_face = getattr(self, '_board_face', None)
         bend_info = []
         for bend_obj in bend_children:
             angle_deg = bend_obj.Angle.Value
@@ -2079,7 +2082,7 @@ class LinkedObject:
                  angle_rad, radius) in enumerate(bend_info):
             ins = insets[bi]
             bl_segs = self._trim_line_to_outline(
-                p0, p1, outline_edges)
+                p0, p1, board_face)
             if not bl_segs:
                 bl_segs = [(p0, p1)]
             trimmed_bend_segs.append(bl_segs)
@@ -2090,11 +2093,11 @@ class LinkedObject:
             m_p0 = p0 + normal * ins
             m_p1 = p1 + normal * ins
             s_segs = self._trim_line_to_outline(
-                s_p0, s_p1, outline_edges)
+                s_p0, s_p1, board_face)
             if not s_segs:
                 s_segs = [(s_p0, s_p1)]
             m_segs = self._trim_line_to_outline(
-                m_p0, m_p1, outline_edges)
+                m_p0, m_p1, board_face)
             if not m_segs:
                 m_segs = [(m_p0, m_p1)]
             for sp0, sp1 in s_segs:
@@ -3298,52 +3301,61 @@ class LinkedObject:
                 pass
         debug_obj.Shape = Part.makeCompound(edges)
 
-    def _trim_line_to_outline(self, p0, p1, outline_edges):
-        """Trim a 2D line to the board outline, returning segments
-        inside the board.
+    def _trim_line_to_outline(self, p0, p1, board_face):
+        """Trim a 2D line to the board face using BRep section.
+
+        Uses FreeCAD's geometry kernel to compute exact intersection
+        of the line with the board face — no ray-casting or even/odd
+        pairing issues.
 
         Returns a list of (seg_p0, seg_p1) pairs.  Each segment is
         extended by 1 µm at both ends for numerical safety.
         """
-        ax, ay = p0.x, p0.y
-        bx, by = p1.x, p1.y
-        dx, dy = bx - ax, by - ay
-        line_len = (dx * dx + dy * dy) ** 0.5
+        line_dir = p1 - p0
+        line_len = line_dir.Length
         if line_len < 1e-9:
             return []
 
-        hits = []
-        for edge in outline_edges:
-            vs = edge.Vertexes
-            if len(vs) < 2:
-                continue
-            cx, cy = vs[0].Point.x, vs[0].Point.y
-            ex, ey = vs[1].Point.x, vs[1].Point.y
-            fx, fy = ex - cx, ey - cy
-            denom = dx * fy - dy * fx
-            if abs(denom) < 1e-12:
-                continue
-            t = ((cx - ax) * fy - (cy - ay) * fx) / denom
-            u = ((cx - ax) * dy - (cy - ay) * dx) / denom
-            if -0.01 <= t <= 1.01 and 0 <= u < 1:
-                hits.append(t)
-
-        if len(hits) < 2:
+        if board_face is None:
             return []
 
-        hits.sort()
+        # Create an edge from p0 to p1 at z=0
+        edge = Part.makeLine(
+            FreeCAD.Vector(p0.x, p0.y, 0),
+            FreeCAD.Vector(p1.x, p1.y, 0))
+
+        # Section: intersection of line with board face gives
+        # edges where the line is inside the face.
+        try:
+            common = edge.common(board_face)
+        except Exception:
+            return []
+
+        if not common.Edges:
+            return []
+
+        # Extract segments from the result edges
         segments = []
-        for i in range(0, len(hits) - 1, 2):
-            t0 = hits[i]
-            t1 = hits[i + 1]
-            sp = FreeCAD.Vector(ax + dx * t0, ay + dy * t0, 0)
-            ep = FreeCAD.Vector(ax + dx * t1, ay + dy * t1, 0)
+        unit = line_dir * (1.0 / line_len)
+        for e in common.Edges:
+            vs = e.Vertexes
+            if len(vs) < 2:
+                continue
+            sp = FreeCAD.Vector(vs[0].Point.x, vs[0].Point.y, 0)
+            ep = FreeCAD.Vector(vs[1].Point.x, vs[1].Point.y, 0)
             seg_dir = ep - sp
             seg_len = seg_dir.Length
             if seg_len < 1e-6:
                 continue
+            # Ensure segment direction matches line direction
+            if seg_dir.dot(line_dir) < 0:
+                sp, ep = ep, sp
+                seg_dir = ep - sp
             ext = seg_dir * (0.001 / seg_len)
             segments.append((sp - ext, ep + ext))
+
+        # Sort by position along the line
+        segments.sort(key=lambda s: (s[0] - p0).dot(unit))
         return segments
 
     def _draw_debug_arrows(self, obj, pieces, piece_bend_sets,
@@ -3395,6 +3407,21 @@ class LinkedObject:
                         end, base + perp * hl * 0.4))
                     edges.append(Part.makeLine(
                         end, base - perp * hl * 0.4))
+
+        # Circle at BFS root (stationary/fixed piece)
+        for pi, piece in enumerate(pieces):
+            entry = bfs_tree.get(pi)
+            if entry and entry[0] is None:
+                root_cm = piece.CenterOfMass
+                root_pt = FreeCAD.Vector(
+                    root_cm.x, root_cm.y, thickness)
+                try:
+                    circ = Part.makeCircle(
+                        0.5, root_pt, FreeCAD.Vector(0, 0, 1))
+                    edges.append(circ)
+                except Exception:
+                    pass
+                break
 
         # Reuse existing debug arrows object or create new one
         debug_name = obj.Name + "_DebugArrows"
