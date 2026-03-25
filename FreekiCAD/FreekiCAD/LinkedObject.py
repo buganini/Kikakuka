@@ -3104,10 +3104,20 @@ class LinkedObject:
             final_up = final_plc.Rotation.multVec(up)
             final_center = final_bend_p0 + final_up * half_t
 
-            # Project wedge CM onto the bend line plane at half_t
+            # Project offset perpendicular to bend line direction
+            # so the line moves to the wedge's x/z position but
+            # stays centered along its own length.
             target = FreeCAD.Vector(wedge_cm.x, wedge_cm.y,
                                     wedge_cm.z)
             offset_vec = target - final_center
+            _, _, p1_bi, _, _, _, _ = bend_info[bi]
+            world_dir = final_plc.Rotation.multVec(
+                p1_bi - p0_bi)
+            dl = world_dir.Length
+            if dl > 1e-9:
+                world_dir = world_dir * (1.0 / dl)
+                along = offset_vec.dot(world_dir)
+                offset_vec = offset_vec - world_dir * along
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: bendline {bl_obj.Name} (mi={first_mi})"
                 f" wedge_cm=({target.x:.2f},{target.y:.2f},"
