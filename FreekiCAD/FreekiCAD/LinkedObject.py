@@ -2602,6 +2602,25 @@ class LinkedObject:
                 micro_order.append(mi)
                 seen_mi.add(mi)
 
+        # Find mi's with no wedge piece (phantom cuts from
+        # overlapping inset zones).  Remove from micro_order
+        # and piece_mi_set to prevent wrong rotations.
+        mi_with_wedge = set(strip_to_mi.values())
+        phantom_mis = set()
+        for mi in micro_order:
+            if mi not in mi_with_wedge:
+                micro_angle_chk = micro_bend_info[mi][0]
+                if abs(micro_angle_chk) > 1e-9:
+                    phantom_mis.add(mi)
+        if phantom_mis:
+            micro_order = [mi for mi in micro_order
+                           if mi not in phantom_mis]
+            for pi in range(len(pieces)):
+                piece_mi_set[pi] -= phantom_mis
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: skip phantom mi's"
+                f" (no wedge): {sorted(phantom_mis)}\n")
+
         # Track accumulated transform per piece (for virtual_plc).
         piece_plc = [FreeCAD.Placement() for _ in range(len(pieces))]
         # Save original bend placements before Phase 3 modifies them.
