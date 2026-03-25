@@ -2800,8 +2800,8 @@ class LinkedObject:
             abs_a = abs(angle_rad_bi)
             r_eff = radius_bi + half_t
             N_SLICES = max(
-                int(math.ceil(abs(math.degrees(angle_rad_bi)))),
-                16)
+                int(math.ceil(abs(math.degrees(angle_rad_bi)) / 4)),
+                8)
 
             # Find the S micro-bend for this specific wedge piece
             s_mi = strip_to_mi.get(pi)
