@@ -2902,10 +2902,29 @@ class LinkedObject:
             #   3. Translate slice center to arc position
             #   4. Rotate slice to be tangent to arc
             eps = 0.001
-            wires_list = []
+            # Build sorted list of d-values: uniform slices +
+            # vertex projections (ensures loft captures all edges
+            # of the flat wedge piece).
+            d_list = []
             for si in range(N_SLICES + 1):
                 frac = si / float(N_SLICES)
-                d = eps + frac * (2 * ins - 2 * eps)
+                d_list.append(eps + frac * (2 * ins - 2 * eps))
+            for v in positioned_flat.Vertexes:
+                vd = (v.Point - cur_p0).dot(cur_normal)
+                if eps < vd < 2 * ins - eps:
+                    d_list.append(vd)
+            d_list.sort()
+            # Deduplicate: remove values too close together
+            min_sep = max(eps * 2, (2 * ins) / 1000)
+            d_values = [d_list[0]]
+            for d in d_list[1:]:
+                if d - d_values[-1] >= min_sep:
+                    d_values.append(d)
+
+            wires_list = []
+            for d in d_values:
+                frac = (d - eps) / (2 * ins - 2 * eps) \
+                    if abs(2 * ins - 2 * eps) > 1e-9 else 0.0
                 slice_pt = cur_p0 + cur_normal * d
                 plane_dist = (slice_pt.x * cur_normal.x
                               + slice_pt.y * cur_normal.y
@@ -2940,7 +2959,7 @@ class LinkedObject:
             # (rotated base wire at full sweep angle)
 
             FreeCAD.Console.PrintMessage(
-                f"FreekiCAD:   slices={len(wires_list)}/{N_SLICES+1}\n")
+                f"FreekiCAD:   slices={len(wires_list)}/{len(d_values)}\n")
             if len(wires_list) >= 2:
                 try:
                     loft = Part.makeLoft(wires_list, True, True)
