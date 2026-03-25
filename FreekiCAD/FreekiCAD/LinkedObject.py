@@ -3177,8 +3177,13 @@ class LinkedObject:
             except Exception:
                 pass
 
-        # Debug board: create child objects for each piece
+        # Hide assembled board when DebugBoard is enabled
         debug_board = getattr(obj, 'DebugBoard', False)
+        if hasattr(board_obj, 'ViewObject') \
+                and board_obj.ViewObject is not None:
+            board_obj.ViewObject.Visibility = not debug_board
+
+        # Debug board: create child objects for each piece
         debug_grp_name = obj.Name + "_DebugPieces"
         doc = obj.Document
         # Remove old debug pieces
