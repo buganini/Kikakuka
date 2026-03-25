@@ -2017,17 +2017,11 @@ class LinkedObject:
     def __apply_bends_impl(self, obj, board_obj, bend_children,
                            thickness, enable_bending=True):
         unbent = getattr(self, '_unbent_board_shape', board_obj.Shape)
-        # Use the largest solid's center of mass as the reference
-        # point for bend normal orientation.  CenterOfMass of the
-        # whole shape can fall outside the board (e.g. a square with
-        # a center hole).  The largest solid is the most reliable.
-        if unbent.Solids:
-            largest = max(unbent.Solids, key=lambda s: s.Volume)
-            mass_center = largest.CenterOfMass
-        elif hasattr(unbent, 'CenterOfMass'):
-            mass_center = unbent.CenterOfMass
-        else:
-            mass_center = unbent.BoundBox.Center
+        # Use the bounding box center as the reference point for
+        # bend normal orientation and stationary piece selection.
+        # BoundBox.Center is always well-defined, even for shapes
+        # with holes (unlike CenterOfMass which can fall outside).
+        mass_center = unbent.BoundBox.Center
         half_t = thickness / 2.0
         up = FreeCAD.Vector(0, 0, 1)
 
@@ -2531,10 +2525,14 @@ class LinkedObject:
                     break
 
         # Compute bend processing order from BFS traversal.
-        # Stationary piece = largest piece (most reliable; mass
-        # center can fall outside the board for shapes with holes).
-        stationary_idx = max(range(len(pieces)),
-                             key=lambda pi: pieces[pi].Volume)
+        # Stationary piece = piece closest to the board outline's
+        # center of mass.
+        mc_2d = FreeCAD.Vector(mass_center.x, mass_center.y, 0)
+        stationary_idx = min(
+            range(len(pieces)),
+            key=lambda pi: pieces[pi].CenterOfMass.distanceToPoint(
+                FreeCAD.Vector(mc_2d.x, mc_2d.y,
+                               pieces[pi].CenterOfMass.z)))
         bend_order = []
         seen_bends = set()
         bfs_visit = {stationary_idx}
@@ -3047,30 +3045,32 @@ class LinkedObject:
             if saved is None:
                 continue
 
-            # Recompute CoC from FINAL Placement of bend line
+            # Find the first wedge piece for this bend
+            wedge_pi = None
+            for wpi in strip_pieces:
+                if strip_to_mi.get(wpi) == first_mi:
+                    wedge_pi = wpi
+                    break
+
+            if wedge_pi is None:
+                continue
+
+            # Move bend line to center of first wedge at half thickness
+            wedge_cm = piece_shapes[wedge_pi].CenterOfMass
             _, p0_bi, _, _, normal_bi, _, _ = bend_info[bi]
             final_plc = bl_obj.Placement
             final_bend_p0 = final_plc.multVec(p0_bi)
             final_up = final_plc.Rotation.multVec(up)
-            final_normal = final_plc.Rotation.multVec(normal_bi)
-            ins_bi = insets[bi]
-
-            # Bend center at half-thickness
             final_center = final_bend_p0 + final_up * half_t
 
-            # CoC = inner radius of the fold
-            r_eff_bi = micro_bend_info[first_mi][4] + half_t
-            mi_angle_c = micro_bend_info[first_mi][0]
-            bs_c = -1.0 if mi_angle_c > 0 else 1.0
-            final_stat_mid = final_bend_p0 - final_normal * ins_bi \
-                + final_up * half_t
-            final_coc = final_stat_mid + final_up * (r_eff_bi * bs_c)
-
-            offset_vec = final_coc - final_center
+            # Project wedge CM onto the bend line plane at half_t
+            target = FreeCAD.Vector(wedge_cm.x, wedge_cm.y,
+                                    wedge_cm.z)
+            offset_vec = target - final_center
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: bendline {bl_obj.Name} (mi={first_mi})"
-                f" CoC=({final_coc.x:.2f},{final_coc.y:.2f},"
-                f"{final_coc.z:.2f})"
+                f" wedge_cm=({target.x:.2f},{target.y:.2f},"
+                f"{target.z:.2f})"
                 f" off=({offset_vec.x:.3f},{offset_vec.y:.3f},"
                 f"{offset_vec.z:.3f})\n")
             new_base = bl_obj.Placement.Base + offset_vec
@@ -3455,10 +3455,13 @@ class LinkedObject:
         if n == 0:
             return [], {}
 
-        # Stationary piece = largest piece (most reliable; mass
-        # center can fall outside the board for shapes with holes).
-        stationary_idx = max(range(n),
-                             key=lambda pi: pieces[pi].Volume)
+        # Stationary piece = closest to board outline center of mass.
+        mc_2d = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
+        stationary_idx = min(
+            range(n),
+            key=lambda pi: pieces[pi].CenterOfMass.distanceToPoint(
+                FreeCAD.Vector(mc_2d.x, mc_2d.y,
+                               pieces[pi].CenterOfMass.z)))
 
         # Build adjacency graph with directional cut edges.
         # Cut-crossing edges go stationary→moving only (prevents
