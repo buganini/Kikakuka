@@ -1482,7 +1482,7 @@ class LinkedObject:
         self._board_color = None
 
     def onChanged(self, obj, prop):
-        if prop == "EnableBending":
+        if prop in ("EnableBending", "ShowDebug", "DebugBoard"):
             if not obj.Document.Restoring:
                 self._rebend(obj)
             return
