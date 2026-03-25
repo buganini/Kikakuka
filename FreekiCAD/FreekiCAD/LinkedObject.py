@@ -759,12 +759,9 @@ def load_board(filepath, socket_path):
 
         board_solid = None
         outline_edges = []
-        all_board_edges = []
         if edges:
             sorted_groups = Part.sortEdges(edges)
             outline_edges = sorted_groups[0]
-            for g in sorted_groups:
-                all_board_edges.extend(g)
             wires = [Part.Wire(g) for g in sorted_groups]
             if len(wires) > 1:
                 face = Part.Face(wires, "Part::FaceMakerBullseye")
@@ -935,6 +932,31 @@ def load_board(filepath, socket_path):
             f"FreekiCAD: Found {len(footprints_data)} footprints with 3D models\n"
         )
 
+        # Filter bend lines: keep only those crossing the outline at 2+ points
+        if bend_lines and outline_edges:
+            valid_bends = []
+            for bl in bend_lines:
+                ax, ay = bl['start'].x, bl['start'].y
+                bx, by = bl['end'].x, bl['end'].y
+                hits = 0
+                for edge in outline_edges:
+                    v0 = edge.Vertexes[0].Point
+                    v1 = edge.Vertexes[1].Point
+                    cx, cy = v0.x, v0.y
+                    dx, dy = v1.x, v1.y
+                    denom = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx)
+                    if abs(denom) < 1e-12:
+                        continue
+                    t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / denom
+                    u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / denom
+                    if 0 <= t <= 1 and 0 <= u < 1:
+                        hits += 1
+                if hits >= 2 and hits % 2 == 0:
+                    valid_bends.append(bl)
+            bend_lines = valid_bends
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Valid bend lines: {len(bend_lines)}\n")
+
         # Filter out bend lines that overlap or cross each other
         if len(bend_lines) > 1:
             skip = set()
@@ -996,7 +1018,7 @@ def load_board(filepath, socket_path):
                               if k not in skip]
 
         return (board_solid, footprints_data, board_color, outline_edges,
-                all_board_edges, thickness, bend_lines)
+                thickness, bend_lines)
 
     except Exception as e:
         import traceback
@@ -1011,7 +1033,7 @@ def load_board(filepath, socket_path):
         )
         from FreekiCAD.workspace_bus import report_error
         report_error(socket_path, e)
-    return None, [], None, [], [], DEFAULT_PCB_THICKNESS, []
+    return None, [], None, [], DEFAULT_PCB_THICKNESS, []
 
 
 def _fit_view(obj):
@@ -1551,8 +1573,7 @@ class LinkedObject:
         objects to preserve radius/angle on reload."""
         import json
 
-        board_solid, footprints_data, board_color, outline_edges, \
-            all_board_edges, thickness, \
+        board_solid, footprints_data, board_color, outline_edges, thickness, \
             bend_lines = load_board(obj.FileName, socket_path)
 
         # Freeze the main window to prevent viewport flashing
@@ -1567,8 +1588,7 @@ class LinkedObject:
 
         try:
             self.__do_execute_body(obj, board_solid, footprints_data,
-                                   board_color, outline_edges,
-                                   all_board_edges, thickness,
+                                   board_color, outline_edges, thickness,
                                    bend_lines, existing_components,
                                    existing_bends)
         finally:
@@ -1577,8 +1597,7 @@ class LinkedObject:
         _fit_view(obj)
 
     def __do_execute_body(self, obj, board_solid, footprints_data,
-                          board_color, outline_edges,
-                          all_board_edges, thickness,
+                          board_color, outline_edges, thickness,
                           bend_lines, existing_components,
                           existing_bends):
         import json
@@ -1586,7 +1605,6 @@ class LinkedObject:
 
         self._board_color = board_color
         self._outline_edges = outline_edges or []
-        self._all_board_edges = all_board_edges or []
 
         # Record file modification time
         try:
@@ -2015,7 +2033,6 @@ class LinkedObject:
 
         # --- Phase 1: collect bend info from flat positions ---
         outline_edges = getattr(self, '_outline_edges', [])
-        all_board_edges = getattr(self, '_all_board_edges', outline_edges)
         bend_info = []
         for bend_obj in bend_children:
             angle_deg = bend_obj.Angle.Value
@@ -2068,7 +2085,7 @@ class LinkedObject:
                  angle_rad, radius) in enumerate(bend_info):
             ins = insets[bi]
             bl_segs = self._trim_line_to_outline(
-                p0, p1, all_board_edges)
+                p0, p1, outline_edges)
             if not bl_segs:
                 bl_segs = [(p0, p1)]
             trimmed_bend_segs.append(bl_segs)
@@ -2079,11 +2096,11 @@ class LinkedObject:
             m_p0 = p0 + normal * ins
             m_p1 = p1 + normal * ins
             s_segs = self._trim_line_to_outline(
-                s_p0, s_p1, all_board_edges)
+                s_p0, s_p1, outline_edges)
             if not s_segs:
                 s_segs = [(s_p0, s_p1)]
             m_segs = self._trim_line_to_outline(
-                m_p0, m_p1, all_board_edges)
+                m_p0, m_p1, outline_edges)
             if not m_segs:
                 m_segs = [(m_p0, m_p1)]
             for sp0, sp1 in s_segs:
@@ -2142,35 +2159,6 @@ class LinkedObject:
                     f" ({sp0.x:.2f},{sp0.y:.2f})"
                     f"-({sp1.x:.2f},{sp1.y:.2f})\n")
         cut_plan = validated_plan
-
-        # Discard cut lines where either endpoint doesn't contact
-        # the board (not on/near any board edge).
-        if all_board_edges:
-            contact_tol = 0.05
-            contact_plan = []
-            for entry in cut_plan:
-                sp0, sp1, side = entry[0], entry[1], entry[2]
-                ok = True
-                for pt in (sp0, sp1):
-                    pt_v = Part.Vertex(FreeCAD.Vector(pt.x, pt.y, 0))
-                    min_d = float('inf')
-                    for edge in all_board_edges:
-                        d = edge.distToShape(pt_v)[0]
-                        if d < min_d:
-                            min_d = d
-                            if d < contact_tol:
-                                break
-                    if min_d >= contact_tol:
-                        FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD: discard cut side={side}"
-                            f" endpoint ({pt.x:.2f},{pt.y:.2f})"
-                            f" no board contact"
-                            f" (dist={min_d:.3f})\n")
-                        ok = False
-                        break
-                if ok:
-                    contact_plan.append(entry)
-            cut_plan = contact_plan
 
         # --- Phase 2b: create 3D cutting faces from 2D plan ---
         # Each S cut segment → independent micro-bend (full angle).
