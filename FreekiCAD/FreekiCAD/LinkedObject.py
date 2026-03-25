@@ -2014,19 +2014,13 @@ class LinkedObject:
         up = FreeCAD.Vector(0, 0, 1)
 
         # --- Phase 1: collect bend info from flat positions ---
-        # Validation toggles (set to False to disable)
-        VALIDATE_NEGATIVE_RADIUS = True
-        VALIDATE_CUT_MIDPOINT_INSIDE = True      # 3D isInside
-        VALIDATE_CUT_MIDPOINT_DISTANCE = False    # 2D center-seg dist
-        VALIDATE_CUT_ENDPOINT_CONTACT = False
-
         outline_edges = getattr(self, '_outline_edges', [])
         all_board_edges = getattr(self, '_all_board_edges', outline_edges)
         bend_info = []
         for bend_obj in bend_children:
             angle_deg = bend_obj.Angle.Value
             radius = bend_obj.Radius.Value
-            if VALIDATE_NEGATIVE_RADIUS and radius < 0:
+            if radius < 0:
                 continue
 
             verts = bend_obj.Shape.Vertexes
@@ -2078,11 +2072,6 @@ class LinkedObject:
             if not bl_segs:
                 bl_segs = [(p0, p1)]
             trimmed_bend_segs.append(bl_segs)
-            for seg_i, (bs0, bs1) in enumerate(bl_segs):
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: bend {bi} center seg {seg_i}:"
-                    f" ({bs0.x:.2f},{bs0.y:.2f})"
-                    f"-({bs1.x:.2f},{bs1.y:.2f})\n")
 
             # All bends have inset > 0 (r_eff always > 0)
             s_p0 = p0 - normal * ins
@@ -2106,108 +2095,81 @@ class LinkedObject:
                                  angle_rad, radius, p0, normal,
                                  bend_obj_ref, normal))
 
-        # Validate: discard virtual cuts whose midpoint is not
-        # inside the board.  Uses the 3D board shape for a robust
-        # inside/outside test, avoiding the ray-casting issues
-        # that arise when bend lines coincide with board edges.
-        if VALIDATE_CUT_MIDPOINT_INSIDE:
-            validated_plan = []
-            for entry in cut_plan:
-                sp0, sp1, side = entry[0], entry[1], entry[2]
-                mid = (sp0 + sp1) * 0.5
-                mid_3d = FreeCAD.Vector(mid.x, mid.y, half_t)
-                if unbent.isInside(mid_3d, 0.01, True):
-                    validated_plan.append(entry)
-                else:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: discard cut side={side}"
-                        f" midpoint outside board"
-                        f" ({sp0.x:.2f},{sp0.y:.2f})"
-                        f"-({sp1.x:.2f},{sp1.y:.2f})\n")
-            cut_plan = validated_plan
-
         # Validate: discard virtual cuts whose midpoint is too
-        # far from any trimmed bend CENTER segment (2D distance).
-        # NOTE: unreliable when bend lines coincide with board
-        # edges — use VALIDATE_CUT_MIDPOINT_INSIDE instead.
-        if VALIDATE_CUT_MIDPOINT_DISTANCE:
-            validated_plan = []
-            for entry in cut_plan:
-                sp0, sp1, side, bi = \
-                    entry[0], entry[1], entry[2], entry[3]
-                ins_bi = insets[bi]
-                mid = (sp0 + sp1) * 0.5
-                mid_2d = FreeCAD.Vector(mid.x, mid.y, 0)
-                min_dist = float('inf')
-                for bl_sp0, bl_sp1 in trimmed_bend_segs[bi]:
-                    ddx = bl_sp1.x - bl_sp0.x
-                    ddy = bl_sp1.y - bl_sp0.y
-                    len2 = ddx * ddx + ddy * ddy
-                    if len2 < 1e-12:
-                        d = math.sqrt(
-                            (mid_2d.x - bl_sp0.x) ** 2
-                            + (mid_2d.y - bl_sp0.y) ** 2)
-                    else:
-                        t = max(0.0, min(1.0,
-                            ((mid_2d.x - bl_sp0.x) * ddx
-                             + (mid_2d.y - bl_sp0.y) * ddy)
-                            / len2))
-                        px = bl_sp0.x + t * ddx
-                        py = bl_sp0.y + t * ddy
-                        d = math.sqrt(
-                            (mid_2d.x - px) ** 2
-                            + (mid_2d.y - py) ** 2)
-                    if d < min_dist:
-                        min_dist = d
-                on_bend = min_dist < ins_bi + 0.15
-                if on_bend:
-                    validated_plan.append(entry)
+        # far from any trimmed bend CENTER segment.
+        # Uses 2D distance (not parameter projection) so that
+        # angled outlines don't discard valid cuts (bend 8 fix),
+        # while phantom segments far from the center line are
+        # still caught (bend 4 phantom fix).
+        validated_plan = []
+        for entry in cut_plan:
+            sp0, sp1, side, bi = entry[0], entry[1], entry[2], entry[3]
+            ins_bi = insets[bi]
+            mid = (sp0 + sp1) * 0.5
+            mid_2d = FreeCAD.Vector(mid.x, mid.y, 0)
+            # 2D distance from cut midpoint to nearest center
+            # line segment.  Valid cuts are at ~ins distance
+            # (perpendicular offset).  Phantom segments are
+            # much further.
+            min_dist = float('inf')
+            for bl_sp0, bl_sp1 in trimmed_bend_segs[bi]:
+                dx = bl_sp1.x - bl_sp0.x
+                dy = bl_sp1.y - bl_sp0.y
+                len2 = dx * dx + dy * dy
+                if len2 < 1e-12:
+                    d = math.sqrt((mid_2d.x - bl_sp0.x) ** 2
+                                  + (mid_2d.y - bl_sp0.y) ** 2)
                 else:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: discard cut side={side}"
-                        f" dist={min_dist:.3f}"
-                        f" ({sp0.x:.2f},{sp0.y:.2f})"
-                        f"-({sp1.x:.2f},{sp1.y:.2f})\n")
-            cut_plan = validated_plan
+                    t = max(0.0, min(1.0,
+                        ((mid_2d.x - bl_sp0.x) * dx
+                         + (mid_2d.y - bl_sp0.y) * dy)
+                        / len2))
+                    px = bl_sp0.x + t * dx
+                    py = bl_sp0.y + t * dy
+                    d = math.sqrt((mid_2d.x - px) ** 2
+                                  + (mid_2d.y - py) ** 2)
+                if d < min_dist:
+                    min_dist = d
+            # Threshold: ins (perpendicular offset) + margin
+            # for endpoint rounding and angled outlines.
+            on_bend = min_dist < ins_bi + 0.15
+            if on_bend:
+                validated_plan.append(entry)
+            else:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: discard cut side={side}"
+                    f" dist={min_dist:.3f}"
+                    f" ({sp0.x:.2f},{sp0.y:.2f})"
+                    f"-({sp1.x:.2f},{sp1.y:.2f})\n")
+        cut_plan = validated_plan
 
-        # Validate: discard cuts where either end of the cut
-        # rectangle doesn't contact the board.  The rectangle
-        # is the cut segment as center line, inset as half-width.
-        # Valid if (end0_left or end0_right) and (end1_left or
-        # end1_right) are inside the board.
-        if VALIDATE_CUT_ENDPOINT_CONTACT:
+        # Discard cut lines where either endpoint doesn't contact
+        # the board (not on/near any board edge).
+        if all_board_edges:
+            contact_tol = 0.05
             contact_plan = []
             for entry in cut_plan:
-                sp0, sp1, side, bi = \
-                    entry[0], entry[1], entry[2], entry[3]
-                half_w = insets[bi]
-                cd = sp1 - sp0
-                cl = cd.Length
-                if cl < 1e-9:
-                    continue
-                perp = FreeCAD.Vector(-cd.y / cl, cd.x / cl, 0)
-                c00 = sp0 + perp * half_w
-                c01 = sp0 - perp * half_w
-                c10 = sp1 + perp * half_w
-                c11 = sp1 - perp * half_w
-
-                def on_board(pt2d):
-                    pt3d = FreeCAD.Vector(
-                        pt2d.x, pt2d.y, half_t)
-                    return unbent.isInside(pt3d, 0.01, True)
-
-                end0_ok = on_board(c00) or on_board(c01)
-                end1_ok = on_board(c10) or on_board(c11)
-                if end0_ok and end1_ok:
+                sp0, sp1, side = entry[0], entry[1], entry[2]
+                ok = True
+                for pt in (sp0, sp1):
+                    pt_v = Part.Vertex(FreeCAD.Vector(pt.x, pt.y, 0))
+                    min_d = float('inf')
+                    for edge in all_board_edges:
+                        d = edge.distToShape(pt_v)[0]
+                        if d < min_d:
+                            min_d = d
+                            if d < contact_tol:
+                                break
+                    if min_d >= contact_tol:
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD: discard cut side={side}"
+                            f" endpoint ({pt.x:.2f},{pt.y:.2f})"
+                            f" no board contact"
+                            f" (dist={min_d:.3f})\n")
+                        ok = False
+                        break
+                if ok:
                     contact_plan.append(entry)
-                else:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: discard cut side={side}"
-                        f" no endpoint contact"
-                        f" end0={'ok' if end0_ok else 'no'}"
-                        f" end1={'ok' if end1_ok else 'no'}"
-                        f" ({sp0.x:.2f},{sp0.y:.2f})"
-                        f"-({sp1.x:.2f},{sp1.y:.2f})\n")
             cut_plan = contact_plan
 
         # --- Phase 2b: create 3D cutting faces from 2D plan ---
@@ -3351,24 +3313,13 @@ class LinkedObject:
                 continue
             t = ((cx - ax) * fy - (cy - ay) * fx) / denom
             u = ((cx - ax) * dy - (cy - ay) * dx) / denom
-            if -0.01 <= t <= 1.01 and -1e-9 <= u <= 1 + 1e-9:
+            if -0.01 <= t <= 1.01 and 0 <= u < 1:
                 hits.append(t)
 
         if len(hits) < 2:
             return []
 
         hits.sort()
-        # Deduplicate nearby hits to avoid double-counting at
-        # shared vertices where two edges meet.
-        deduped = [hits[0]]
-        for h in hits[1:]:
-            if h - deduped[-1] > 1e-6:
-                deduped.append(h)
-        hits = deduped
-
-        if len(hits) < 2:
-            return []
-
         segments = []
         for i in range(0, len(hits) - 1, 2):
             t0 = hits[i]
