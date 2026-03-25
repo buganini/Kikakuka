@@ -762,8 +762,37 @@ def load_board(filepath, socket_path):
         board_face = None
         if edges:
             sorted_groups = Part.sortEdges(edges)
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: sortEdges produced {len(sorted_groups)}"
+                f" group(s): "
+                + ", ".join(f"{len(g)} edges" for g in sorted_groups)
+                + "\n")
             outline_edges = sorted_groups[0]
-            wires = [Part.Wire(g) for g in sorted_groups]
+            wires = []
+            for g in sorted_groups:
+                w = Part.Wire(g)
+                if not w.isClosed():
+                    # sortEdges may leave a micro-gap at the
+                    # closure point.  Fix topology to close it.
+                    try:
+                        w.fixWire(None, 0.001)
+                    except Exception:
+                        pass
+                    if not w.isClosed():
+                        # Last resort: add closing edge
+                        verts = w.Vertexes
+                        gap = verts[-1].Point.distanceToPoint(
+                            verts[0].Point)
+                        if gap < 0.001:
+                            closing = Part.makeLine(
+                                verts[-1].Point, verts[0].Point)
+                            w = Part.Wire(list(w.Edges) + [closing])
+                wires.append(w)
+            for wi, w in enumerate(wires):
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: wire {wi}: closed={w.isClosed()}"
+                    f" edges={len(w.Edges)}"
+                    f" verts={len(w.Vertexes)}\n")
             if len(wires) > 1:
                 face = Part.Face(wires, "Part::FaceMakerBullseye")
                 FreeCAD.Console.PrintMessage(
@@ -771,6 +800,9 @@ def load_board(filepath, socket_path):
                     "hole(s)\n")
             else:
                 face = Part.Face(wires[0])
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Board face area={face.Area:.4f}"
+                f" valid={face.isValid()}\n")
             board_solid = face.extrude(FreeCAD.Vector(0, 0, thickness))
 
             board_face = face
