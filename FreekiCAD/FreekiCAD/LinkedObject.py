@@ -742,6 +742,75 @@ def load_board(filepath, socket_path):
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: User.4 bend lines: {len(bend_lines)}\n")
 
+        # --- Parse text on User.4 for bend parameters ---
+        if bend_lines:
+            try:
+                from kipy.board_types import BoardText as KiPyBoardText
+                import re
+                all_text = board.get_text()
+                u4_text_count = 0
+                for t in all_text:
+                    if not isinstance(t, KiPyBoardText):
+                        continue
+                    if t.layer != BoardLayer.BL_User_4:
+                        continue
+                    u4_text_count += 1
+                    text_val = t.value.strip()
+                    tx = t.position.x / 1e6
+                    ty = -t.position.y / 1e6
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: User.4 text '{text_val}' "
+                        f"at ({tx:.3f},{ty:.3f})\n")
+                    if not text_val:
+                        continue
+                    # Parse "a=-70 r=0.5" style text
+                    angle = 0.0
+                    radius = 0.0
+                    m_a = re.search(r'a\s*=\s*([+-]?\d+(?:\.\d+)?)',
+                                    text_val)
+                    if m_a:
+                        angle = float(m_a.group(1))
+                    m_r = re.search(r'r\s*=\s*([+-]?\d+(?:\.\d+)?)',
+                                    text_val)
+                    if m_r:
+                        radius = float(m_r.group(1))
+                    # Match text position to nearest bend line endpoint
+                    best_dist = float('inf')
+                    best_bl = None
+                    best_ep = None
+                    for bl in bend_lines:
+                        for ep in (bl['start'], bl['end']):
+                            d = math.hypot(tx - ep.x, ty - ep.y)
+                            if d < best_dist:
+                                best_dist = d
+                                best_bl = bl
+                                best_ep = ep
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   nearest bend ep "
+                        f"({best_ep.x:.3f},{best_ep.y:.3f}) "
+                        f"d={best_dist:.3f}mm\n")
+                    if best_bl is not None and best_dist < 1e-3:
+                        best_bl['angle'] = angle
+                        best_bl['radius'] = radius
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD:   matched → "
+                            f"angle={angle}° "
+                            f"radius={radius}mm\n")
+                    else:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   not matched "
+                            f"(d={best_dist:.6f}mm > 0.001mm)\n")
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: User.4 text items: "
+                    f"{u4_text_count}\n")
+            except Exception as ex:
+                import traceback
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: Failed to parse User.4 "
+                    f"text: {ex}\n")
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: {traceback.format_exc()}\n")
+
         # Get board thickness from stackup
         thickness = DEFAULT_PCB_THICKNESS
         try:
@@ -1692,6 +1761,11 @@ class LinkedObject:
                 bend_obj.Shape = Part.makeLine(p0, p1)
                 obj.addObject(bend_obj)
                 bend_obj.ViewObject.Proxy = 0
+            # Apply angle/radius from KiCad text annotation
+            if 'angle' in bl:
+                bend_obj.Angle = bl['angle']
+            if 'radius' in bl:
+                bend_obj.Radius = bl['radius']
         # Remove stale bend lines no longer in KiCad
         for uuid, bend_obj in existing_bends.items():
             if uuid not in seen_uuids:
