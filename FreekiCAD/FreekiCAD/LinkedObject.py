@@ -989,6 +989,9 @@ def load_board(filepath, socket_path):
                     )
                     continue
 
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   {ref}: {len(models)} model(s) in definition\n"
+                )
                 models_info = []
                 for model in models:
                     try:
