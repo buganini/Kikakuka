@@ -1196,41 +1196,11 @@ class BendLine:
                 pass
         if not obj.InList:
             return
-        from PySide import QtCore, QtWidgets
-
-        # Defer rebend until property editing is finished.
-        # If a spin box or line edit is focused, wait for
-        # editing to complete (focus lost) instead of
-        # triggering on every keystroke.
-        if hasattr(self, '_rebend_timer'):
-            self._rebend_timer.stop()
-
-        def _do_rebend():
-            # Check if a property editor widget is still focused
-            app = QtWidgets.QApplication.instance()
-            if app:
-                w = app.focusWidget()
-                if w and isinstance(
-                        w, (QtWidgets.QDoubleSpinBox,
-                            QtWidgets.QSpinBox,
-                            QtWidgets.QLineEdit)):
-                    # Still editing — retry later
-                    self._rebend_timer.start(1000)
-                    return
-            for parent in obj.InList:
-                proxy = getattr(parent, "Proxy", None)
-                if proxy and getattr(proxy, 'Type', None) == 'LinkedObject':
-                    # Skip if parent is in the middle of execute/reload
-                    # (bending is already handled by _apply_bends there)
-                    if getattr(proxy, '_suppress_rebend', False):
-                        break
-                    proxy._rebend(parent)
-                    break
-
-        self._rebend_timer = QtCore.QTimer()
-        self._rebend_timer.setSingleShot(True)
-        self._rebend_timer.timeout.connect(_do_rebend)
-        self._rebend_timer.start(1000)
+        for parent in obj.InList:
+            proxy = getattr(parent, "Proxy", None)
+            if proxy and getattr(proxy, 'Type', None) == 'LinkedObject':
+                proxy._schedule_rebend(parent)
+                break
 
     def dumps(self):
         return None
@@ -1755,9 +1725,6 @@ class LinkedObject:
             obj.addObject(board_obj)
 
         # Add / update bend line children
-        # Suppress timer-based rebend from BendLine.onChanged — bending
-        # is handled by _apply_bends at the end of this method.
-        self._suppress_rebend = True
         if existing_bends is None:
             existing_bends = {}
         seen_uuids = set()
@@ -2024,7 +1991,10 @@ class LinkedObject:
         if board_obj and bend_children:
             self._apply_bends(obj, board_obj, bend_children,
                               thickness, enable_bending=enable)
-        self._suppress_rebend = False
+        # Cancel any pending rebend timer — bending was already
+        # handled by _apply_bends above.
+        if hasattr(self, '_rebend_timer'):
+            self._rebend_timer.stop()
 
     def _update_reused_component(self, comp_obj, kc, thickness, fp_info):
         """Update placement and KiCad coords for a reused component
@@ -2085,6 +2055,33 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD:   {comp_obj.Label}: updated placement "
             f"(Δx={dx:.3f}, Δy={dy:.3f}, Δangle={da:.1f}°)\n")
+
+    def _schedule_rebend(self, obj):
+        """Schedule a deferred rebend, coalescing changes from multiple
+        bend lines into a single rebend call."""
+        from PySide import QtCore, QtWidgets
+
+        if hasattr(self, '_rebend_timer'):
+            self._rebend_timer.stop()
+
+        def _do_rebend():
+            # Check if a property editor widget is still focused
+            app = QtWidgets.QApplication.instance()
+            if app:
+                w = app.focusWidget()
+                if w and isinstance(
+                        w, (QtWidgets.QDoubleSpinBox,
+                            QtWidgets.QSpinBox,
+                            QtWidgets.QLineEdit)):
+                    # Still editing — retry later
+                    self._rebend_timer.start(1000)
+                    return
+            self._rebend(obj)
+
+        self._rebend_timer = QtCore.QTimer()
+        self._rebend_timer.setSingleShot(True)
+        self._rebend_timer.timeout.connect(_do_rebend)
+        self._rebend_timer.start(1000)
 
     def _rebend(self, obj):
         """Re-apply bending after Radius/Angle/Active or EnableBending
