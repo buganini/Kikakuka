@@ -1026,6 +1026,10 @@ def load_board(filepath, socket_path):
                         'is_back': is_back,
                         'models': models_info,
                     })
+                else:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   {ref}: skipped (no visible/resolved 3D models)\n"
+                    )
 
             except Exception as ex:
                 FreeCAD.Console.PrintWarning(
