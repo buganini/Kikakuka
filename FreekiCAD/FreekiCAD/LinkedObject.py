@@ -2376,13 +2376,37 @@ class LinkedObject:
             f"{_time.time() - _t_fuse:.3f}s "
             f"({len(pieces)} pieces)\n")
 
+        # Build 2D slices of pieces for fast adjacency checks.
+        # The board is flat — slicing at z=half_t gives 2D wires
+        # that are orders of magnitude cheaper than 3D distToShape.
+        _t_slices = _time.time()
+        piece_slices = []
+        for piece in pieces:
+            wires = piece.slice(FreeCAD.Vector(0, 0, 1), half_t)
+            if wires:
+                piece_slices.append(Part.Compound(wires))
+            else:
+                piece_slices.append(piece)  # fallback to 3D
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] 2D piece slices: "
+            f"{_time.time() - _t_slices:.3f}s\n")
+
+        # Build 2D cut segments for adjacency face matching.
+        cut_segments = []
+        for fi in range(len(cut_faces)):
+            sp0, sp1 = cut_plan[fi][0], cut_plan[fi][1]
+            edge_2d = Part.makeLine(
+                FreeCAD.Vector(sp0.x, sp0.y, half_t),
+                FreeCAD.Vector(sp1.x, sp1.y, half_t))
+            cut_segments.append(edge_2d)
+
         # Per-cut: pair S/M faces by topology (shared adjacent
         # piece = the wedge between them). Each pair gets a
         # unique segment ID for the preliminary BFS.
         seg_id_counter = 0
         face_to_seg = {}  # fi → segment_id
         seg_to_bend = {}  # segment_id → bi
-        # Find adjacent pieces for each face
+        # Find adjacent pieces for each face (2D)
         face_adj_pieces = {}
         for fi in range(len(cut_faces)):
             bi = face_bend.get(fi)
@@ -2390,8 +2414,8 @@ class LinkedObject:
                 continue
             adj_pi = set()
             for pi_chk in range(len(pieces)):
-                if pieces[pi_chk].distToShape(
-                        cut_faces[fi])[0] < 0.01:
+                if piece_slices[pi_chk].distToShape(
+                        cut_segments[fi])[0] < 0.01:
                     adj_pi.add(pi_chk)
             face_adj_pieces[fi] = adj_pi
         # Group faces of same bend that share a common piece
@@ -2448,7 +2472,9 @@ class LinkedObject:
         prelim_sets, prelim_tree, adjacency, geo_edges = \
             self._classify_pieces_bfs(
                 pieces, cut_faces, face_to_seg, mass_center,
-                half_t, bend_info, cut_plan, None, log=False)
+                half_t, bend_info, cut_plan, None, log=False,
+                piece_slices=piece_slices,
+                cut_segments=cut_segments)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] BFS #1 (preliminary): "
             f"{_time.time() - _t_bfs1:.3f}s\n")
@@ -3722,39 +3748,38 @@ class LinkedObject:
                 f" cm=({cm.x:.2f},{cm.y:.2f},{cm.z:.2f})"
                 f"{bl_name}\n")
 
-    def _build_geometric_adjacency(self, pieces, cut_faces, cut_plan):
+    def _build_geometric_adjacency(self, pieces, cut_faces, cut_plan,
+                                    piece_slices=None, cut_segments=None):
         """Build geometric adjacency: which pieces touch and via which cut face.
 
         Returns a list of (i, j, best_touch_fi_or_None) tuples.
-        This is the expensive part (O(n²) distToShape calls) and can be
-        cached when pieces/cut_faces don't change between BFS runs.
+
+        When *piece_slices* and *cut_segments* are provided, uses 2D
+        geometry for distance checks instead of 3D solids.
         """
         n = len(pieces)
         tol = 0.01
+        # Use 2D slices if available, otherwise 3D pieces
+        shapes = piece_slices if piece_slices is not None else pieces
         geo_edges = []
         for i in range(n):
             for j in range(i + 1, n):
-                d = pieces[i].distToShape(pieces[j])[0]
+                d = shapes[i].distToShape(shapes[j])[0]
                 if d > tol:
                     continue
                 mid = (pieces[i].CenterOfMass
                        + pieces[j].CenterOfMass) * 0.5
-                mid_v = Part.Vertex(mid)
-                # Find the best cut face touching BOTH pieces.
-                # Prefer nearest to midpoint, M over S as tiebreaker.
-                # Validate with cross-product + projection: both
-                # COMs must be on opposite sides of the cut segment
-                # and at least one must project onto the segment range.
                 best_touch_fi = None
                 best_touch_rank = (float('inf'), 1)
                 cm_i = pieces[i].CenterOfMass
                 cm_j = pieces[j].CenterOfMass
-                for fi, cf in enumerate(cut_faces):
-                    di_cf = pieces[i].distToShape(cf)[0]
-                    dj_cf = pieces[j].distToShape(cf)[0]
+                for fi in range(len(cut_faces)):
+                    cf_shape = (cut_segments[fi]
+                                if cut_segments is not None
+                                else cut_faces[fi])
+                    di_cf = shapes[i].distToShape(cf_shape)[0]
+                    dj_cf = shapes[j].distToShape(cf_shape)[0]
                     if di_cf < tol and dj_cf < tol:
-                        # Validate: cross-product side test +
-                        # projection onto segment range.
                         sp0_e, sp1_e = cut_plan[fi][0], cut_plan[fi][1]
                         sdx = sp1_e.x - sp0_e.x
                         sdy = sp1_e.y - sp0_e.y
@@ -3769,22 +3794,22 @@ class LinkedObject:
                         cj_ = sdx * vjy - sdy * vjx
                         if ci_ * cj_ >= 0:
                             continue  # same side, skip
-                        # Projection: the closer COM (smaller
-                        # perpendicular distance) must project
-                        # within the segment range.  This filters
-                        # endpoint artifacts where a piece in the
-                        # gap touches a cut face at its edge.
                         ti = (vix * sdx + viy * sdy) / sl2
                         tj = (vjx * sdx + vjy * sdy) / sl2
                         sl = sl2 ** 0.5
-                        pi_ = abs(ci_) / sl  # perp dist i
-                        pj_ = abs(cj_) / sl  # perp dist j
-                        # The closer piece's t must be in range
+                        pi_ = abs(ci_) / sl
+                        pj_ = abs(cj_) / sl
                         t_close = ti if pi_ < pj_ else tj
                         if t_close < -0.1 or t_close > 1.1:
                             continue  # endpoint artifact
-                        cd = cf.distToShape(mid_v)[0]
-                        rank = (round(cd, 2), 1)
+                        # 2D distance from cut segment midpoint
+                        # to piece-pair midpoint.
+                        seg_mid_x = (sp0_e.x + sp1_e.x) * 0.5
+                        seg_mid_y = (sp0_e.y + sp1_e.y) * 0.5
+                        dx = mid.x - seg_mid_x
+                        dy = mid.y - seg_mid_y
+                        d2 = dx * dx + dy * dy
+                        rank = (round(d2, 4), 1)
                         if rank < best_touch_rank:
                             best_touch_rank = rank
                             best_touch_fi = fi
@@ -3795,16 +3820,17 @@ class LinkedObject:
                              mass_center, half_t, bend_info, cut_plan,
                              micro_bend_info=None, log=True,
                              m_face_to_bend=None, mi_seg_idx=None,
-                             cached_geo_edges=None):
+                             cached_geo_edges=None,
+                             piece_slices=None, cut_segments=None):
         """BFS from the stationary piece with maximum-set preference.
 
         All crossings ADD the bend (union, sets only grow).
         Prefers larger sets to handle reentrance correctly.
 
-        Returns (piece_bend_sets, bfs_tree, adjacency)."""
+        Returns (piece_bend_sets, bfs_tree, adjacency, cached_geo_edges)."""
         n = len(pieces)
         if n == 0:
-            return [], {}, []
+            return [], {}, [], []
 
         # Stationary piece = closest to board outline center of mass.
         mc_2d = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
@@ -3815,12 +3841,12 @@ class LinkedObject:
                                pieces[pi].CenterOfMass.z)))
 
         # Build adjacency graph from geometric edges.
-        # TODO: adjacency after generalFuse is topology, not
-        # proximity — should use shared faces/edges instead of
-        # distToShape with a tolerance.
+        # Uses topological data from generalFuse when available.
         if cached_geo_edges is None:
             cached_geo_edges = self._build_geometric_adjacency(
-                pieces, cut_faces, cut_plan)
+                pieces, cut_faces, cut_plan,
+                piece_slices=piece_slices,
+                cut_segments=cut_segments)
 
         # Label edges using face_to_bend mapping (cheap).
         adjacency = [[] for _ in range(n)]
