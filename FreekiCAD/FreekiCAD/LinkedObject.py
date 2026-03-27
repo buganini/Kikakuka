@@ -4664,8 +4664,17 @@ class LinkedObject:
             self.Type = state.get("Type", "LinkedObject")
         self._board_color = None
 
+    # Properties that belong to this class (group "LinkedFile").
+    # Anything in this group not listed here is obsolete and removed
+    # on load by _ensure_properties().
+    _KNOWN_PROPERTIES = {
+        "FileName", "AutoReload", "EnableBending",
+        "BuildDebugObjects", "DebugBoard",
+        "ComponentMtimes", "FileMtime",
+    }
+
     def _ensure_properties(self, obj):
-        """Add hidden properties if they don't exist yet (migration)."""
+        """Add missing properties and remove obsolete ones (migration)."""
         if not hasattr(obj, 'ComponentMtimes'):
             obj.addProperty(
                 "App::PropertyString", "ComponentMtimes", "LinkedFile",
@@ -4686,6 +4695,14 @@ class LinkedObject:
                 "App::PropertyBool", "DebugBoard", "LinkedFile",
                 "Show each board piece as a separate child object")
             obj.DebugBoard = False
+        # Remove obsolete properties from older saved files.
+        for prop in list(obj.PropertiesList):
+            if obj.getGroupOfProperty(prop) == "LinkedFile" \
+                    and prop not in self._KNOWN_PROPERTIES:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: removing obsolete property "
+                    f"'{prop}'\n")
+                obj.removeProperty(prop)
 
 
 class LinkedObjectViewProvider:
