@@ -4371,7 +4371,11 @@ class LinkedObjectViewProvider:
         """Called by the timer — reload when file changed.
         First load (FileMtime empty) always reloads; subsequent
         changes only reload if AutoReload is enabled."""
-        obj = vobj.Object
+        try:
+            obj = vobj.Object
+        except ReferenceError:
+            self._auto_reload_timer.stop()
+            return
         if obj.Document.Restoring:
             return
         if not obj.FileName:
