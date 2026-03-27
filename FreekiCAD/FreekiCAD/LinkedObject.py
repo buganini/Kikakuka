@@ -2405,7 +2405,7 @@ class LinkedObject:
             f"FreekiCAD: [profile] Phase 2c (pairing): "
             f"{_time.time() - _t_phase2c:.3f}s\n")
         _t_bfs1 = _time.time()
-        prelim_sets, prelim_tree, adjacency = \
+        prelim_sets, prelim_tree, adjacency, geo_edges = \
             self._classify_pieces_bfs(
                 pieces, cut_faces, face_to_seg, mass_center,
                 half_t, bend_info, cut_plan, None, log=False)
@@ -2512,12 +2512,13 @@ class LinkedObject:
             f"{_time.time() - _t_phase2b2:.3f}s\n")
         _t_bfs2 = _time.time()
         face_to_bend = face_to_micro
-        piece_bend_sets, bfs_tree, adjacency = \
+        piece_bend_sets, bfs_tree, adjacency, _ = \
             self._classify_pieces_bfs(
                 pieces, cut_faces, face_to_bend, mass_center,
                 half_t, bend_info, cut_plan, micro_bend_info,
                 m_face_to_bend=m_face_to_bend,
-                mi_seg_idx=mi_seg_idx)
+                mi_seg_idx=mi_seg_idx,
+                cached_geo_edges=geo_edges)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] BFS #2 (final): "
             f"{_time.time() - _t_bfs2:.3f}s\n")
@@ -3681,37 +3682,16 @@ class LinkedObject:
                 f" cm=({cm.x:.2f},{cm.y:.2f},{cm.z:.2f})"
                 f"{bl_name}\n")
 
-    def _classify_pieces_bfs(self, pieces, cut_faces, face_to_bend,
-                             mass_center, half_t, bend_info, cut_plan,
-                             micro_bend_info=None, log=True,
-                             m_face_to_bend=None, mi_seg_idx=None):
-        """BFS from the stationary piece with maximum-set preference.
+    def _build_geometric_adjacency(self, pieces, cut_faces, cut_plan):
+        """Build geometric adjacency: which pieces touch and via which cut face.
 
-        All crossings ADD the bend (union, sets only grow).
-        Prefers larger sets to handle reentrance correctly.
-
-        Returns (piece_bend_sets, bfs_tree)."""
+        Returns a list of (i, j, best_touch_fi_or_None) tuples.
+        This is the expensive part (O(n²) distToShape calls) and can be
+        cached when pieces/cut_faces don't change between BFS runs.
+        """
         n = len(pieces)
-        if n == 0:
-            return [], {}
-
-        # Stationary piece = closest to board outline center of mass.
-        mc_2d = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
-        stationary_idx = min(
-            range(n),
-            key=lambda pi: pieces[pi].CenterOfMass.distanceToPoint(
-                FreeCAD.Vector(mc_2d.x, mc_2d.y,
-                               pieces[pi].CenterOfMass.z)))
-
-        # Build adjacency graph with directional cut edges.
-        # Cut-crossing edges go stationary→moving only (prevents
-        # over-propagation with larger-set preference).
-        # Non-cut edges are bidirectional with bi=-1.
-        # TODO: adjacency after generalFuse is topology, not
-        # proximity — should use shared faces/edges instead of
-        # distToShape with a tolerance.
         tol = 0.01
-        adjacency = [[] for _ in range(n)]
+        geo_edges = []
         for i in range(n):
             for j in range(i + 1, n):
                 d = pieces[i].distToShape(pieces[j])[0]
@@ -3720,19 +3700,11 @@ class LinkedObject:
                 mid = (pieces[i].CenterOfMass
                        + pieces[j].CenterOfMass) * 0.5
                 mid_v = Part.Vertex(mid)
-                best_fi = None
-                best_d = float('inf')
-                for fi, cf in enumerate(cut_faces):
-                    cd = cf.distToShape(mid_v)[0]
-                    if cd < best_d:
-                        best_d = cd
-                        best_fi = fi
                 # Find the best cut face touching BOTH pieces.
                 # Prefer nearest to midpoint, M over S as tiebreaker.
                 # Validate with cross-product + projection: both
                 # COMs must be on opposite sides of the cut segment
                 # and at least one must project onto the segment range.
-                found_cut = False
                 best_touch_fi = None
                 best_touch_rank = (float('inf'), 1)
                 cm_i = pieces[i].CenterOfMass
@@ -3771,21 +3743,55 @@ class LinkedObject:
                         t_close = ti if pi_ < pj_ else tj
                         if t_close < -0.1 or t_close > 1.1:
                             continue  # endpoint artifact
-                        mi = face_to_bend.get(fi, -1)
-                        is_s = 1 if mi >= 0 else 0
                         cd = cf.distToShape(mid_v)[0]
-                        rank = (round(cd, 2), is_s)
+                        rank = (round(cd, 2), 1)
                         if rank < best_touch_rank:
                             best_touch_rank = rank
                             best_touch_fi = fi
-                if best_touch_fi is not None:
-                    mi = face_to_bend.get(best_touch_fi, -1)
-                    adjacency[i].append((j, mi))
-                    adjacency[j].append((i, mi))
-                    found_cut = True
-                if not found_cut:
-                    adjacency[i].append((j, -1))
-                    adjacency[j].append((i, -1))
+                geo_edges.append((i, j, best_touch_fi))
+        return geo_edges
+
+    def _classify_pieces_bfs(self, pieces, cut_faces, face_to_bend,
+                             mass_center, half_t, bend_info, cut_plan,
+                             micro_bend_info=None, log=True,
+                             m_face_to_bend=None, mi_seg_idx=None,
+                             cached_geo_edges=None):
+        """BFS from the stationary piece with maximum-set preference.
+
+        All crossings ADD the bend (union, sets only grow).
+        Prefers larger sets to handle reentrance correctly.
+
+        Returns (piece_bend_sets, bfs_tree, adjacency)."""
+        n = len(pieces)
+        if n == 0:
+            return [], {}, []
+
+        # Stationary piece = closest to board outline center of mass.
+        mc_2d = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
+        stationary_idx = min(
+            range(n),
+            key=lambda pi: pieces[pi].CenterOfMass.distanceToPoint(
+                FreeCAD.Vector(mc_2d.x, mc_2d.y,
+                               pieces[pi].CenterOfMass.z)))
+
+        # Build adjacency graph from geometric edges.
+        # TODO: adjacency after generalFuse is topology, not
+        # proximity — should use shared faces/edges instead of
+        # distToShape with a tolerance.
+        if cached_geo_edges is None:
+            cached_geo_edges = self._build_geometric_adjacency(
+                pieces, cut_faces, cut_plan)
+
+        # Label edges using face_to_bend mapping (cheap).
+        adjacency = [[] for _ in range(n)]
+        for i, j, best_touch_fi in cached_geo_edges:
+            if best_touch_fi is not None:
+                mi = face_to_bend.get(best_touch_fi, -1)
+                adjacency[i].append((j, mi))
+                adjacency[j].append((i, mi))
+            else:
+                adjacency[i].append((j, -1))
+                adjacency[j].append((i, -1))
 
         # Helper to decode edge label for logging.
         # Per-cut labels: "9.0S", "9.1M" etc.
@@ -3852,7 +3858,7 @@ class LinkedObject:
                 piece_bend_sets[pi] = fb
                 bfs_tree[pi] = (stationary_idx, -1)
 
-        return piece_bend_sets, bfs_tree, adjacency
+        return piece_bend_sets, bfs_tree, adjacency, cached_geo_edges
 
     def _bend_board(self, board_obj, p0, p1, line_dir, normal,
                     radius, max_angle, half_thickness):
