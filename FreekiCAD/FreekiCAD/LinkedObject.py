@@ -995,6 +995,8 @@ def load_board(filepath, socket_path):
                 models_info = []
                 for model in models:
                     try:
+                        if not model.visible:
+                            continue
                         model_path = _resolve_model_path(
                             model.filename, board, kicad_vars)
                         if model_path is None:
