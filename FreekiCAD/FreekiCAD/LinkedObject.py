@@ -2129,6 +2129,8 @@ class LinkedObject:
 
     def __apply_bends_impl(self, obj, board_obj, bend_children,
                            thickness, enable_bending=True):
+        import time as _time
+        _t0_total = _time.time()
         unbent = getattr(self, '_unbent_board_shape', board_obj.Shape)
         # Use the bounding box center as the reference point for
         # bend normal orientation and stationary piece selection.
@@ -2139,6 +2141,7 @@ class LinkedObject:
         up = FreeCAD.Vector(0, 0, 1)
 
         # --- Phase 1: collect bend info from flat positions ---
+        _t_phase1 = _time.time()
         board_face = getattr(self, '_board_face', None)
         bend_info = []
         for bend_obj in bend_children:
@@ -2182,7 +2185,11 @@ class LinkedObject:
                 r_eff = radius + half_t
                 insets.append(r_eff * abs_a / 2.0)
 
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] Phase 1 (bend info): "
+            f"{_time.time() - _t_phase1:.3f}s\n")
         # --- Phase 2a: 2D cut plan ---
+        _t_phase2a = _time.time()
         # Each cut carries full bend info + moving_normal flag.
         # Format: (seg_p0, seg_p1, side, bi, angle_rad, radius,
         #          p0, normal, bend_obj, moving_normal)
@@ -2267,7 +2274,11 @@ class LinkedObject:
                     f"-({sp1.x:.2f},{sp1.y:.2f})\n")
         cut_plan = validated_plan
 
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] Phase 2a (2D cut plan): "
+            f"{_time.time() - _t_phase2a:.3f}s\n")
         # --- Phase 2b: create 3D cutting faces from 2D plan ---
+        _t_phase2b = _time.time()
         # Each S cut segment → independent micro-bend (full angle).
         # M cuts → geometry only (no micro-bend, no rotation).
         # After 2D planning, everything is per cut line.
@@ -2309,12 +2320,21 @@ class LinkedObject:
                                  FreeCAD.Vector(cut_mid),
                                  normal_ref, radius, bi)
 
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] Phase 2b (3D cut faces): "
+            f"{_time.time() - _t_phase2b:.3f}s\n")
         # --- Phase 2c: cut board, preliminary BFS, assign S/M ---
+        _t_phase2c = _time.time()
+        _t_fuse = _time.time()
         try:
             fused, _map = unbent.generalFuse(cut_faces)
             pieces = [s for s in fused.Solids if s.Volume > 1e-6]
         except Exception:
             pieces = []
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] generalFuse: "
+            f"{_time.time() - _t_fuse:.3f}s "
+            f"({len(pieces)} pieces)\n")
 
         # Per-cut: pair S/M faces by topology (shared adjacent
         # piece = the wedge between them). Each pair gets a
@@ -2381,10 +2401,17 @@ class LinkedObject:
                     seg_to_bend[sid] = bi
 
         # Preliminary BFS with per-segment labels.
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] Phase 2c (pairing): "
+            f"{_time.time() - _t_phase2c:.3f}s\n")
+        _t_bfs1 = _time.time()
         prelim_sets, prelim_tree, adjacency = \
             self._classify_pieces_bfs(
                 pieces, cut_faces, face_to_seg, mass_center,
                 half_t, bend_info, cut_plan, None, log=False)
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] BFS #1 (preliminary): "
+            f"{_time.time() - _t_bfs1:.3f}s\n")
 
         # Determine BFS parent piece per segment.
         seg_bfs_side = {}
@@ -2409,6 +2436,7 @@ class LinkedObject:
                 seg_bfs_side[sid] = 'S'
 
         # --- Phase 2b-2: assign S/M and create micro-bends ---
+        _t_phase2b2 = _time.time()
         # Log per-segment S/M.
         # (per-bend S-side logging removed — per-cut makes it irrelevant)
         s_group = {}
@@ -2479,6 +2507,10 @@ class LinkedObject:
                     f"\n")
 
         # Re-run BFS with correct S/M labels
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] Phase 2b-2 (S/M assign): "
+            f"{_time.time() - _t_phase2b2:.3f}s\n")
+        _t_bfs2 = _time.time()
         face_to_bend = face_to_micro
         piece_bend_sets, bfs_tree, adjacency = \
             self._classify_pieces_bfs(
@@ -2486,6 +2518,9 @@ class LinkedObject:
                 half_t, bend_info, cut_plan, micro_bend_info,
                 m_face_to_bend=m_face_to_bend,
                 mi_seg_idx=mi_seg_idx)
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] BFS #2 (final): "
+            f"{_time.time() - _t_bfs2:.3f}s\n")
 
         # Map components to pieces using flat (X, Y) in 2D
         comp_piece_idx = {}  # child.Name → pi
@@ -2589,6 +2624,7 @@ class LinkedObject:
                     f" set={sorted(bl_set)}\n")
 
         # --- Phase 3: apply bends sequentially using pre-cut pieces ---
+        _t_phase3 = _time.time()
         up = FreeCAD.Vector(0, 0, 1)
         piece_shapes = [p.copy() for p in pieces]
 
@@ -2919,8 +2955,12 @@ class LinkedObject:
                         f" ({final.x:.2f},{final.y:.2f},"
                         f"{final.z:.2f})\n")
 
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] Phase 3 (rotation): "
+            f"{_time.time() - _t_phase3:.3f}s\n")
         # Bend wedge pieces into arcs via loft between
         # rotated cross-sections.
+        _t_loft = _time.time()
         # N_SLICES per wedge: at least 16, or 1 per degree
         # (computed per wedge below)
         coc_offsets = {}  # bi → (bend_obj, first_s_mi)
@@ -3105,6 +3145,10 @@ class LinkedObject:
                         f"FreekiCAD: wedge loft failed for"
                         f" piece {pi}: {e}\n")
 
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] Wedge loft: "
+            f"{_time.time() - _t_loft:.3f}s\n")
+        _t_corr = _time.time()
         # Correct moving pieces per cut line: the wedge wraps
         # around CoC carrying the moving part, but pieces were
         # rotated from their flat M-edge position.  Correction
@@ -3310,7 +3354,11 @@ class LinkedObject:
                     f" cm=({cm.x:.2f},{cm.y:.2f},{cm.z:.2f})"
                     f"{bl_name}\n")
 
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] Correction + assembly: "
+            f"{_time.time() - _t_corr:.3f}s\n")
         # Update board shape with all pieces (including bent wedges)
+        _t_final = _time.time()
         saved_color = None
         try:
             saved_color = board_obj.ViewObject.ShapeColor
@@ -3400,6 +3448,13 @@ class LinkedObject:
                                            "ReadOnly")
                 pobj.Chain = path_str
                 grp.addObject(pobj)
+
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] Final assembly: "
+            f"{_time.time() - _t_final:.3f}s\n")
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] TOTAL __apply_bends_impl: "
+            f"{_time.time() - _t0_total:.3f}s\n")
 
     def _draw_debug_cuts(self, obj, debug_cut_segs, thickness):
         """Draw trimmed cutting segments as colored lines at z=thickness.
