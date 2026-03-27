@@ -2590,20 +2590,28 @@ class LinkedObject:
             for pi, piece in enumerate(pieces):
                 cm = piece.CenterOfMass
                 cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
-                d = (cm_2d - p0).dot(normal)
-                if abs(d) >= ins - 1e-6:
-                    continue
-                t = (cm_2d - p0).dot(line_dir)
-                on_bend = False
+                # Shortest 2D distance from CenterOfMass to any
+                # trimmed bend segment; no arbitrary margin needed.
+                min_dist = float('inf')
                 for sp0, sp1 in bl_segs:
-                    t0 = (sp0 - p0).dot(line_dir)
-                    t1 = (sp1 - p0).dot(line_dir)
-                    if t0 > t1:
-                        t0, t1 = t1, t0
-                    if t0 - 0.1 <= t <= t1 + 0.1:
-                        on_bend = True
-                        break
-                if on_bend:
+                    sx = sp1.x - sp0.x
+                    sy = sp1.y - sp0.y
+                    sl2 = sx * sx + sy * sy
+                    if sl2 < 1e-12:
+                        d = math.sqrt((cm_2d.x - sp0.x) ** 2
+                                      + (cm_2d.y - sp0.y) ** 2)
+                    else:
+                        t = max(0.0, min(1.0,
+                            ((cm_2d.x - sp0.x) * sx
+                             + (cm_2d.y - sp0.y) * sy)
+                            / sl2))
+                        px = sp0.x + t * sx
+                        py = sp0.y + t * sy
+                        d = math.sqrt((cm_2d.x - px) ** 2
+                                      + (cm_2d.y - py) ** 2)
+                    if d < min_dist:
+                        min_dist = d
+                if min_dist < ins + GEOMETRY_TOLERANCE:
                     strip_pieces.add(pi)
                     strip_to_bend[pi] = bi
 
