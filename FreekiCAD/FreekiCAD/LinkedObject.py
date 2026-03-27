@@ -1461,30 +1461,7 @@ class _OutlineSketchObserver:
         obj = vobj.Object
         if getattr(obj.Document, 'Restoring', False):
             return
-        parent = self._find_linked_parent(obj)
-        if parent:
-            parent.Proxy._on_outline_edit_done(parent)
-            return
-        # Component transform tool closed — trigger KiCad save
-        parent = self._find_component_parent(obj)
-        if parent is not None:
-            from PySide import QtCore
-            QtCore.QTimer.singleShot(
-                0, lambda: self._deferred_component_save(parent))
-
-    def _deferred_component_save(self, parent):
-        """Save KiCad board after component transform tool is closed."""
-        proxy = parent.Proxy
-        try:
-            board = proxy._get_kicad_board(parent)
-            if board is None:
-                return
-            board.save()
-            FreeCAD.Console.PrintMessage(
-                "FreekiCAD: Board file saved after component move\n")
-        except Exception as e:
-            FreeCAD.Console.PrintWarning(
-                f"FreekiCAD: Failed to save board after move: {e}\n")
+        pass
 
 
 def _find_obj_by_label(label):
@@ -4086,38 +4063,7 @@ class LinkedObject:
                 f"FreekiCAD: {traceback.format_exc()}\n")
 
     def _on_outline_edit_done(self, obj):
-        """Called when the outline sketch editor is closed.
-        Defers save to the next event loop iteration to avoid
-        modifying the document inside a document observer callback."""
-        FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: Outline sketch editor closed for '{obj.Name}', "
-            "deferring save...\n")
-        from PySide import QtCore
-        QtCore.QTimer.singleShot(0, lambda: self._deferred_save(obj))
-
-    def _deferred_save(self, obj):
-        """Save board file via kipy (runs outside observer callback).
-        The mtime watcher will trigger reload if AutoReload is enabled."""
-        try:
-            board = self._get_kicad_board(obj)
-            if board is None:
-                FreeCAD.Console.PrintWarning(
-                    "FreekiCAD: _deferred_save: board is None, "
-                    "cannot save\n")
-                return
-            board.save()
-            FreeCAD.Console.PrintMessage("FreekiCAD: Board file saved\n")
-            # Clear stored mtime so the auto-reload watcher detects the
-            # newly saved file and triggers a reload.
-            if hasattr(obj, 'FileMtime'):
-                obj.FileMtime = ""
-        except Exception as ex:
-            FreeCAD.Console.PrintWarning(
-                f"FreekiCAD: Failed to save board: {ex}\n")
-        finally:
-            self._kicad = None
-            self._cached_socket_path = None
-            self._suppress_execute = False
+        pass
 
     def _build_outline_sketch(self, sketch, edges):
         """Populate a Sketcher::SketchObject with geometry and coincident
