@@ -1524,10 +1524,10 @@ class LinkedObject:
         )
         obj.EnableBending = True
         obj.addProperty(
-            "App::PropertyBool", "ShowDebug", "LinkedFile",
-            "Show debug arrows and cut lines"
+            "App::PropertyBool", "BuildDebugObjects", "LinkedFile",
+            "Build debug arrows and cut lines"
         )
-        obj.ShowDebug = False
+        obj.BuildDebugObjects = False
         obj.addProperty(
             "App::PropertyBool", "DebugBoard", "LinkedFile",
             "Show each board piece as a separate child object"
@@ -1548,7 +1548,7 @@ class LinkedObject:
         self._board_color = None
 
     def onChanged(self, obj, prop):
-        if prop in ("EnableBending", "ShowDebug", "DebugBoard"):
+        if prop in ("EnableBending", "BuildDebugObjects", "DebugBoard"):
             if not obj.Document.Restoring:
                 self._rebend(obj)
             return
@@ -2578,13 +2578,44 @@ class LinkedObject:
             f"{_time.time() - _t_phase2b2:.3f}s\n")
         _t_bfs2 = _time.time()
         face_to_bend = face_to_micro
+        # Identify wedge pieces before BFS #2 so BFS can skip
+        # through them and build piece-to-piece arrows.
+        strip_pieces = set()
+        strip_to_bend = {}
+        for bi, (_, p0, p1, line_dir, normal,
+                 angle_rad, radius) in enumerate(bend_info):
+            ins = insets[bi]
+            if ins < 1e-6:
+                continue
+            bl_segs = trimmed_bend_segs[bi]
+            for pi, piece in enumerate(pieces):
+                cm = piece.CenterOfMass
+                cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
+                d = (cm_2d - p0).dot(normal)
+                if abs(d) >= ins - 1e-6:
+                    continue
+                t = (cm_2d - p0).dot(line_dir)
+                on_bend = False
+                for sp0, sp1 in bl_segs:
+                    t0 = (sp0 - p0).dot(line_dir)
+                    t1 = (sp1 - p0).dot(line_dir)
+                    if t0 > t1:
+                        t0, t1 = t1, t0
+                    if t0 - 0.1 <= t <= t1 + 0.1:
+                        on_bend = True
+                        break
+                if on_bend:
+                    strip_pieces.add(pi)
+                    strip_to_bend[pi] = bi
+
         piece_bend_sets, bfs_tree, adjacency, _ = \
             self._classify_pieces_bfs(
                 pieces, cut_faces, face_to_bend, mass_center,
                 half_t, bend_info, cut_plan, micro_bend_info,
                 m_face_to_bend=m_face_to_bend,
                 mi_seg_idx=mi_seg_idx,
-                cached_geo_edges=geo_edges)
+                cached_geo_edges=geo_edges,
+                strip_pieces=strip_pieces)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] BFS #2 (final): "
             f"{_time.time() - _t_bfs2:.3f}s\n")
@@ -2645,7 +2676,7 @@ class LinkedObject:
                 stat_pi = None
                 for mi_own in own_mis:
                     for pi_a in range(len(pieces)):
-                        for nbr, mi_adj in adjacency[pi_a]:
+                        for nbr, mi_adj, _fi in adjacency[pi_a]:
                             if mi_adj != mi_own:
                                 continue
                             # pi_a and nbr separated by mi_own
@@ -2695,47 +2726,14 @@ class LinkedObject:
         up = FreeCAD.Vector(0, 0, 1)
         piece_shapes = [p.copy() for p in pieces]
 
-        # Identify strip (wedge) pieces for each bend with inset > 0.
-        # A strip piece's center of mass must be:
-        # 1. Between ±inset of the bend line in the normal direction
-        # 2. Along a trimmed bend line segment (not an island from
-        #    virtual cuts crossing concave areas)
-        strip_pieces = set()
-        strip_to_bend = {}
-        for bi, (_, p0, p1, line_dir, normal,
-                 angle_rad, radius) in enumerate(bend_info):
-            ins = insets[bi]
-            if ins < 1e-6:
-                continue
-            bl_segs = trimmed_bend_segs[bi]
-            for pi, piece in enumerate(pieces):
-                cm = piece.CenterOfMass
-                cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
-                d = (cm_2d - p0).dot(normal)
-                if abs(d) >= ins - 1e-6:
-                    continue
-                # Check if piece overlaps any trimmed bend segment
-                # by projecting piece center onto bend line direction
-                t = (cm_2d - p0).dot(line_dir)
-                on_bend = False
-                for sp0, sp1 in bl_segs:
-                    t0 = (sp0 - p0).dot(line_dir)
-                    t1 = (sp1 - p0).dot(line_dir)
-                    if t0 > t1:
-                        t0, t1 = t1, t0
-                    if t0 - 0.1 <= t <= t1 + 0.1:
-                        on_bend = True
-                        break
-                if on_bend:
-                    strip_pieces.add(pi)
-                    strip_to_bend[pi] = bi
+        # strip_pieces and strip_to_bend already computed before BFS #2.
 
         # Map each wedge piece to its specific S-cut mi
         # (from adjacency: the S edge has mi >= 0).
         strip_to_mi = {}
         for pi in strip_pieces:
             bi = strip_to_bend[pi]
-            for nbr, mi_val in adjacency[pi]:
+            for nbr, mi_val, _fi in adjacency[pi]:
                 if mi_val >= 0 and micro_bend_info[mi_val][5] == bi:
                     strip_to_mi[pi] = mi_val
                     break
@@ -2756,11 +2754,11 @@ class LinkedObject:
         while bfs_q:
             cur = bfs_q.pop(0)
             entry = bfs_tree.get(cur)
-            if entry and entry[1] is not None and entry[1] >= 0:
-                bi = entry[1]
-                if bi not in seen_bends:
-                    bend_order.append(bi)
-                    seen_bends.add(bi)
+            if entry:
+                for bi in sorted(entry[1]):
+                    if bi >= 0 and bi not in seen_bends:
+                        bend_order.append(bi)
+                        seen_bends.add(bi)
             for pi in range(len(pieces)):
                 if pi in bfs_visit:
                     continue
@@ -2776,6 +2774,7 @@ class LinkedObject:
 
         # Per-cut: set of mi's crossed in BFS chain from root.
         # If mi is in the set, piece is on the M-side of that cut.
+        # bfs_tree entries are (parent, mis_crossed_set, wedge_pi).
         piece_mi_set = [set() for _ in range(len(pieces))]
         for pi in range(len(pieces)):
             cur = pi
@@ -2783,10 +2782,30 @@ class LinkedObject:
                 entry = bfs_tree.get(cur)
                 if entry is None:
                     break
-                parent, mi_crossed = entry
-                if parent is not None and mi_crossed >= 0:
-                    piece_mi_set[pi].add(mi_crossed)
+                parent = entry[0]
+                mis_crossed = entry[1]  # set of mi indices
+                if parent is not None:
+                    piece_mi_set[pi].update(
+                        mi for mi in mis_crossed if mi >= 0)
                 cur = parent
+
+        # Wedges aren't in bfs_tree (piece-to-piece BFS).
+        # Derive their piece_mi_set from the dest piece that
+        # crosses through them.
+        for wpi in strip_pieces:
+            for dest_pi, entry in bfs_tree.items():
+                if entry[2] == wpi:
+                    piece_mi_set[wpi] = piece_mi_set[dest_pi].copy()
+                    break
+            else:
+                # No dest through this wedge — use S-parent + mi
+                mi_w = strip_to_mi.get(wpi)
+                if mi_w is not None:
+                    for nbr, mi_adj, _fi in adjacency[wpi]:
+                        if mi_adj == mi_w and nbr not in strip_pieces:
+                            piece_mi_set[wpi] = \
+                                piece_mi_set[nbr] | {mi_w}
+                            break
 
         # Group micro-bends by their source bend_obj for
         # shared pivot computation.
@@ -2798,11 +2817,11 @@ class LinkedObject:
         while bfs_q2:
             cur = bfs_q2.pop(0)
             entry = bfs_tree.get(cur)
-            if entry and entry[1] is not None and entry[1] >= 0:
-                mi = entry[1]
-                if mi not in seen_mi:
-                    micro_order.append(mi)
-                    seen_mi.add(mi)
+            if entry:
+                for mi in sorted(entry[1]):
+                    if mi >= 0 and mi not in seen_mi:
+                        micro_order.append(mi)
+                        seen_mi.add(mi)
             for pi2 in range(len(pieces)):
                 if pi2 in bfs_visit2:
                     continue
@@ -2863,28 +2882,24 @@ class LinkedObject:
             for wpi in strip_pieces:
                 if strip_to_mi.get(wpi) == mi:
                     mi_wpi = wpi
-                    # Check if M-entry (re-entry) wedge
-                    entry = bfs_tree.get(wpi, (None, None))
-                    entry_mi_val = entry[1] if entry else None
-                    mi_is_m_entry = (entry_mi_val is not None
-                                     and entry_mi_val <= -2
-                                     and -(entry_mi_val + 2) == orig_bi)
-                    if mi_is_m_entry:
-                        # M-entry: use S-side neighbor instead of
-                        # BFS parent.  The BFS parent is on the M-side
-                        # and has a different accumulated transform.
-                        # The S-side neighbor (through the S-cut mi)
-                        # has the correct transform for the cut.
-                        for nbr, mi_adj in adjacency[wpi]:
-                            if mi_adj == mi:
-                                s_parent_pi = nbr
-                                break
-                        FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD: mi {mi} M-entry:"
-                            f" S-side neighbor={s_parent_pi}"
-                            f" (BFS parent={entry[0]})\n")
-                    else:
-                        s_parent_pi = bfs_tree.get(wpi, (None,))[0]
+                    # S-parent = neighbor connected via S-cut mi
+                    for nbr, mi_adj, _fi in adjacency[wpi]:
+                        if mi_adj == mi:
+                            s_parent_pi = nbr
+                            break
+                    # M-entry: the BFS source that goes through
+                    # this wedge is on the M-side.
+                    for dest_pi, bfs_e in bfs_tree.items():
+                        if bfs_e[2] == wpi:
+                            src_pi = bfs_e[0]
+                            if src_pi != s_parent_pi:
+                                mi_is_m_entry = True
+                                FreeCAD.Console.PrintMessage(
+                                    f"FreekiCAD: mi {mi}"
+                                    f" M-entry: S-side="
+                                    f"{s_parent_pi}"
+                                    f" (BFS src={src_pi})\n")
+                            break
                     break
 
             # Build virtual_plc from the S-parent's accumulated
@@ -3083,13 +3098,20 @@ class LinkedObject:
             if bi not in coc_offsets:
                 coc_offsets[bi] = (bend_obj_bi, s_mi)
 
-            # BFS entry info
-            entry = bfs_tree.get(pi, (None, None))
-            entry_mi = entry[1]
+            # M-entry: check if BFS source through this wedge
+            # differs from S-parent (meaning it came from M-side).
             m_entry = False
-            if entry_mi is not None and entry_mi <= -2:
-                if -(entry_mi + 2) == bi:
-                    m_entry = True
+            s_nbr = None
+            for nbr_w, mi_w, _fi_w in adjacency[pi]:
+                if mi_w == s_mi:
+                    s_nbr = nbr_w
+                    break
+            if s_nbr is not None:
+                for dest_pi, e in bfs_tree.items():
+                    if e[2] == pi:
+                        if e[0] != s_nbr:
+                            m_entry = True
+                        break
 
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: wedge pi={pi} bi={bi}"
@@ -3350,7 +3372,7 @@ class LinkedObject:
                 new_base, bl_obj.Placement.Rotation)
 
         # Draw debug visualizations if enabled
-        show_debug = getattr(obj, 'ShowDebug', False)
+        show_debug = getattr(obj, 'BuildDebugObjects', False)
         if show_debug and pieces:
             self._draw_debug_arrows(
                 obj, pieces, piece_bend_sets, bfs_tree,
@@ -3379,19 +3401,26 @@ class LinkedObject:
                     entry = bfs_tree.get(cur)
                     if entry is None:
                         break
-                    parent, bi_crossed = entry
+                    parent = entry[0]
+                    mis_crossed = entry[1]  # set of mi indices
                     if parent is not None:
-                        if bi_crossed >= 0:
-                            orig_bi = micro_bend_info[bi_crossed][5]
-                            seg = mi_seg_idx.get(bi_crossed, 0)
-                            path.append(f"{orig_bi}.{seg}S")
-                        elif bi_crossed <= -2 and m_face_to_bend:
-                            b, s = m_face_to_bend.get(
-                                bi_crossed, (-bi_crossed-2, 0))
-                            path.append(f"{b}.{s}M")
-                        elif bi_crossed <= -2:
-                            path.append(
-                                f"{-bi_crossed - 2}M")
+                        for bi_crossed in sorted(mis_crossed):
+                            if bi_crossed >= 0:
+                                orig_bi = micro_bend_info[
+                                    bi_crossed][5]
+                                seg = mi_seg_idx.get(
+                                    bi_crossed, 0)
+                                path.append(
+                                    f"{orig_bi}.{seg}S")
+                            elif (bi_crossed <= -2
+                                    and m_face_to_bend):
+                                b, s = m_face_to_bend.get(
+                                    bi_crossed,
+                                    (-bi_crossed-2, 0))
+                                path.append(f"{b}.{s}M")
+                            elif bi_crossed <= -2:
+                                path.append(
+                                    f"{-bi_crossed-2}M")
                     cur = parent
                 path.reverse()
                 # Collapse consecutive same-bend M crossings.
@@ -3426,20 +3455,22 @@ class LinkedObject:
             f"{_time.time() - _t_corr:.3f}s\n")
         # Update board shape with all pieces (including bent wedges)
         _t_final = _time.time()
-        saved_color = None
-        try:
-            saved_color = board_obj.ViewObject.ShapeColor
-        except Exception:
-            pass
-
-        board_obj.Shape = Part.makeCompound(
-            [s for s in piece_shapes if s.isValid() and s.Volume > 1e-6])
-
-        if saved_color:
+        if enable_bending:
+            saved_color = None
             try:
-                board_obj.ViewObject.ShapeColor = saved_color
+                saved_color = board_obj.ViewObject.ShapeColor
             except Exception:
                 pass
+
+            board_obj.Shape = Part.makeCompound(
+                [s for s in piece_shapes
+                 if s.isValid() and s.Volume > 1e-6])
+
+            if saved_color:
+                try:
+                    board_obj.ViewObject.ShapeColor = saved_color
+                except Exception:
+                    pass
 
         # Hide assembled board when DebugBoard is enabled
         debug_board = getattr(obj, 'DebugBoard', False)
@@ -3479,18 +3510,27 @@ class LinkedObject:
                     entry = bfs_tree.get(cur)
                     if entry is None:
                         break
-                    parent, bi_crossed = entry
+                    parent = entry[0]
+                    mis_crossed = entry[1]  # set of mi indices
                     if parent is not None:
-                        if bi_crossed >= 0:
-                            obi = micro_bend_info[bi_crossed][5]
-                            seg = mi_seg_idx.get(bi_crossed, 0)
-                            path.append(f"{obi}.{seg}S")
-                        elif bi_crossed <= -2 and m_face_to_bend:
-                            mb, ms = m_face_to_bend.get(
-                                bi_crossed, (-bi_crossed-2, 0))
-                            path.append(f"{mb}.{ms}M")
-                        elif bi_crossed <= -2:
-                            path.append(f"{-bi_crossed-2}M")
+                        for bi_crossed in sorted(mis_crossed):
+                            if bi_crossed >= 0:
+                                obi = micro_bend_info[
+                                    bi_crossed][5]
+                                seg = mi_seg_idx.get(
+                                    bi_crossed, 0)
+                                path.append(
+                                    f"{obi}.{seg}S")
+                            elif (bi_crossed <= -2
+                                    and m_face_to_bend):
+                                mb, ms = m_face_to_bend.get(
+                                    bi_crossed,
+                                    (-bi_crossed-2, 0))
+                                path.append(
+                                    f"{mb}.{ms}M")
+                            elif bi_crossed <= -2:
+                                path.append(
+                                    f"{-bi_crossed-2}M")
                     cur = parent
                 path.reverse()
                 path_str = "/".join(path) if path \
@@ -3507,13 +3547,28 @@ class LinkedObject:
                     pobj.setPropertyStatus("PieceName",
                                            "ReadOnly")
                 pobj.PieceName = f"p{pi}_{lbl}"
-                if not hasattr(pobj, 'Chain'):
-                    pobj.addProperty(
-                        "App::PropertyString", "Chain",
-                        "Debug", "BFS path from root")
-                    pobj.setPropertyStatus("Chain",
-                                           "ReadOnly")
-                pobj.Chain = path_str
+                if pi in strip_pieces:
+                    # Wedge: show cut segment id
+                    bi_w = strip_to_bend[pi]
+                    if not hasattr(pobj, 'Cut'):
+                        pobj.addProperty(
+                            "App::PropertyString", "Cut",
+                            "Debug",
+                            "Cut segment this wedge sits on")
+                        pobj.setPropertyStatus("Cut",
+                                               "ReadOnly")
+                    seg = mi_seg_idx.get(
+                        strip_to_mi.get(pi, -1), 0)
+                    pobj.Cut = f"{bi_w}.{seg}"
+                else:
+                    # Regular piece: show BFS chain
+                    if not hasattr(pobj, 'Chain'):
+                        pobj.addProperty(
+                            "App::PropertyString", "Chain",
+                            "Debug", "BFS path from root")
+                        pobj.setPropertyStatus("Chain",
+                                               "ReadOnly")
+                    pobj.Chain = path_str
                 grp.addObject(pobj)
 
         FreeCAD.Console.PrintMessage(
@@ -3635,6 +3690,44 @@ class LinkedObject:
         edges = []
         labels = []  # (center, label_text)
 
+        def _single_arrow(start, end):
+            """Draw line with single arrowhead at end."""
+            dist = start.distanceToPoint(end)
+            if dist < 0.01:
+                return
+            edges.append(Part.makeLine(start, end))
+            d = (end - start) * (1.0 / dist)
+            hl = min(0.3, dist * 0.2)
+            perp = FreeCAD.Vector(-d.y, d.x, 0)
+            base = end - d * hl
+            edges.append(Part.makeLine(
+                end, base + perp * hl * 0.4))
+            edges.append(Part.makeLine(
+                end, base - perp * hl * 0.4))
+
+        def _double_arrow(start, end):
+            """Draw line with double arrowhead at end."""
+            dist = start.distanceToPoint(end)
+            if dist < 0.01:
+                return
+            edges.append(Part.makeLine(start, end))
+            d = (end - start) * (1.0 / dist)
+            hl = min(0.3, dist * 0.2)
+            perp = FreeCAD.Vector(-d.y, d.x, 0)
+            # First arrowhead at tip
+            base1 = end - d * hl
+            edges.append(Part.makeLine(
+                end, base1 + perp * hl * 0.4))
+            edges.append(Part.makeLine(
+                end, base1 - perp * hl * 0.4))
+            # Second arrowhead behind first
+            tip2 = end - d * hl * 0.8
+            base2 = tip2 - d * hl
+            edges.append(Part.makeLine(
+                tip2, base2 + perp * hl * 0.4))
+            edges.append(Part.makeLine(
+                tip2, base2 - perp * hl * 0.4))
+
         for pi, piece in enumerate(pieces):
             cm = piece.CenterOfMass
             # Classify piece
@@ -3647,27 +3740,25 @@ class LinkedObject:
                 label = "M" + ",".join(str(b) for b in bends)
             labels.append((cm, label))
 
-            # Draw arrow from parent to this piece
-            parent_info = bfs_tree.get(pi)
-            if parent_info and parent_info[0] is not None:
-                parent_idx, bend_crossed = parent_info
+            # Draw arrows for BFS tree edges
+            entry = bfs_tree.get(pi)
+            if entry and entry[0] is not None:
+                parent_idx = entry[0]
+                wedge_pi = entry[2]
                 parent_cm = pieces[parent_idx].CenterOfMass
-                start = FreeCAD.Vector(
-                    parent_cm.x, parent_cm.y,
-                    thickness)
-                end = FreeCAD.Vector(
+                src = FreeCAD.Vector(
+                    parent_cm.x, parent_cm.y, thickness)
+                dst = FreeCAD.Vector(
                     cm.x, cm.y, thickness)
-                dist = start.distanceToPoint(end)
-                if dist > 0.01:
-                    edges.append(Part.makeLine(start, end))
-                    d = (end - start) * (1.0 / dist)
-                    hl = min(0.3, dist * 0.2)
-                    perp = FreeCAD.Vector(-d.y, d.x, 0)
-                    base = end - d * hl
-                    edges.append(Part.makeLine(
-                        end, base + perp * hl * 0.4))
-                    edges.append(Part.makeLine(
-                        end, base - perp * hl * 0.4))
+                if wedge_pi is not None:
+                    # src → wedge (single), wedge →→ dest (double)
+                    w_cm = pieces[wedge_pi].CenterOfMass
+                    mid = FreeCAD.Vector(
+                        w_cm.x, w_cm.y, thickness)
+                    _single_arrow(src, mid)
+                    _double_arrow(mid, dst)
+                else:
+                    _single_arrow(src, dst)
 
         # Circle at BFS root (stationary/fixed piece)
         for pi, piece in enumerate(pieces):
@@ -3711,20 +3802,26 @@ class LinkedObject:
                     entry = bfs_tree.get(cur)
                     if entry is None:
                         break
-                    parent, bi_crossed = entry
+                    parent = entry[0]
+                    mis_crossed = entry[1]  # set of mi indices
                     if parent is not None:
-                        if bi_crossed >= 0:
-                            orig_bi = micro_bend_info[bi_crossed][5]
-                            seg = mi_seg_idx.get(bi_crossed, 0)
-                            path.append(f"{orig_bi}.{seg}S")
-                        elif bi_crossed <= -2 and m_face_to_bend:
-                            b, s = m_face_to_bend.get(
-                                bi_crossed, (-bi_crossed-2, 0))
-                            path.append(f"{b}.{s}M")
-                        elif bi_crossed <= -2:
-                            path.append(
-                                f"{-bi_crossed - 2}M")
-                        # skip -1 (non-cut edge, no notation)
+                        for bi_crossed in sorted(mis_crossed):
+                            if bi_crossed >= 0:
+                                orig_bi = micro_bend_info[
+                                    bi_crossed][5]
+                                seg = mi_seg_idx.get(
+                                    bi_crossed, 0)
+                                path.append(
+                                    f"{orig_bi}.{seg}S")
+                            elif (bi_crossed <= -2
+                                    and m_face_to_bend):
+                                b, s = m_face_to_bend.get(
+                                    bi_crossed,
+                                    (-bi_crossed-2, 0))
+                                path.append(f"{b}.{s}M")
+                            elif bi_crossed <= -2:
+                                path.append(
+                                    f"{-bi_crossed-2}M")
                     cur = parent
                 path.reverse()
             path_str = "/".join(path) if path else "(root)"
@@ -3821,11 +3918,17 @@ class LinkedObject:
                              micro_bend_info=None, log=True,
                              m_face_to_bend=None, mi_seg_idx=None,
                              cached_geo_edges=None,
-                             piece_slices=None, cut_segments=None):
+                             piece_slices=None, cut_segments=None,
+                             strip_pieces=None):
         """BFS from the stationary piece with maximum-set preference.
 
         All crossings ADD the bend (union, sets only grow).
-        Prefers larger sets to handle reentrance correctly.
+
+        When *strip_pieces* is set, BFS builds piece-to-piece arrows
+        that skip through wedges.  Each bfs_tree entry is
+        ``(parent_pi, mis_crossed, wedge_pi)`` where *mis_crossed*
+        is a set of mi indices.  Without *strip_pieces*, entries are
+        ``(parent_pi, mi_crossed)`` (2-tuple for preliminary BFS).
 
         Returns (piece_bend_sets, bfs_tree, adjacency, cached_geo_edges)."""
         n = len(pieces)
@@ -3849,15 +3952,16 @@ class LinkedObject:
                 cut_segments=cut_segments)
 
         # Label edges using face_to_bend mapping (cheap).
+        # Each entry: (neighbor, mi_label, face_index_or_None)
         adjacency = [[] for _ in range(n)]
         for i, j, best_touch_fi in cached_geo_edges:
             if best_touch_fi is not None:
                 mi = face_to_bend.get(best_touch_fi, -1)
-                adjacency[i].append((j, mi))
-                adjacency[j].append((i, mi))
+                adjacency[i].append((j, mi, best_touch_fi))
+                adjacency[j].append((i, mi, best_touch_fi))
             else:
-                adjacency[i].append((j, -1))
-                adjacency[j].append((i, -1))
+                adjacency[i].append((j, -1, None))
+                adjacency[j].append((i, -1, None))
 
         # Helper to decode edge label for logging.
         # Per-cut labels: "9.0S", "9.1M" etc.
@@ -3881,48 +3985,184 @@ class LinkedObject:
         if log:
             for pi in range(n):
                 edges = []
-                for nbr, bi in adjacency[pi]:
+                for nbr, bi, _fi in adjacency[pi]:
                     edges.append(f"{nbr}({_edge_label(bi)})")
                 if edges:
                     FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: adj {pi} → "
+                        f"FreekiCAD: adjacent {pi} → "
                         f"{', '.join(edges)}\n")
 
         # BFS: strict first-visit, all crossings add the bend.
         # No re-visiting, no re-queuing — first path wins.
+        _sp = strip_pieces or set()
+
+        def _side_test(pi_a, pi_b, fi_cut):
+            """Return True if pieces a and b are on different sides
+            of the cut segment identified by *fi_cut*."""
+            if fi_cut is None:
+                return True
+            sp0, sp1 = cut_plan[fi_cut][0], cut_plan[fi_cut][1]
+            sdx = sp1.x - sp0.x
+            sdy = sp1.y - sp0.y
+            cm_a = pieces[pi_a].CenterOfMass
+            cm_b = pieces[pi_b].CenterOfMass
+            ca = sdx * (cm_a.y - sp0.y) - sdy * (cm_a.x - sp0.x)
+            cb = sdx * (cm_b.y - sp0.y) - sdy * (cm_b.x - sp0.x)
+            return ca * cb < 0
+
+        def _get_bend_idx(bi):
+            if bi >= 0 and micro_bend_info is not None:
+                return micro_bend_info[bi][5]
+            elif bi >= 0:
+                return bi
+            elif bi <= -2 and m_face_to_bend:
+                return m_face_to_bend.get(bi, (-bi - 2, 0))[0]
+            elif bi <= -2:
+                return -bi - 2
+            return None
+
         piece_bend_sets = [None] * n
         piece_bend_sets[stationary_idx] = set()
-        bfs_tree = {stationary_idx: (None, None)}
-        queue = [stationary_idx]
-        while queue:
-            cur = queue.pop(0)
-            for nbr, bi in adjacency[cur]:
-                if piece_bend_sets[nbr] is not None:
-                    continue  # already visited
-                if bi >= 0:
-                    bend_idx = micro_bend_info[bi][5] \
-                        if micro_bend_info is not None \
-                        else bi
-                    piece_bend_sets[nbr] = \
-                        piece_bend_sets[cur] | {bend_idx}
-                else:
-                    piece_bend_sets[nbr] = \
-                        piece_bend_sets[cur].copy()
-                bfs_tree[nbr] = (cur, bi)
-                queue.append(nbr)
+        if _sp:
+            # Piece-to-piece BFS: skip through wedges.
+            bfs_tree = {stationary_idx: (None, set(), None)}
+            queue = [stationary_idx]
+            while queue:
+                cur = queue.pop(0)
+                for nbr, bi, fi in adjacency[cur]:
+                    bend_idx = _get_bend_idx(bi)
 
-        # Unreachable pieces: dot-product fallback
-        for pi in range(n):
-            if piece_bend_sets[pi] is None:
-                cm = pieces[pi].CenterOfMass
-                cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
-                fb = set()
-                for bi, (_, p0, _, _, normal, _, _) in enumerate(
-                        bend_info):
-                    if (cm_2d - p0).dot(normal) > 0:
-                        fb.add(bi)
-                piece_bend_sets[pi] = fb
-                bfs_tree[pi] = (stationary_idx, -1)
+                    if nbr in _sp:
+                        # Wedge — mark visited if first time,
+                        # then always look through (multiple
+                        # pieces may need to traverse the same
+                        # wedge to reach different neighbors).
+                        if piece_bend_sets[nbr] is None:
+                            piece_bend_sets[nbr] = \
+                                piece_bend_sets[cur] | (
+                                    {bend_idx} if bend_idx
+                                    is not None else set())
+                        if log:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD: BFS p{cur} → "
+                                f"wedge p{nbr} "
+                                f"(entry={_edge_label(bi)})"
+                                f"\n")
+                        for nbr2, bi2, fi2 in adjacency[nbr]:
+                            if nbr2 == cur:
+                                continue
+                            if piece_bend_sets[nbr2] is not None:
+                                continue
+                            # Side check: cur and nbr2 must be on
+                            # different sides of the cut.
+                            # Skip side test for non-cut edges
+                            # (bi == -1): no cut face to test.
+                            if bi != -1 and \
+                                    not _side_test(cur, nbr2, fi):
+                                if log:
+                                    FreeCAD.Console.PrintMessage(
+                                        f"FreekiCAD: BFS   "
+                                        f"side_test("
+                                        f"p{cur}, p{nbr2}, "
+                                        f"fi={fi}) FAIL "
+                                        f"(cut="
+                                        f"{_edge_label(bi)})"
+                                        f"\n")
+                                continue
+                            bend_idx2 = _get_bend_idx(bi2)
+                            crossed = set()
+                            if bi != -1:
+                                crossed.add(bi)
+                            if bi2 != -1:
+                                crossed.add(bi2)
+                            piece_bend_sets[nbr2] = \
+                                piece_bend_sets[cur] | (
+                                    {bend_idx2} if bend_idx2
+                                    is not None else set())
+                            bfs_tree[nbr2] = (
+                                cur, crossed, nbr)
+                            if log:
+                                FreeCAD.Console.PrintMessage(
+                                    f"FreekiCAD: BFS   "
+                                    f"p{cur} →[{_edge_label(bi)}"
+                                    f"]→ p{nbr}(W) →["
+                                    f"{_edge_label(bi2)}]→ "
+                                    f"p{nbr2}\n")
+                            queue.append(nbr2)
+                    else:
+                        # Regular piece — skip if visited.
+                        if piece_bend_sets[nbr] is not None:
+                            continue
+                        # Side check only for cut edges.
+                        if bi != -1 and \
+                                not _side_test(cur, nbr, fi):
+                            if log:
+                                FreeCAD.Console.PrintMessage(
+                                    f"FreekiCAD: BFS "
+                                    f"side_test("
+                                    f"p{cur}, p{nbr}, "
+                                    f"fi={fi}) FAIL "
+                                    f"(cut="
+                                    f"{_edge_label(bi)})\n")
+                            continue
+                        piece_bend_sets[nbr] = \
+                            piece_bend_sets[cur] | (
+                                {bend_idx} if bend_idx is not None
+                                else set())
+                        crossed = {bi} if bi != -1 else set()
+                        bfs_tree[nbr] = (cur, crossed, None)
+                        if log:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD: BFS p{cur} →"
+                                f"[{_edge_label(bi)}]→ "
+                                f"p{nbr}\n")
+                        queue.append(nbr)
+
+            # Unreachable pieces: dot-product fallback
+            for pi in range(n):
+                if piece_bend_sets[pi] is None:
+                    cm = pieces[pi].CenterOfMass
+                    cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
+                    fb = set()
+                    for bi, (_, p0, _, _, normal, _, _) in enumerate(
+                            bend_info):
+                        if (cm_2d - p0).dot(normal) > 0:
+                            fb.add(bi)
+                    piece_bend_sets[pi] = fb
+                    bfs_tree[pi] = (stationary_idx, set(), None)
+        else:
+            # Legacy 2-tuple BFS (preliminary, no wedges).
+            bfs_tree = {stationary_idx: (None, None)}
+            queue = [stationary_idx]
+            while queue:
+                cur = queue.pop(0)
+                for nbr, bi, _fi in adjacency[cur]:
+                    if piece_bend_sets[nbr] is not None:
+                        continue  # already visited
+                    if bi >= 0:
+                        bend_idx = micro_bend_info[bi][5] \
+                            if micro_bend_info is not None \
+                            else bi
+                        piece_bend_sets[nbr] = \
+                            piece_bend_sets[cur] | {bend_idx}
+                    else:
+                        piece_bend_sets[nbr] = \
+                            piece_bend_sets[cur].copy()
+                    bfs_tree[nbr] = (cur, bi)
+                    queue.append(nbr)
+
+            # Unreachable pieces: dot-product fallback
+            for pi in range(n):
+                if piece_bend_sets[pi] is None:
+                    cm = pieces[pi].CenterOfMass
+                    cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
+                    fb = set()
+                    for bi, (_, p0, _, _, normal, _, _) in enumerate(
+                            bend_info):
+                        if (cm_2d - p0).dot(normal) > 0:
+                            fb.add(bi)
+                    piece_bend_sets[pi] = fb
+                    bfs_tree[pi] = (stationary_idx, -1)
 
         return piece_bend_sets, bfs_tree, adjacency, cached_geo_edges
 
@@ -4429,11 +4669,11 @@ class LinkedObject:
                 "App::PropertyString", "FileMtime", "LinkedFile",
                 "Stored mtime of the linked .kicad_pcb file")
             obj.setPropertyStatus("FileMtime", "Hidden")
-        if not hasattr(obj, 'ShowDebug'):
+        if not hasattr(obj, 'BuildDebugObjects'):
             obj.addProperty(
-                "App::PropertyBool", "ShowDebug", "LinkedFile",
-                "Show debug arrows and cut lines")
-            obj.ShowDebug = False
+                "App::PropertyBool", "BuildDebugObjects", "LinkedFile",
+                "Build debug arrows and cut lines")
+            obj.BuildDebugObjects = False
         if not hasattr(obj, 'DebugBoard'):
             obj.addProperty(
                 "App::PropertyBool", "DebugBoard", "LinkedFile",
