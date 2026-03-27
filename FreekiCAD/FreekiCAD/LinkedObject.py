@@ -7,7 +7,7 @@ import Part
 DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 
 
-def _kipy_retry(func, max_retries=10, delay_s=1.0):
+def _kipy_retry(func, max_retries=15, delay_s=1.0):
     """Call *func* and retry up to *max_retries* times when KiCad reports
     AS_NOT_READY or AS_BUSY.  Sleeps *delay_s* seconds between attempts."""
     import time
