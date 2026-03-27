@@ -1670,10 +1670,15 @@ class LinkedObject:
         *existing_bends*: optional dict {uuid: child_obj} of bend line
         objects to preserve radius/angle on reload."""
         import json
+        import time as _time
 
+        _t_load = _time.time()
         board_solid, footprints_data, board_color, outline_edges, \
             thickness, bend_lines, board_face = \
             load_board(obj.FileName, socket_path)
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] load_board: "
+            f"{_time.time() - _t_load:.3f}s\n")
 
         # Freeze the main window to prevent viewport flashing
         # as children are added one by one.
@@ -1685,6 +1690,7 @@ class LinkedObject:
         except Exception:
             _mw = None
 
+        _t_body = _time.time()
         try:
             self.__do_execute_body(obj, board_solid, footprints_data,
                                    board_color, outline_edges, thickness,
@@ -1694,6 +1700,9 @@ class LinkedObject:
         finally:
             if _mw is not None:
                 _mw.setUpdatesEnabled(True)
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] __do_execute_body: "
+            f"{_time.time() - _t_body:.3f}s\n")
         _fit_view(obj)
 
     def __do_execute_body(self, obj, board_solid, footprints_data,
@@ -1702,6 +1711,8 @@ class LinkedObject:
                           existing_bends,
                           board_face=None):
         import json
+        import time as _time
+        _t0_body = _time.time()
         doc = obj.Document
 
         self._board_color = board_color
@@ -1778,7 +1789,11 @@ class LinkedObject:
                 except Exception:
                     pass
 
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] board+outline+bends setup: "
+            f"{_time.time() - _t0_body:.3f}s\n")
         # Load component 3D models on demand, reusing where possible
+        _t_comps = _time.time()
         if existing_components is None:
             existing_components = {}
         stored_mtimes = {}
@@ -1984,6 +1999,9 @@ class LinkedObject:
                     self._unbent_placements[c.Name] = \
                         c.Placement.copy()
 
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] component loading + sorting: "
+            f"{_time.time() - _t_comps:.3f}s\n")
         # Apply bending deformation for active bend lines
         bend_children = [c for c in obj.Group
                          if getattr(getattr(c, 'Proxy', None),
@@ -2065,6 +2083,8 @@ class LinkedObject:
         changes on a bend line."""
         if not hasattr(self, '_unbent_board_shape'):
             return
+        import time as _time
+        _t0_rebend = _time.time()
         self._bending = True
         try:
             thickness = getattr(self, '_board_thickness',
@@ -2077,6 +2097,7 @@ class LinkedObject:
                     break
 
             # Restore original board shape
+            _t_restore = _time.time()
             if board_obj and hasattr(self, '_unbent_board_shape'):
                 board_obj.Shape = self._unbent_board_shape.copy()
 
@@ -2101,6 +2122,9 @@ class LinkedObject:
                 if c.Name in self._unbent_placements:
                     c.Placement = \
                         self._unbent_placements[c.Name].copy()
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: [profile] _rebend restore shapes+placements: "
+                f"{_time.time() - _t_restore:.3f}s\n")
 
             # Re-apply all active bends
             bend_children = [
@@ -2116,6 +2140,9 @@ class LinkedObject:
                                   thickness)
         finally:
             self._bending = False
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: [profile] TOTAL _rebend: "
+                f"{_time.time() - _t0_rebend:.3f}s\n")
 
     def _apply_bends(self, obj, board_obj, bend_children, thickness,
                      enable_bending=True):
@@ -4247,6 +4274,8 @@ class LinkedObject:
 
     def _handle_reload_response(self, obj, socket_path):
         """Called when the workspace bus responds to a reload request."""
+        import time as _time
+        _t0_reload = _time.time()
         outline_name = obj.Name + "_Outline"
         if _sketch_observer is not None:
             _sketch_observer.suppress(outline_name)
@@ -4256,7 +4285,11 @@ class LinkedObject:
             self._suppress_execute = True
             if hasattr(obj, 'FileMtime'):
                 obj.FileMtime = ""
+            _t_remove = _time.time()
             existing_comps, existing_bends = self._remove_board_children(obj)
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: [profile] _remove_board_children: "
+                f"{_time.time() - _t_remove:.3f}s\n")
             self._in_execute = True
             self._do_execute(obj, socket_path,
                              existing_components=existing_comps,
@@ -4267,6 +4300,9 @@ class LinkedObject:
             if _sketch_observer is not None:
                 _sketch_observer.unsuppress(outline_name)
             self._reloading = False
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: [profile] TOTAL _handle_reload_response: "
+                f"{_time.time() - _t0_reload:.3f}s\n")
 
     def _handle_move_component_response(self, obj, socket_path, component):
         """Called when the workspace bus responds to a move-component request.
