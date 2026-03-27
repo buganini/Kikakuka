@@ -5,6 +5,7 @@ import Part
 
 
 DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
+GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
 
 
 def _kipy_retry(func, max_retries=15, delay_s=1.0):
@@ -789,7 +790,7 @@ def load_board(filepath, socket_path):
                         f"FreekiCAD:   nearest bend ep "
                         f"({best_ep.x:.3f},{best_ep.y:.3f}) "
                         f"d={best_dist:.3f}mm\n")
-                    if best_bl is not None and best_dist < 1e-3:
+                    if best_bl is not None and best_dist < GEOMETRY_TOLERANCE:
                         best_bl['angle'] = angle
                         best_bl['radius'] = radius
                         FreeCAD.Console.PrintMessage(
@@ -844,7 +845,7 @@ def load_board(filepath, socket_path):
                     # sortEdges may leave a micro-gap at the
                     # closure point.  Fix topology to close it.
                     try:
-                        w.fixWire(None, 0.001)
+                        w.fixWire(None, GEOMETRY_TOLERANCE)
                     except Exception:
                         pass
                     if not w.isClosed():
@@ -852,7 +853,7 @@ def load_board(filepath, socket_path):
                         verts = w.Vertexes
                         gap = verts[-1].Point.distanceToPoint(
                             verts[0].Point)
-                        if gap < 0.001:
+                        if gap < GEOMETRY_TOLERANCE:
                             closing = Part.makeLine(
                                 verts[-1].Point, verts[0].Point)
                             w = Part.Wire(list(w.Edges) + [closing])
@@ -928,7 +929,7 @@ def load_board(filepath, socket_path):
 
             if drill_holes and board_solid:
                 # Build all drill cylinders and cut from board
-                margin = 0.1  # extra height to ensure clean cut
+                margin = GEOMETRY_TOLERANCE
                 drill_shapes = []
                 for hx, hy, radius in drill_holes:
                     cyl = Part.makeCylinder(
@@ -2293,9 +2294,7 @@ class LinkedObject:
                                   + (mid_2d.y - py) ** 2)
                 if d < min_dist:
                     min_dist = d
-            # Threshold: ins (perpendicular offset) + margin
-            # for endpoint rounding and angled outlines.
-            on_bend = min_dist < ins_bi + 0.15
+            on_bend = min_dist < ins_bi + GEOMETRY_TOLERANCE
             if on_bend:
                 validated_plan.append(entry)
             else:
@@ -2415,7 +2414,7 @@ class LinkedObject:
             adj_pi = set()
             for pi_chk in range(len(pieces)):
                 if piece_slices[pi_chk].distToShape(
-                        cut_segments[fi])[0] < 0.01:
+                        cut_segments[fi])[0] < GEOMETRY_TOLERANCE:
                     adj_pi.add(pi_chk)
             face_adj_pieces[fi] = adj_pi
         # Group faces of same bend that share a common piece
@@ -2495,7 +2494,7 @@ class LinkedObject:
                 di = pieces[pi].distToShape(cut_faces[fi])[0]
                 dp = pieces[parent].distToShape(
                     cut_faces[fi])[0]
-                if di < 0.01 and dp < 0.01:
+                if di < GEOMETRY_TOLERANCE and dp < GEOMETRY_TOLERANCE:
                     seg_bfs_side[sid] = face_topo_side[fi]
                     break
             if sid not in seg_bfs_side:
@@ -3030,7 +3029,7 @@ class LinkedObject:
                 orig = pieces[pi].CenterOfMass
                 final = s.CenterOfMass
                 dist = orig.distanceToPoint(final)
-                if dist > 0.001:
+                if dist > GEOMETRY_TOLERANCE:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD: piece {pi} moved"
                         f" {dist:.3f}mm to"
@@ -3152,7 +3151,7 @@ class LinkedObject:
                 f",{flat_cm.y:.2f},{flat_cm.z:.2f})"
                 f" d_offset={d_off:.4f}"
                 f" slice_range=[0,{2*ins:.4f}]"
-                f" {'IN' if -0.01 < d_off < 2*ins+0.01 else 'OUT'}"
+                f" {'IN' if -GEOMETRY_TOLERANCE < d_off < 2*ins+GEOMETRY_TOLERANCE else 'OUT'}"
                 f"\n")
 
             # Slice the flat wedge at each position, then
@@ -3162,21 +3161,21 @@ class LinkedObject:
             #   2. Compute arc position at angle frac*sweep
             #   3. Translate slice center to arc position
             #   4. Rotate slice to be tangent to arc
-            eps = 0.001
             # Build sorted list of d-values: uniform slices +
             # vertex projections (ensures loft captures all edges
             # of the flat wedge piece).
+            gt = GEOMETRY_TOLERANCE
             d_list = []
             for si in range(N_SLICES + 1):
                 frac = si / float(N_SLICES)
-                d_list.append(eps + frac * (2 * ins - 2 * eps))
+                d_list.append(gt + frac * (2 * ins - 2 * gt))
             for v in positioned_flat.Vertexes:
                 vd = (v.Point - cur_p0).dot(cur_normal)
-                if eps < vd < 2 * ins - eps:
+                if gt < vd < 2 * ins - gt:
                     d_list.append(vd)
             d_list.sort()
             # Deduplicate: remove values too close together
-            min_sep = max(eps * 2, (2 * ins) / 1000)
+            min_sep = max(gt * 2, (2 * ins) / 1000)
             d_values = [d_list[0]]
             for d in d_list[1:]:
                 if d - d_values[-1] >= min_sep:
@@ -3184,8 +3183,8 @@ class LinkedObject:
 
             wires_list = []
             for d in d_values:
-                frac = (d - eps) / (2 * ins - 2 * eps) \
-                    if abs(2 * ins - 2 * eps) > 1e-9 else 0.0
+                frac = (d - gt) / (2 * ins - 2 * gt) \
+                    if abs(2 * ins - 2 * gt) > 1e-9 else 0.0
                 slice_pt = cur_p0 + cur_normal * d
                 plane_dist = (slice_pt.x * cur_normal.x
                               + slice_pt.y * cur_normal.y
@@ -3598,7 +3597,7 @@ class LinkedObject:
             sp0, sp1, side = entry[0], entry[1], entry[2]
             start = FreeCAD.Vector(sp0.x, sp0.y, thickness)
             end = FreeCAD.Vector(sp1.x, sp1.y, thickness)
-            if start.distanceToPoint(end) > 0.001:
+            if start.distanceToPoint(end) > GEOMETRY_TOLERANCE:
                 edges.append(Part.makeLine(start, end))
 
         if not edges:
@@ -3667,7 +3666,7 @@ class LinkedObject:
             if seg_dir.dot(line_dir) < 0:
                 sp, ep = ep, sp
                 seg_dir = ep - sp
-            ext = seg_dir * (0.001 / seg_len)
+            ext = seg_dir * (GEOMETRY_TOLERANCE / seg_len)
             segments.append((sp - ext, ep + ext))
 
         # Sort by position along the line
@@ -3693,7 +3692,7 @@ class LinkedObject:
         def _single_arrow(start, end):
             """Draw line with single arrowhead at end."""
             dist = start.distanceToPoint(end)
-            if dist < 0.01:
+            if dist < GEOMETRY_TOLERANCE:
                 return
             edges.append(Part.makeLine(start, end))
             d = (end - start) * (1.0 / dist)
@@ -3708,7 +3707,7 @@ class LinkedObject:
         def _double_arrow(start, end):
             """Draw line with double arrowhead at end."""
             dist = start.distanceToPoint(end)
-            if dist < 0.01:
+            if dist < GEOMETRY_TOLERANCE:
                 return
             edges.append(Part.makeLine(start, end))
             d = (end - start) * (1.0 / dist)
@@ -3855,7 +3854,7 @@ class LinkedObject:
         geometry for distance checks instead of 3D solids.
         """
         n = len(pieces)
-        tol = 0.01
+        tol = GEOMETRY_TOLERANCE
         # Use 2D slices if available, otherwise 3D pieces
         shapes = piece_slices if piece_slices is not None else pieces
         geo_edges = []
