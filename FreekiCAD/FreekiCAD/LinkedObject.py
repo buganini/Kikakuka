@@ -1220,6 +1220,10 @@ class BendLine:
             for parent in obj.InList:
                 proxy = getattr(parent, "Proxy", None)
                 if proxy and getattr(proxy, 'Type', None) == 'LinkedObject':
+                    # Skip if parent is in the middle of execute/reload
+                    # (bending is already handled by _apply_bends there)
+                    if getattr(proxy, '_suppress_rebend', False):
+                        break
                     proxy._rebend(parent)
                     break
 
@@ -1751,6 +1755,9 @@ class LinkedObject:
             obj.addObject(board_obj)
 
         # Add / update bend line children
+        # Suppress timer-based rebend from BendLine.onChanged — bending
+        # is handled by _apply_bends at the end of this method.
+        self._suppress_rebend = True
         if existing_bends is None:
             existing_bends = {}
         seen_uuids = set()
@@ -2017,6 +2024,7 @@ class LinkedObject:
         if board_obj and bend_children:
             self._apply_bends(obj, board_obj, bend_children,
                               thickness, enable_bending=enable)
+        self._suppress_rebend = False
 
     def _update_reused_component(self, comp_obj, kc, thickness, fp_info):
         """Update placement and KiCad coords for a reused component
