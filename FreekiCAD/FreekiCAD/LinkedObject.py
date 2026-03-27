@@ -2362,6 +2362,14 @@ class LinkedObject:
         _t_phase2c = _time.time()
         _t_fuse = _time.time()
         try:
+            # NOTE: generalFuse returns a map of input→output face
+            # images, but we don't use it for adjacency because:
+            # (1) the map only tracks faces, missing edge/vertex
+            #     adjacency between pieces;
+            # (2) pieces filtered by Volume don't correspond 1:1
+            #     to compound solids, making face ownership fragile.
+            # Instead we slice pieces to 2D and use distToShape on
+            # the lightweight 2D wires.
             fused, _map = unbent.generalFuse(cut_faces)
             pieces = [s for s in fused.Solids if s.Volume > 1e-6]
         except Exception:
