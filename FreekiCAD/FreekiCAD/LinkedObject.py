@@ -1180,6 +1180,13 @@ class BendLine:
     def onChanged(self, obj, prop):
         if prop not in ("Radius", "Angle", "Active"):
             return
+        if prop in ("Radius", "Angle"):
+            try:
+                angle = obj.Angle.Value
+                radius = obj.Radius.Value
+                obj.Label2 = f"a={angle:.4g}° r={radius:.4g}"
+            except Exception:
+                pass
         if not obj.InList:
             return
         from PySide import QtCore, QtWidgets
@@ -1552,6 +1559,7 @@ class LinkedObject:
             "Automatically reload when the file changes"
         )
         obj.AutoReload = True
+        obj.Label2 = "AutoReload=On"
         obj.addProperty(
             "App::PropertyBool", "EnableBending", "LinkedFile",
             "Enable flex PCB bending deformation"
@@ -1586,7 +1594,13 @@ class LinkedObject:
             if not obj.Document.Restoring:
                 self._rebend(obj)
             return
-        if prop not in ("FileName", "AutoReload"):
+        if prop == "AutoReload":
+            try:
+                obj.Label2 = f"AutoReload={'On' if obj.AutoReload else 'Off'}"
+            except Exception:
+                pass
+            return
+        if prop not in ("FileName",):
             return
         if prop == "FileName":
             # Skip during document restore — shapes are already saved
@@ -1766,6 +1780,12 @@ class LinkedObject:
                 bend_obj.Angle = bl['angle']
             if 'radius' in bl:
                 bend_obj.Radius = bl['radius']
+            try:
+                angle = bend_obj.Angle.Value
+                radius = bend_obj.Radius.Value
+                bend_obj.Label2 = f"a={angle:.4g}° r={radius:.4g}"
+            except Exception:
+                pass
         # Remove stale bend lines no longer in KiCad
         for uuid, bend_obj in existing_bends.items():
             if uuid not in seen_uuids:
