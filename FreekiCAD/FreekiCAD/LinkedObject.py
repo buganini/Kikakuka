@@ -3983,6 +3983,14 @@ class LinkedObject:
         if n == 0:
             return [], {}, [], []
 
+        # Stationary piece = closest to board outline center of mass.
+        mc_2d = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
+        stationary_idx = min(
+            range(n),
+            key=lambda pi: pieces[pi].CenterOfMass.distanceToPoint(
+                FreeCAD.Vector(mc_2d.x, mc_2d.y,
+                               pieces[pi].CenterOfMass.z)))
+
         # Build adjacency graph from geometric edges.
         # Uses topological data from generalFuse when available.
         if cached_geo_edges is None:
@@ -4002,22 +4010,6 @@ class LinkedObject:
             else:
                 adjacency[i].append((j, -1, None))
                 adjacency[j].append((i, -1, None))
-
-        # Stationary piece = non-wedge piece with the most adjacency
-        # connections (best BFS coverage).  Ties broken by proximity
-        # to board outline center of mass.
-        mc_2d = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
-        _sp = strip_pieces or set()
-        candidates = [pi for pi in range(n) if pi not in _sp]
-        if not candidates:
-            candidates = list(range(n))
-        stationary_idx = max(
-            candidates,
-            key=lambda pi: (
-                len(adjacency[pi]),
-                -pieces[pi].CenterOfMass.distanceToPoint(
-                    FreeCAD.Vector(mc_2d.x, mc_2d.y,
-                                   pieces[pi].CenterOfMass.z))))
 
         # Helper to decode edge label for logging.
         # Per-cut labels: "9.0S", "9.1M" etc.
@@ -4050,6 +4042,7 @@ class LinkedObject:
 
         # BFS: strict first-visit, all crossings add the bend.
         # No re-visiting, no re-queuing — first path wins.
+        _sp = strip_pieces or set()
 
         def _side_test(pi_a, pi_b, fi_cut):
             """Return True if pieces a and b are on different sides
