@@ -3597,8 +3597,15 @@ class LinkedObject:
                     pobj.setPropertyStatus("PieceName",
                                            "ReadOnly")
                 pobj.PieceName = f"p{pi}_{lbl}"
+                if not hasattr(pobj, 'Chain'):
+                    pobj.addProperty(
+                        "App::PropertyString", "Chain",
+                        "Debug", "BFS path from root")
+                    pobj.setPropertyStatus("Chain",
+                                           "ReadOnly")
+                pobj.Chain = path_str
                 if pi in strip_pieces:
-                    # Wedge: show cut segment id
+                    # Wedge: also show cut segment id
                     bi_w = strip_to_bend[pi]
                     if not hasattr(pobj, 'Cut'):
                         pobj.addProperty(
@@ -3610,15 +3617,6 @@ class LinkedObject:
                     seg = mi_seg_idx.get(
                         strip_to_mi.get(pi, -1), 0)
                     pobj.Cut = f"{bi_w}.{seg}"
-                else:
-                    # Regular piece: show BFS chain
-                    if not hasattr(pobj, 'Chain'):
-                        pobj.addProperty(
-                            "App::PropertyString", "Chain",
-                            "Debug", "BFS path from root")
-                        pobj.setPropertyStatus("Chain",
-                                               "ReadOnly")
-                    pobj.Chain = path_str
                 grp.addObject(pobj)
 
         FreeCAD.Console.PrintMessage(
@@ -4092,6 +4090,10 @@ class LinkedObject:
                                 piece_bend_sets[cur] | (
                                     {bend_idx} if bend_idx
                                     is not None else set())
+                            crossed_w = {bi} if bi != -1 \
+                                else set()
+                            bfs_tree[nbr] = (
+                                cur, crossed_w, None)
                         if log:
                             FreeCAD.Console.PrintMessage(
                                 f"FreekiCAD: BFS p{cur} → "
