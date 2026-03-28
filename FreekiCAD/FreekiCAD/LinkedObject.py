@@ -3983,10 +3983,16 @@ class LinkedObject:
         if n == 0:
             return [], {}, [], []
 
-        # Stationary piece = closest to board outline center of mass.
+        # Stationary piece = closest non-wedge piece to board outline
+        # center of mass.  Wedge (strip) pieces are excluded so that BFS
+        # always roots on a real panel piece.
         mc_2d = FreeCAD.Vector(mass_center.x, mass_center.y, half_t)
+        _sp = strip_pieces or set()
+        candidates = [pi for pi in range(n) if pi not in _sp]
+        if not candidates:
+            candidates = list(range(n))
         stationary_idx = min(
-            range(n),
+            candidates,
             key=lambda pi: pieces[pi].CenterOfMass.distanceToPoint(
                 FreeCAD.Vector(mc_2d.x, mc_2d.y,
                                pieces[pi].CenterOfMass.z)))
