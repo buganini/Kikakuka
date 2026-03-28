@@ -57,6 +57,50 @@ def _polyline_to_edges(polyline):
     return result
 
 
+def _kicad_config_bases():
+    """Return platform-specific KiCad configuration base directories."""
+    bases = []
+    if os.name == 'nt':
+        bases.append(os.path.join(
+            os.environ.get('APPDATA', ''), 'kicad'))
+    else:
+        bases.append(os.path.expanduser(
+            '~/Library/Preferences/kicad'))
+        bases.append(os.path.expanduser('~/.config/kicad'))
+    return bases
+
+
+def _kicad_data_bases():
+    """Return platform-specific KiCad user data base directories."""
+    bases = []
+    if os.name == 'nt':
+        bases.append(os.path.join(
+            os.environ.get('USERPROFILE', ''), 'Documents', 'KiCad'))
+    else:
+        bases.append(os.path.expanduser('~/Documents/KiCad'))
+        bases.append(os.path.expanduser('~/.local/share/kicad'))
+    return bases
+
+
+def _discover_kicad_versions(base_dirs):
+    """Scan *base_dirs* for versioned sub-directories (e.g. '9.0', '10.0').
+    Returns a sorted list of (major_int, 'X.0') tuples found on disk,
+    newest first."""
+    import re
+    found = set()
+    for base in base_dirs:
+        if not os.path.isdir(base):
+            continue
+        try:
+            for name in os.listdir(base):
+                m = re.match(r'^(\d+)\.0$', name)
+                if m and os.path.isdir(os.path.join(base, name)):
+                    found.add((int(m.group(1)), name))
+        except OSError:
+            pass
+    return sorted(found, reverse=True)
+
+
 def _load_kicad_env_vars(kicad):
     """Load KiCad path variables from the running KiCad instance and
     its configuration files.  Returns a dict of variable name -> value."""
@@ -70,54 +114,52 @@ def _load_kicad_env_vars(kicad):
         bin_dir = os.path.dirname(bin_path)
         parent = os.path.dirname(bin_dir)
 
-        # 3D models
+        # 3D models — set KICAD<V>_3DMODEL_DIR for every version
+        # whose config directory exists, plus the running version.
+        model_dir = None
         for d in [os.path.join(parent, 'SharedSupport', '3dmodels'),
                   os.path.join(parent, 'share', 'kicad', '3dmodels')]:
             if os.path.isdir(d):
-                env['KICAD9_3DMODEL_DIR'] = d
-                env['KICAD8_3DMODEL_DIR'] = d
-                env['KICAD7_3DMODEL_DIR'] = d
-                env['KICAD6_3DMODEL_DIR'] = d
+                model_dir = d
                 break
+        if model_dir:
+            # Discover installed config versions so we cover all of them
+            config_bases = _kicad_config_bases()
+            versions = _discover_kicad_versions(config_bases)
+            # Always include a reasonable range in case no config dirs
+            # exist yet (fresh install).
+            major_set = {v for v, _ in versions} | {6, 7, 8, 9}
+            for v in major_set:
+                env[f'KICAD{v}_3DMODEL_DIR'] = model_dir
     except Exception:
         pass
 
     # 2. Read user-defined variables from kicad_common.json
     try:
-        config_bases = []
-        if os.name == 'nt':
-            config_bases.append(os.path.join(os.environ.get('APPDATA', ''), 'kicad'))
-        else:
-            config_bases.append(os.path.expanduser('~/Library/Preferences/kicad'))
-            config_bases.append(os.path.expanduser('~/.config/kicad'))
-
-        for base in config_bases:
-            for ver in ['6.0', '7.0', '8.0', '9.0']:
-                cfg = os.path.join(base, ver, 'kicad_common.json')
+        config_bases = _kicad_config_bases()
+        versions = _discover_kicad_versions(config_bases)
+        for _major, ver_dir in versions:
+            for base in config_bases:
+                cfg = os.path.join(base, ver_dir, 'kicad_common.json')
                 if os.path.isfile(cfg):
                     with open(cfg, 'r') as f:
                         data = json.load(f)
-                    user_vars = (data.get('environment', {}) or {}).get('vars', {})
+                    user_vars = (data.get('environment', {})
+                                 or {}).get('vars', {})
                     if user_vars:
                         env.update(user_vars)
     except Exception:
         pass
 
-    # 3. Derive KICAD*_3RD_PARTY from the current KiCad version's
-    #    user data directory (set by PCM / Plugin Content Manager).
+    # 3. Derive KICAD*_3RD_PARTY from the user data directory
+    #    (set by PCM / Plugin Content Manager).
     try:
-        data_bases = []
-        if os.name == 'nt':
-            data_bases.append(os.path.join(
-                os.environ.get('USERPROFILE', ''), 'Documents', 'KiCad'))
-        else:
-            data_bases.append(os.path.expanduser('~/Documents/KiCad'))
-            data_bases.append(os.path.expanduser('~/.local/share/kicad'))
-
+        data_bases = _kicad_data_bases()
+        versions = _discover_kicad_versions(data_bases)
         thirdparty_path = None
-        for base in data_bases:
-            for ver in ['9.0', '8.0', '7.0', '6.0']:
-                candidate = os.path.join(base, ver, '3rdparty')
+        for _major, ver_dir in versions:
+            for base in data_bases:
+                candidate = os.path.join(base, ver_dir, '3rdparty')
                 if os.path.isdir(candidate):
                     thirdparty_path = candidate
                     break
@@ -125,7 +167,8 @@ def _load_kicad_env_vars(kicad):
                 break
 
         if thirdparty_path:
-            for v in range(9, 5, -1):
+            majors = {v for v, _ in versions} | {6, 7, 8, 9}
+            for v in sorted(majors, reverse=True):
                 key = f'KICAD{v}_3RD_PARTY'
                 if key not in env:
                     env[key] = thirdparty_path
