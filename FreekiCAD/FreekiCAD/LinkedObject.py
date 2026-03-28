@@ -3274,7 +3274,9 @@ class LinkedObject:
             if len(wires_list) >= 2:
                 try:
                     loft = Part.makeLoft(wires_list, True, True)
-                    if loft.Volume > 1e-9:
+                    if abs(loft.Volume) > 1e-9:
+                        if loft.Volume < 0:
+                            loft = loft.reversed()
                         piece_shapes[pi] = loft
                         FreeCAD.Console.PrintMessage(
                             f"FreekiCAD: wedge loft solid:"
