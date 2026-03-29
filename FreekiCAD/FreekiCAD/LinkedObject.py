@@ -3585,8 +3585,11 @@ class LinkedObject:
                 bend_info, insets, half_t,
                 micro_bend_info, bendline_piece_idx,
                 mi_seg_idx=mi_seg_idx,
-                m_face_to_bend=m_face_to_bend)
-            self._draw_debug_cuts(obj, cut_plan, thickness)
+                m_face_to_bend=m_face_to_bend,
+                piece_shapes=piece_shapes)
+            self._draw_debug_cuts(
+                obj, cut_plan, thickness,
+                bend_plc_original=bend_plc_original)
         else:
             # Log piece classification even without debug shapes
             for pi in range(len(pieces)):
@@ -3780,7 +3783,8 @@ class LinkedObject:
             f"FreekiCAD: [profile] TOTAL __apply_bends_impl: "
             f"{_time.time() - _t0_total:.3f}s\n")
 
-    def _draw_debug_cuts(self, obj, debug_cut_segs, thickness):
+    def _draw_debug_cuts(self, obj, debug_cut_segs, thickness,
+                          bend_plc_original=None):
         """Draw trimmed cutting segments as colored lines at z=thickness.
 
         Colors: green=stationary-side, blue=moving-side, cyan=center.
@@ -3798,8 +3802,20 @@ class LinkedObject:
         edges = []
         for entry in debug_cut_segs:
             sp0, sp1, side = entry[0], entry[1], entry[2]
-            start = FreeCAD.Vector(sp0.x, sp0.y, thickness)
-            end = FreeCAD.Vector(sp1.x, sp1.y, thickness)
+            # Transform cut endpoints using bend placement chain
+            if bend_plc_original is not None and len(entry) > 8:
+                bend_obj = entry[8]
+                orig_plc = bend_plc_original.get(
+                    bend_obj.Name)
+                if orig_plc is not None:
+                    xform = bend_obj.Placement.multiply(
+                        orig_plc.inverse())
+                    sp0 = xform.multVec(sp0)
+                    sp1 = xform.multVec(sp1)
+            start = FreeCAD.Vector(
+                sp0.x, sp0.y, sp0.z + thickness)
+            end = FreeCAD.Vector(
+                sp1.x, sp1.y, sp1.z + thickness)
             if start.distanceToPoint(end) > GEOMETRY_TOLERANCE:
                 edges.append(Part.makeLine(start, end))
 
@@ -3882,7 +3898,8 @@ class LinkedObject:
                             micro_bend_info=None,
                             bendline_piece_idx=None,
                             mi_seg_idx=None,
-                            m_face_to_bend=None):
+                            m_face_to_bend=None,
+                            piece_shapes=None):
         """Draw debug arrows showing the BFS tree from fixed to
         moving pieces.  Each piece is labeled fixed/moving/wedge."""
         doc = obj.Document
@@ -3891,6 +3908,16 @@ class LinkedObject:
 
         edges = []
         labels = []  # (center, label_text)
+
+        def _get_cm(pi_idx):
+            """Get CenterOfMass from final shape if available,
+            else from original flat piece."""
+            if (piece_shapes is not None
+                    and 0 <= pi_idx < len(piece_shapes)):
+                s = piece_shapes[pi_idx]
+                if hasattr(s, 'CenterOfMass'):
+                    return s.CenterOfMass
+            return pieces[pi_idx].CenterOfMass
 
         def _single_arrow(start, end):
             """Draw line with single arrowhead at end."""
@@ -3931,7 +3958,7 @@ class LinkedObject:
                 tip2, base2 - perp * hl * 0.4))
 
         for pi, piece in enumerate(pieces):
-            cm = piece.CenterOfMass
+            cm = _get_cm(pi)
             # Classify piece
             if pi in strip_pieces:
                 label = f"W{strip_to_bend[pi]}"
@@ -3947,16 +3974,18 @@ class LinkedObject:
             if entry and entry[0] is not None:
                 parent_idx = entry[0]
                 wedge_pi = entry[2]
-                parent_cm = pieces[parent_idx].CenterOfMass
+                parent_cm = _get_cm(parent_idx)
                 src = FreeCAD.Vector(
-                    parent_cm.x, parent_cm.y, thickness)
+                    parent_cm.x, parent_cm.y,
+                    parent_cm.z + thickness)
                 dst = FreeCAD.Vector(
-                    cm.x, cm.y, thickness)
+                    cm.x, cm.y, cm.z + thickness)
                 if wedge_pi is not None:
                     # src → wedge (single), wedge →→ dest (double)
-                    w_cm = pieces[wedge_pi].CenterOfMass
+                    w_cm = _get_cm(wedge_pi)
                     mid = FreeCAD.Vector(
-                        w_cm.x, w_cm.y, thickness)
+                        w_cm.x, w_cm.y,
+                        w_cm.z + thickness)
                     _single_arrow(src, mid)
                     _double_arrow(mid, dst)
                 else:
@@ -3966,9 +3995,10 @@ class LinkedObject:
         for pi, piece in enumerate(pieces):
             entry = bfs_tree.get(pi)
             if entry and entry[0] is None:
-                root_cm = piece.CenterOfMass
+                root_cm = _get_cm(pi)
                 root_pt = FreeCAD.Vector(
-                    root_cm.x, root_cm.y, thickness)
+                    root_cm.x, root_cm.y,
+                    root_cm.z + thickness)
                 try:
                     circ = Part.makeCircle(
                         0.5, root_pt, FreeCAD.Vector(0, 0, 1))
@@ -3977,15 +4007,17 @@ class LinkedObject:
                     pass
                 break
 
-        # Reuse existing debug arrows object or create new one
+        # Reuse existing debug arrows object or create new one.
         debug_name = obj.Name + "_DebugArrows"
         debug_obj = doc.getObject(debug_name)
         if edges:
             if debug_obj is None:
-                debug_obj = doc.addObject("Part::Feature", debug_name)
+                debug_obj = doc.addObject(
+                    "Part::Feature", debug_name)
                 obj.addObject(debug_obj)
                 try:
-                    debug_obj.ViewObject.LineColor = (1.0, 0.0, 0.0)
+                    debug_obj.ViewObject.LineColor = (
+                        1.0, 0.0, 0.0)
                     debug_obj.ViewObject.LineWidth = 2.0
                     debug_obj.ViewObject.Visibility = False
                 except Exception:
