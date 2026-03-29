@@ -2507,6 +2507,42 @@ class LinkedObject:
                     face_to_seg[fi] = sid
                     seg_to_bend[sid] = bi
 
+        # Early strip_pieces identification (needed to exclude wedges
+        # from BFS #1 root and to filter wedge parents in seg_parent_pi).
+        strip_pieces = set()
+        strip_to_bend = {}
+        for bi, (_, p0, p1, line_dir, normal,
+                 angle_rad, radius) in enumerate(bend_info):
+            ins = insets[bi]
+            if ins < 1e-6:
+                continue
+            bl_segs = trimmed_bend_segs[bi]
+            for pi, piece in enumerate(pieces):
+                cm = piece.CenterOfMass
+                cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
+                min_dist = float('inf')
+                for sp0, sp1 in bl_segs:
+                    sx = sp1.x - sp0.x
+                    sy = sp1.y - sp0.y
+                    sl2 = sx * sx + sy * sy
+                    if sl2 < 1e-12:
+                        d = math.sqrt((cm_2d.x - sp0.x) ** 2
+                                      + (cm_2d.y - sp0.y) ** 2)
+                    else:
+                        t = max(0.0, min(1.0,
+                            ((cm_2d.x - sp0.x) * sx
+                             + (cm_2d.y - sp0.y) * sy)
+                            / sl2))
+                        px = sp0.x + t * sx
+                        py = sp0.y + t * sy
+                        d = math.sqrt((cm_2d.x - px) ** 2
+                                      + (cm_2d.y - py) ** 2)
+                    if d < min_dist:
+                        min_dist = d
+                if min_dist < ins + GEOMETRY_TOLERANCE:
+                    strip_pieces.add(pi)
+                    strip_to_bend[pi] = bi
+
         # Preliminary BFS with per-segment labels.
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 2c (pairing): "
@@ -2523,15 +2559,32 @@ class LinkedObject:
             f"{_time.time() - _t_bfs1:.3f}s\n")
 
         # Determine BFS parent piece per segment.
+        # When the BFS parent is a wedge piece (strip_pieces),
+        # walk up prelim_tree to find a non-wedge ancestor whose
+        # CM is far enough from the cut for reliable normal orient.
         seg_bfs_side = {}
         seg_parent_pi = {}   # sid → parent piece index
+        seg_parent_is_child = set()  # sids where we used child as fallback
         for pi, (parent, mi_crossed) in prelim_tree.items():
             if mi_crossed is None or mi_crossed < 0 or parent is None:
                 continue
             sid = mi_crossed
             if sid in seg_bfs_side:
                 continue
-            seg_parent_pi[sid] = parent
+            # Walk past wedge parents
+            real_parent = parent
+            while real_parent in strip_pieces:
+                ancestor = prelim_tree.get(real_parent)
+                if ancestor is None or ancestor[0] is None:
+                    break
+                real_parent = ancestor[0]
+            # If walk-up failed (real_parent is still a wedge),
+            # use the child piece instead — it's on the opposite
+            # side of the cut and gives a reliable normal dot.
+            if real_parent in strip_pieces:
+                real_parent = pi
+                seg_parent_is_child.add(sid)
+            seg_parent_pi[sid] = real_parent
             for fi in range(len(cut_faces)):
                 if face_to_seg.get(fi) != sid:
                     continue
@@ -2543,6 +2596,12 @@ class LinkedObject:
                     break
             if sid not in seg_bfs_side:
                 seg_bfs_side[sid] = 'S'
+
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: seg_parent_pi has {len(seg_parent_pi)} entries\n")
+        for _sid, _ppi in sorted(seg_parent_pi.items()):
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD:   seg_parent_pi[{_sid}] = p{_ppi}\n")
 
         # --- Phase 2b-2: assign S/M and create micro-bends ---
         _t_phase2b2 = _time.time()
@@ -2599,8 +2658,24 @@ class LinkedObject:
                 parent_pi = seg_parent_pi.get(sid)
                 if parent_pi is not None:
                     parent_cm = pieces[parent_pi].CenterOfMass
-                    if (parent_cm - cut_mid).dot(normal_ref) > 0:
+                    dot_val = (parent_cm - cut_mid).dot(normal_ref)
+                    flipped = dot_val > 0
+                    if flipped:
                         normal_ref = normal_ref * -1
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: mi={mi} sid={sid}"
+                        f" parent_pi={parent_pi}"
+                        f" {'(child)' if sid in seg_parent_is_child else ''}"
+                        f" parent_cm=({parent_cm.x:.2f},"
+                        f"{parent_cm.y:.2f},{parent_cm.z:.2f})"
+                        f" cut_mid=({cut_mid.x:.2f},"
+                        f"{cut_mid.y:.2f},{cut_mid.z:.2f})"
+                        f" dot={dot_val:.4f}"
+                        f" flipped={flipped}\n")
+                else:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: mi={mi} sid={sid}"
+                        f" NO parent_pi in seg_parent_pi\n")
                 micro_bend_info.append((angle_rad, bend_obj_ref,
                                         cut_mid, normal_ref,
                                         radius, bi))
@@ -2621,43 +2696,8 @@ class LinkedObject:
             f"{_time.time() - _t_phase2b2:.3f}s\n")
         _t_bfs2 = _time.time()
         face_to_bend = face_to_micro
-        # Identify wedge pieces before BFS #2 so BFS can skip
-        # through them and build piece-to-piece arrows.
-        strip_pieces = set()
-        strip_to_bend = {}
-        for bi, (_, p0, p1, line_dir, normal,
-                 angle_rad, radius) in enumerate(bend_info):
-            ins = insets[bi]
-            if ins < 1e-6:
-                continue
-            bl_segs = trimmed_bend_segs[bi]
-            for pi, piece in enumerate(pieces):
-                cm = piece.CenterOfMass
-                cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
-                # Shortest 2D distance from CenterOfMass to any
-                # trimmed bend segment; no arbitrary margin needed.
-                min_dist = float('inf')
-                for sp0, sp1 in bl_segs:
-                    sx = sp1.x - sp0.x
-                    sy = sp1.y - sp0.y
-                    sl2 = sx * sx + sy * sy
-                    if sl2 < 1e-12:
-                        d = math.sqrt((cm_2d.x - sp0.x) ** 2
-                                      + (cm_2d.y - sp0.y) ** 2)
-                    else:
-                        t = max(0.0, min(1.0,
-                            ((cm_2d.x - sp0.x) * sx
-                             + (cm_2d.y - sp0.y) * sy)
-                            / sl2))
-                        px = sp0.x + t * sx
-                        py = sp0.y + t * sy
-                        d = math.sqrt((cm_2d.x - px) ** 2
-                                      + (cm_2d.y - py) ** 2)
-                    if d < min_dist:
-                        min_dist = d
-                if min_dist < ins + GEOMETRY_TOLERANCE:
-                    strip_pieces.add(pi)
-                    strip_to_bend[pi] = bi
+        # strip_pieces and strip_to_bend already computed before
+        # BFS #1 (needed for seg_parent_pi wedge filtering).
 
         piece_bend_sets, bfs_tree, adjacency, _ = \
             self._classify_pieces_bfs(
@@ -2777,7 +2817,7 @@ class LinkedObject:
         up = FreeCAD.Vector(0, 0, 1)
         piece_shapes = [p.copy() for p in pieces]
 
-        # strip_pieces and strip_to_bend already computed before BFS #2.
+        # strip_pieces and strip_to_bend already computed before BFS #1.
 
         # Map each wedge piece to its specific S-cut mi
         # (from adjacency: the S edge has mi >= 0).
@@ -2904,6 +2944,23 @@ class LinkedObject:
                 f"FreekiCAD: skip phantom mi's"
                 f" (no wedge): {sorted(phantom_mis)}\n")
 
+        # Log piece_mi_set for neighbours of stationary piece
+        for pi in range(len(pieces)):
+            entry = bfs_tree.get(pi)
+            if entry is not None and entry[0] == stationary_idx:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: piece_mi_set[{pi}]"
+                    f" (neighbour of fixed p{stationary_idx})"
+                    f" = {sorted(piece_mi_set[pi])}"
+                    f" strip={pi in strip_pieces}\n")
+            # Also log if entry[2] is wedge that connects to fixed
+            if (entry is not None and entry[2] is not None
+                    and entry[0] == stationary_idx):
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: p{pi} reaches fixed"
+                    f" via wedge p{entry[2]}"
+                    f" crossed={sorted(entry[1])}\n")
+
         # Track accumulated transform per piece (for virtual_plc).
         piece_plc = [FreeCAD.Placement() for _ in range(len(pieces))]
         # Save original bend placements before Phase 3 modifies them.
@@ -3027,12 +3084,30 @@ class LinkedObject:
                 bend_axis, math.degrees(micro_angle))
             plc_rot = FreeCAD.Placement(
                 FreeCAD.Vector(0, 0, 0), rot, pivot)
+            rotated_pis = []
             for pi in range(len(piece_shapes)):
                 if mi not in piece_mi_set[pi]:
                     continue
+                pre_cm = piece_shapes[pi].CenterOfMass
                 piece_shapes[pi].transformShape(
                     plc_rot.toMatrix())
                 piece_plc[pi] = plc_rot.multiply(piece_plc[pi])
+                post_cm = piece_shapes[pi].CenterOfMass
+                rotated_pis.append(pi)
+                # Log z-change for pieces near fixed
+                entry_dbg = bfs_tree.get(pi)
+                if (entry_dbg is not None
+                        and entry_dbg[0] == stationary_idx):
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   mi {mi} rotated"
+                        f" p{pi} (fixed-nbr):"
+                        f" z {pre_cm.z:.4f}"
+                        f" → {post_cm.z:.4f}\n")
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD:   mi {mi} rotated"
+                f" {len(rotated_pis)} pieces:"
+                f" {rotated_pis[:10]}"
+                f"{'...' if len(rotated_pis) > 10 else ''}\n")
 
             # Save wedge's piece_plc right after its own mi rotation
             for wpi in strip_pieces:
@@ -3115,7 +3190,10 @@ class LinkedObject:
                         f" angle="
                         f"{math.degrees(mi_angle_corr):.1f}°"
                         f" |corr|="
-                        f"{correction.Length:.4f}\n")
+                        f"{correction.Length:.4f}"
+                        f" vec=({correction.x:.4f},"
+                        f"{correction.y:.4f},"
+                        f"{correction.z:.4f})\n")
 
                     corr_plc = FreeCAD.Placement(
                         correction, FreeCAD.Rotation())
