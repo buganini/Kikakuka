@@ -3585,13 +3585,33 @@ class LinkedObject:
                                         f" remaining_trans="
                                         f"{rb:.3f}\n")
                             piece_shapes[pi] = loft
+                            # Compute CenterOfMass safely:
+                            # fuse() may return a Compound
+                            # instead of a Solid.
+                            try:
+                                cm = loft.CenterOfMass
+                            except AttributeError:
+                                solids = loft.Solids
+                                if solids:
+                                    tv = sum(
+                                        abs(s.Volume)
+                                        for s in solids)
+                                    if tv > 1e-12:
+                                        cm = FreeCAD.Vector()
+                                        for s in solids:
+                                            w = abs(s.Volume) / tv
+                                            cm += s.CenterOfMass * w
+                                    else:
+                                        cm = FreeCAD.Vector()
+                                else:
+                                    cm = FreeCAD.Vector()
                             FreeCAD.Console.PrintMessage(
                                 f"FreekiCAD: wedge loft solid:"
                                 f" post_vol={loft.Volume:.4f}"
                                 f" wedge_cm="
-                                f"({loft.CenterOfMass.x:.2f}"
-                                f",{loft.CenterOfMass.y:.2f}"
-                                f",{loft.CenterOfMass.z:.2f})"
+                                f"({cm.x:.2f}"
+                                f",{cm.y:.2f}"
+                                f",{cm.z:.2f})"
                                 f"\n")
                 except Exception as e:
                     FreeCAD.Console.PrintWarning(
