@@ -4,6 +4,8 @@ import FreeCAD
 import Part
 
 
+_VERSIONCODE = "20260329a"
+
 DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
 
@@ -713,9 +715,6 @@ def load_board(filepath, socket_path):
                 concrete = to_concrete_board_shape(s)
                 if concrete is None:
                     continue
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD:   Edge.Cuts: {type(concrete).__name__}\n"
-                )
                 if isinstance(concrete, BoardSegment):
                     p1 = _vec(concrete.start.x, concrete.start.y)
                     p2 = _vec(concrete.end.x, concrete.end.y)
@@ -2261,6 +2260,9 @@ class LinkedObject:
                 r_eff = radius + half_t
                 insets.append(r_eff * abs_a / 2.0)
 
+        for bi, ins in enumerate(insets):
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: bend {bi} inset={ins:.4f}mm\n")
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 1 (bend info): "
             f"{_time.time() - _t_phase1:.3f}s\n")
@@ -3104,7 +3106,8 @@ class LinkedObject:
             abs_a = abs(angle_rad_bi)
             r_eff = radius_bi + half_t
             N_SLICES = max(
-                int(math.ceil(abs(math.degrees(angle_rad_bi)) / 4)),
+                int(math.ceil(
+                    abs(math.degrees(angle_rad_bi)) / 4)),
                 8)
 
             # Find the S micro-bend for this specific wedge piece
@@ -3171,6 +3174,7 @@ class LinkedObject:
                 f" ins={ins:.4f}"
                 f" r_eff={r_eff:.4f}"
                 f" segs={len(seg_mids)}"
+                f" pre_vol={piece_shapes[pi].Volume:.4f}"
                 f" cur_p0=({cur_p0.x:.2f},{cur_p0.y:.2f},{cur_p0.z:.2f})"
                 f" normal=({cur_normal.x:.3f},{cur_normal.y:.3f},{cur_normal.z:.3f})"
                 f" up=({cur_up.x:.3f},{cur_up.y:.3f},{cur_up.z:.3f})"
@@ -3250,6 +3254,9 @@ class LinkedObject:
 
                 w = wires[0].copy()
                 slice_angle = frac * sweep_angle
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:     slice d={d:.6f} frac={frac:.4f}"
+                    f" angle={math.degrees(slice_angle):.2f}°\n")
 
                 # Compensate: translate slice back to stationary
                 # edge in flat space, then rotate to arc position
@@ -3269,8 +3276,10 @@ class LinkedObject:
             # Last wire is from frac=1.0 in the loop above
             # (rotated base wire at full sweep angle)
 
+            wire_edges = [len(w.Edges) for w in wires_list]
             FreeCAD.Console.PrintMessage(
-                f"FreekiCAD:   slices={len(wires_list)}/{len(d_values)}\n")
+                f"FreekiCAD:   slices={len(wires_list)}/{len(d_values)}"
+                f" edges={wire_edges}\n")
             if len(wires_list) >= 2:
                 try:
                     loft = Part.makeLoft(wires_list, True, True)
@@ -3280,7 +3289,7 @@ class LinkedObject:
                         piece_shapes[pi] = loft
                         FreeCAD.Console.PrintMessage(
                             f"FreekiCAD: wedge loft solid:"
-                            f" vol={loft.Volume:.4f}\n")
+                            f" post_vol={loft.Volume:.4f}\n")
                 except Exception as e:
                     FreeCAD.Console.PrintWarning(
                         f"FreekiCAD: wedge loft failed for"
@@ -3392,7 +3401,10 @@ class LinkedObject:
                 continue
 
             # Move bend line to center of first wedge at half thickness
-            wedge_cm = piece_shapes[wedge_pi].CenterOfMass
+            ws = piece_shapes[wedge_pi]
+            if not hasattr(ws, 'CenterOfMass'):
+                continue
+            wedge_cm = ws.CenterOfMass
             _, p0_bi, _, _, normal_bi, _, _ = bend_info[bi]
             final_plc = bl_obj.Placement
             final_bend_p0 = final_plc.multVec(p0_bi)
@@ -3515,8 +3527,7 @@ class LinkedObject:
                 pass
 
             board_obj.Shape = Part.makeCompound(
-                [s for s in piece_shapes
-                 if s.isValid() and s.Volume > 1e-6])
+                [s for s in piece_shapes if s.isValid()])
 
             if saved_color:
                 try:
@@ -3546,7 +3557,7 @@ class LinkedObject:
                 obj.addObject(grp)
             for pi in range(len(piece_shapes)):
                 s = piece_shapes[pi]
-                if not s.isValid() or s.Volume < 1e-6:
+                if not s.isValid():
                     continue
                 # Build label and path
                 if pi in strip_pieces:
@@ -4620,7 +4631,8 @@ class LinkedObject:
             _sketch_observer.suppress(outline_name)
         try:
             FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Reloading '{obj.Name}'...\n")
+                f"FreekiCAD: Reloading '{obj.Name}' "
+                f"(versioncode={_VERSIONCODE})...\n")
             self._suppress_execute = True
             if hasattr(obj, 'FileMtime'):
                 obj.FileMtime = ""
