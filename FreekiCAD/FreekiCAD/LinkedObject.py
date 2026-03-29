@@ -1094,14 +1094,14 @@ def load_board(filepath, socket_path):
                 p1 = FreeCAD.Vector(bl['end'].x, bl['end'].y, 0)
                 segs = LinkedObject._trim_line_to_outline(
                     None, p0, p1, board_face)
-                if segs:
-                    valid_bends.append(bl)
-                else:
+                if not segs:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD: reject bend {bl.get('uuid', '?')[:8]}"
-                        f" no segments inside board"
+                        f" no segments cross board"
                         f" ({p0.x:.2f},{p0.y:.2f})"
                         f"-({p1.x:.2f},{p1.y:.2f})\n")
+                    continue
+                valid_bends.append(bl)
             bend_lines = valid_bends
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Valid bend lines: {len(bend_lines)}\n")
@@ -3988,7 +3988,18 @@ class LinkedObject:
 
         # Sort by position along the line
         segments.sort(key=lambda s: (s[0] - p0).dot(unit))
-        return segments
+
+        # Keep only segments that cross the board: both endpoints
+        # must lie on (or very near) the outline wire.
+        wire = board_face.OuterWire
+        crossing = []
+        for sp, ep in segments:
+            sv = Part.Vertex(FreeCAD.Vector(sp.x, sp.y, 0))
+            ev = Part.Vertex(FreeCAD.Vector(ep.x, ep.y, 0))
+            if sv.distToShape(wire)[0] < 0.1 \
+                    and ev.distToShape(wire)[0] < 0.1:
+                crossing.append((sp, ep))
+        return crossing
 
     def _draw_debug_arrows(self, obj, pieces, piece_bend_sets,
                             bfs_tree, strip_pieces, strip_to_bend,
