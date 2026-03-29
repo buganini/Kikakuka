@@ -3080,6 +3080,88 @@ class LinkedObject:
                 child.Placement = rot_plc.multiply(
                     child.Placement)
 
+            # Inset correction: the wedge wraps around CoC
+            # carrying the moving part, but pieces were rotated
+            # from their flat M-edge position.  Apply correction
+            # NOW (inside Phase 3 loop) so subsequent rotations
+            # carry it along in the correct frame.
+            ins_bi = insets[orig_bi]
+            if ins_bi > 1e-6:
+                _, s_p0, s_normal, s_up, s_axis, s_pivot = \
+                    micro_pivots[mi]
+                coc_corr = s_pivot
+                mi_angle_corr = micro_angle
+                r_eff_corr = radius + half_t
+
+                mid_stat = s_p0 + s_up * half_t
+                mid_flat = s_p0 + s_normal * (2 * ins_bi) \
+                    + s_up * half_t
+
+                rot_full = FreeCAD.Rotation(
+                    s_axis, math.degrees(mi_angle_corr))
+                plc_full = FreeCAD.Placement(
+                    FreeCAD.Vector(0, 0, 0), rot_full,
+                    coc_corr)
+                mid_expected = plc_full.multVec(mid_stat)
+                mid_actual = plc_full.multVec(mid_flat)
+                correction = mid_expected - mid_actual
+
+                if correction.Length > 1e-6:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: correction mi {mi}"
+                        f" (bend {orig_bi}):"
+                        f" ins={ins_bi:.4f}"
+                        f" r_eff={r_eff_corr:.4f}"
+                        f" angle="
+                        f"{math.degrees(mi_angle_corr):.1f}°"
+                        f" |corr|="
+                        f"{correction.Length:.4f}\n")
+
+                    corr_plc = FreeCAD.Placement(
+                        correction, FreeCAD.Rotation())
+
+                    for pi in range(len(piece_shapes)):
+                        is_own_wedge = (
+                            pi in strip_pieces
+                            and strip_to_mi.get(pi) == mi)
+                        if is_own_wedge:
+                            continue
+                        if mi not in piece_mi_set[pi]:
+                            continue
+                        piece_shapes[pi].translate(correction)
+                        piece_plc[pi] = corr_plc.multiply(
+                            piece_plc[pi])
+
+                    # Correct bend lines
+                    mi_bend_obj_name2 = bend_obj.Name
+                    for child in obj.Group:
+                        if (getattr(getattr(
+                                child, 'Proxy', None),
+                                'Type', None) != 'BendLine'):
+                            continue
+                        if child.Name == mi_bend_obj_name2:
+                            continue
+                        bl_pi = bendline_piece_idx.get(
+                            child.Name)
+                        if bl_pi is None:
+                            continue
+                        bl_mult = int(
+                            mi in piece_mi_set[bl_pi])
+                        if bl_mult > 0:
+                            child.Placement.Base = \
+                                child.Placement.Base \
+                                + correction
+
+                    # Correct components
+                    for child in obj.Group:
+                        cpi = comp_piece_idx.get(child.Name)
+                        if cpi is None:
+                            continue
+                        if mi not in piece_mi_set[cpi]:
+                            continue
+                        child.Placement.Base = \
+                            child.Placement.Base + correction
+
         # Log final positions after all transforms
         for pi in range(len(piece_shapes)):
             s = piece_shapes[pi]
@@ -3441,90 +3523,6 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Wedge loft: "
             f"{_time.time() - _t_loft:.3f}s\n")
-        _t_corr = _time.time()
-        # Correct moving pieces per cut line: the wedge wraps
-        # around CoC carrying the moving part, but pieces were
-        # rotated from their flat M-edge position.  Correction
-        # aligns them with the wedge endpoint.
-        for mi in range(len(micro_bend_info)):
-            micro_angle, bend_obj, cut_mid, normal, radius, \
-                orig_bi = micro_bend_info[mi]
-            ins_bi = insets[orig_bi]
-            if ins_bi < 1e-6:
-                continue
-            saved = micro_pivots.get(mi)
-            if saved is None:
-                continue
-            _, s_p0, s_normal, s_up, s_axis, s_pivot = saved
-            coc = s_pivot
-            mi_angle = micro_bend_info[mi][0]
-            r_eff_bi = radius + half_t
-
-            # S edge (stationary) and M edge (moving) in current
-            # space.  s_normal points from BFS-S into the wedge
-            # (toward BFS-M), so M edge is at +2*ins.
-            mid_stat = s_p0 + s_up * half_t
-            mid_flat = s_p0 + s_normal * (2 * ins_bi) \
-                + s_up * half_t
-
-            # Expected: stationary edge rotated by full angle
-            rot_full = FreeCAD.Rotation(
-                s_axis, math.degrees(mi_angle))
-            plc_full = FreeCAD.Placement(
-                FreeCAD.Vector(0, 0, 0), rot_full, coc)
-            mid_expected = plc_full.multVec(mid_stat)
-
-            # Actual: M edge rotated by full angle
-            mid_actual = plc_full.multVec(mid_flat)
-
-            correction = mid_expected - mid_actual
-
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: correction mi {mi} (bend {orig_bi}):"
-                f" ins={ins_bi:.4f}"
-                f" r_eff={r_eff_bi:.4f}"
-                f" angle={math.degrees(mi_angle):.1f}°"
-                f" |corr|={correction.Length:.4f}\n")
-
-            if correction.Length < 1e-6:
-                continue
-
-            # Apply to non-wedge pieces that cross this micro-bend
-            for pi in range(len(piece_shapes)):
-                is_own_wedge = (pi in strip_pieces
-                                and strip_to_mi.get(pi) == mi)
-                if is_own_wedge:
-                    continue
-                if mi not in piece_mi_set[pi]:
-                    continue
-                piece_shapes[pi].translate(correction)
-
-            # Apply to bend lines (skip own bend line,
-            # same as Phase 3 rotation skip — the bend line
-            # stays inside its own arc, not at the M-edge).
-            for child in obj.Group:
-                if (getattr(getattr(child, 'Proxy', None),
-                            'Type', None) != 'BendLine'):
-                    continue
-                if child.Name == bend_obj.Name:
-                    continue
-                bl_pi = bendline_piece_idx.get(child.Name)
-                if bl_pi is None:
-                    continue
-                bl_mult = int(mi in piece_mi_set[bl_pi])
-                if bl_mult > 0:
-                    child.Placement.Base = \
-                        child.Placement.Base + correction
-
-            # Apply correction to components
-            for child in obj.Group:
-                cpi = comp_piece_idx.get(child.Name)
-                if cpi is None:
-                    continue
-                if mi not in piece_mi_set[cpi]:
-                    continue
-                child.Placement.Base = \
-                    child.Placement.Base + correction
 
         # Move bend lines to first S cut line's CoC (#9,
         # visual only, no effect on other geometry).
@@ -3659,7 +3657,7 @@ class LinkedObject:
 
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Correction + assembly: "
-            f"{_time.time() - _t_corr:.3f}s\n")
+            f"{_time.time() - _t_loft:.3f}s\n")
         # Update board shape with all pieces (including bent wedges)
         _t_final = _time.time()
         if enable_bending:
