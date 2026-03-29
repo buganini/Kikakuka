@@ -2915,6 +2915,7 @@ class LinkedObject:
 
         micro_pivots = {}  # mi → saved pivot data for wedge loft
         wedge_pre_shapes = {}  # pi → shape copy before this bend's rotation
+        wedge_post_mi_plc = {}  # wpi → piece_plc[wpi] after own mi rotation
         for mi in micro_order:
             micro_angle, bend_obj, cut_mid, normal, radius, orig_bi = \
                 micro_bend_info[mi]
@@ -3032,6 +3033,11 @@ class LinkedObject:
                 piece_shapes[pi].transformShape(
                     plc_rot.toMatrix())
                 piece_plc[pi] = plc_rot.multiply(piece_plc[pi])
+
+            # Save wedge's piece_plc right after its own mi rotation
+            for wpi in strip_pieces:
+                if strip_to_mi.get(wpi) == mi:
+                    wedge_post_mi_plc[wpi] = piece_plc[wpi].copy()
 
             # Move bend lines using piece multiplier.
             # Skip the bend line's OWN micro-bend.
@@ -3397,6 +3403,27 @@ class LinkedObject:
                         if abs(vol) > 1e-9:
                             if vol < 0:
                                 loft = loft.reversed()
+                            # Apply remaining Phase 3
+                            # rotations: the loft was built
+                            # in the pre-mi frame; use the
+                            # wedge's own absolute chain to
+                            # catch subsequent rotations.
+                            if pi in wedge_post_mi_plc:
+                                remaining_plc = piece_plc[
+                                    pi].multiply(
+                                    wedge_post_mi_plc[
+                                        pi].inverse())
+                                ra = remaining_plc.Rotation.Angle
+                                rb = remaining_plc.Base.Length
+                                if ra > 1e-6 or rb > 1e-6:
+                                    loft.transformShape(
+                                        remaining_plc.toMatrix())
+                                    FreeCAD.Console.PrintMessage(
+                                        f"FreekiCAD: wedge pi={pi}"
+                                        f" remaining_rot="
+                                        f"{math.degrees(ra):.1f}°"
+                                        f" remaining_trans="
+                                        f"{rb:.3f}\n")
                             piece_shapes[pi] = loft
                             FreeCAD.Console.PrintMessage(
                                 f"FreekiCAD: wedge loft solid:"
