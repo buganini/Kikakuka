@@ -4,7 +4,6 @@ import FreeCAD
 import Part
 
 
-_VERSIONCODE = "20260329a"
 
 DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
@@ -3220,24 +3219,36 @@ class LinkedObject:
             # vertex projections (ensures loft captures all edges
             # of the flat wedge piece).
             gt = GEOMETRY_TOLERANCE
-            d_list = []
+            d_list = []  # (d, is_vertex_proj)
             for si in range(N_SLICES + 1):
                 frac = si / float(N_SLICES)
-                d_list.append(gt + frac * (2 * ins - 2 * gt))
+                d_list.append(
+                    (gt + frac * (2 * ins - 2 * gt), False))
+            vertex_proj_ds = set()
             for v in positioned_flat.Vertexes:
                 vd = (v.Point - cur_p0).dot(cur_normal)
                 if gt < vd < 2 * ins - gt:
-                    d_list.append(vd)
-            d_list.sort()
+                    d_list.append((vd, True))
+                    vertex_proj_ds.add(vd)
+            d_list.sort(key=lambda x: x[0])
             # Deduplicate: remove values too close together
             min_sep = max(gt * 2, (2 * ins) / 1000)
             d_values = [d_list[0]]
-            for d in d_list[1:]:
-                if d - d_values[-1] >= min_sep:
-                    d_values.append(d)
+            for d_item in d_list[1:]:
+                if d_item[0] - d_values[-1][0] >= min_sep:
+                    d_values.append(d_item)
+                elif d_item[1] and not d_values[-1][1]:
+                    # Prefer vertex projection over uniform
+                    d_values[-1] = d_item
+            # Track which indices are split points
+            split_indices = set()
+            for i, (d, is_vp) in enumerate(d_values):
+                if is_vp:
+                    split_indices.add(i)
 
             wires_list = []
-            for d in d_values:
+            wire_to_idx = []  # maps wire index to d_values index
+            for di, (d, _is_vp) in enumerate(d_values):
                 frac = (d - gt) / (2 * ins - 2 * gt) \
                     if abs(2 * ins - 2 * gt) > 1e-9 else 0.0
                 slice_pt = cur_p0 + cur_normal * d
@@ -3272,6 +3283,7 @@ class LinkedObject:
                     w.transformShape(plc_s.toMatrix())
 
                 wires_list.append(w)
+                wire_to_idx.append(di)
 
             # Last wire is from frac=1.0 in the loop above
             # (rotated base wire at full sweep angle)
@@ -3280,16 +3292,120 @@ class LinkedObject:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD:   slices={len(wires_list)}/{len(d_values)}"
                 f" edges={wire_edges}\n")
+
+            # Enforce consistent vertex ordering across all
+            # wire slices.  OCCT's slice() can return vertices
+            # in different cyclic order or reversed direction
+            # depending on the slice plane position, which
+            # causes makeLoft's B-spline to twist/overshoot.
+            # Fix: align each wire's vertex order to match
+            # the first wire by trying all cyclic rotations
+            # and both directions, picking the one with
+            # minimum total vertex-to-vertex distance.
             if len(wires_list) >= 2:
-                try:
-                    loft = Part.makeLoft(wires_list, True, True)
-                    if abs(loft.Volume) > 1e-9:
-                        if loft.Volume < 0:
-                            loft = loft.reversed()
-                        piece_shapes[pi] = loft
+                ref_pts = [v.Point for v in wires_list[0].Vertexes]
+                n_v = len(ref_pts)
+                for wi in range(1, len(wires_list)):
+                    w = wires_list[wi]
+                    cur_pts = [v.Point for v in w.Vertexes]
+                    if len(cur_pts) != n_v:
+                        continue  # different topology, skip
+                    best_dist = None
+                    best_pts = cur_pts
+                    # Try forward and reverse, all rotations
+                    for pts_order in (cur_pts,
+                                     list(reversed(cur_pts))):
+                        for rot in range(n_v):
+                            rotated = (pts_order[rot:]
+                                       + pts_order[:rot])
+                            total = sum(
+                                (rotated[k] - ref_pts[k]).Length
+                                for k in range(n_v))
+                            if best_dist is None \
+                                    or total < best_dist:
+                                best_dist = total
+                                best_pts = rotated
+                    # Rebuild wire if ordering changed
+                    if any((best_pts[k] - cur_pts[k]).Length
+                           > 1e-9 for k in range(n_v)):
+                        poly_pts = list(best_pts) + [best_pts[0]]
+                        new_wire = Part.makePolygon(poly_pts)
+                        wires_list[wi] = new_wire
                         FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD: wedge loft solid:"
-                            f" post_vol={loft.Volume:.4f}\n")
+                            f"FreekiCAD:     wire[{wi}]"
+                            f" reordered to match wire[0]\n")
+                    # Update ref to this wire for smooth
+                    # tracking through the loft
+                    ref_pts = best_pts
+
+            for wi, w in enumerate(wires_list):
+                pts = [v.Point for v in w.Vertexes]
+                pts_str = " ".join(
+                    f"({p.x:.2f},{p.y:.2f},{p.z:.2f})"
+                    for p in pts)
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:     wire[{wi}]: {pts_str}\n")
+            if len(wires_list) >= 2:
+                # Split wires at vertex projection points to
+                # prevent B-spline overshoot.  At vertex
+                # projections the cross-section shape can
+                # change abruptly; building separate lofts
+                # for each smooth segment avoids overshoot.
+                wire_split_at = set()
+                for wi, di in enumerate(wire_to_idx):
+                    if di in split_indices:
+                        wire_split_at.add(wi)
+                # Build segments: split at vertex projections
+                segments = []
+                seg_start = 0
+                for wi in range(len(wires_list)):
+                    if wi in wire_split_at and wi > seg_start:
+                        # End previous segment at this wire
+                        # (include it as the last wire)
+                        segments.append(
+                            wires_list[seg_start:wi + 1])
+                        seg_start = wi  # next segment starts here
+                if seg_start < len(wires_list):
+                    remaining = wires_list[seg_start:]
+                    if len(remaining) >= 2:
+                        segments.append(remaining)
+                # If no splits needed, single segment
+                if not segments:
+                    segments = [wires_list]
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   loft segments="
+                    f"{len(segments)} splits_at="
+                    f"{sorted(wire_split_at)}\n")
+                try:
+                    loft_parts = []
+                    for seg in segments:
+                        if len(seg) < 2:
+                            continue
+                        part = Part.makeLoft(
+                            seg, True, False)
+                        if abs(part.Volume) > 1e-9:
+                            if part.Volume < 0:
+                                part = part.reversed()
+                            loft_parts.append(part)
+                    if loft_parts:
+                        if len(loft_parts) == 1:
+                            loft = loft_parts[0]
+                        else:
+                            loft = loft_parts[0].fuse(
+                                loft_parts[1:])
+                        vol = loft.Volume
+                        if abs(vol) > 1e-9:
+                            if vol < 0:
+                                loft = loft.reversed()
+                            piece_shapes[pi] = loft
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD: wedge loft solid:"
+                                f" post_vol={loft.Volume:.4f}"
+                                f" wedge_cm="
+                                f"({loft.CenterOfMass.x:.2f}"
+                                f",{loft.CenterOfMass.y:.2f}"
+                                f",{loft.CenterOfMass.z:.2f})"
+                                f"\n")
                 except Exception as e:
                     FreeCAD.Console.PrintWarning(
                         f"FreekiCAD: wedge loft failed for"
@@ -4631,8 +4747,7 @@ class LinkedObject:
             _sketch_observer.suppress(outline_name)
         try:
             FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Reloading '{obj.Name}' "
-                f"(versioncode={_VERSIONCODE})...\n")
+                f"FreekiCAD: Reloading '{obj.Name}'...\n")
             self._suppress_execute = True
             if hasattr(obj, 'FileMtime'):
                 obj.FileMtime = ""
