@@ -1803,6 +1803,16 @@
 		(uuid "f51ad39e-fdd2-47bb-b2d8-75302e3d1e88")
 	)
 	(gr_line
+		(start 102 82.7)
+		(end 102.15 90.29)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "User.4")
+		(uuid "2d974d9c-9243-4713-8f93-148e90c1c1cc")
+	)
+	(gr_line
 		(start 102.46 90.51)
 		(end 102.49 97.32)
 		(stroke
