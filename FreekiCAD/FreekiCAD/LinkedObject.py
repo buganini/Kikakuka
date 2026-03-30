@@ -2443,105 +2443,88 @@ class LinkedObject:
                 FreeCAD.Vector(sp1.x, sp1.y, half_t))
             cut_segments.append(edge_2d)
 
-        # Per-cut: pair A/B faces by topology (shared adjacent
-        # piece = the wedge between them). Each pair gets a
-        # unique segment ID for the preliminary BFS.
-        seg_id_counter = 0
-        face_to_seg = {}  # fi → segment_id
-        seg_to_bend = {}  # segment_id → bi
-        # Find adjacent pieces for each face (2D)
-        face_adj_pieces = {}
-        for fi in range(len(cut_faces)):
-            bi = face_bend.get(fi)
-            if bi is None:
-                continue
-            adj_pi = set()
-            for pi_chk in range(len(pieces)):
-                if piece_slices[pi_chk].distToShape(
-                        cut_segments[fi])[0] < GEOMETRY_TOLERANCE:
-                    adj_pi.add(pi_chk)
-            face_adj_pieces[fi] = adj_pi
-        # Group faces of same bend that share a common piece
-        for bi in range(len(bend_info)):
-            faces_bi = [fi for fi in range(len(cut_faces))
-                        if face_bend.get(fi) == bi]
-            paired = set()
-            for i, fi1 in enumerate(faces_bi):
-                if fi1 in paired:
-                    continue
-                for fi2 in faces_bi[i + 1:]:
-                    if fi2 in paired:
-                        continue
-                    if face_topo_side[fi1] == face_topo_side[fi2]:
-                        continue
-                    # Find shared pieces
-                    shared = (face_adj_pieces.get(fi1, set()) &
-                              face_adj_pieces.get(fi2, set()))
-                    if not shared:
-                        continue
-                    # The shared piece must be a wedge (adjacent
-                    # to exactly these 2 faces of this bend, no
-                    # others).  This prevents pairing faces that
-                    # share a large non-wedge piece.
-                    valid_pair = False
-                    for sp in shared:
-                        sp_bend_faces = sum(
-                            1 for f in faces_bi
-                            if sp in face_adj_pieces.get(f, set()))
-                        if sp_bend_faces == 2:
-                            valid_pair = True
-                            break
-                    if valid_pair:
-                        sid = seg_id_counter
-                        seg_id_counter += 1
-                        face_to_seg[fi1] = sid
-                        face_to_seg[fi2] = sid
-                        seg_to_bend[sid] = bi
-                        paired.add(fi1)
-                        paired.add(fi2)
-                        break
-            for fi in faces_bi:
-                if fi not in paired:
-                    sid = seg_id_counter
-                    seg_id_counter += 1
-                    face_to_seg[fi] = sid
-                    seg_to_bend[sid] = bi
-
-        # Early strip_pieces identification (needed to exclude wedges
-        # from BFS #1 root and to filter wedge parents in seg_parent_pi).
+        # Build joints.  Each trimmed center segment
+        # is one joint containing: the center seg, zero-or-more A
+        # faces, zero-or-more B faces, and zero-or-more wedge pieces.
+        # This replaces both the old A/B pairing and strip_pieces
+        # identification with a single centre-segment-centric pass.
+        #
+        # joints: list of dicts, indexed by sid:
+        #   {'bi', 'center', 'a_faces', 'b_faces', 'wedges'}
+        joints = []  # indexed by sid
+        seg_to_bend = {}      # sid → bi
+        face_to_seg = {}      # fi → sid
         strip_pieces = set()
         strip_to_bend = {}
         for bi, (_, p0, p1, line_dir, normal,
                  angle_rad, radius) in enumerate(bend_info):
             ins = insets[bi]
-            if ins < 1e-6:
-                continue
             bl_segs = trimmed_bend_segs[bi]
-            for pi, piece in enumerate(pieces):
-                cm = piece.CenterOfMass
-                cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
-                min_dist = float('inf')
-                for sp0, sp1 in bl_segs:
-                    sx = sp1.x - sp0.x
-                    sy = sp1.y - sp0.y
-                    sl2 = sx * sx + sy * sy
+            for bl_sp0, bl_sp1 in bl_segs:
+                sid = len(joints)
+                seg_to_bend[sid] = bi
+                joint = {
+                    'bi': bi,
+                    'center': (bl_sp0, bl_sp1),
+                    'a_faces': [],
+                    'b_faces': [],
+                    'wedges': [],
+                }
+                joints.append(joint)
+                # Assign A/B faces whose midpoint projects onto
+                # this center segment (within tolerance).
+                sx = bl_sp1.x - bl_sp0.x
+                sy = bl_sp1.y - bl_sp0.y
+                sl2 = sx * sx + sy * sy
+                for fi in range(len(cut_faces)):
+                    if face_bend.get(fi) != bi:
+                        continue
+                    if fi in face_to_seg:
+                        continue
+                    mid = (cut_plan[fi][0] + cut_plan[fi][1]) * 0.5
                     if sl2 < 1e-12:
-                        d = math.sqrt((cm_2d.x - sp0.x) ** 2
-                                      + (cm_2d.y - sp0.y) ** 2)
+                        d = math.sqrt((mid.x - bl_sp0.x) ** 2
+                                      + (mid.y - bl_sp0.y) ** 2)
                     else:
                         t = max(0.0, min(1.0,
-                            ((cm_2d.x - sp0.x) * sx
-                             + (cm_2d.y - sp0.y) * sy)
+                            ((mid.x - bl_sp0.x) * sx
+                             + (mid.y - bl_sp0.y) * sy)
                             / sl2))
-                        px = sp0.x + t * sx
-                        py = sp0.y + t * sy
-                        d = math.sqrt((cm_2d.x - px) ** 2
-                                      + (cm_2d.y - py) ** 2)
-                    if d < min_dist:
-                        min_dist = d
-                if min_dist < ins + GEOMETRY_TOLERANCE:
-                    strip_pieces.add(pi)
-                    strip_to_bend[pi] = bi
+                        px = bl_sp0.x + t * sx
+                        py = bl_sp0.y + t * sy
+                        d = math.sqrt((mid.x - px) ** 2
+                                      + (mid.y - py) ** 2)
+                    if d < ins + GEOMETRY_TOLERANCE:
+                        face_to_seg[fi] = sid
+                        side = face_topo_side[fi]
+                        if side == 'A':
+                            joint['a_faces'].append(fi)
+                        else:
+                            joint['b_faces'].append(fi)
+                # Assign wedge pieces whose center of mass is
+                # within ins of this center segment.
+                if ins < 1e-6:
+                    continue
+                for pi, piece in enumerate(pieces):
+                    if pi in strip_pieces:
+                        continue
+                    cm = piece.CenterOfMass
+                    if sl2 < 1e-12:
+                        d = math.sqrt((cm.x - bl_sp0.x) ** 2
+                                      + (cm.y - bl_sp0.y) ** 2)
+                    else:
+                        t = max(0.0, min(1.0,
+                            ((cm.x - bl_sp0.x) * sx
+                             + (cm.y - bl_sp0.y) * sy)
+                            / sl2))
+                        px = bl_sp0.x + t * sx
+                        py = bl_sp0.y + t * sy
+                        d = math.sqrt((cm.x - px) ** 2
+                                      + (cm.y - py) ** 2)
+                    if d < ins + GEOMETRY_TOLERANCE:
+                        joint['wedges'].append(pi)
+                        strip_pieces.add(pi)
+                        strip_to_bend[pi] = bi
 
         # Preliminary BFS with per-segment labels.
         FreeCAD.Console.PrintMessage(
@@ -2553,7 +2536,8 @@ class LinkedObject:
                 pieces, cut_faces, face_to_seg, mass_center,
                 half_t, bend_info, cut_plan, None, log=False,
                 piece_slices=piece_slices,
-                cut_segments=cut_segments)
+                cut_segments=cut_segments,
+                joints=joints)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] BFS #1 (preliminary): "
             f"{_time.time() - _t_bfs1:.3f}s\n")
@@ -4215,18 +4199,68 @@ class LinkedObject:
                 f"{bl_name}\n")
 
     def _build_geometric_adjacency(self, pieces, cut_faces, cut_plan,
-                                    piece_slices=None, cut_segments=None):
+                                    piece_slices=None, cut_segments=None,
+                                    joints=None):
         """Build geometric adjacency: which pieces touch and via which cut face.
 
         Returns a list of (i, j, best_touch_fi_or_None) tuples.
+
+        When *joints* is provided, builds adjacency from the
+        joint structure (pieces adjacent to each A/B face) instead of
+        O(n²) piece-pair checks.  Falls back to O(n²) when joints are
+        not available.
 
         When *piece_slices* and *cut_segments* are provided, uses 2D
         geometry for distance checks instead of 3D solids.
         """
         n = len(pieces)
         tol = GEOMETRY_TOLERANCE
-        # Use 2D slices if available, otherwise 3D pieces
         shapes = piece_slices if piece_slices is not None else pieces
+
+        if joints is not None:
+            # Group-based adjacency: for each cut face, find all
+            # touching pieces; adjacent pairs share the face.
+            face_pieces = {}  # fi → set of pi
+            for grp in joints:
+                for fi in grp['a_faces'] + grp['b_faces']:
+                    cf_shape = (cut_segments[fi]
+                                if cut_segments is not None
+                                else cut_faces[fi])
+                    adj = set()
+                    for pi in range(n):
+                        if shapes[pi].distToShape(cf_shape)[0] < tol:
+                            adj.add(pi)
+                    face_pieces[fi] = adj
+            # Build edges: pairs of pieces that share a cut face.
+            edge_set = set()
+            geo_edges = []
+            for fi, pis in face_pieces.items():
+                pis_list = sorted(pis)
+                for idx_a in range(len(pis_list)):
+                    for idx_b in range(idx_a + 1, len(pis_list)):
+                        i, j = pis_list[idx_a], pis_list[idx_b]
+                        key = (i, j)
+                        if key in edge_set:
+                            continue
+                        # Only connect pieces on opposite sides
+                        # of the cut face.
+                        sp0_e = cut_plan[fi][0]
+                        sp1_e = cut_plan[fi][1]
+                        sdx = sp1_e.x - sp0_e.x
+                        sdy = sp1_e.y - sp0_e.y
+                        cm_i = pieces[i].CenterOfMass
+                        cm_j = pieces[j].CenterOfMass
+                        ci = sdx * (cm_i.y - sp0_e.y) \
+                            - sdy * (cm_i.x - sp0_e.x)
+                        cj = sdx * (cm_j.y - sp0_e.y) \
+                            - sdy * (cm_j.x - sp0_e.x)
+                        if ci * cj >= 0:
+                            continue
+                        edge_set.add(key)
+                        geo_edges.append((i, j, fi))
+            return geo_edges
+
+        # Fallback: O(n²) piece-pair check (no joints).
         geo_edges = []
         for i in range(n):
             for j in range(i + 1, n):
@@ -4250,8 +4284,6 @@ class LinkedObject:
                         sl2 = sdx * sdx + sdy * sdy
                         if sl2 < 1e-12:
                             continue
-                        # 2D distance from cut segment midpoint
-                        # to piece-pair midpoint.
                         seg_mid_x = (sp0_e.x + sp1_e.x) * 0.5
                         seg_mid_y = (sp0_e.y + sp1_e.y) * 0.5
                         dx = mid.x - seg_mid_x
@@ -4271,7 +4303,8 @@ class LinkedObject:
                              m_face_to_bend=None, mi_seg_idx=None,
                              cached_geo_edges=None,
                              piece_slices=None, cut_segments=None,
-                             strip_pieces=None):
+                             strip_pieces=None,
+                             joints=None):
         """BFS from the stationary piece with maximum-set preference.
 
         All crossings ADD the bend (union, sets only grow).
@@ -4307,7 +4340,8 @@ class LinkedObject:
             cached_geo_edges = self._build_geometric_adjacency(
                 pieces, cut_faces, cut_plan,
                 piece_slices=piece_slices,
-                cut_segments=cut_segments)
+                cut_segments=cut_segments,
+                joints=joints)
 
         # Label edges using face_to_bend mapping (cheap).
         # Each entry: (neighbor, mi_label, face_index_or_None)
