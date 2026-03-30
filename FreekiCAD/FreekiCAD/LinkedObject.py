@@ -2282,24 +2282,24 @@ class LinkedObject:
             trimmed_bend_segs.append(bl_segs)
 
             # All bends have inset > 0 (r_eff always > 0)
-            s_p0 = p0 - normal * ins
-            s_p1 = p1 - normal * ins
-            m_p0 = p0 + normal * ins
-            m_p1 = p1 + normal * ins
-            s_segs = self._trim_line_to_outline(
-                s_p0, s_p1, board_face)
-            if not s_segs:
-                s_segs = [(s_p0, s_p1)]
-            m_segs = self._trim_line_to_outline(
-                m_p0, m_p1, board_face)
-            if not m_segs:
-                m_segs = [(m_p0, m_p1)]
-            for sp0, sp1 in s_segs:
-                cut_plan.append((sp0, sp1, 'S', bi,
+            a_p0 = p0 - normal * ins
+            a_p1 = p1 - normal * ins
+            b_p0 = p0 + normal * ins
+            b_p1 = p1 + normal * ins
+            a_segs = self._trim_line_to_outline(
+                a_p0, a_p1, board_face)
+            if not a_segs:
+                a_segs = [(a_p0, a_p1)]
+            b_segs = self._trim_line_to_outline(
+                b_p0, b_p1, board_face)
+            if not b_segs:
+                b_segs = [(b_p0, b_p1)]
+            for sp0, sp1 in a_segs:
+                cut_plan.append((sp0, sp1, 'A', bi,
                                  angle_rad, radius, p0, normal,
                                  bend_obj_ref, normal))
-            for mp0, mp1 in m_segs:
-                cut_plan.append((mp0, mp1, 'M', bi,
+            for mp0, mp1 in b_segs:
+                cut_plan.append((mp0, mp1, 'B', bi,
                                  angle_rad, radius, p0, normal,
                                  bend_obj_ref, normal))
 
@@ -2354,17 +2354,17 @@ class LinkedObject:
             f"{_time.time() - _t_phase2a:.3f}s\n")
         # --- Phase 2b: create 3D cutting faces from 2D plan ---
         _t_phase2b = _time.time()
-        # Each S cut segment → independent micro-bend (full angle).
-        # M cuts → geometry only (no micro-bend, no rotation).
+        # Each stationary-side cut segment → independent micro-bend.
+        # Moving-side cuts → geometry only (no micro-bend, no rotation).
         # After 2D planning, everything is per cut line.
         cut_faces = []
         micro_bend_info = []  # per micro-bend: (angle, bend_obj,
                               #   cut_mid, normal, radius, orig_bi)
         # --- Phase 2b-1: create cut faces with generic bend labels ---
         # Both geometric sides get the same label (bi) initially.
-        # S/M is determined AFTER a preliminary BFS.
+        # Stationary/moving role is determined AFTER a preliminary BFS.
         face_to_micro = {}  # fi → label (initially all bi)
-        face_topo_side = {}  # fi → topological side ('S' or 'M')
+        face_topo_side = {}  # fi → topological side ('A' or 'B')
         face_bend = {}      # fi → bi
         cut_plan_data = {}  # fi → (angle_rad, bend_obj, cut_mid,
                             #       normal, radius, bi)
@@ -2398,7 +2398,7 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 2b (3D cut faces): "
             f"{_time.time() - _t_phase2b:.3f}s\n")
-        # --- Phase 2c: cut board, preliminary BFS, assign S/M ---
+        # --- Phase 2c: cut board, preliminary BFS, assign stationary/moving ---
         _t_phase2c = _time.time()
         _t_fuse = _time.time()
         try:
@@ -2443,7 +2443,7 @@ class LinkedObject:
                 FreeCAD.Vector(sp1.x, sp1.y, half_t))
             cut_segments.append(edge_2d)
 
-        # Per-cut: pair S/M faces by topology (shared adjacent
+        # Per-cut: pair A/B faces by topology (shared adjacent
         # piece = the wedge between them). Each pair gets a
         # unique segment ID for the preliminary BFS.
         seg_id_counter = 0
@@ -2562,14 +2562,14 @@ class LinkedObject:
         # When the BFS parent is a wedge piece (strip_pieces),
         # walk up prelim_tree to find a non-wedge ancestor whose
         # CM is far enough from the cut for reliable normal orient.
-        seg_bfs_side = {}
+        seg_parent_side = {}
         seg_parent_pi = {}   # sid → parent piece index
         seg_parent_is_child = set()  # sids where we used child as fallback
         for pi, (parent, mi_crossed) in prelim_tree.items():
             if mi_crossed is None or mi_crossed < 0 or parent is None:
                 continue
             sid = mi_crossed
-            if sid in seg_bfs_side:
+            if sid in seg_parent_side:
                 continue
             # Walk past wedge parents
             real_parent = parent
@@ -2592,10 +2592,10 @@ class LinkedObject:
                 dp = pieces[parent].distToShape(
                     cut_faces[fi])[0]
                 if di < GEOMETRY_TOLERANCE and dp < GEOMETRY_TOLERANCE:
-                    seg_bfs_side[sid] = face_topo_side[fi]
+                    seg_parent_side[sid] = face_topo_side[fi]
                     break
-            if sid not in seg_bfs_side:
-                seg_bfs_side[sid] = 'S'
+            if sid not in seg_parent_side:
+                seg_parent_side[sid] = 'A'
 
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: seg_parent_pi has {len(seg_parent_pi)} entries\n")
@@ -2603,21 +2603,21 @@ class LinkedObject:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD:   seg_parent_pi[{_sid}] = p{_ppi}\n")
 
-        # --- Phase 2b-2: assign S/M and create micro-bends ---
+        # --- Phase 2b-2: assign stationary/moving and create micro-bends ---
         _t_phase2b2 = _time.time()
-        # Log per-segment S/M.
-        # (per-bend S-side logging removed — per-cut makes it irrelevant)
+        # Log per-segment stationary/moving assignment.
+        # (per-bend logging removed — per-cut makes it irrelevant)
         s_group = {}
         bend_seg_mids = {}
-        bend_s_mis = {}  # bi → list of mi's (one per S segment)
-        # Per-cut labeling: each S and M face gets a unique ID
+        bend_s_mis = {}  # bi → list of mi's (one per stationary segment)
+        # Per-cut labeling: each A and B face gets a unique ID
         # with a segment index within its bend, displayed as
-        # "9.0S", "9.1M" etc. in adjacency/path logs.
+        # "9.0A", "9.1B" etc. in adjacency/path logs.
         m_face_counter = 0
         m_face_to_bend = {}  # unique_m_id → (bi, seg_idx)
-        mi_seg_idx = {}  # mi → seg_idx (for S faces)
+        mi_seg_idx = {}  # mi → seg_idx (for stationary faces)
         # Derive segment index from face_to_seg pairing:
-        # paired S and M faces share the same sid, so they
+        # paired A and B faces share the same sid, so they
         # get the same seg_idx within their bend.
         sid_to_seg_idx = {}  # sid → seg_idx
         bend_seg_count = {}  # bi → next seg_idx
@@ -2626,10 +2626,10 @@ class LinkedObject:
             if bi is None:
                 continue
             topo_side = face_topo_side[fi]
-            # Per-segment S/M from BFS direction
+            # Per-segment stationary side from BFS direction
             sid = face_to_seg.get(fi)
-            s_side = seg_bfs_side.get(sid, 'S') if sid is not None \
-                else 'S'
+            parent_side = seg_parent_side.get(sid, 'A') \
+                if sid is not None else 'A'
             # Assign seg_idx from pairing: same sid → same idx
             if sid is not None and sid in sid_to_seg_idx:
                 seg_idx = sid_to_seg_idx[sid]
@@ -2638,15 +2638,15 @@ class LinkedObject:
                 bend_seg_count[bi] = seg_idx + 1
                 if sid is not None:
                     sid_to_seg_idx[sid] = seg_idx
-            is_s = (topo_side == s_side)
-            if not is_s:
-                # Per-cut: each M face gets a unique negative ID
+            is_stationary = (topo_side == parent_side)
+            if not is_stationary:
+                # Per-cut: each moving-side face gets a unique negative ID
                 m_id = -(m_face_counter + len(bend_info) + 2)
                 m_face_to_bend[m_id] = (bi, seg_idx)
                 face_to_micro[fi] = m_id
                 m_face_counter += 1
             else:
-                # Per-cut: each S face gets its own micro-bend
+                # Per-cut: each stationary-side face gets its own micro-bend
                 mi = len(micro_bend_info)
                 s_group[(bi, fi)] = mi
                 mi_seg_idx[mi] = seg_idx
@@ -2654,7 +2654,7 @@ class LinkedObject:
                 angle_rad, bend_obj_ref, cut_mid, normal_ref, \
                     radius, _ = data
                 # Per-cut: orient normal away from BFS parent
-                # (from S-side into wedge) using parent piece position.
+                # (from stationary side into wedge) using parent piece position.
                 parent_pi = seg_parent_pi.get(sid)
                 if parent_pi is not None:
                     parent_cm = pieces[parent_pi].CenterOfMass
@@ -2690,9 +2690,9 @@ class LinkedObject:
                     f" normal=({normal_ref.x:.3f},{normal_ref.y:.3f},{normal_ref.z:.3f})"
                     f"\n")
 
-        # Re-run BFS with correct S/M labels
+        # Re-run BFS with correct stationary/moving labels
         FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: [profile] Phase 2b-2 (S/M assign): "
+            f"FreekiCAD: [profile] Phase 2b-2 (stationary/moving assign): "
             f"{_time.time() - _t_phase2b2:.3f}s\n")
         _t_bfs2 = _time.time()
         face_to_bend = face_to_micro
@@ -2864,7 +2864,7 @@ class LinkedObject:
                 seen_bends.add(bi)
 
         # Per-cut: set of mi's crossed in BFS chain from root.
-        # If mi is in the set, piece is on the M-side of that cut.
+        # If mi is in the set, piece is on the moving side of that cut.
         # bfs_tree entries are (parent, mis_crossed_set, wedge_pi).
         piece_mi_set = [set() for _ in range(len(pieces))]
         for pi in range(len(pieces)):
@@ -2889,7 +2889,7 @@ class LinkedObject:
                     piece_mi_set[wpi] = piece_mi_set[dest_pi].copy()
                     break
             else:
-                # No dest through this wedge — use S-parent + mi
+                # No dest through this wedge — use stationary-parent + mi
                 mi_w = strip_to_mi.get(wpi)
                 if mi_w is not None:
                     for nbr, mi_adj, _fi in adjacency[wpi]:
@@ -2982,7 +2982,7 @@ class LinkedObject:
 
             plc = bend_obj.Placement
 
-            # Find the S-side parent piece of this mi's wedge.
+            # Find the stationary-side parent piece of this mi's wedge.
             # Its accumulated piece_plc will be used to build
             # virtual_plc for the cut geometry transform.
             s_parent_pi = None
@@ -2991,13 +2991,14 @@ class LinkedObject:
             for wpi in strip_pieces:
                 if strip_to_mi.get(wpi) == mi:
                     mi_wpi = wpi
-                    # S-parent = neighbor connected via S-cut mi
+                    # stationary-parent = neighbor connected via
+                    # stationary-side cut mi
                     for nbr, mi_adj, _fi in adjacency[wpi]:
                         if mi_adj == mi:
                             s_parent_pi = nbr
                             break
                     # M-entry: the BFS source that goes through
-                    # this wedge is on the M-side.
+                    # this wedge is on the moving side.
                     for dest_pi, bfs_e in bfs_tree.items():
                         if bfs_e[2] == wpi:
                             src_pi = bfs_e[0]
@@ -3005,13 +3006,13 @@ class LinkedObject:
                                 mi_is_m_entry = True
                                 FreeCAD.Console.PrintMessage(
                                     f"FreekiCAD: mi {mi}"
-                                    f" M-entry: S-side="
+                                    f" M-entry: stat-side="
                                     f"{s_parent_pi}"
                                     f" (BFS src={src_pi})\n")
                             break
                     break
 
-            # Build virtual_plc from the S-parent's accumulated
+            # Build virtual_plc from the stationary-parent's accumulated
             # transform composed with the bend's original placement.
             # This correctly interleaves same-bend and cross-bend
             # rotations (chain composition gets the order wrong
@@ -3058,10 +3059,10 @@ class LinkedObject:
                 if strip_to_mi.get(wpi) == mi:
                     if mi_is_m_entry and s_parent_pi is not None:
                         # M-entry: the wedge's piece_shapes has been
-                        # rotated by the M-side path's mi_set, which
-                        # differs from the S-side neighbor's.  Rebuild
-                        # from the flat piece with the S-side neighbor's
-                        # accumulated transform.
+                        # rotated by the moving-side path's mi_set, which
+                        # differs from the stationary-side neighbor's.
+                        # Rebuild from the flat piece with the
+                        # stationary-side neighbor's accumulated transform.
                         shape = pieces[wpi].copy()
                         shape.transformShape(
                             piece_plc[s_parent_pi].toMatrix())
@@ -3317,7 +3318,7 @@ class LinkedObject:
                 coc_offsets[bi] = (bend_obj_bi, s_mi)
 
             # M-entry: check if BFS source through this wedge
-            # differs from S-parent (meaning it came from M-side).
+            # differs from stationary-parent (meaning it came from moving side).
             m_entry = False
             s_nbr = None
             for nbr_w, mi_w, _fi_w in adjacency[pi]:
@@ -3638,7 +3639,7 @@ class LinkedObject:
             f"FreekiCAD: [profile] Wedge loft: "
             f"{_time.time() - _t_loft:.3f}s\n")
 
-        # Move bend lines to first S cut line's CoC (#9,
+        # Move bend lines to first stationary cut line's CoC (#9,
         # visual only, no effect on other geometry).
         for bi, (bl_obj, first_mi) in coc_offsets.items():
             saved = micro_pivots.get(first_mi)
@@ -3733,23 +3734,23 @@ class LinkedObject:
                                 seg = mi_seg_idx.get(
                                     bi_crossed, 0)
                                 path.append(
-                                    f"{orig_bi}.{seg}S")
+                                    f"{orig_bi}.{seg}A")
                             elif (bi_crossed <= -2
                                     and m_face_to_bend):
                                 b, s = m_face_to_bend.get(
                                     bi_crossed,
                                     (-bi_crossed-2, 0))
-                                path.append(f"{b}.{s}M")
+                                path.append(f"{b}.{s}B")
                             elif bi_crossed <= -2:
                                 path.append(
-                                    f"{-bi_crossed-2}M")
+                                    f"{-bi_crossed-2}B")
                     cur = parent
                 path.reverse()
-                # Collapse consecutive same-bend M crossings.
+                # Collapse consecutive same-bend B crossings.
                 cleaned = []
                 for p in path:
                     if (cleaned and cleaned[-1] == p
-                            and p.endswith('M')):
+                            and p.endswith('B')):
                         cleaned.pop()
                     else:
                         cleaned.append(p)
@@ -3841,17 +3842,17 @@ class LinkedObject:
                                 seg = mi_seg_idx.get(
                                     bi_crossed, 0)
                                 path.append(
-                                    f"{obi}.{seg}S")
+                                    f"{obi}.{seg}A")
                             elif (bi_crossed <= -2
                                     and m_face_to_bend):
                                 mb, ms = m_face_to_bend.get(
                                     bi_crossed,
                                     (-bi_crossed-2, 0))
                                 path.append(
-                                    f"{mb}.{ms}M")
+                                    f"{mb}.{ms}B")
                             elif bi_crossed <= -2:
                                 path.append(
-                                    f"{-bi_crossed-2}M")
+                                    f"{-bi_crossed-2}B")
                     cur = parent
                 path.reverse()
                 path_str = "/".join(path) if path \
@@ -3901,7 +3902,7 @@ class LinkedObject:
                           bend_plc_original=None):
         """Draw trimmed cutting segments as colored lines at z=thickness.
 
-        Colors: green=stationary-side, blue=moving-side, cyan=center.
+        Colors: green=A-side, blue=B-side, cyan=center.
         Hidden by default.
         """
         doc = obj.Document
@@ -4172,7 +4173,7 @@ class LinkedObject:
 
         # Log the classification
         for pi, (cm, label) in enumerate(labels):
-            # Build path from stationary in notation like 5S/4M/0S
+            # Build path from stationary in notation like 5A/4B/0A
             path = []
             if micro_bend_info is not None:
                 cur = pi
@@ -4190,16 +4191,16 @@ class LinkedObject:
                                 seg = mi_seg_idx.get(
                                     bi_crossed, 0)
                                 path.append(
-                                    f"{orig_bi}.{seg}S")
+                                    f"{orig_bi}.{seg}A")
                             elif (bi_crossed <= -2
                                     and m_face_to_bend):
                                 b, s = m_face_to_bend.get(
                                     bi_crossed,
                                     (-bi_crossed-2, 0))
-                                path.append(f"{b}.{s}M")
+                                path.append(f"{b}.{s}B")
                             elif bi_crossed <= -2:
                                 path.append(
-                                    f"{-bi_crossed-2}M")
+                                    f"{-bi_crossed-2}B")
                     cur = parent
                 path.reverse()
             path_str = "/".join(path) if path else "(root)"
@@ -4327,18 +4328,18 @@ class LinkedObject:
             adjacency[j].append((i, mi, best_touch_fi))
 
         # Helper to decode edge label for logging.
-        # Per-cut labels: "9.0S", "9.1M" etc.
+        # Per-cut labels: "9.0A", "9.1B" etc.
         def _edge_label(bi):
             if bi >= 0 and micro_bend_info is not None:
                 orig_bi = micro_bend_info[bi][5]
                 seg = mi_seg_idx.get(bi, 0) if mi_seg_idx else 0
-                return f"{orig_bi}.{seg}S"
+                return f"{orig_bi}.{seg}A"
             elif bi <= -2 and m_face_to_bend:
                 bend_idx, seg = m_face_to_bend.get(
                     bi, (-bi - 2, 0))
-                return f"{bend_idx}.{seg}M"
+                return f"{bend_idx}.{seg}B"
             elif bi <= -2:
-                return f"{-bi - 2}M"
+                return f"{-bi - 2}B"
             elif bi >= 0:
                 return f"b{bi}"
             else:

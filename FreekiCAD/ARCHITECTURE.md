@@ -41,14 +41,15 @@ Iterates over active BendLine children. For each bend, extracts geometry and com
 For each bend, creates cut line segments offset from the center line by +/- inset:
 
 1. Trim center line to board outline -> `trimmed_bend_segs[bi]` = [(sp0, sp1), ...]
-2. Offset each segment by -inset (S-side) and +inset (M-side)
+2. Offset each segment by -inset (A-side) and +inset (B-side)
 3. Trim offset lines to board outline independently
 4. Validate: discard phantom cuts whose midpoint is far from any center segment
 
 ### Output
 
 - `cut_plan[]` = (sp0, sp1, side, bi, angle_rad, radius, p0, normal, bend_obj, moving_normal)
-  - `side`: 'S' (stationary) or 'M' (moving) -- topological label
+  - `side`: 'A' or 'B' -- neutral topological label (no directional meaning)
+  - Stationary/moving role is determined later by BFS chain selection
   - One entry per validated cut segment
 
 ### Phase 2b-1: Create 3D Cutting Faces
@@ -58,7 +59,7 @@ Extrudes each 2D cut segment into a vertical rectangular face spanning the full 
 ### Output
 
 - `cut_faces[fi]`: 3D rectangular face
-- `face_topo_side[fi]`: 'S' or 'M'
+- `face_topo_side[fi]`: 'A' or 'B'
 - `face_bend[fi]`: bi
 - `face_to_micro[fi]`: initially bi (updated in Phase 2b-2)
 - `cut_plan_data[fi]`: (angle_rad, bend_obj, cut_mid, normal, radius, bi)
@@ -68,24 +69,25 @@ Extrudes each 2D cut segment into a vertical rectangular face spanning the full 
 1. `generalFuse(board, cut_faces)` -> compound solid
 2. Extract `pieces` (solids with volume > 1e-6)
 3. Create `piece_slices` (2D wire at z=half_t) and `cut_segments` (2D edge at z=half_t) for fast distance checks
-4. Run **BFS #1 (preliminary)**: no S/M distinction, uses face labels = bi
-   - Determines `seg_parent_pi[sid]` and `seg_bfs_side[sid]` for each cut segment pair
-5. Pair S/M faces of same bend that share a wedge piece -> assign segment IDs (`face_to_seg`)
+4. Run **BFS #1 (preliminary)**: no A/B distinction, uses face labels = bi
+   - Determines `seg_parent_pi[sid]` and `seg_parent_side[sid]` for each cut segment pair
+5. Pair A/B faces of same bend that share a wedge piece -> assign segment IDs (`face_to_seg`)
 
 ### Phase 2b-2: Assign Micro-Bends
 
 Using BFS #1 results:
 
-1. Each S-face creates a unique micro-bend (mi >= 0) in `micro_bend_info`
-2. Each M-face gets a negative ID in `m_face_to_bend`
+1. Each stationary-side face creates a unique micro-bend (mi >= 0) in `micro_bend_info`
+2. Each moving-side face gets a negative ID in `m_face_to_bend`
 3. The normal is oriented per-cut: pointing from BFS parent piece into the wedge
+4. Stationary/moving role is determined by which topo side (A or B) the BFS parent is on
 4. Identify `strip_pieces` (wedge pieces within inset distance of center line)
 5. Run **BFS #2 (final)**: uses micro-bend labels, skips through wedges
 
 ### Key Data Structures
 
 - `micro_bend_info[mi]` = (angle_rad, bend_obj, cut_mid, normal, radius, orig_bi)
-  - One entry per S-face (S-faces carry the rotation; M-faces are geometry-only)
+  - One entry per stationary-side face (carries the rotation; moving-side faces are geometry-only)
 - `mi_seg_idx[mi]` = segment index within bend (0, 1, 2, ...)
 - `strip_pieces`: set of wedge piece indices
 - `strip_to_bend[pi]` = bi
@@ -111,7 +113,7 @@ Processes micro-bends in BFS traversal order (`micro_order`). For each mi:
    - `pivot = stat_edge_mid + cur_up * (r_eff * bend_sign)`
 5. Save pivot data in `micro_pivots[mi]` for wedge loft
 6. Save pre-rotation wedge shape in `wedge_pre_shapes[pi]`
-   - For M-entry: rebuilt from flat piece using S-side parent's piece_plc
+   - For M-entry: rebuilt from flat piece using stationary-side parent's piece_plc
 7. Save `wedge_post_mi_plc[pi]` = current `piece_plc[pi]` (snapshot before remaining rotations)
 8. Rotate all pieces where `mi in piece_mi_set[pi]` by micro_angle around pivot
 9. Compose rotation into `piece_plc[pi]` for each rotated piece
@@ -120,9 +122,9 @@ Processes micro-bends in BFS traversal order (`micro_order`). For each mi:
 
 ### M-Entry Handling
 
-When BFS reaches a wedge from the M-side (source != S-neighbor):
-- The wedge's piece_shapes has been rotated by the M-side path
-- Rebuild `wedge_pre_shapes[pi]` from the flat piece with S-side neighbor's piece_plc
+When BFS reaches a wedge from the moving side (source != stationary neighbor):
+- The wedge's piece_shapes has been rotated by the moving-side path
+- Rebuild `wedge_pre_shapes[pi]` from the flat piece with stationary-side neighbor's piece_plc
 
 ---
 
@@ -197,7 +199,7 @@ Two modes:
 
 **Without strip_pieces (preliminary BFS)**: Simpler, includes all pieces equally.
 - BFS tree: 2-tuple (parent_pi, mi_crossed)
-- Used for initial S/M assignment
+- Used for initial stationary/moving assignment
 
 BFS root: non-wedge piece closest to board center of mass.
 
@@ -205,11 +207,11 @@ BFS root: non-wedge piece closest to board center of mass.
 
 ## Key Invariants
 
-1. Each S-face creates exactly one micro-bend; M-faces create none
-2. Wedge pieces are between S and M faces of the same bend segment
+1. Each stationary-side face creates exactly one micro-bend; moving-side faces create none
+2. Wedge pieces are between A and B faces of the same bend segment
 3. piece_plc tracks accumulated rotations in correct interleaved order (fixes rotation non-commutativity)
 4. virtual_plc = piece_plc[s_parent] * plc_original (not chain composition)
-5. Normal is oriented per-cut from BFS parent into wedge; `seg_parent_pi` walks past wedge parents to find the non-wedge piece
+5. Normal is oriented per-cut from BFS parent (stationary side) into wedge; `seg_parent_pi` walks past wedge parents to find the non-wedge piece
 6. bend_sign = -1 if angle > 0 else 1
 7. All adjacency edges have a matching cut face; non-cut connections are not emitted
 8. Wedge loft is built in the pre-mi frame; remaining Phase 3 rotations are applied via `wedge_post_mi_plc`
