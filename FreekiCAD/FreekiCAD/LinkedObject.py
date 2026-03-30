@@ -4034,15 +4034,34 @@ class LinkedObject:
         edges = []
         labels = []  # (center, label_text)
 
-        def _get_cm(pi_idx):
-            """Get CenterOfMass from final shape if available,
-            else from original flat piece."""
+        def _get_centroid(pi_idx):
+            """Get a representative point inside the piece.
+
+            Uses CenterOfMass if it lies inside the shape;
+            otherwise returns the closest point on the shape
+            to the CenterOfMass."""
             if (piece_shapes is not None
                     and 0 <= pi_idx < len(piece_shapes)):
                 s = piece_shapes[pi_idx]
                 if hasattr(s, 'CenterOfMass'):
-                    return s.CenterOfMass
-            return pieces[pi_idx].CenterOfMass
+                    cm = s.CenterOfMass
+                    if s.isInside(cm, GEOMETRY_TOLERANCE, True):
+                        return cm
+                    try:
+                        d, pts, _ = s.distToShape(
+                            Part.Vertex(cm))
+                        return pts[0][0]
+                    except Exception:
+                        return cm
+            cm = pieces[pi_idx].CenterOfMass
+            s = pieces[pi_idx]
+            if s.isInside(cm, GEOMETRY_TOLERANCE, True):
+                return cm
+            try:
+                d, pts, _ = s.distToShape(Part.Vertex(cm))
+                return pts[0][0]
+            except Exception:
+                return cm
 
         def _single_arrow(start, end):
             """Draw line with single arrowhead at end."""
@@ -4083,7 +4102,7 @@ class LinkedObject:
                 tip2, base2 - perp * hl * 0.4))
 
         for pi, piece in enumerate(pieces):
-            cm = _get_cm(pi)
+            cm = _get_centroid(pi)
             # Classify piece
             if pi in strip_pieces:
                 label = f"W{strip_to_bend[pi]}"
@@ -4099,7 +4118,7 @@ class LinkedObject:
             if entry and entry[0] is not None:
                 parent_idx = entry[0]
                 wedge_pi = entry[2]
-                parent_cm = _get_cm(parent_idx)
+                parent_cm = _get_centroid(parent_idx)
                 src = FreeCAD.Vector(
                     parent_cm.x, parent_cm.y,
                     parent_cm.z + thickness)
@@ -4107,7 +4126,7 @@ class LinkedObject:
                     cm.x, cm.y, cm.z + thickness)
                 if wedge_pi is not None:
                     # src → wedge (single), wedge →→ dest (double)
-                    w_cm = _get_cm(wedge_pi)
+                    w_cm = _get_centroid(wedge_pi)
                     mid = FreeCAD.Vector(
                         w_cm.x, w_cm.y,
                         w_cm.z + thickness)
@@ -4120,7 +4139,7 @@ class LinkedObject:
         for pi, piece in enumerate(pieces):
             entry = bfs_tree.get(pi)
             if entry and entry[0] is None:
-                root_cm = _get_cm(pi)
+                root_cm = _get_centroid(pi)
                 root_pt = FreeCAD.Vector(
                     root_cm.x, root_cm.y,
                     root_cm.z + thickness)
