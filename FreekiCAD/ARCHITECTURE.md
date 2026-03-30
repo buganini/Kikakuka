@@ -112,9 +112,11 @@ Processes micro-bends in BFS traversal order (`micro_order`). For each mi:
 5. Save pivot data in `micro_pivots[mi]` for wedge loft
 6. Save pre-rotation wedge shape in `wedge_pre_shapes[pi]`
    - For M-entry: rebuilt from flat piece using S-side parent's piece_plc
-7. Rotate all pieces where `mi in piece_mi_set[pi]` by micro_angle around pivot
-8. Compose rotation into `piece_plc[pi]` for each rotated piece
-9. Rotate bend lines and components by same rotation (with multiplier for multi-segment bends)
+7. Save `wedge_post_mi_plc[pi]` = current `piece_plc[pi]` (snapshot before remaining rotations)
+8. Rotate all pieces where `mi in piece_mi_set[pi]` by micro_angle around pivot
+9. Compose rotation into `piece_plc[pi]` for each rotated piece
+10. Rotate bend lines and components by same rotation (with multiplier for multi-segment bends)
+11. Apply inset correction within the Phase 3 loop (not deferred to post-loop)
 
 ### M-Entry Handling
 
@@ -132,17 +134,22 @@ For each wedge piece, creates a curved 3D solid by lofting cross-sections along 
 
 1. Retrieve saved pivot data (virtual_plc, cur_p0, cur_normal, cur_up, bend_axis, coc)
 2. Get `positioned_flat` = `wedge_pre_shapes[pi]` or `piece_shapes[pi]`
-3. Build sorted d-values along cur_normal:
-   - N_SLICES+1 uniform positions in [gt, 2*ins - gt]
-   - Vertex projections of positioned_flat (captures all edges)
-   - Deduplicate within min_sep
-4. For each d-value:
-   - Slice positioned_flat perpendicular to cur_normal at distance d from cur_p0
-   - Compute `frac = (d - gt) / (2*ins - 2*gt)` and `slice_angle = frac * sweep_angle`
-   - Translate slice back by -d along cur_normal (to stationary edge)
-   - Rotate slice by slice_angle around CoC along bend_axis
-5. `Part.makeLoft(wires_list, True, True)` -> curved solid
-6. If volume < 0: reverse the solid (inside-out fix)
+3. Build d-values:
+   - `d_uniform`: N_SLICES+1 uniform positions in [gt, 2*ins - gt]
+   - Vertex projections of positioned_flat → `vertex_proj_ds` (split points where cross-section topology may change)
+4. Split d-range into sub-ranges at vertex projection planes. Each sub-range has consistent cross-section topology.
+5. For each sub-range:
+   - Collect uniform d-values falling within the sub-range, plus boundary d-values
+   - For each d-value:
+     - Slice positioned_flat perpendicular to cur_normal at distance d from cur_p0
+     - Compute `frac = (d - gt) / (2*ins - 2*gt)` and `slice_angle = frac * sweep_angle`
+     - Translate slice back by -d along cur_normal (to stationary edge)
+     - Rotate slice by slice_angle around CoC along bend_axis
+   - Reorder vertices: OCCT's `slice()` can return vertices in different cyclic order depending on slice position; align each wire to match the first wire by trying all cyclic rotations and both directions
+   - Collect as one loft segment
+6. Build loft: `Part.makeLoft(seg, True, False)` per segment, fuse segments together
+7. If volume < 0: reverse the solid (inside-out fix)
+8. Apply remaining Phase 3 rotations (`wedge_post_mi_plc`) to catch rotations that happened after the wedge's own mi
 
 ### Failure Modes
 
@@ -201,15 +208,9 @@ BFS root: non-wedge piece closest to board center of mass.
 2. Wedge pieces are between S and M faces of the same bend segment
 3. piece_plc tracks accumulated rotations in correct interleaved order (fixes rotation non-commutativity)
 4. virtual_plc = piece_plc[s_parent] * plc_original (not chain composition)
-5. Normal is oriented per-cut from BFS parent into wedge
+5. Normal is oriented per-cut from BFS parent into wedge; `seg_parent_pi` walks past wedge parents to find the non-wedge piece
 6. bend_sign = -1 if angle > 0 else 1
 7. Preliminary BFS needs full edge set (including None entries) for correct seg_parent_pi
+8. Wedge loft is built in the pre-mi frame; remaining Phase 3 rotations are applied via `wedge_post_mi_plc`
 
----
 
-## Open Issues
-
-- `(-)` edge removal: currently applied in `_classify_pieces_bfs` adjacency building (uncommitted). Preliminary BFS still needs full edges.
-- Wedge loft failures on complex models: `BRep_API: command not done` and `d_offset OUT`
-- Phantom cuts: bend line passes through area but no wedge piece is created
-- Sub cuts: long cut faces span multiple piece pairs; adjacency matching can be imprecise
