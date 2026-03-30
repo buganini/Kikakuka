@@ -1576,6 +1576,11 @@ class LinkedObject:
         )
         obj.DebugBoard = False
         obj.addProperty(
+            "App::PropertyBool", "SmoothWedge", "LinkedFile",
+            "Use B-Spline loft for wedges (slower but smoother)"
+        )
+        obj.SmoothWedge = False
+        obj.addProperty(
             "App::PropertyString", "ComponentMtimes", "LinkedFile",
             "JSON: per-component model file mtimes for reuse"
         )
@@ -1590,7 +1595,8 @@ class LinkedObject:
         self._board_color = None
 
     def onChanged(self, obj, prop):
-        if prop in ("EnableBending", "BuildDebugObjects", "DebugBoard"):
+        if prop in ("EnableBending", "BuildDebugObjects", "DebugBoard",
+                    "SmoothWedge"):
             if not obj.Document.Restoring:
                 self._rebend(obj)
             return
@@ -3246,10 +3252,12 @@ class LinkedObject:
         # Bend wedge pieces into arcs via loft between
         # rotated cross-sections.
         _t_loft = _time.time()
+        smooth_wedge = getattr(obj, 'SmoothWedge', False)
         # N_SLICES per wedge: at least 16, or 1 per degree
         # (computed per wedge below)
         coc_offsets = {}  # bi → (bend_obj, first_s_mi)
         for pi in sorted(strip_to_bend):
+            _t_loft_one = _time.time()
             bi = strip_to_bend[pi]
             _, p0_bi, p1_bi, line_dir_bi, normal_bi, \
                 angle_rad_bi, radius_bi = bend_info[bi]
@@ -3527,7 +3535,7 @@ class LinkedObject:
                         if len(seg) < 2:
                             continue
                         part = Part.makeLoft(
-                            seg, True, False)
+                            seg, True, not smooth_wedge)
                         if abs(part.Volume) > 1e-9:
                             if part.Volume < 0:
                                 part = part.reversed()
@@ -3608,6 +3616,9 @@ class LinkedObject:
                         f",{cm.y:.2f}"
                         f",{cm.z:.2f})"
                         f"\n")
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: [profile] wedge p{pi}"
+                f" loft: {_time.time() - _t_loft_one:.3f}s\n")
 
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Wedge loft: "
@@ -5041,7 +5052,7 @@ class LinkedObject:
     # on load by _ensure_properties().
     _KNOWN_PROPERTIES = {
         "FileName", "AutoReload", "EnableBending",
-        "BuildDebugObjects", "DebugBoard",
+        "BuildDebugObjects", "DebugBoard", "SmoothWedge",
         "ComponentMtimes", "FileMtime",
     }
 
@@ -5067,6 +5078,11 @@ class LinkedObject:
                 "App::PropertyBool", "DebugBoard", "LinkedFile",
                 "Show each board piece as a separate child object")
             obj.DebugBoard = False
+        if not hasattr(obj, 'SmoothWedge'):
+            obj.addProperty(
+                "App::PropertyBool", "SmoothWedge", "LinkedFile",
+                "Use B-Spline loft for wedges (slower but smoother)")
+            obj.SmoothWedge = False
         # Remove obsolete properties from older saved files.
         for prop in list(obj.PropertiesList):
             if obj.getGroupOfProperty(prop) == "LinkedFile" \
