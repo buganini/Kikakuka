@@ -2820,14 +2820,15 @@ class LinkedObject:
         # strip_pieces and strip_to_bend already computed before BFS #1.
 
         # Map each wedge piece to its specific S-cut mi
-        # (from adjacency: the S edge has mi >= 0).
+        # (from BFS tree: the mi through which BFS first reached the wedge).
         strip_to_mi = {}
-        for pi in strip_pieces:
-            bi = strip_to_bend[pi]
-            for nbr, mi_val, _fi in adjacency[pi]:
-                if mi_val >= 0 and micro_bend_info[mi_val][5] == bi:
-                    strip_to_mi[pi] = mi_val
-                    break
+        for wpi in strip_pieces:
+            if wpi in bfs_tree:
+                _parent, mis_crossed, _ = bfs_tree[wpi]
+                for mi_val in mis_crossed:
+                    if mi_val >= 0 and micro_bend_info[mi_val][5] == strip_to_bend[wpi]:
+                        strip_to_mi[wpi] = mi_val
+                        break
 
         # Compute bend processing order from BFS traversal.
         # Stationary piece = piece closest to the board outline's
@@ -3362,17 +3363,6 @@ class LinkedObject:
                 f" piece_cm=({piece_shapes[pi].CenterOfMass.x:.2f}"
                 f",{piece_shapes[pi].CenterOfMass.y:.2f}"
                 f",{piece_shapes[pi].CenterOfMass.z:.2f})"
-                f"\n")
-
-            # Log flat position relative to slicing range
-            flat_cm = positioned_flat.CenterOfMass
-            d_off = (flat_cm - cur_p0).dot(cur_normal)
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD:   flat_cm=({flat_cm.x:.2f}"
-                f",{flat_cm.y:.2f},{flat_cm.z:.2f})"
-                f" d_offset={d_off:.4f}"
-                f" slice_range=[0,{2*ins:.4f}]"
-                f" {'IN' if -GEOMETRY_TOLERANCE < d_off < 2*ins+GEOMETRY_TOLERANCE else 'OUT'}"
                 f"\n")
 
             # Slice the flat wedge at each position, then
