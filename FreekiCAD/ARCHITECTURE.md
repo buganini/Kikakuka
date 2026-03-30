@@ -179,11 +179,12 @@ O(n^2) piece-pair check using `distToShape` (shortest 3D distance, not center-to
 
 For each pair (i, j) within GEOMETRY_TOLERANCE:
 1. Find all cut faces where both pieces are within tolerance
-2. Verify pieces are on opposite sides of cut segment (cross-product test)
-3. Rank by 2D distance from cut midpoint to piece-pair midpoint
-4. Return best_touch_fi (or None if no cut face found)
+2. Rank by 2D distance from cut midpoint to piece-pair midpoint
+3. Only emit edges that have a matching cut face
 
-Returns: list of (i, j, best_touch_fi) -- includes None entries for touching pieces with no matching cut face ("(-) edges").
+Returns: list of (i, j, best_touch_fi) -- only pairs with a matching cut face are included.
+
+**Note:** Adjacency is between all pieces, including wedges; the cut face is attached as extra info. Traversal (BFS) is piece-to-piece (non-wedges), with the opposite-side test applied only during BFS, not during adjacency building.
 
 ### `_classify_pieces_bfs(..., strip_pieces)`
 
@@ -191,7 +192,7 @@ Two modes:
 
 **With strip_pieces (final BFS)**: Skips through wedge pieces to build piece-to-piece connectivity.
 - Wedges are visited but immediately traversed
-- Side test ensures pieces are on opposite sides of cut
+- Side test ensures pieces are on opposite sides of cut (applied during traversal)
 - BFS tree: 3-tuple (parent_pi, mis_crossed, wedge_pi)
 
 **Without strip_pieces (preliminary BFS)**: Simpler, includes all pieces equally.
@@ -210,7 +211,7 @@ BFS root: non-wedge piece closest to board center of mass.
 4. virtual_plc = piece_plc[s_parent] * plc_original (not chain composition)
 5. Normal is oriented per-cut from BFS parent into wedge; `seg_parent_pi` walks past wedge parents to find the non-wedge piece
 6. bend_sign = -1 if angle > 0 else 1
-7. Preliminary BFS needs full edge set (including None entries) for correct seg_parent_pi
+7. All adjacency edges have a matching cut face; non-cut connections are not emitted
 8. Wedge loft is built in the pre-mi frame; remaining Phase 3 rotations are applied via `wedge_post_mi_plc`
 
 

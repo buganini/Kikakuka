@@ -3473,12 +3473,6 @@ class LinkedObject:
 
                     w = wires[0].copy()
                     slice_angle = frac * sweep_angle
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD:     slice d="
-                        f"{d:.6f} frac={frac:.4f}"
-                        f" angle="
-                        f"{math.degrees(slice_angle):.2f}°"
-                        f"\n")
 
                     # Translate back then rotate to arc
                     trans_vec = cur_normal * (-d)
@@ -3535,9 +3529,6 @@ class LinkedObject:
                                     + [best_pts[0]])
                         seg_wires[wi] = Part.makePolygon(
                             poly_pts)
-                        FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD:     seg[{si_sub}]"
-                            f" wire[{wi}] reordered\n")
                     ref_pts = best_pts
                 segments.append(seg_wires)
 
@@ -3552,15 +3543,6 @@ class LinkedObject:
                     f"FreekiCAD:   loft segments="
                     f"{len(segments)} splits_at="
                     f"{[f'{d:.6f}' for d in split_ds]}\n")
-
-                for wi, w in enumerate(all_wires_flat):
-                    pts = [v.Point for v in w.Vertexes]
-                    pts_str = " ".join(
-                        f"({p.x:.2f},{p.y:.2f},{p.z:.2f})"
-                        for p in pts)
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD:     wire[{wi}]:"
-                        f" {pts_str}\n")
 
                 def _try_loft(segs, label):
                     """Try to build a loft from segments.
@@ -4245,8 +4227,6 @@ class LinkedObject:
                        + pieces[j].CenterOfMass) * 0.5
                 best_touch_fi = None
                 best_touch_rank = (float('inf'), 1)
-                cm_i = pieces[i].CenterOfMass
-                cm_j = pieces[j].CenterOfMass
                 for fi in range(len(cut_faces)):
                     cf_shape = (cut_segments[fi]
                                 if cut_segments is not None
@@ -4260,22 +4240,6 @@ class LinkedObject:
                         sl2 = sdx * sdx + sdy * sdy
                         if sl2 < 1e-12:
                             continue
-                        vix = cm_i.x - sp0_e.x
-                        viy = cm_i.y - sp0_e.y
-                        vjx = cm_j.x - sp0_e.x
-                        vjy = cm_j.y - sp0_e.y
-                        ci_ = sdx * viy - sdy * vix
-                        cj_ = sdx * vjy - sdy * vjx
-                        if ci_ * cj_ >= 0:
-                            continue  # same side, skip
-                        ti = (vix * sdx + viy * sdy) / sl2
-                        tj = (vjx * sdx + vjy * sdy) / sl2
-                        sl = sl2 ** 0.5
-                        pi_ = abs(ci_) / sl
-                        pj_ = abs(cj_) / sl
-                        t_close = ti if pi_ < pj_ else tj
-                        if t_close < -0.1 or t_close > 1.1:
-                            continue  # endpoint artifact
                         # 2D distance from cut segment midpoint
                         # to piece-pair midpoint.
                         seg_mid_x = (sp0_e.x + sp1_e.x) * 0.5
@@ -4287,7 +4251,8 @@ class LinkedObject:
                         if rank < best_touch_rank:
                             best_touch_rank = rank
                             best_touch_fi = fi
-                geo_edges.append((i, j, best_touch_fi))
+                if best_touch_fi is not None:
+                    geo_edges.append((i, j, best_touch_fi))
         return geo_edges
 
     def _classify_pieces_bfs(self, pieces, cut_faces, face_to_bend,
@@ -4338,13 +4303,9 @@ class LinkedObject:
         # Each entry: (neighbor, mi_label, face_index_or_None)
         adjacency = [[] for _ in range(n)]
         for i, j, best_touch_fi in cached_geo_edges:
-            if best_touch_fi is not None:
-                mi = face_to_bend.get(best_touch_fi, -1)
-                adjacency[i].append((j, mi, best_touch_fi))
-                adjacency[j].append((i, mi, best_touch_fi))
-            else:
-                adjacency[i].append((j, -1, None))
-                adjacency[j].append((i, -1, None))
+            mi = face_to_bend.get(best_touch_fi, -1)
+            adjacency[i].append((j, mi, best_touch_fi))
+            adjacency[j].append((i, mi, best_touch_fi))
 
         # Helper to decode edge label for logging.
         # Per-cut labels: "9.0S", "9.1M" etc.
@@ -4425,10 +4386,8 @@ class LinkedObject:
                                 piece_bend_sets[cur] | (
                                     {bend_idx} if bend_idx
                                     is not None else set())
-                            crossed_w = {bi} if bi != -1 \
-                                else set()
                             bfs_tree[nbr] = (
-                                cur, crossed_w, None)
+                                cur, {bi}, None)
                         if log:
                             FreeCAD.Console.PrintMessage(
                                 f"FreekiCAD: BFS p{cur} → "
@@ -4440,12 +4399,7 @@ class LinkedObject:
                                 continue
                             if piece_bend_sets[nbr2] is not None:
                                 continue
-                            # Side check: cur and nbr2 must be on
-                            # different sides of the cut.
-                            # Skip side test for non-cut edges
-                            # (bi == -1): no cut face to test.
-                            if bi != -1 and \
-                                    not _side_test(cur, nbr2, fi):
+                            if not _side_test(cur, nbr2, fi):
                                 if log:
                                     FreeCAD.Console.PrintMessage(
                                         f"FreekiCAD: BFS   "
@@ -4457,11 +4411,8 @@ class LinkedObject:
                                         f"\n")
                                 continue
                             bend_idx2 = _get_bend_idx(bi2)
-                            crossed = set()
-                            if bi != -1:
-                                crossed.add(bi)
-                            if bi2 != -1:
-                                crossed.add(bi2)
+                            crossed = {bi}
+                            crossed.add(bi2)
                             piece_bend_sets[nbr2] = \
                                 piece_bend_sets[cur] | (
                                     {bend_idx2} if bend_idx2
@@ -4480,9 +4431,7 @@ class LinkedObject:
                         # Regular piece — skip if visited.
                         if piece_bend_sets[nbr] is not None:
                             continue
-                        # Side check only for cut edges.
-                        if bi != -1 and \
-                                not _side_test(cur, nbr, fi):
+                        if not _side_test(cur, nbr, fi):
                             if log:
                                 FreeCAD.Console.PrintMessage(
                                     f"FreekiCAD: BFS "
@@ -4496,8 +4445,7 @@ class LinkedObject:
                             piece_bend_sets[cur] | (
                                 {bend_idx} if bend_idx is not None
                                 else set())
-                        crossed = {bi} if bi != -1 else set()
-                        bfs_tree[nbr] = (cur, crossed, None)
+                        bfs_tree[nbr] = (cur, {bi}, None)
                         if log:
                             FreeCAD.Console.PrintMessage(
                                 f"FreekiCAD: BFS p{cur} →"
