@@ -2649,7 +2649,12 @@ class LinkedObject:
                 if parent_pi is not None:
                     parent_cm = pieces[parent_pi].CenterOfMass
                     dot_val = (parent_cm - cut_mid).dot(normal_ref)
-                    flipped = dot_val > 0
+                    # When (child), parent_pi is the child piece,
+                    # so the flip sense is inverted.
+                    if sid in seg_parent_is_child:
+                        flipped = dot_val < 0
+                    else:
+                        flipped = dot_val > 0
                     if flipped:
                         normal_ref = normal_ref * -1
                     FreeCAD.Console.PrintMessage(
@@ -4474,6 +4479,12 @@ class LinkedObject:
                                     is not None else set())
                             bfs_tree[nbr2] = (
                                 cur, crossed, nbr)
+                            # Also record exit edge in wedge's
+                            # own crossed set so strip_to_mi
+                            # can find the positive mi even when
+                            # the entry edge was a B-side face.
+                            if nbr in bfs_tree:
+                                bfs_tree[nbr][1].add(bi2)
                             if log:
                                 FreeCAD.Console.PrintMessage(
                                     f"FreekiCAD: BFS   "
