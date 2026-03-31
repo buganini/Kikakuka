@@ -109,17 +109,11 @@ Using BFS #1 results:
 - **Wedge pass-through**: when BFS hits a wedge piece, it does not stop — it immediately traverses *through* the wedge to reach the non-wedge piece on the other side. Both the entry mi and exit mi are recorded in the crossed set.
 - BFS tree entry: `(parent_pi, mis_crossed_set, wedge_pi)` — the 3rd element records which wedge was traversed
 
-#### piece_mi_set accumulation
+#### piece_mi_list construction
 
-- For each **non-wedge** piece: walk the BFS parent chain back to the root, collecting all `mi >= 0` from each link's `mis_crossed_set`
-- For **wedges**: copy the mi set from the destination piece reached through that wedge (or from the stationary neighbor + own mi if no destination)
-
-#### micro_order derivation
-
-- A second BFS walk from the root, visiting children in tree order
-- At each piece, any new `mi >= 0` from its crossed set is appended to `micro_order`
-- This gives the processing sequence for Phase 3 rotations
-- **Phantom mi's** (stationary faces with no associated wedge) are detected and removed from `micro_order` and all `piece_mi_set`
+- For each **non-wedge** piece: walk the BFS parent chain from piece to root, collecting `mi >= 0` from each link's `mis_crossed_set`, then reverse to get root-to-piece order.
+- For **wedges**: stationary neighbor's chain + own mi
+- **Phantom mi's** (stationary faces with no associated wedge) are detected and removed from all `piece_mi_list` entries
 
 ### Key Data Structures
 
@@ -129,6 +123,7 @@ Using BFS #1 results:
 - `wedge_pieces`: set of wedge piece indices (code: `strip_pieces`)
 - `wedge_to_bend[pi]` = bi (code: `strip_to_bend`)
 - `piece_bend_sets[pi]`: set of bend indices the piece crosses
+- `piece_mi_list[pi]`: ordered chain of mi's from root to piece
 - `bfs_tree[pi]` = (parent_pi, mis_crossed_set, wedge_pi)
 - `adjacency[pi]` = [(nbr_pi, mi, fi), ...]
 - `face_to_bend`: reassigned as alias for `face_to_micro` after Phase 2b-2
@@ -137,7 +132,7 @@ Using BFS #1 results:
 
 ## Phase 3: Apply Bends Sequentially
 
-Processes micro-bends in BFS traversal order (`micro_order`). For each mi:
+Iterates chain positions; at each position collects mi's across all pieces and processes each. For each `(step_pos, mi)`:
 
 1. Find S-parent piece of the wedge for this mi
 2. Build `virtual_plc = piece_plc[s_parent] * plc_original`
@@ -148,11 +143,11 @@ Processes micro-bends in BFS traversal order (`micro_order`). For each mi:
    - `r_eff = radius + half_t`
    - `bend_sign = -1 if angle > 0 else 1`
    - `pivot = stat_edge_mid + cur_up * (r_eff * bend_sign)`
-5. Save pivot data in `micro_pivots[mi]` for wedge loft
-6. Save pre-rotation wedge shape in `wedge_pre_shapes[pi]`
+5. **(First occurrence of mi only)** Save pivot data in `micro_pivots[mi]` for wedge loft
+6. **(First occurrence of mi only)** Save pre-rotation wedge shape in `wedge_pre_shapes[pi]`
    - For moving-side entry: rebuilt from flat piece using stationary-side parent's piece_plc
-7. Save `wedge_post_mi_plc[pi]` = current `piece_plc[pi]` (snapshot before remaining rotations)
-8. Rotate all pieces where `mi in piece_mi_set[pi]` by micro_angle around pivot
+7. **(First occurrence of mi only)** Save `wedge_post_mi_plc[pi]` = current `piece_plc[pi]`
+8. Rotate all pieces where `piece_mi_list[pi][step_pos] == mi` by micro_angle around pivot
 9. Compose rotation into `piece_plc[pi]` for each rotated piece
 10. Rotate bend lines and components by same rotation (with multiplier for multi-segment bends)
 11. Apply inset correction within the Phase 3 loop (not deferred to post-loop)
@@ -273,8 +268,7 @@ Bend (user-drawn bend line, bi)
 | **micro-bend** / **mi** | index | One fold operation at one specific stationary-side cut face. Index into `micro_bend_info[]`. Each stationary-side face creates exactly one mi. Phase 3 iterates mi's in order, applying one rotation per mi. |
 | **micro_bend_info[mi]** | tuple | Per-mi data: (angle_rad, bend_obj, cut_mid, normal, radius, orig_bi). `cut_mid` is the pivot point; `normal` is oriented from stationary side into the wedge. |
 | **mi_seg_idx[mi]** | int | Which segment index (0, 1, 2, ...) within its parent bend this mi belongs to. |
-| **micro_order** | list of mi | The sequence in which mi's are processed in Phase 3. Derived from BFS traversal order. |
-| **piece_mi_set[pi]** | set of mi | The set of micro-bends that must rotate piece `pi`. Built during BFS: each piece accumulates the mi's of all cuts between it and the stationary root. |
+| **piece_mi_list[pi]** | list of mi | Ordered chain of mi's from root to piece `pi`. Phase 3 iterates chain positions; each piece rotates by its mi at that position. |
 | **bfs_tree[pi]** | tuple | BFS parent info. Final BFS: (parent_pi, mis_crossed_set, wedge_pi). Preliminary BFS: (parent_pi, mi_crossed). |
 | **edge** | concept | An adjacency link between two pieces that share a cut face. Each edge records the neighbor piece, the micro-bend label, and the cut face index. Edges form the graph traversed by BFS to determine rotation order. |
 | **adjacency[pi]** | list of (nbr_pi, mi, fi) | All edges of piece `pi`: neighbors with the connecting mi label and cut face index. Built from joints. |

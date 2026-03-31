@@ -2859,11 +2859,14 @@ class LinkedObject:
                 bend_order.append(bi)
                 seen_bends.add(bi)
 
-        # Per-cut: set of mi's crossed in BFS chain from root.
-        # If mi is in the set, piece is on the moving side of that cut.
+        # Per-cut: ordered chain of mi's from root to each piece.
+        # Duplicates are preserved (a piece can cross the same mi twice).
         # bfs_tree entries are (parent, mis_crossed_set, wedge_pi).
-        piece_mi_set = [set() for _ in range(len(pieces))]
+        piece_mi_list = [[] for _ in range(len(pieces))]
         for pi in range(len(pieces)):
+            if pi in strip_pieces:
+                continue  # handle wedges separately below
+            chain = []
             cur = pi
             while cur is not None:
                 entry = bfs_tree.get(cur)
@@ -2872,82 +2875,63 @@ class LinkedObject:
                 parent = entry[0]
                 mis_crossed = entry[1]  # set of mi indices
                 if parent is not None:
-                    piece_mi_set[pi].update(
-                        mi for mi in mis_crossed if mi >= 0)
+                    for mi in sorted(mis_crossed):
+                        if mi >= 0:
+                            chain.append(mi)
                 cur = parent
+            chain.reverse()  # root-to-piece order
+            piece_mi_list[pi] = chain
 
-        # Wedges aren't in bfs_tree (piece-to-piece BFS).
-        # Derive their piece_mi_set from the dest piece that
-        # crosses through them.
+        # Wedge chains: stationary neighbor's chain + own mi.
         for wpi in strip_pieces:
-            for dest_pi, entry in bfs_tree.items():
-                if entry[2] == wpi:
-                    piece_mi_set[wpi] = piece_mi_set[dest_pi].copy()
-                    break
-            else:
-                # No dest through this wedge — use stationary-parent + mi
-                mi_w = strip_to_mi.get(wpi)
-                if mi_w is not None:
-                    for nbr, mi_adj, _fi in adjacency[wpi]:
-                        if mi_adj == mi_w and nbr not in strip_pieces:
-                            piece_mi_set[wpi] = \
-                                piece_mi_set[nbr] | {mi_w}
+            mi_w = strip_to_mi.get(wpi)
+            if mi_w is not None:
+                for nbr, mi_adj, _fi in adjacency[wpi]:
+                    if mi_adj == mi_w and nbr not in strip_pieces:
+                        piece_mi_list[wpi] = \
+                            piece_mi_list[nbr] + [mi_w]
+                        break
+                else:
+                    # Fallback: copy from dest piece through wedge
+                    for dest_pi, entry in bfs_tree.items():
+                        if entry[2] == wpi:
+                            piece_mi_list[wpi] = \
+                                list(piece_mi_list[dest_pi])
                             break
 
-        # Group micro-bends by their source bend_obj for
-        # shared pivot computation.
-        # Process in BFS traversal order of micro-bends.
-        micro_order = []
-        seen_mi = set()
-        bfs_visit2 = {stationary_idx}
-        bfs_q2 = [stationary_idx]
-        while bfs_q2:
-            cur = bfs_q2.pop(0)
-            entry = bfs_tree.get(cur)
-            if entry:
-                for mi in sorted(entry[1]):
-                    if mi >= 0 and mi not in seen_mi:
-                        micro_order.append(mi)
-                        seen_mi.add(mi)
-            for pi2 in range(len(pieces)):
-                if pi2 in bfs_visit2:
-                    continue
-                e = bfs_tree.get(pi2)
-                if e and e[0] == cur:
-                    bfs_visit2.add(pi2)
-                    bfs_q2.append(pi2)
-        for mi in range(len(micro_bend_info)):
-            if mi not in seen_mi:
-                micro_order.append(mi)
-                seen_mi.add(mi)
-
-        # Find mi's with no wedge piece (phantom cuts from
-        # overlapping inset zones).  Remove from micro_order
-        # and piece_mi_set to prevent wrong rotations.
+        # Find phantom mi's (no wedge piece, from overlapping
+        # inset zones).  Remove from piece_mi_list.
         mi_with_wedge = set(strip_to_mi.values())
         phantom_mis = set()
-        for mi in micro_order:
+        for mi in range(len(micro_bend_info)):
             if mi not in mi_with_wedge:
                 micro_angle_chk = micro_bend_info[mi][0]
                 if abs(micro_angle_chk) > 1e-9:
                     phantom_mis.add(mi)
         if phantom_mis:
-            micro_order = [mi for mi in micro_order
-                           if mi not in phantom_mis]
             for pi in range(len(pieces)):
-                piece_mi_set[pi] -= phantom_mis
+                piece_mi_list[pi] = [mi for mi in piece_mi_list[pi]
+                                     if mi not in phantom_mis]
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: skip phantom mi's"
                 f" (no wedge): {sorted(phantom_mis)}\n")
 
-        # Log piece_mi_set for neighbours of stationary piece
+        # Helper: does piece pi rotate at this step?
+        def _at_step(pi, step_pos, mi):
+            return (step_pos < len(piece_mi_list[pi])
+                    and piece_mi_list[pi][step_pos] == mi)
+
+        max_chain_len = max(
+            (len(lst) for lst in piece_mi_list), default=0)
+
+        # Log piece_mi_list for neighbours of stationary piece
         for pi in range(len(pieces)):
             entry = bfs_tree.get(pi)
             if entry is not None and entry[0] == stationary_idx:
                 FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: piece_mi_set[{pi}]"
+                    f"FreekiCAD: piece_mi_list[{pi}]"
                     f" (neighbour of fixed p{stationary_idx})"
-                    f" = {sorted(piece_mi_set[pi])}"
+                    f" = {piece_mi_list[pi]}"
                     f" strip={pi in strip_pieces}\n")
             # Also log if entry[2] is wedge that connects to fixed
             if (entry is not None and entry[2] is not None
@@ -2969,12 +2953,25 @@ class LinkedObject:
         micro_pivots = {}  # mi → saved pivot data for wedge loft
         wedge_pre_shapes = {}  # pi → shape copy before this bend's rotation
         wedge_post_mi_plc = {}  # wpi → piece_plc[wpi] after own mi rotation
-        for mi in micro_order:
+        mi_wedge_processed = set()  # track first occurrence per mi
+        # Build processing schedule: iterate chain positions,
+        # collect distinct mi's at each position.
+        _schedule = []  # list of (step_pos, mi)
+        for _step in range(max_chain_len):
+            _mis = sorted(set(
+                piece_mi_list[pi][_step]
+                for pi in range(len(pieces))
+                if _step < len(piece_mi_list[pi])))
+            for _mi in _mis:
+                _schedule.append((_step, _mi))
+        for step_pos, mi in _schedule:
             micro_angle, bend_obj, cut_mid, normal, radius, orig_bi = \
                 micro_bend_info[mi]
             if abs(micro_angle) < 1e-9 or not enable_bending \
                     or not bend_obj.Active:
                 continue
+            first_mi_occurrence = mi not in mi_wedge_processed
+            mi_wedge_processed.add(mi)
 
             plc = bend_obj.Placement
 
@@ -3038,37 +3035,45 @@ class LinkedObject:
                 f" pivot=({pivot.x:.4f},{pivot.y:.4f},"
                 f"{pivot.z:.4f})\n")
 
-            # Save pivot data for wedge loft
-            micro_pivots[mi] = (
-                virtual_plc.copy(),
-                FreeCAD.Vector(cur_p0),
-                FreeCAD.Vector(cur_normal),
-                FreeCAD.Vector(cur_up),
-                FreeCAD.Vector(bend_axis),
-                FreeCAD.Vector(pivot))
+            # Save pivot data for wedge loft (first occurrence only)
+            if first_mi_occurrence:
+                micro_pivots[mi] = (
+                    virtual_plc.copy(),
+                    FreeCAD.Vector(cur_p0),
+                    FreeCAD.Vector(cur_normal),
+                    FreeCAD.Vector(cur_up),
+                    FreeCAD.Vector(bend_axis),
+                    FreeCAD.Vector(pivot))
 
             # Save wedge piece shapes NOW (before rotation),
             # so the loft uses shapes in the same space as
             # micro_pivots.  Subsequent micro-bends will rotate
             # piece_shapes further, creating a mismatch.
-            for wpi in strip_pieces:
-                if strip_to_mi.get(wpi) == mi:
-                    if mi_is_moving_side_entry and s_parent_pi is not None:
-                        # Moving-side entry: the wedge's piece_shapes has been
-                        # rotated by the moving-side path's mi_set, which
-                        # differs from the stationary-side neighbor's.
-                        # Rebuild from the flat piece with the
-                        # stationary-side neighbor's accumulated transform.
-                        shape = pieces[wpi].copy()
-                        shape.transformShape(
-                            piece_plc[s_parent_pi].toMatrix())
-                        FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD: mi {mi} moving-side entry"
-                            f" pre_shape: rebuilt from flat"
-                            f" using S-side piece_plc\n")
-                    else:
-                        shape = piece_shapes[wpi].copy()
-                    wedge_pre_shapes[wpi] = shape
+            # Only on first occurrence of this mi (subsequent
+            # occurrences are rotation-only).
+            if first_mi_occurrence:
+                for wpi in strip_pieces:
+                    if strip_to_mi.get(wpi) == mi:
+                        if mi_is_moving_side_entry \
+                                and s_parent_pi is not None:
+                            # Moving-side entry: the wedge's
+                            # piece_shapes has been rotated by the
+                            # moving-side path's mi_set, which
+                            # differs from the stationary-side
+                            # neighbor's.  Rebuild from the flat
+                            # piece with the stationary-side
+                            # neighbor's accumulated transform.
+                            shape = pieces[wpi].copy()
+                            shape.transformShape(
+                                piece_plc[s_parent_pi].toMatrix())
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD: mi {mi}"
+                                f" moving-side entry"
+                                f" pre_shape: rebuilt from flat"
+                                f" using S-side piece_plc\n")
+                        else:
+                            shape = piece_shapes[wpi].copy()
+                        wedge_pre_shapes[wpi] = shape
 
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: micro {mi}:"
@@ -3083,7 +3088,7 @@ class LinkedObject:
                 FreeCAD.Vector(0, 0, 0), rot, pivot)
             rotated_pis = []
             for pi in range(len(piece_shapes)):
-                if mi not in piece_mi_set[pi]:
+                if not _at_step(pi, step_pos, mi):
                     continue
                 pre_cm = piece_shapes[pi].CenterOfMass
                 piece_shapes[pi].transformShape(
@@ -3107,9 +3112,12 @@ class LinkedObject:
                 f"{'...' if len(rotated_pis) > 10 else ''}\n")
 
             # Save wedge's piece_plc right after its own mi rotation
-            for wpi in strip_pieces:
-                if strip_to_mi.get(wpi) == mi:
-                    wedge_post_mi_plc[wpi] = piece_plc[wpi].copy()
+            # (only on first occurrence of this mi)
+            if first_mi_occurrence:
+                for wpi in strip_pieces:
+                    if strip_to_mi.get(wpi) == mi:
+                        wedge_post_mi_plc[wpi] = \
+                            piece_plc[wpi].copy()
 
             # Move bend lines using piece multiplier.
             # Skip the bend line's OWN micro-bend.
@@ -3124,7 +3132,7 @@ class LinkedObject:
                     continue
                 bl_pi = bendline_piece_idx.get(child.Name)
                 if bl_pi is not None:
-                    bl_mult = int(mi in piece_mi_set[bl_pi])
+                    bl_mult = int(_at_step(bl_pi, step_pos, mi))
                 else:
                     bl_mult = 1 if orig_bi in \
                         bendline_bend_sets[child.Name] else 0
@@ -3143,7 +3151,7 @@ class LinkedObject:
                 cpi = comp_piece_idx.get(child.Name)
                 if cpi is None:
                     continue
-                if mi not in piece_mi_set[cpi]:
+                if not _at_step(cpi, step_pos, mi):
                     continue
                 rot = FreeCAD.Rotation(
                     bend_axis, math.degrees(micro_angle))
@@ -3201,7 +3209,7 @@ class LinkedObject:
                             and strip_to_mi.get(pi) == mi)
                         if is_own_wedge:
                             continue
-                        if mi not in piece_mi_set[pi]:
+                        if not _at_step(pi, step_pos, mi):
                             continue
                         piece_shapes[pi].translate(correction)
                         piece_plc[pi] = corr_plc.multiply(
@@ -3221,7 +3229,7 @@ class LinkedObject:
                         if bl_pi is None:
                             continue
                         bl_mult = int(
-                            mi in piece_mi_set[bl_pi])
+                            _at_step(bl_pi, step_pos, mi))
                         if bl_mult > 0:
                             child.Placement.Base = \
                                 child.Placement.Base \
@@ -3232,7 +3240,7 @@ class LinkedObject:
                         cpi = comp_piece_idx.get(child.Name)
                         if cpi is None:
                             continue
-                        if mi not in piece_mi_set[cpi]:
+                        if not _at_step(cpi, step_pos, mi):
                             continue
                         child.Placement.Base = \
                             child.Placement.Base + correction
@@ -3346,9 +3354,10 @@ class LinkedObject:
                 f" coc=({coc.x:.2f},{coc.y:.2f},{coc.z:.2f})"
                 f"\n")
 
-            # Count how many mi's of this bend the piece crosses
+            # Count how many distinct mi's of this bend the piece crosses
+            piece_mi_set_pi = set(piece_mi_list[pi])
             s_mult = sum(1 for mi_chk in bend_s_mis.get(bi, [])
-                         if mi_chk in piece_mi_set[pi])
+                         if mi_chk in piece_mi_set_pi)
             positioned_flat = wedge_pre_shapes[pi].copy() \
                 if pi in wedge_pre_shapes \
                 else piece_shapes[pi].copy()
