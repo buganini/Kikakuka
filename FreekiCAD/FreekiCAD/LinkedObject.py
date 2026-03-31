@@ -2368,7 +2368,7 @@ class LinkedObject:
                               #   cut_mid, normal, radius, orig_bi)
         # --- Phase 2b-1: create cut faces with generic bend labels ---
         # Both geometric sides get the same label (bi) initially.
-        # Stationary/moving role is determined AFTER a preliminary BFS.
+        # Stationary/moving role is determined per crossing via BFS.
         face_to_micro = {}  # fi → label (initially all bi)
         face_topo_side = {}  # fi → topological side ('A' or 'B')
         face_bend = {}      # fi → bi
@@ -2395,7 +2395,7 @@ class LinkedObject:
             cut_mid = (sp0 + sp1) * 0.5
             face_topo_side[fi] = side
             face_bend[fi] = bi
-            # All faces labelled with bi for preliminary BFS
+            # All faces labelled with bi
             face_to_micro[fi] = bi
             cut_plan_data[fi] = (angle_rad, bend_obj_ref,
                                  FreeCAD.Vector(cut_mid),
@@ -2404,7 +2404,7 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 2b (3D cut faces): "
             f"{_time.time() - _t_phase2b:.3f}s\n")
-        # --- Phase 2c: cut board, preliminary BFS, assign stationary/moving ---
+        # --- Phase 2c: cut board, assign stationary/moving ---
         _t_phase2c = _time.time()
         _t_fuse = _time.time()
         try:
@@ -2532,70 +2532,80 @@ class LinkedObject:
                         strip_pieces.add(pi)
                         strip_to_bend[pi] = bi
 
-        # Preliminary BFS with per-segment labels.
+        # Build geometric crossings and BFS for s/m assignment.
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 2c (pairing): "
             f"{_time.time() - _t_phase2c:.3f}s\n")
         _t_bfs1 = _time.time()
-        prelim_sets, prelim_tree, adjacency, geo_crossings = \
-            self._classify_pieces_bfs(
-                pieces, cut_faces, face_to_seg, mass_center,
-                half_t, bend_info, cut_plan, None, log=False,
-                piece_slices=piece_slices,
-                cut_segments=cut_segments,
-                joints=joints)
+        geo_crossings = self._build_geometric_adjacency(
+            pieces, cut_faces, cut_plan,
+            piece_slices=piece_slices,
+            cut_segments=cut_segments,
+            joints=joints)
+
+        # Stationary piece = closest non-wedge piece to board
+        # outline center of mass.
+        n_pieces = len(pieces)
+        mc_2d = FreeCAD.Vector(
+            mass_center.x, mass_center.y, half_t)
+        _sp_cands = [pi for pi in range(n_pieces)
+                     if pi not in strip_pieces]
+        if not _sp_cands:
+            _sp_cands = list(range(n_pieces))
+        stationary_idx = min(
+            _sp_cands,
+            key=lambda pi: pieces[pi].CenterOfMass.distanceToPoint(
+                FreeCAD.Vector(mc_2d.x, mc_2d.y,
+                               pieces[pi].CenterOfMass.z)))
+
+        # BFS from stationary piece to determine per-crossing
+        # parent piece for normal orientation.
+        # When cur visits nbr through face fi, cur is the parent
+        # side of that crossing.  Walk past wedge ancestors to
+        # find a non-wedge piece for reliable normal dot.
+        _adj = [[] for _ in range(n_pieces)]
+        for c_i, c_j, c_fi in geo_crossings:
+            _adj[c_i].append((c_j, c_fi))
+            _adj[c_j].append((c_i, c_fi))
+        crossing_parent_pi = {}     # fi → parent piece index
+        crossing_parent_is_child = set()  # fi's where child used
+        bfs_parent = {stationary_idx: None}
+        _bfs_visited = {stationary_idx}
+        _bfs_q = [stationary_idx]
+        while _bfs_q:
+            _cur = _bfs_q.pop(0)
+            for _nbr, _fi in _adj[_cur]:
+                if _fi not in crossing_parent_pi:
+                    # cur is the BFS parent side of this crossing
+                    real_parent = _cur
+                    while real_parent in strip_pieces:
+                        ancestor = bfs_parent.get(real_parent)
+                        if ancestor is None:
+                            break
+                        real_parent = ancestor
+                    if real_parent in strip_pieces:
+                        real_parent = _nbr
+                        crossing_parent_is_child.add(_fi)
+                    crossing_parent_pi[_fi] = real_parent
+                if _nbr not in _bfs_visited:
+                    _bfs_visited.add(_nbr)
+                    bfs_parent[_nbr] = _cur
+                    _bfs_q.append(_nbr)
         FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: [profile] BFS #1 (preliminary): "
+            f"FreekiCAD: [profile] BFS (crossing parents): "
             f"{_time.time() - _t_bfs1:.3f}s\n")
 
-        # Determine BFS parent piece per segment.
-        # When the BFS parent is a wedge piece (strip_pieces),
-        # walk up prelim_tree to find a non-wedge ancestor whose
-        # CM is far enough from the cut for reliable normal orient.
-        seg_parent_side = {}
-        seg_parent_pi = {}   # sid → parent piece index
-        seg_parent_is_child = set()  # sids where we used child as fallback
-        for pi, (parent, mi_crossed) in prelim_tree.items():
-            if mi_crossed is None or mi_crossed < 0 or parent is None:
-                continue
-            sid = mi_crossed
-            if sid in seg_parent_side:
-                continue
-            # Walk past wedge parents
-            real_parent = parent
-            while real_parent in strip_pieces:
-                ancestor = prelim_tree.get(real_parent)
-                if ancestor is None or ancestor[0] is None:
-                    break
-                real_parent = ancestor[0]
-            # If walk-up failed (real_parent is still a wedge),
-            # use the child piece instead — it's on the opposite
-            # side of the cut and gives a reliable normal dot.
-            if real_parent in strip_pieces:
-                real_parent = pi
-                seg_parent_is_child.add(sid)
-            seg_parent_pi[sid] = real_parent
-            for fi in range(len(cut_faces)):
-                if face_to_seg.get(fi) != sid:
-                    continue
-                di = pieces[pi].distToShape(cut_faces[fi])[0]
-                dp = pieces[parent].distToShape(
-                    cut_faces[fi])[0]
-                if di < GEOMETRY_TOLERANCE and dp < GEOMETRY_TOLERANCE:
-                    seg_parent_side[sid] = face_topo_side[fi]
-                    break
-            if sid not in seg_parent_side:
-                seg_parent_side[sid] = 'A'
-
         FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: seg_parent_pi has {len(seg_parent_pi)} entries\n")
-        for _sid, _ppi in sorted(seg_parent_pi.items()):
+            f"FreekiCAD: crossing_parent_pi has "
+            f"{len(crossing_parent_pi)} entries\n")
+        for _fi, _ppi in sorted(crossing_parent_pi.items()):
             FreeCAD.Console.PrintMessage(
-                f"FreekiCAD:   seg_parent_pi[{_sid}] = p{_ppi}\n")
+                f"FreekiCAD:   crossing_parent_pi[fi={_fi}] "
+                f"= p{_ppi}\n")
 
         # --- Phase 2b-2: assign stationary/moving and create micro-bends ---
         _t_phase2b2 = _time.time()
-        # Log per-segment stationary/moving assignment.
+        # Log per-crossing stationary/moving assignment.
         # (per-bend logging removed — per-cut makes it irrelevant)
         s_group = {}
         bend_seg_mids = {}
@@ -2616,10 +2626,8 @@ class LinkedObject:
             if bi is None:
                 continue
             topo_side = face_topo_side[fi]
-            # Per-segment stationary side from BFS direction
+            # Per-crossing stationary side from BFS direction
             sid = face_to_seg.get(fi)
-            parent_side = seg_parent_side.get(sid, 'A') \
-                if sid is not None else 'A'
             # Assign seg_idx from pairing: same sid → same idx
             if sid is not None and sid in sid_to_seg_idx:
                 seg_idx = sid_to_seg_idx[sid]
@@ -2628,7 +2636,15 @@ class LinkedObject:
                 bend_seg_count[bi] = seg_idx + 1
                 if sid is not None:
                     sid_to_seg_idx[sid] = seg_idx
-            is_stationary = (topo_side == parent_side)
+            # Determine stationary/moving: parent piece touches
+            # stationary-side face (distToShape < tolerance).
+            parent_pi = crossing_parent_pi.get(fi)
+            if parent_pi is not None:
+                is_stationary = (
+                    pieces[parent_pi].distToShape(
+                        cut_faces[fi])[0] < GEOMETRY_TOLERANCE)
+            else:
+                is_stationary = (topo_side == 'A')
             if not is_stationary:
                 # Per-cut: each moving-side face gets a unique negative ID
                 m_id = -(m_face_counter + len(bend_info) + 2)
@@ -2645,13 +2661,12 @@ class LinkedObject:
                     radius, _ = data
                 # Per-cut: orient normal away from BFS parent
                 # (from stationary side into wedge) using parent piece position.
-                parent_pi = seg_parent_pi.get(sid)
                 if parent_pi is not None:
                     parent_cm = pieces[parent_pi].CenterOfMass
                     dot_val = (parent_cm - cut_mid).dot(normal_ref)
                     # When (child), parent_pi is the child piece,
                     # so the flip sense is inverted.
-                    if sid in seg_parent_is_child:
+                    if fi in crossing_parent_is_child:
                         flipped = dot_val < 0
                     else:
                         flipped = dot_val > 0
@@ -2660,7 +2675,7 @@ class LinkedObject:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD: mi={mi} sid={sid}"
                         f" parent_pi={parent_pi}"
-                        f" {'(child)' if sid in seg_parent_is_child else ''}"
+                        f" {'(child)' if fi in crossing_parent_is_child else ''}"
                         f" parent_cm=({parent_cm.x:.2f},"
                         f"{parent_cm.y:.2f},{parent_cm.z:.2f})"
                         f" cut_mid=({cut_mid.x:.2f},"
@@ -2670,7 +2685,7 @@ class LinkedObject:
                 else:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD: mi={mi} sid={sid}"
-                        f" NO parent_pi in seg_parent_pi\n")
+                        f" NO parent_pi in crossing_parent_pi\n")
                 micro_bend_info.append((angle_rad, bend_obj_ref,
                                         cut_mid, normal_ref,
                                         radius, bi))
@@ -2685,14 +2700,12 @@ class LinkedObject:
                     f" normal=({normal_ref.x:.3f},{normal_ref.y:.3f},{normal_ref.z:.3f})"
                     f"\n")
 
-        # Re-run BFS with correct stationary/moving labels
+        # BFS with stationary/moving labels
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 2b-2 (stationary/moving assign): "
             f"{_time.time() - _t_phase2b2:.3f}s\n")
         _t_bfs2 = _time.time()
         face_to_bend = face_to_micro
-        # strip_pieces and strip_to_bend already computed before
-        # BFS #1 (needed for seg_parent_pi wedge filtering).
 
         piece_bend_sets, bfs_tree, adjacency, _ = \
             self._classify_pieces_bfs(
@@ -2703,7 +2716,7 @@ class LinkedObject:
                 cached_geo_crossings=geo_crossings,
                 strip_pieces=strip_pieces)
         FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: [profile] BFS #2 (final): "
+            f"FreekiCAD: [profile] BFS (final): "
             f"{_time.time() - _t_bfs2:.3f}s\n")
 
         # Map components to pieces using flat (X, Y) in 2D
@@ -2812,7 +2825,7 @@ class LinkedObject:
         up = FreeCAD.Vector(0, 0, 1)
         piece_shapes = [p.copy() for p in pieces]
 
-        # strip_pieces and strip_to_bend already computed before BFS #1.
+        # strip_pieces and strip_to_bend already computed before BFS.
 
         # Map each wedge piece to its specific S-cut mi
         # (from BFS tree: the mi through which BFS first reached the wedge).
@@ -2978,8 +2991,9 @@ class LinkedObject:
             # Find the stationary-side parent piece of this mi's wedge.
             # Its accumulated piece_plc will be used to build
             # virtual_plc for the cut geometry transform.
+            # With per-crossing s/m, the BFS parent side is always
+            # stationary, so there is no moving-side entry case.
             s_parent_pi = None
-            mi_is_moving_side_entry = False
             mi_wpi = None
             for wpi in strip_pieces:
                 if strip_to_mi.get(wpi) == mi:
@@ -2989,19 +3003,6 @@ class LinkedObject:
                     for nbr, mi_adj, _fi in adjacency[wpi]:
                         if mi_adj == mi:
                             s_parent_pi = nbr
-                            break
-                    # Moving-side entry: the BFS source that goes through
-                    # this wedge is on the moving side.
-                    for dest_pi, bfs_e in bfs_tree.items():
-                        if bfs_e[2] == wpi:
-                            src_pi = bfs_e[0]
-                            if src_pi != s_parent_pi:
-                                mi_is_moving_side_entry = True
-                                FreeCAD.Console.PrintMessage(
-                                    f"FreekiCAD: mi {mi}"
-                                    f" moving-side entry: stat-side="
-                                    f"{s_parent_pi}"
-                                    f" (BFS src={src_pi})\n")
                             break
                     break
 
@@ -3054,26 +3055,8 @@ class LinkedObject:
             if first_mi_occurrence:
                 for wpi in strip_pieces:
                     if strip_to_mi.get(wpi) == mi:
-                        if mi_is_moving_side_entry \
-                                and s_parent_pi is not None:
-                            # Moving-side entry: the wedge's
-                            # piece_shapes has been rotated by the
-                            # moving-side path's mi_set, which
-                            # differs from the stationary-side
-                            # neighbor's.  Rebuild from the flat
-                            # piece with the stationary-side
-                            # neighbor's accumulated transform.
-                            shape = pieces[wpi].copy()
-                            shape.transformShape(
-                                piece_plc[s_parent_pi].toMatrix())
-                            FreeCAD.Console.PrintMessage(
-                                f"FreekiCAD: mi {mi}"
-                                f" moving-side entry"
-                                f" pre_shape: rebuilt from flat"
-                                f" using S-side piece_plc\n")
-                        else:
-                            shape = piece_shapes[wpi].copy()
-                        wedge_pre_shapes[wpi] = shape
+                        wedge_pre_shapes[wpi] = \
+                            piece_shapes[wpi].copy()
 
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: micro {mi}:"
@@ -3323,25 +3306,9 @@ class LinkedObject:
             if bi not in coc_offsets:
                 coc_offsets[bi] = (bend_obj_bi, s_mi)
 
-            # Moving-side entry: check if BFS source through this wedge
-            # differs from stationary-parent (meaning it came from moving side).
-            moving_side_entry = False
-            s_nbr = None
-            for nbr_w, mi_w, _fi_w in adjacency[pi]:
-                if mi_w == s_mi:
-                    s_nbr = nbr_w
-                    break
-            if s_nbr is not None:
-                for dest_pi, e in bfs_tree.items():
-                    if e[2] == pi:
-                        if e[0] != s_nbr:
-                            moving_side_entry = True
-                        break
-
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: wedge pi={pi} bi={bi}"
                 f" sweep={math.degrees(sweep_angle):.1f}°"
-                f" moving_side_entry={'Y' if moving_side_entry else 'N'}"
                 f" s_mi={s_mi}"
                 f" ins={ins:.4f}"
                 f" r_eff={r_eff:.4f}"
@@ -4355,7 +4322,7 @@ class LinkedObject:
         that skip through wedges.  Each bfs_tree entry is
         ``(parent_pi, mis_crossed, wedge_pi)`` where *mis_crossed*
         is a set of mi indices.  Without *strip_pieces*, entries are
-        ``(parent_pi, mi_crossed)`` (2-tuple for preliminary BFS).
+        ``(parent_pi, mi_crossed)`` (2-tuple, legacy path).
 
         Returns (piece_bend_sets, bfs_tree, adjacency, cached_geo_crossings)."""
         n = len(pieces)
@@ -4546,21 +4513,9 @@ class LinkedObject:
                                 f"p{nbr}\n")
                         queue.append(nbr)
 
-            # Unreachable pieces: dot-product fallback
-            for pi in range(n):
-                if piece_bend_sets[pi] is None:
-                    cm = pieces[pi].CenterOfMass
-                    cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
-                    fb = set()
-                    for bi, (_, p0, _, _, normal, _, _) in enumerate(
-                            bend_info):
-                        if (cm_2d - p0).dot(normal) > 0:
-                            fb.add(bi)
-                    piece_bend_sets[pi] = fb
-                    bfs_tree[pi] = (stationary_idx, set(), None)
         else:
-            # Legacy 2-tuple BFS (preliminary, no wedges).
-            bfs_tree = {stationary_idx: (None, None)}
+            # Legacy 3-tuple BFS (preliminary, no wedges).
+            bfs_tree = {stationary_idx: (None, None, None)}
             queue = [stationary_idx]
             while queue:
                 cur = queue.pop(0)
@@ -4576,21 +4531,8 @@ class LinkedObject:
                     else:
                         piece_bend_sets[nbr] = \
                             piece_bend_sets[cur].copy()
-                    bfs_tree[nbr] = (cur, bi)
+                    bfs_tree[nbr] = (cur, bi, _fi)
                     queue.append(nbr)
-
-            # Unreachable pieces: dot-product fallback
-            for pi in range(n):
-                if piece_bend_sets[pi] is None:
-                    cm = pieces[pi].CenterOfMass
-                    cm_2d = FreeCAD.Vector(cm.x, cm.y, 0)
-                    fb = set()
-                    for bi, (_, p0, _, _, normal, _, _) in enumerate(
-                            bend_info):
-                        if (cm_2d - p0).dot(normal) > 0:
-                            fb.add(bi)
-                    piece_bend_sets[pi] = fb
-                    bfs_tree[pi] = (stationary_idx, -1)
 
         return piece_bend_sets, bfs_tree, adjacency, cached_geo_crossings
 
