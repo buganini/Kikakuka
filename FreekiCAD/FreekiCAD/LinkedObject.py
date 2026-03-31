@@ -3875,6 +3875,17 @@ class LinkedObject:
                     pobj.setPropertyStatus("Chain",
                                            "ReadOnly")
                 pobj.Chain = path_str
+                if not hasattr(pobj, 'Parent'):
+                    pobj.addProperty(
+                        "App::PropertyString", "Parent",
+                        "Debug", "BFS parent piece index")
+                    pobj.setPropertyStatus("Parent",
+                                           "ReadOnly")
+                entry_pi = bfs_tree.get(pi)
+                if entry_pi is not None and entry_pi[0] is not None:
+                    pobj.Parent = f"p{entry_pi[0]}"
+                else:
+                    pobj.Parent = "(root)"
                 if pi in strip_pieces:
                     # Wedge: also show cut segment id
                     bi_w = strip_to_bend[pi]
