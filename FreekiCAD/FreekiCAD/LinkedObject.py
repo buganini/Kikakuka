@@ -2982,7 +2982,7 @@ class LinkedObject:
             # Its accumulated piece_plc will be used to build
             # virtual_plc for the cut geometry transform.
             s_parent_pi = None
-            mi_is_m_entry = False
+            mi_is_moving_side_entry = False
             mi_wpi = None
             for wpi in strip_pieces:
                 if strip_to_mi.get(wpi) == mi:
@@ -2993,16 +2993,16 @@ class LinkedObject:
                         if mi_adj == mi:
                             s_parent_pi = nbr
                             break
-                    # M-entry: the BFS source that goes through
+                    # Moving-side entry: the BFS source that goes through
                     # this wedge is on the moving side.
                     for dest_pi, bfs_e in bfs_tree.items():
                         if bfs_e[2] == wpi:
                             src_pi = bfs_e[0]
                             if src_pi != s_parent_pi:
-                                mi_is_m_entry = True
+                                mi_is_moving_side_entry = True
                                 FreeCAD.Console.PrintMessage(
                                     f"FreekiCAD: mi {mi}"
-                                    f" M-entry: stat-side="
+                                    f" moving-side entry: stat-side="
                                     f"{s_parent_pi}"
                                     f" (BFS src={src_pi})\n")
                             break
@@ -3053,8 +3053,8 @@ class LinkedObject:
             # piece_shapes further, creating a mismatch.
             for wpi in strip_pieces:
                 if strip_to_mi.get(wpi) == mi:
-                    if mi_is_m_entry and s_parent_pi is not None:
-                        # M-entry: the wedge's piece_shapes has been
+                    if mi_is_moving_side_entry and s_parent_pi is not None:
+                        # Moving-side entry: the wedge's piece_shapes has been
                         # rotated by the moving-side path's mi_set, which
                         # differs from the stationary-side neighbor's.
                         # Rebuild from the flat piece with the
@@ -3063,7 +3063,7 @@ class LinkedObject:
                         shape.transformShape(
                             piece_plc[s_parent_pi].toMatrix())
                         FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD: mi {mi} M-entry"
+                            f"FreekiCAD: mi {mi} moving-side entry"
                             f" pre_shape: rebuilt from flat"
                             f" using S-side piece_plc\n")
                     else:
@@ -3315,9 +3315,9 @@ class LinkedObject:
             if bi not in coc_offsets:
                 coc_offsets[bi] = (bend_obj_bi, s_mi)
 
-            # M-entry: check if BFS source through this wedge
+            # Moving-side entry: check if BFS source through this wedge
             # differs from stationary-parent (meaning it came from moving side).
-            m_entry = False
+            moving_side_entry = False
             s_nbr = None
             for nbr_w, mi_w, _fi_w in adjacency[pi]:
                 if mi_w == s_mi:
@@ -3327,13 +3327,13 @@ class LinkedObject:
                 for dest_pi, e in bfs_tree.items():
                     if e[2] == pi:
                         if e[0] != s_nbr:
-                            m_entry = True
+                            moving_side_entry = True
                         break
 
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: wedge pi={pi} bi={bi}"
                 f" sweep={math.degrees(sweep_angle):.1f}°"
-                f" m_entry={'Y' if m_entry else 'N'}"
+                f" moving_side_entry={'Y' if moving_side_entry else 'N'}"
                 f" s_mi={s_mi}"
                 f" ins={ins:.4f}"
                 f" r_eff={r_eff:.4f}"
@@ -4219,12 +4219,10 @@ class LinkedObject:
                                     joints=None):
         """Build geometric adjacency: which pieces touch and via which cut face.
 
-        Returns a list of (i, j, best_touch_fi_or_None) tuples.
+        Returns a list of (i, j, fi) tuples.
 
-        When *joints* is provided, builds adjacency from the
-        joint structure (pieces adjacent to each A/B face) instead of
-        O(n²) piece-pair checks.  Falls back to O(n²) when joints are
-        not available.
+        Builds adjacency from the joint structure (pieces adjacent to
+        each A/B face).
 
         When *piece_slices* and *cut_segments* are provided, uses 2D
         geometry for distance checks instead of 3D solids.
@@ -4233,84 +4231,46 @@ class LinkedObject:
         tol = GEOMETRY_TOLERANCE
         shapes = piece_slices if piece_slices is not None else pieces
 
-        if joints is not None:
-            # Group-based adjacency: for each cut face, find all
-            # touching pieces; adjacent pairs share the face.
-            face_pieces = {}  # fi → set of pi
-            for grp in joints:
-                for fi in grp['a_faces'] + grp['b_faces']:
-                    cf_shape = (cut_segments[fi]
-                                if cut_segments is not None
-                                else cut_faces[fi])
-                    adj = set()
-                    for pi in range(n):
-                        if shapes[pi].distToShape(cf_shape)[0] < tol:
-                            adj.add(pi)
-                    face_pieces[fi] = adj
-            # Build edges: pairs of pieces that share a cut face.
-            edge_set = set()
-            geo_edges = []
-            for fi, pis in face_pieces.items():
-                pis_list = sorted(pis)
-                for idx_a in range(len(pis_list)):
-                    for idx_b in range(idx_a + 1, len(pis_list)):
-                        i, j = pis_list[idx_a], pis_list[idx_b]
-                        key = (i, j)
-                        if key in edge_set:
-                            continue
-                        # Only connect pieces on opposite sides
-                        # of the cut face.
-                        sp0_e = cut_plan[fi][0]
-                        sp1_e = cut_plan[fi][1]
-                        sdx = sp1_e.x - sp0_e.x
-                        sdy = sp1_e.y - sp0_e.y
-                        cm_i = pieces[i].CenterOfMass
-                        cm_j = pieces[j].CenterOfMass
-                        ci = sdx * (cm_i.y - sp0_e.y) \
-                            - sdy * (cm_i.x - sp0_e.x)
-                        cj = sdx * (cm_j.y - sp0_e.y) \
-                            - sdy * (cm_j.x - sp0_e.x)
-                        if ci * cj >= 0:
-                            continue
-                        edge_set.add(key)
-                        geo_edges.append((i, j, fi))
-            return geo_edges
-
-        # Fallback: O(n²) piece-pair check (no joints).
+        # Group-based adjacency: for each cut face, find all
+        # touching pieces; adjacent pairs share the face.
+        face_pieces = {}  # fi → set of pi
+        for grp in joints:
+            for fi in grp['a_faces'] + grp['b_faces']:
+                cf_shape = (cut_segments[fi]
+                            if cut_segments is not None
+                            else cut_faces[fi])
+                adj = set()
+                for pi in range(n):
+                    if shapes[pi].distToShape(cf_shape)[0] < tol:
+                        adj.add(pi)
+                face_pieces[fi] = adj
+        # Build edges: pairs of pieces that share a cut face.
+        edge_set = set()
         geo_edges = []
-        for i in range(n):
-            for j in range(i + 1, n):
-                d = shapes[i].distToShape(shapes[j])[0]
-                if d > tol:
-                    continue
-                mid = (pieces[i].CenterOfMass
-                       + pieces[j].CenterOfMass) * 0.5
-                best_touch_fi = None
-                best_touch_rank = (float('inf'), 1)
-                for fi in range(len(cut_faces)):
-                    cf_shape = (cut_segments[fi]
-                                if cut_segments is not None
-                                else cut_faces[fi])
-                    di_cf = shapes[i].distToShape(cf_shape)[0]
-                    dj_cf = shapes[j].distToShape(cf_shape)[0]
-                    if di_cf < tol and dj_cf < tol:
-                        sp0_e, sp1_e = cut_plan[fi][0], cut_plan[fi][1]
-                        sdx = sp1_e.x - sp0_e.x
-                        sdy = sp1_e.y - sp0_e.y
-                        sl2 = sdx * sdx + sdy * sdy
-                        if sl2 < 1e-12:
-                            continue
-                        seg_mid_x = (sp0_e.x + sp1_e.x) * 0.5
-                        seg_mid_y = (sp0_e.y + sp1_e.y) * 0.5
-                        dx = mid.x - seg_mid_x
-                        dy = mid.y - seg_mid_y
-                        d2 = dx * dx + dy * dy
-                        rank = (round(d2, 4), 1)
-                        if rank < best_touch_rank:
-                            best_touch_rank = rank
-                            best_touch_fi = fi
-                if best_touch_fi is not None:
-                    geo_edges.append((i, j, best_touch_fi))
+        for fi, pis in face_pieces.items():
+            pis_list = sorted(pis)
+            for idx_a in range(len(pis_list)):
+                for idx_b in range(idx_a + 1, len(pis_list)):
+                    i, j = pis_list[idx_a], pis_list[idx_b]
+                    key = (i, j)
+                    if key in edge_set:
+                        continue
+                    # Only connect pieces on opposite sides
+                    # of the cut face.
+                    sp0_e = cut_plan[fi][0]
+                    sp1_e = cut_plan[fi][1]
+                    sdx = sp1_e.x - sp0_e.x
+                    sdy = sp1_e.y - sp0_e.y
+                    cm_i = pieces[i].CenterOfMass
+                    cm_j = pieces[j].CenterOfMass
+                    ci = sdx * (cm_i.y - sp0_e.y) \
+                        - sdy * (cm_i.x - sp0_e.x)
+                    cj = sdx * (cm_j.y - sp0_e.y) \
+                        - sdy * (cm_j.x - sp0_e.x)
+                    if ci * cj >= 0:
+                        continue
+                    edge_set.add(key)
+                    geo_edges.append((i, j, fi))
         return geo_edges
 
     def _classify_pieces_bfs(self, pieces, cut_faces, face_to_bend,

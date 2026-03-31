@@ -69,9 +69,20 @@ Extrudes each 2D cut segment into a vertical rectangular face spanning the full 
 1. `generalFuse(board, cut_faces)` -> compound solid
 2. Extract `pieces` (solids with volume > 1e-6)
 3. Create `piece_slices` (2D wire at z=half_t) and `cut_segments` (2D edge at z=half_t) for fast distance checks
-4. Run **BFS #1 (preliminary)**: no A/B distinction, uses face labels = bi
+4. Build adjacency graph (see below)
+5. Run **BFS #1 (preliminary)**: no A/B distinction, uses face labels = bi
    - Determines `seg_parent_pi[sid]` and `seg_parent_side[sid]` for each cut segment pair
-5. Pair A/B faces of same bend that share a wedge piece -> assign segment IDs (`face_to_seg`)
+6. Pair A/B faces of same bend that share a wedge piece -> assign segment IDs (`face_to_seg`)
+
+### Adjacency Graph Construction
+
+Produces `(i, j, fi)` edges from the joint structure:
+
+1. For each cut face `fi` in every joint, find all pieces within `GEOMETRY_TOLERANCE` using 2D `distToShape` → `face_pieces[fi]`
+2. For each pair of pieces touching the same face, apply a **side test**: compute cross-product signed distance of each piece's center of mass relative to the cut segment line. Only connect pieces on opposite sides (`ci * cj < 0`)
+3. Emit deduplicated `(i, j, fi)` edges
+
+The **side test** is the key filter — it prevents connecting two pieces that both touch the same face but are on the same side of it rather than separated by it.
 
 ### Phase 2b-2: Assign Micro-Bends
 
@@ -83,6 +94,32 @@ Using BFS #1 results:
 4. Stationary/moving role is determined by which topo side (A or B) the BFS parent is on
 4. Identify wedge pieces (within inset distance of center line) → `wedge_pieces`
 5. Run **BFS #2 (final)**: uses micro-bend labels, skips through wedges
+
+### BFS Chain Building
+
+#### Preliminary BFS (BFS #1)
+
+- Treats all pieces equally (no wedge awareness), traverses the adjacency graph using segment IDs (not mi)
+- Purpose: determine which topo side (A or B) of each joint is the stationary side
+- Output: `seg_parent_pi[sid]` and `seg_parent_side[sid]`
+
+#### Final BFS (BFS #2, wedge-skipping)
+
+- Uses micro-bend labels (`mi >= 0` for stationary, `mi < 0` for moving)
+- **Wedge pass-through**: when BFS hits a wedge piece, it does not stop — it immediately traverses *through* the wedge to reach the non-wedge piece on the other side. Both the entry mi and exit mi are recorded in the crossed set.
+- BFS tree entry: `(parent_pi, mis_crossed_set, wedge_pi)` — the 3rd element records which wedge was traversed
+
+#### piece_mi_set accumulation
+
+- For each **non-wedge** piece: walk the BFS parent chain back to the root, collecting all `mi >= 0` from each link's `mis_crossed_set`
+- For **wedges**: copy the mi set from the destination piece reached through that wedge (or from the stationary neighbor + own mi if no destination)
+
+#### micro_order derivation
+
+- A second BFS walk from the root, visiting children in tree order
+- At each piece, any new `mi >= 0` from its crossed set is appended to `micro_order`
+- This gives the processing sequence for Phase 3 rotations
+- **Phantom mi's** (stationary faces with no associated wedge) are detected and removed from `micro_order` and all `piece_mi_set`
 
 ### Key Data Structures
 
@@ -113,7 +150,7 @@ Processes micro-bends in BFS traversal order (`micro_order`). For each mi:
    - `pivot = stat_edge_mid + cur_up * (r_eff * bend_sign)`
 5. Save pivot data in `micro_pivots[mi]` for wedge loft
 6. Save pre-rotation wedge shape in `wedge_pre_shapes[pi]`
-   - For M-entry: rebuilt from flat piece using stationary-side parent's piece_plc
+   - For moving-side entry: rebuilt from flat piece using stationary-side parent's piece_plc
 7. Save `wedge_post_mi_plc[pi]` = current `piece_plc[pi]` (snapshot before remaining rotations)
 8. Rotate all pieces where `mi in piece_mi_set[pi]` by micro_angle around pivot
 9. Compose rotation into `piece_plc[pi]` for each rotated piece
@@ -175,16 +212,11 @@ For each mi:
 
 ## Adjacency
 
-### `_build_geometric_adjacency(pieces, cut_faces, cut_plan, piece_slices, cut_segments)`
+### `_build_geometric_adjacency(pieces, cut_faces, cut_plan, piece_slices, cut_segments, joints)`
 
-O(n^2) piece-pair check using `distToShape` (shortest 3D distance, not center-to-center).
+Builds adjacency from the joint structure. For each cut face in every joint, finds all pieces within `GEOMETRY_TOLERANCE` using 2D `distToShape`. Pairs of pieces sharing a face are connected only if they are on opposite sides (cross-product side test).
 
-For each pair (i, j) within GEOMETRY_TOLERANCE:
-1. Find all cut faces where both pieces are within tolerance
-2. Rank by 2D distance from cut midpoint to piece-pair midpoint
-3. Only emit edges that have a matching cut face
-
-Returns: list of (i, j, best_touch_fi) -- only pairs with a matching cut face are included.
+Returns: list of (i, j, fi) tuples.
 
 **Note:** Adjacency is between all pieces, including wedges; the cut face is attached as extra info. Traversal (BFS) is piece-to-piece (non-wedges), with the opposite-side test applied only during BFS, not during adjacency building.
 
@@ -202,6 +234,20 @@ Two modes:
 - Used for initial stationary/moving assignment
 
 BFS root: non-wedge piece closest to board center of mass.
+
+---
+
+## Concept Hierarchy
+
+```
+Bend (user-drawn bend line, bi)
+ └── Joint / Segment (center line trimmed to board outline, split at intersections; sid)
+      ├── Cut pair (A at -inset, B at +inset from center)
+      │    └── Face (3D rectangle extruded to full board height, fi)
+      │         ├── Micro-bend (one per stationary-side face; atomic fold operation, mi)
+      │         └── Edge (adjacency link between two pieces sharing this face)
+      └── Wedge (strip piece between A and B faces)
+```
 
 ---
 
@@ -230,7 +276,8 @@ BFS root: non-wedge piece closest to board center of mass.
 | **micro_order** | list of mi | The sequence in which mi's are processed in Phase 3. Derived from BFS traversal order. |
 | **piece_mi_set[pi]** | set of mi | The set of micro-bends that must rotate piece `pi`. Built during BFS: each piece accumulates the mi's of all cuts between it and the stationary root. |
 | **bfs_tree[pi]** | tuple | BFS parent info. Final BFS: (parent_pi, mis_crossed_set, wedge_pi). Preliminary BFS: (parent_pi, mi_crossed). |
-| **adjacency[pi]** | list of (nbr_pi, mi, fi) | Neighbors of piece `pi` with the connecting mi label and cut face index. Built from joints (group-based) or geometric distance (legacy). |
+| **edge** | concept | An adjacency link between two pieces that share a cut face. Each edge records the neighbor piece, the micro-bend label, and the cut face index. Edges form the graph traversed by BFS to determine rotation order. |
+| **adjacency[pi]** | list of (nbr_pi, mi, fi) | All edges of piece `pi`: neighbors with the connecting mi label and cut face index. Built from joints. |
 | **stationary_idx** | pi | The BFS root piece — the non-wedge piece closest to the board center of mass. Remains fixed; all other pieces rotate relative to it. |
 | **piece_plc[pi]** | Placement | Accumulated rotation/translation for piece `pi` through Phase 3. Starts as identity. |
 | **wedge_pre_shapes[pi]** | Shape | Snapshot of a wedge piece's shape before its own mi rotation. Used as input for wedge loft. |
