@@ -3910,23 +3910,45 @@ class LinkedObject:
 
     def _draw_debug_cuts(self, obj, debug_cut_segs, thickness,
                           bend_plc_original=None):
-        """Draw trimmed cutting segments as colored lines at z=thickness.
+        """Draw trimmed cutting segments as individual objects.
 
+        Each cut segment becomes its own Part::Feature with
+        properties: Side (A/B/C), Bend (index), and a label
+        like 'cut_0_A_3' (cut index, side, bend).
         Colors: green=A-side, blue=B-side, cyan=center.
         Hidden by default.
         """
         doc = obj.Document
-        debug_name = obj.Name + "_DebugCuts"
-        debug_obj = doc.getObject(debug_name)
+        debug_grp_name = obj.Name + "_DebugCuts"
+
+        # Remove old group and children
+        old_grp = doc.getObject(debug_grp_name)
+        if old_grp:
+            for child in old_grp.Group:
+                doc.removeObject(child.Name)
+            doc.removeObject(debug_grp_name)
 
         if not debug_cut_segs:
-            if debug_obj is not None:
-                debug_obj.Shape = Part.Shape()
             return
 
-        edges = []
-        for entry in debug_cut_segs:
+        grp = doc.addObject(
+            "App::DocumentObjectGroup", debug_grp_name)
+        if grp not in obj.Group:
+            obj.addObject(grp)
+        try:
+            grp.ViewObject.Visibility = False
+        except Exception:
+            pass
+
+        side_colors = {
+            'A': (0.0, 1.0, 0.0),   # green
+            'B': (0.0, 0.0, 1.0),   # blue
+            'C': (0.0, 1.0, 1.0),   # cyan
+        }
+
+        for ci, entry in enumerate(debug_cut_segs):
             sp0, sp1, side = entry[0], entry[1], entry[2]
+            bi = entry[3] if len(entry) > 3 else -1
             # Transform cut endpoints using bend placement chain
             if bend_plc_original is not None and len(entry) > 8:
                 bend_obj = entry[8]
@@ -3941,24 +3963,37 @@ class LinkedObject:
                 sp0.x, sp0.y, sp0.z + thickness)
             end = FreeCAD.Vector(
                 sp1.x, sp1.y, sp1.z + thickness)
-            if start.distanceToPoint(end) > GEOMETRY_TOLERANCE:
-                edges.append(Part.makeLine(start, end))
+            if start.distanceToPoint(end) <= GEOMETRY_TOLERANCE:
+                continue
 
-        if not edges:
-            if debug_obj is not None:
-                debug_obj.Shape = Part.Shape()
-            return
+            edge = Part.makeLine(start, end)
+            pname = f"{debug_grp_name}_{ci}"
+            pobj = doc.addObject("Part::Feature", pname)
+            pobj.Shape = edge
+            pobj.Label = f"cut_{ci}_{side}_{bi}"
 
-        if debug_obj is None:
-            debug_obj = doc.addObject("Part::Feature", debug_name)
-            obj.addObject(debug_obj)
+            if not hasattr(pobj, 'Side'):
+                pobj.addProperty(
+                    "App::PropertyString", "Side",
+                    "Debug", "Cut side (A/B/C)")
+                pobj.setPropertyStatus("Side", "ReadOnly")
+            pobj.Side = side
+
+            if not hasattr(pobj, 'Bend'):
+                pobj.addProperty(
+                    "App::PropertyInteger", "Bend",
+                    "Debug", "Bend index")
+                pobj.setPropertyStatus("Bend", "ReadOnly")
+            pobj.Bend = bi
+
             try:
-                debug_obj.ViewObject.LineColor = (0.0, 1.0, 0.0)
-                debug_obj.ViewObject.LineWidth = 3.0
-                debug_obj.ViewObject.Visibility = False
+                color = side_colors.get(side, (1.0, 1.0, 1.0))
+                pobj.ViewObject.LineColor = color
+                pobj.ViewObject.LineWidth = 3.0
             except Exception:
                 pass
-        debug_obj.Shape = Part.makeCompound(edges)
+
+            grp.addObject(pobj)
 
     def _trim_line_to_outline(self, p0, p1, board_face):
         """Trim a 2D line to the board face using BRep section.
