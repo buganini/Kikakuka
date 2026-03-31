@@ -2714,7 +2714,9 @@ class LinkedObject:
                 m_face_to_bend=m_face_to_bend,
                 mi_seg_idx=mi_seg_idx,
                 cached_geo_crossings=geo_crossings,
-                strip_pieces=strip_pieces)
+                strip_pieces=strip_pieces,
+                face_to_seg=face_to_seg,
+                joints=joints)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] BFS (final): "
             f"{_time.time() - _t_bfs2:.3f}s\n")
@@ -4296,7 +4298,8 @@ class LinkedObject:
                              cached_geo_crossings=None,
                              piece_slices=None, cut_segments=None,
                              strip_pieces=None,
-                             joints=None):
+                             joints=None,
+                             face_to_seg=None):
         """BFS from the stationary piece with maximum-set preference.
 
         All crossings ADD the bend (union, sets only grow).
@@ -4379,10 +4382,16 @@ class LinkedObject:
 
         def _side_test(pi_a, pi_b, fi_cut):
             """Return True if pieces a and b are on different sides
-            of the cut segment identified by *fi_cut*."""
+            of the bend's center segment identified by *fi_cut*."""
             if fi_cut is None:
                 return True
-            sp0, sp1 = cut_plan[fi_cut][0], cut_plan[fi_cut][1]
+            # Use the center segment (bend line) rather than the
+            # offset A/B face line for a more robust side test.
+            sid = face_to_seg.get(fi_cut) if face_to_seg else None
+            if sid is not None and joints is not None:
+                sp0, sp1 = joints[sid]['center']
+            else:
+                sp0, sp1 = cut_plan[fi_cut][0], cut_plan[fi_cut][1]
             sdx = sp1.x - sp0.x
             sdy = sp1.y - sp0.y
             cm_a = pieces[pi_a].CenterOfMass
@@ -4435,17 +4444,6 @@ class LinkedObject:
                             if nbr2 == cur:
                                 continue
                             if piece_bend_sets[nbr2] is not None:
-                                continue
-                            if not _side_test(cur, nbr2, fi):
-                                if log:
-                                    FreeCAD.Console.PrintMessage(
-                                        f"FreekiCAD: BFS   "
-                                        f"side_test("
-                                        f"p{cur}, p{nbr2}, "
-                                        f"fi={fi}) FAIL "
-                                        f"(cut="
-                                        f"{_crossing_label(bi)})"
-                                        f"\n")
                                 continue
                             bend_idx2 = _get_bend_idx(bi2)
                             crossed = {bi}
