@@ -2912,23 +2912,6 @@ class LinkedObject:
                                 list(piece_mi_list[dest_pi])
                             break
 
-        # Find phantom mi's (no wedge piece, from overlapping
-        # inset zones).  Remove from piece_mi_list.
-        mi_with_wedge = set(strip_to_mi.values())
-        phantom_mis = set()
-        for mi in range(len(micro_bend_info)):
-            if mi not in mi_with_wedge:
-                micro_angle_chk = micro_bend_info[mi][0]
-                if abs(micro_angle_chk) > 1e-9:
-                    phantom_mis.add(mi)
-        if phantom_mis:
-            for pi in range(len(pieces)):
-                piece_mi_list[pi] = [mi for mi in piece_mi_list[pi]
-                                     if mi not in phantom_mis]
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: skip phantom mi's"
-                f" (no wedge): {sorted(phantom_mis)}\n")
-
         # Helper: does piece pi rotate at this step?
         def _at_step(pi, step_pos, mi):
             return (step_pos < len(piece_mi_list[pi])

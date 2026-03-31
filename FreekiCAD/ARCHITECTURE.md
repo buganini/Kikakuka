@@ -43,7 +43,7 @@ For each bend, creates cut line segments offset from the center line by +/- inse
 1. Trim center line to board outline -> `trimmed_bend_segs[bi]` = [(sp0, sp1), ...]
 2. Offset each segment by -inset (A-side) and +inset (B-side)
 3. Trim offset lines to board outline independently
-4. Validate: discard phantom cuts whose midpoint is far from any center segment
+4. Validate: discard cuts whose midpoint is far from any center segment
 
 ### Output
 
@@ -105,7 +105,6 @@ Using geometric crossings and BFS from the stationary piece:
 
 - For each **non-wedge** piece: walk the BFS parent chain from piece to root, collecting `mi >= 0` from each link's `mis_crossed_set`, then reverse to get root-to-piece order.
 - For **wedges**: stationary neighbor's chain + own mi
-- **Phantom mi's** (stationary faces with no associated wedge) are detected and removed from all `piece_mi_list` entries
 
 ### Key Data Structures
 
@@ -272,7 +271,6 @@ Bend (user-drawn bend line, bi)
 | **face_bend[fi]** | bi | Which bend a cut face belongs to. |
 | **m_face_to_bend[neg_id]** | (bi, seg_idx) | Maps negative moving-face IDs back to their bend and segment. |
 | **crossing_parent_pi[fi]** | pi | The non-wedge piece on the BFS-parent side of crossing face `fi`. Used to orient normals and determine stationary/moving (per crossing). |
-| **phantom mi** | concept | An mi whose segment has no associated wedge piece (e.g., from overlapping inset zones, or from a multi-connection wedge mapped to a different mi). Currently detected and skipped, but the detection is too coarse for multi-connection wedges. |
 | **CoC** | point | Center of curvature. The pivot point for a bend rotation: `stat_edge_mid + cur_up * (r_eff * bend_sign)`. |
 | **r_eff** | float | Effective bend radius: `radius + half_t` (outer fiber radius). |
 | **bend_sign** | int | -1 if angle > 0, else 1. Determines which side of the cut the CoC is on. |
