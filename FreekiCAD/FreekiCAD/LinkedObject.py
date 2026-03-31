@@ -2537,7 +2537,7 @@ class LinkedObject:
             f"FreekiCAD: [profile] Phase 2c (pairing): "
             f"{_time.time() - _t_phase2c:.3f}s\n")
         _t_bfs1 = _time.time()
-        prelim_sets, prelim_tree, adjacency, geo_edges = \
+        prelim_sets, prelim_tree, adjacency, geo_crossings = \
             self._classify_pieces_bfs(
                 pieces, cut_faces, face_to_seg, mass_center,
                 half_t, bend_info, cut_plan, None, log=False,
@@ -2700,7 +2700,7 @@ class LinkedObject:
                 half_t, bend_info, cut_plan, micro_bend_info,
                 m_face_to_bend=m_face_to_bend,
                 mi_seg_idx=mi_seg_idx,
-                cached_geo_edges=geo_edges,
+                cached_geo_crossings=geo_crossings,
                 strip_pieces=strip_pieces)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] BFS #2 (final): "
@@ -3703,7 +3703,8 @@ class LinkedObject:
                 piece_shapes=piece_shapes)
             self._draw_debug_cuts(
                 obj, cut_plan, thickness,
-                bend_plc_original=bend_plc_original)
+                bend_plc_original=bend_plc_original,
+                face_to_seg=face_to_seg)
         else:
             # Log piece classification even without debug shapes
             for pi in range(len(pieces)):
@@ -3909,14 +3910,15 @@ class LinkedObject:
             f"{_time.time() - _t0_total:.3f}s\n")
 
     def _draw_debug_cuts(self, obj, debug_cut_segs, thickness,
-                          bend_plc_original=None):
+                          bend_plc_original=None,
+                          face_to_seg=None):
         """Draw trimmed cutting segments as individual objects.
 
         Each cut segment becomes its own Part::Feature with
-        properties: Side (A/B/C), Bend (index), and a label
-        like 'cut_0_A_3' (cut index, side, bend).
+        properties: Side (A/B/C), Bend (index), Segment (sid),
+        and a label like 'cut0_3.1A' (cut index, bend.segment, side).
         Colors: green=A-side, blue=B-side, cyan=center.
-        Hidden by default.
+        Group hidden by default; individual objects visible.
         """
         doc = obj.Document
         debug_grp_name = obj.Name + "_DebugCuts"
@@ -3970,7 +3972,9 @@ class LinkedObject:
             pname = f"{debug_grp_name}_{ci}"
             pobj = doc.addObject("Part::Feature", pname)
             pobj.Shape = edge
-            pobj.Label = f"cut_{ci}_{side}_{bi}"
+            sid = (face_to_seg.get(ci, -1)
+                   if face_to_seg else -1)
+            pobj.Label = f"cut{ci}_{bi}.{sid}{side}"
 
             if not hasattr(pobj, 'Side'):
                 pobj.addProperty(
@@ -3985,11 +3989,18 @@ class LinkedObject:
                     "Debug", "Bend index")
                 pobj.setPropertyStatus("Bend", "ReadOnly")
             pobj.Bend = bi
+            if not hasattr(pobj, 'Segment'):
+                pobj.addProperty(
+                    "App::PropertyInteger", "Segment",
+                    "Debug", "Segment ID (sid)")
+                pobj.setPropertyStatus("Segment", "ReadOnly")
+            pobj.Segment = sid
 
             try:
                 color = side_colors.get(side, (1.0, 1.0, 1.0))
                 pobj.ViewObject.LineColor = color
                 pobj.ViewObject.LineWidth = 3.0
+                pobj.ViewObject.Visibility = True
             except Exception:
                 pass
 
@@ -4299,16 +4310,16 @@ class LinkedObject:
                     if shapes[pi].distToShape(cf_shape)[0] < tol:
                         adj.add(pi)
                 face_pieces[fi] = adj
-        # Build edges: pairs of pieces that share a cut face.
-        edge_set = set()
-        geo_edges = []
+        # Build crossings: pairs of pieces that share a cut face.
+        crossing_set = set()
+        geo_crossings = []
         for fi, pis in face_pieces.items():
             pis_list = sorted(pis)
             for idx_a in range(len(pis_list)):
                 for idx_b in range(idx_a + 1, len(pis_list)):
                     i, j = pis_list[idx_a], pis_list[idx_b]
                     key = (i, j)
-                    if key in edge_set:
+                    if key in crossing_set:
                         continue
                     # Only connect pieces on opposite sides
                     # of the cut face.
@@ -4324,15 +4335,15 @@ class LinkedObject:
                         - sdy * (cm_j.x - sp0_e.x)
                     if ci * cj >= 0:
                         continue
-                    edge_set.add(key)
-                    geo_edges.append((i, j, fi))
-        return geo_edges
+                    crossing_set.add(key)
+                    geo_crossings.append((i, j, fi))
+        return geo_crossings
 
     def _classify_pieces_bfs(self, pieces, cut_faces, face_to_bend,
                              mass_center, half_t, bend_info, cut_plan,
                              micro_bend_info=None, log=True,
                              m_face_to_bend=None, mi_seg_idx=None,
-                             cached_geo_edges=None,
+                             cached_geo_crossings=None,
                              piece_slices=None, cut_segments=None,
                              strip_pieces=None,
                              joints=None):
@@ -4346,7 +4357,7 @@ class LinkedObject:
         is a set of mi indices.  Without *strip_pieces*, entries are
         ``(parent_pi, mi_crossed)`` (2-tuple for preliminary BFS).
 
-        Returns (piece_bend_sets, bfs_tree, adjacency, cached_geo_edges)."""
+        Returns (piece_bend_sets, bfs_tree, adjacency, cached_geo_crossings)."""
         n = len(pieces)
         if n == 0:
             return [], {}, [], []
@@ -4365,26 +4376,26 @@ class LinkedObject:
                 FreeCAD.Vector(mc_2d.x, mc_2d.y,
                                pieces[pi].CenterOfMass.z)))
 
-        # Build adjacency graph from geometric edges.
+        # Build adjacency graph from geometric crossings.
         # Uses topological data from generalFuse when available.
-        if cached_geo_edges is None:
-            cached_geo_edges = self._build_geometric_adjacency(
+        if cached_geo_crossings is None:
+            cached_geo_crossings = self._build_geometric_adjacency(
                 pieces, cut_faces, cut_plan,
                 piece_slices=piece_slices,
                 cut_segments=cut_segments,
                 joints=joints)
 
-        # Label edges using face_to_bend mapping (cheap).
+        # Label crossings using face_to_bend mapping (cheap).
         # Each entry: (neighbor, mi_label, face_index_or_None)
         adjacency = [[] for _ in range(n)]
-        for i, j, best_touch_fi in cached_geo_edges:
+        for i, j, best_touch_fi in cached_geo_crossings:
             mi = face_to_bend.get(best_touch_fi, -1)
             adjacency[i].append((j, mi, best_touch_fi))
             adjacency[j].append((i, mi, best_touch_fi))
 
-        # Helper to decode edge label for logging.
+        # Helper to decode crossing label for logging.
         # Per-cut labels: "9.0A", "9.1B" etc.
-        def _edge_label(bi):
+        def _crossing_label(bi):
             if bi >= 0 and micro_bend_info is not None:
                 orig_bi = micro_bend_info[bi][5]
                 seg = mi_seg_idx.get(bi, 0) if mi_seg_idx else 0
@@ -4403,13 +4414,14 @@ class LinkedObject:
         # Log adjacency graph
         if log:
             for pi in range(n):
-                edges = []
+                crossings = []
                 for nbr, bi, _fi in adjacency[pi]:
-                    edges.append(f"{nbr}({_edge_label(bi)})")
-                if edges:
+                    crossings.append(
+                        f"{nbr}({_crossing_label(bi)})")
+                if crossings:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD: adjacent {pi} → "
-                        f"{', '.join(edges)}\n")
+                        f"{', '.join(crossings)}\n")
 
         # BFS: strict first-visit, all crossings add the bend.
         # No re-visiting, no re-queuing — first path wins.
@@ -4467,7 +4479,7 @@ class LinkedObject:
                             FreeCAD.Console.PrintMessage(
                                 f"FreekiCAD: BFS p{cur} → "
                                 f"wedge p{nbr} "
-                                f"(entry={_edge_label(bi)})"
+                                f"(entry={_crossing_label(bi)})"
                                 f"\n")
                         for nbr2, bi2, fi2 in adjacency[nbr]:
                             if nbr2 == cur:
@@ -4482,7 +4494,7 @@ class LinkedObject:
                                         f"p{cur}, p{nbr2}, "
                                         f"fi={fi}) FAIL "
                                         f"(cut="
-                                        f"{_edge_label(bi)})"
+                                        f"{_crossing_label(bi)})"
                                         f"\n")
                                 continue
                             bend_idx2 = _get_bend_idx(bi2)
@@ -4494,18 +4506,18 @@ class LinkedObject:
                                     is not None else set())
                             bfs_tree[nbr2] = (
                                 cur, crossed, nbr)
-                            # Also record exit edge in wedge's
+                            # Also record exit crossing in wedge's
                             # own crossed set so strip_to_mi
                             # can find the positive mi even when
-                            # the entry edge was a B-side face.
+                            # the entry crossing was a B-side face.
                             if nbr in bfs_tree:
                                 bfs_tree[nbr][1].add(bi2)
                             if log:
                                 FreeCAD.Console.PrintMessage(
                                     f"FreekiCAD: BFS   "
-                                    f"p{cur} →[{_edge_label(bi)}"
+                                    f"p{cur} →[{_crossing_label(bi)}"
                                     f"]→ p{nbr}(W) →["
-                                    f"{_edge_label(bi2)}]→ "
+                                    f"{_crossing_label(bi2)}]→ "
                                     f"p{nbr2}\n")
                             queue.append(nbr2)
                     else:
@@ -4520,7 +4532,7 @@ class LinkedObject:
                                     f"p{cur}, p{nbr}, "
                                     f"fi={fi}) FAIL "
                                     f"(cut="
-                                    f"{_edge_label(bi)})\n")
+                                    f"{_crossing_label(bi)})\n")
                             continue
                         piece_bend_sets[nbr] = \
                             piece_bend_sets[cur] | (
@@ -4530,7 +4542,7 @@ class LinkedObject:
                         if log:
                             FreeCAD.Console.PrintMessage(
                                 f"FreekiCAD: BFS p{cur} →"
-                                f"[{_edge_label(bi)}]→ "
+                                f"[{_crossing_label(bi)}]→ "
                                 f"p{nbr}\n")
                         queue.append(nbr)
 
@@ -4580,7 +4592,7 @@ class LinkedObject:
                     piece_bend_sets[pi] = fb
                     bfs_tree[pi] = (stationary_idx, -1)
 
-        return piece_bend_sets, bfs_tree, adjacency, cached_geo_edges
+        return piece_bend_sets, bfs_tree, adjacency, cached_geo_crossings
 
     def _bend_board(self, board_obj, p0, p1, line_dir, normal,
                     radius, max_angle, half_thickness):

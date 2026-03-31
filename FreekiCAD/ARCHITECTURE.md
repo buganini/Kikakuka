@@ -76,11 +76,11 @@ Extrudes each 2D cut segment into a vertical rectangular face spanning the full 
 
 ### Adjacency Graph Construction
 
-Produces `(i, j, fi)` edges from the joint structure:
+Produces `(i, j, fi)` crossings from the joint structure:
 
 1. For each cut face `fi` in every joint, find all pieces within `GEOMETRY_TOLERANCE` using 2D `distToShape` → `face_pieces[fi]`
 2. For each pair of pieces touching the same face, apply a **side test**: compute cross-product signed distance of each piece's center of mass relative to the cut segment line. Only connect pieces on opposite sides (`ci * cj < 0`)
-3. Emit deduplicated `(i, j, fi)` edges
+3. Emit deduplicated `(i, j, fi)` crossings
 
 The **side test** is the key filter — it prevents connecting two pieces that both touch the same face but are on the same side of it rather than separated by it.
 
@@ -238,9 +238,9 @@ BFS root: non-wedge piece closest to board center of mass.
 Bend (user-drawn bend line, bi)
  └── Joint / Segment (center line trimmed to board outline, split at intersections; sid)
       ├── Cut pair (A at -inset, B at +inset from center)
-      │    └── Face (3D rectangle extruded to full board height, fi)
-      │         ├── Micro-bend (one per stationary-side face; atomic fold operation, mi)
-      │         └── Edge (adjacency link between two pieces sharing this face)
+      │    ├── Face (3D rectangle extruded to full board height, fi)
+      │    │    └── Micro-bend (one per stationary-side face; atomic fold operation, mi)
+      │    └── Crossing (adjacency link between two pieces sharing a face)
       └── Wedge (strip piece between A and B faces)
 ```
 
@@ -270,8 +270,8 @@ Bend (user-drawn bend line, bi)
 | **mi_seg_idx[mi]** | int | Which segment index (0, 1, 2, ...) within its parent bend this mi belongs to. |
 | **piece_mi_list[pi]** | list of mi | Ordered chain of mi's from root to piece `pi`. Phase 3 iterates chain positions; each piece rotates by its mi at that position. |
 | **bfs_tree[pi]** | tuple | BFS parent info. Final BFS: (parent_pi, mis_crossed_set, wedge_pi). Preliminary BFS: (parent_pi, mi_crossed). |
-| **edge** | concept | An adjacency link between two pieces that share a cut face. Each edge records the neighbor piece, the micro-bend label, and the cut face index. Edges form the graph traversed by BFS to determine rotation order. |
-| **adjacency[pi]** | list of (nbr_pi, mi, fi) | All edges of piece `pi`: neighbors with the connecting mi label and cut face index. Built from joints. |
+| **crossing** | concept | An adjacency link between two pieces that share a cut face. Each crossing records the neighbor piece, the micro-bend label, and the cut face index. Crossings form the graph traversed by BFS to determine rotation order. |
+| **adjacency[pi]** | list of (nbr_pi, mi, fi) | All crossings of piece `pi`: neighbors with the connecting mi label and cut face index. Built from joints. |
 | **stationary_idx** | pi | The BFS root piece — the non-wedge piece closest to the board center of mass. Remains fixed; all other pieces rotate relative to it. |
 | **piece_plc[pi]** | Placement | Accumulated rotation/translation for piece `pi` through Phase 3. Starts as identity. |
 | **wedge_pre_shapes[pi]** | Shape | Snapshot of a wedge piece's shape before its own mi rotation. Used as input for wedge loft. |
@@ -303,7 +303,7 @@ Bend (user-drawn bend line, bi)
 4. virtual_plc = piece_plc[s_parent] * plc_original (not chain composition)
 5. Normal is oriented per-cut from BFS parent (stationary side) into wedge; `seg_parent_pi` walks past wedge parents to find the non-wedge piece
 6. bend_sign = -1 if angle > 0 else 1
-7. All adjacency edges have a matching cut face; non-cut connections are not emitted
+7. All adjacency crossings have a matching cut face; non-cut connections are not emitted
 8. Wedge loft is built in the pre-mi frame; remaining Phase 3 rotations are applied via `wedge_post_mi_plc`
 
 
