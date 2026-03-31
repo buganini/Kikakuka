@@ -2310,7 +2310,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "a=30 r=0"
+	(gr_text "a=30 r=0.25"
 		(at 104 130 270)
 		(layer "User.4")
 		(uuid "78b96379-a2fc-467a-9e60-2de1d580f3b8")
@@ -2322,7 +2322,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "a=-30 r=0"
+	(gr_text "a=-30 r=0.5"
 		(at 107 130 270)
 		(layer "User.4")
 		(uuid "e296908a-aa2b-4cee-9800-efa462f94fc5")
@@ -2334,7 +2334,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "a=30 r=0"
+	(gr_text "a=30 r=1"
 		(at 110 130 270)
 		(layer "User.4")
 		(uuid "b5fd8844-8f11-4972-9043-4625bb1a60f4")
@@ -2346,7 +2346,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "a=-30 r=0"
+	(gr_text "a=-30 r=1.25"
 		(at 113 130 270)
 		(layer "User.4")
 		(uuid "88d31f16-4d1a-46f2-837a-394ff07be60a")
@@ -2358,7 +2358,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "a=30 r=0"
+	(gr_text "a=30 r=1.75"
 		(at 116 130 270)
 		(layer "User.4")
 		(uuid "424f6623-bc0d-421a-9626-ccd1125ebb93")
@@ -2370,7 +2370,7 @@
 			(justify left bottom)
 		)
 	)
-	(gr_text "a=-30 r=0"
+	(gr_text "a=-30 r=2"
 		(at 119 130 270)
 		(layer "User.4")
 		(uuid "5ab359b8-b288-494d-a9c1-26d51aa96733")
