@@ -89,7 +89,7 @@ Using geometric crossings and BFS from the stationary piece:
 1. Stationary/moving role is **per crossing**: for each crossing face, BFS determines which piece is the parent (closer to root); if the parent piece touches the face (`distToShape < tolerance`), the face is stationary
 2. Each stationary-side face creates a unique micro-bend (mi >= 0) in `micro_bend_info`
 3. Each moving-side face gets a negative ID in `m_face_to_bend`
-4. The normal is oriented per-cut: pointing from BFS parent piece into the wedge; `crossing_parent_pi[fi]` walks past wedge ancestors to find a non-wedge piece for reliable normal dot
+4. The normal is oriented per-cut: pointing from BFS parent piece into the wedge; `fi_parent[fi]` gives the non-wedge parent (BFS skips wedges)
 5. Identify wedge pieces (within inset distance of center line) → `wedge_pieces`
 6. Run **BFS** (wedge-skipping): uses micro-bend labels, skips through wedges
 
@@ -270,7 +270,7 @@ Bend (user-drawn bend line, bi)
 | **face_topo_side[fi]** | 'A' or 'B' | Which topological side of the bend a cut face is on. |
 | **face_bend[fi]** | bi | Which bend a cut face belongs to. |
 | **m_face_to_bend[neg_id]** | (bi, seg_idx) | Maps negative moving-face IDs back to their bend and segment. |
-| **crossing_parent_pi[fi]** | pi | The non-wedge piece on the BFS-parent side of crossing face `fi`. Used to orient normals and determine stationary/moving (per crossing). |
+| **fi_parent[fi]** | pi | The non-wedge BFS parent piece for crossing face `fi`. BFS skips wedges so parent is always a non-wedge piece. |
 | **CoC** | point | Center of curvature. The pivot point for a bend rotation: `stat_edge_mid + cur_up * (r_eff * bend_sign)`. |
 | **r_eff** | float | Effective bend radius: `radius + half_t` (outer fiber radius). |
 | **bend_sign** | int | -1 if angle > 0, else 1. Determines which side of the cut the CoC is on. |
@@ -283,7 +283,7 @@ Bend (user-drawn bend line, bi)
 2. Wedge pieces are between A and B faces of the same bend segment
 3. piece_plc tracks accumulated rotations in correct interleaved order (fixes rotation non-commutativity)
 4. virtual_plc = piece_plc[s_parent] * plc_original (not chain composition)
-5. Normal is oriented per-cut from BFS parent (stationary side) into wedge; `crossing_parent_pi[fi]` walks past wedge ancestors to find the non-wedge piece
+5. Normal is oriented per-cut from BFS parent (stationary side) into wedge; `fi_parent[fi]` gives the non-wedge parent (BFS skips wedges)
 6. bend_sign = -1 if angle > 0 else 1
 7. All adjacency crossings have a matching cut face; non-cut connections are not emitted
 8. Wedge loft is built in the pre-mi frame; remaining Phase 3 rotations are applied via `wedge_post_mi_plc`

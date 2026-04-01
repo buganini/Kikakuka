@@ -2558,50 +2558,53 @@ class LinkedObject:
                 FreeCAD.Vector(mc_2d.x, mc_2d.y,
                                pieces[pi].CenterOfMass.z)))
 
-        # BFS from stationary piece to determine per-crossing
-        # parent piece for normal orientation.
-        # When cur visits nbr through face fi, cur is the parent
-        # side of that crossing.  Walk past wedge ancestors to
-        # find a non-wedge piece for reliable normal dot.
+        # BFS from stationary piece, skipping wedges.
+        # fi_parent[fi] = non-wedge parent piece for crossing face fi.
+        # bfs_parent[pi] = non-wedge parent for non-wedge piece pi.
         _adj = [[] for _ in range(n_pieces)]
         for c_i, c_j, c_fi in geo_crossings:
             _adj[c_i].append((c_j, c_fi))
             _adj[c_j].append((c_i, c_fi))
-        crossing_parent_pi = {}     # fi → parent piece index
-        crossing_parent_is_child = set()  # fi's where child used
+        fi_parent = {}       # fi → non-wedge parent piece index
         bfs_parent = {stationary_idx: None}
         _bfs_visited = {stationary_idx}
         _bfs_q = [stationary_idx]
         while _bfs_q:
-            _cur = _bfs_q.pop(0)
+            _cur = _bfs_q.pop(0)  # always non-wedge
             for _nbr, _fi in _adj[_cur]:
-                if _fi not in crossing_parent_pi:
-                    # cur is the BFS parent side of this crossing
-                    real_parent = _cur
-                    while real_parent in strip_pieces:
-                        ancestor = bfs_parent.get(real_parent)
-                        if ancestor is None:
-                            break
-                        real_parent = ancestor
-                    if real_parent in strip_pieces:
-                        real_parent = _nbr
-                        crossing_parent_is_child.add(_fi)
-                    crossing_parent_pi[_fi] = real_parent
-                if _nbr not in _bfs_visited:
-                    _bfs_visited.add(_nbr)
-                    bfs_parent[_nbr] = _cur
-                    _bfs_q.append(_nbr)
+                if _nbr not in strip_pieces:
+                    # Direct non-wedge neighbor
+                    if _fi not in fi_parent:
+                        fi_parent[_fi] = _cur
+                    if _nbr not in _bfs_visited:
+                        _bfs_visited.add(_nbr)
+                        bfs_parent[_nbr] = _cur
+                        _bfs_q.append(_nbr)
+                else:
+                    # Wedge neighbor — walk through wedge chain
+                    _w_visited = {_cur}
+                    _w_q = [(_nbr, _fi)]
+                    while _w_q:
+                        _w, _wfi = _w_q.pop(0)
+                        if _w in _w_visited:
+                            continue
+                        _w_visited.add(_w)
+                        if _wfi not in fi_parent:
+                            fi_parent[_wfi] = _cur
+                        if _w not in strip_pieces:
+                            # Reached non-wedge on the other side
+                            if _w not in _bfs_visited:
+                                _bfs_visited.add(_w)
+                                bfs_parent[_w] = _cur
+                                _bfs_q.append(_w)
+                            continue
+                        # _w is a wedge, continue through it
+                        for _w_nbr, _w_fi in _adj[_w]:
+                            if _w_nbr not in _w_visited:
+                                _w_q.append((_w_nbr, _w_fi))
         FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: [profile] BFS (crossing parents): "
+            f"FreekiCAD: [profile] BFS (piece parents): "
             f"{_time.time() - _t_bfs1:.3f}s\n")
-
-        FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: crossing_parent_pi has "
-            f"{len(crossing_parent_pi)} entries\n")
-        for _fi, _ppi in sorted(crossing_parent_pi.items()):
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD:   crossing_parent_pi[fi={_fi}] "
-                f"= p{_ppi}\n")
 
         # --- Phase 2b-2: assign stationary/moving and create micro-bends ---
         _t_phase2b2 = _time.time()
@@ -2636,9 +2639,9 @@ class LinkedObject:
                 bend_seg_count[bi] = seg_idx + 1
                 if sid is not None:
                     sid_to_seg_idx[sid] = seg_idx
-            # Determine stationary/moving: parent piece touches
-            # stationary-side face (distToShape < tolerance).
-            parent_pi = crossing_parent_pi.get(fi)
+            # Determine stationary/moving: non-wedge BFS parent
+            # touches stationary-side face (distToShape < tol).
+            parent_pi = fi_parent.get(fi)
             if parent_pi is not None:
                 is_stationary = (
                     pieces[parent_pi].distToShape(
@@ -2664,18 +2667,12 @@ class LinkedObject:
                 if parent_pi is not None:
                     parent_cm = pieces[parent_pi].CenterOfMass
                     dot_val = (parent_cm - cut_mid).dot(normal_ref)
-                    # When (child), parent_pi is the child piece,
-                    # so the flip sense is inverted.
-                    if fi in crossing_parent_is_child:
-                        flipped = dot_val < 0
-                    else:
-                        flipped = dot_val > 0
+                    flipped = dot_val > 0
                     if flipped:
                         normal_ref = normal_ref * -1
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD: mi={mi} sid={sid}"
                         f" parent_pi={parent_pi}"
-                        f" {'(child)' if fi in crossing_parent_is_child else ''}"
                         f" parent_cm=({parent_cm.x:.2f},"
                         f"{parent_cm.y:.2f},{parent_cm.z:.2f})"
                         f" cut_mid=({cut_mid.x:.2f},"
@@ -2685,7 +2682,7 @@ class LinkedObject:
                 else:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD: mi={mi} sid={sid}"
-                        f" NO parent_pi in crossing_parent_pi\n")
+                        f" NO parent_pi from bfs_parent\n")
                 micro_bend_info.append((angle_rad, bend_obj_ref,
                                         cut_mid, normal_ref,
                                         radius, bi))
