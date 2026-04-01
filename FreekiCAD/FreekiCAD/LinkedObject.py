@@ -4379,7 +4379,13 @@ class LinkedObject:
 
         def _side_test(pi_a, pi_b, fi_cut):
             """Return True if pieces a and b are on different sides
-            of the bend's center segment identified by *fi_cut*."""
+            of the bend's center segment identified by *fi_cut*.
+
+            Uses the nearest vertex to the cut midpoint (that is not
+            on the cut line itself) rather than CenterOfMass, so that
+            curl-back pieces are classified by their local side near
+            the cut rather than by a distant center of mass.
+            """
             if fi_cut is None:
                 return True
             # Use the center segment (bend line) rather than the
@@ -4391,10 +4397,38 @@ class LinkedObject:
                 sp0, sp1 = cut_plan[fi_cut][0], cut_plan[fi_cut][1]
             sdx = sp1.x - sp0.x
             sdy = sp1.y - sp0.y
-            cm_a = pieces[pi_a].CenterOfMass
-            cm_b = pieces[pi_b].CenterOfMass
-            ca = sdx * (cm_a.y - sp0.y) - sdy * (cm_a.x - sp0.x)
-            cb = sdx * (cm_b.y - sp0.y) - sdy * (cm_b.x - sp0.x)
+            seg_len = (sdx * sdx + sdy * sdy) ** 0.5
+            if seg_len < 1e-12:
+                return True
+
+            def _near_cut_point(pi):
+                """Pick the vertex of *pi* closest to the cut midpoint
+                whose signed distance from the cut line exceeds a
+                threshold.  Falls back to CenterOfMass when no vertex
+                qualifies (e.g. degenerate sliver)."""
+                mid_x = (sp0.x + sp1.x) * 0.5
+                mid_y = (sp0.y + sp1.y) * 0.5
+                best = None
+                best_d2 = float('inf')
+                for v in pieces[pi].Vertexes:
+                    p = v.Point
+                    cross = (sdx * (p.y - sp0.y)
+                             - sdy * (p.x - sp0.x))
+                    # Skip vertices that are (nearly) on the cut line.
+                    if abs(cross) < 1e-3 * seg_len:
+                        continue
+                    d2 = ((p.x - mid_x) ** 2
+                          + (p.y - mid_y) ** 2)
+                    if d2 < best_d2:
+                        best_d2 = d2
+                        best = p
+                return best if best is not None \
+                    else pieces[pi].CenterOfMass
+
+            pt_a = _near_cut_point(pi_a)
+            pt_b = _near_cut_point(pi_b)
+            ca = sdx * (pt_a.y - sp0.y) - sdy * (pt_a.x - sp0.x)
+            cb = sdx * (pt_b.y - sp0.y) - sdy * (pt_b.x - sp0.x)
             return ca * cb < 0
 
         def _get_bend_idx(bi):
@@ -4441,6 +4475,17 @@ class LinkedObject:
                             if nbr2 == cur:
                                 continue
                             if piece_bend_sets[nbr2] is not None:
+                                continue
+                            if not _side_test(cur, nbr2, fi):
+                                if log:
+                                    FreeCAD.Console.PrintMessage(
+                                        f"FreekiCAD: BFS "
+                                        f"wedge side_test("
+                                        f"p{cur}, p{nbr2}, "
+                                        f"fi={fi}) FAIL "
+                                        f"(entry="
+                                        f"{_crossing_label(bi)}"
+                                        f")\n")
                                 continue
                             bend_idx2 = _get_bend_idx(bi2)
                             crossed = {bi}
