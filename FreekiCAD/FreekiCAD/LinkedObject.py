@@ -1547,6 +1547,8 @@ class LinkedObject:
     has its own Shape and can hold component children in the tree view.
     """
 
+    _WEDGE_MODE_OPTIONS = ["Smoth", "Linear", "Wireframe"]
+
 
     def __init__(self, obj):
         obj.addExtension("App::GeoFeatureGroupExtensionPython")
@@ -1576,10 +1578,11 @@ class LinkedObject:
         )
         obj.DebugBoard = False
         obj.addProperty(
-            "App::PropertyBool", "SmoothWedge", "LinkedFile",
-            "Use B-Spline loft for wedges (slower but smoother)"
+            "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
+            "Wedge rendering mode: Smoth, Linear, or Wireframe"
         )
-        obj.SmoothWedge = False
+        obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
+        obj.WedgeMode = "Linear"
         obj.addProperty(
             "App::PropertyString", "ComponentMtimes", "LinkedFile",
             "JSON: per-component model file mtimes for reuse"
@@ -1596,7 +1599,7 @@ class LinkedObject:
 
     def onChanged(self, obj, prop):
         if prop in ("EnableBending", "BuildDebugObjects", "DebugBoard",
-                    "SmoothWedge"):
+                    "WedgeMode", "SmoothWedge"):
             if not obj.Document.Restoring:
                 self._rebend(obj)
             return
@@ -3265,10 +3268,38 @@ class LinkedObject:
         # Bend wedge pieces into arcs via loft between
         # rotated cross-sections.
         _t_loft = _time.time()
-        smooth_wedge = getattr(obj, 'SmoothWedge', False)
+        wedge_mode = self._get_wedge_mode(obj)
+        smooth_wedge = (wedge_mode == "Smoth")
+        wireframe_wedge = (wedge_mode == "Wireframe")
         # N_SLICES per wedge: at least 16, or 1 per degree
         # (computed per wedge below)
         coc_offsets = {}  # bi → (bend_obj, first_s_mi)
+
+        def _shape_volume(shape):
+            try:
+                return float(shape.Volume)
+            except Exception:
+                return 0.0
+
+        def _shape_center(shape):
+            try:
+                return shape.CenterOfMass
+            except Exception:
+                pass
+            try:
+                bb = shape.BoundBox
+                if getattr(bb, "isValid", lambda: False)():
+                    return bb.Center
+            except Exception:
+                pass
+            pts = [v.Point for v in getattr(shape, "Vertexes", [])]
+            if pts:
+                center = FreeCAD.Vector()
+                for pt in pts:
+                    center += pt
+                return center * (1.0 / len(pts))
+            return FreeCAD.Vector()
+
         for pi in sorted(strip_to_bend):
             _t_loft_one = _time.time()
             bi = strip_to_bend[pi]
@@ -3528,6 +3559,15 @@ class LinkedObject:
                 def _try_loft(segs, label):
                     """Try to build a loft from segments.
                     Returns the loft Shape or None."""
+                    if wireframe_wedge:
+                        if not all_wires_flat:
+                            return None
+                        wireframe = Part.makeCompound(
+                            [w.copy() for w in all_wires_flat])
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD:   {label} wireframe ok"
+                            f" wires={len(all_wires_flat)}\n")
+                        return wireframe
                     loft_parts = []
                     for seg in segs:
                         if len(seg) < 2:
@@ -3586,29 +3626,11 @@ class LinkedObject:
                                 f" remaining_trans="
                                 f"{rb:.3f}\n")
                     piece_shapes[pi] = loft
-                    # Compute CenterOfMass safely:
-                    # fuse() may return a Compound
-                    # instead of a Solid.
-                    try:
-                        cm = loft.CenterOfMass
-                    except AttributeError:
-                        solids = loft.Solids
-                        if solids:
-                            tv = sum(
-                                abs(s.Volume)
-                                for s in solids)
-                            if tv > 1e-12:
-                                cm = FreeCAD.Vector()
-                                for s in solids:
-                                    w = abs(s.Volume) / tv
-                                    cm += s.CenterOfMass * w
-                            else:
-                                cm = FreeCAD.Vector()
-                        else:
-                            cm = FreeCAD.Vector()
+                    cm = _shape_center(loft)
+                    post_vol = _shape_volume(loft)
                     FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: wedge loft solid:"
-                        f" post_vol={loft.Volume:.4f}"
+                        f"FreekiCAD: wedge {wedge_mode.lower()}:"
+                        f" post_vol={post_vol:.4f}"
                         f" wedge_cm="
                         f"({cm.x:.2f}"
                         f",{cm.y:.2f}"
@@ -3641,9 +3663,7 @@ class LinkedObject:
 
             # Move bend line to center of first wedge at half thickness
             ws = piece_shapes[wedge_pi]
-            if not hasattr(ws, 'CenterOfMass'):
-                continue
-            wedge_cm = ws.CenterOfMass
+            wedge_cm = _shape_center(ws)
             _, p0_bi, _, _, normal_bi, _, _ = bend_info[bi]
             final_plc = bl_obj.Placement
             final_bend_p0 = final_plc.multVec(p0_bi)
@@ -5097,12 +5117,21 @@ class LinkedObject:
             self.Type = state.get("Type", "LinkedObject")
         self._board_color = None
 
+    def _get_wedge_mode(self, obj):
+        mode = getattr(obj, "WedgeMode", None)
+        if mode in self._WEDGE_MODE_OPTIONS:
+            return mode
+        if hasattr(obj, "SmoothWedge"):
+            return "Smoth" if getattr(obj, "SmoothWedge", False) \
+                else "Linear"
+        return "Linear"
+
     # Properties that belong to this class (group "LinkedFile").
     # Anything in this group not listed here is obsolete and removed
     # on load by _ensure_properties().
     _KNOWN_PROPERTIES = {
         "FileName", "AutoReload", "EnableBending",
-        "BuildDebugObjects", "DebugBoard", "SmoothWedge",
+        "BuildDebugObjects", "DebugBoard", "WedgeMode",
         "ComponentMtimes", "FileMtime",
     }
 
@@ -5128,11 +5157,16 @@ class LinkedObject:
                 "App::PropertyBool", "DebugBoard", "LinkedFile",
                 "Show each board piece as a separate child object")
             obj.DebugBoard = False
-        if not hasattr(obj, 'SmoothWedge'):
+        if not hasattr(obj, 'WedgeMode'):
+            default_mode = "Linear"
+            if hasattr(obj, 'SmoothWedge') \
+                    and getattr(obj, 'SmoothWedge', False):
+                default_mode = "Smoth"
             obj.addProperty(
-                "App::PropertyBool", "SmoothWedge", "LinkedFile",
-                "Use B-Spline loft for wedges (slower but smoother)")
-            obj.SmoothWedge = False
+                "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
+                "Wedge rendering mode: Smoth, Linear, or Wireframe")
+            obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
+            obj.WedgeMode = default_mode
         # Remove obsolete properties from older saved files.
         for prop in list(obj.PropertiesList):
             if obj.getGroupOfProperty(prop) == "LinkedFile" \
