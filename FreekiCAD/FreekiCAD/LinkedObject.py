@@ -2821,12 +2821,12 @@ class LinkedObject:
         # Map each wedge piece to its canonical entry S-cut mi
         # (the mi through which BFS first reached the wedge).  Also keep
         # reverse maps for every positive mi:
-        # - mi_to_wpi: which wedge this mi traverses, if any
+        # - mi_to_wpis: which wedges this mi traverses, if any
         # - mi_to_stationary_pi: the stationary-side/source piece for the
         #   specific positive crossing. On multi-exit wedges this is not
         #   necessarily the wedge's original BFS parent.
         strip_to_mi = {}
-        mi_to_wpi = {}
+        mi_to_wpis = {}
         mi_to_stationary_pi = {}
         for wpi in strip_pieces:
             if wpi in bfs_tree:
@@ -2836,7 +2836,7 @@ class LinkedObject:
                             and micro_bend_info[mi_val][5]
                             == strip_to_bend[wpi]):
                         strip_to_mi[wpi] = mi_val
-                        mi_to_wpi[mi_val] = wpi
+                        mi_to_wpis.setdefault(mi_val, set()).add(wpi)
                         if parent_pi is not None:
                             mi_to_stationary_pi.setdefault(
                                 mi_val, parent_pi)
@@ -2856,7 +2856,7 @@ class LinkedObject:
                 if (mi_val >= 0
                         and micro_bend_info[mi_val][5]
                         == strip_to_bend[wedge_pi]):
-                    mi_to_wpi.setdefault(mi_val, wedge_pi)
+                    mi_to_wpis.setdefault(mi_val, set()).add(wedge_pi)
                     if parent_pi is not None:
                         mi_to_stationary_pi.setdefault(
                             mi_val, parent_pi)
@@ -3206,7 +3206,7 @@ class LinkedObject:
                     for pi in range(len(piece_shapes)):
                         is_own_wedge = (
                             pi in strip_pieces
-                            and mi_to_wpi.get(mi) == pi)
+                            and pi in mi_to_wpis.get(mi, ()))
                         if is_own_wedge:
                             continue
                         if not _at_step(pi, step_pos, mi):
