@@ -3852,6 +3852,14 @@ class LinkedObject:
                 else:
                     pobj.Parent = "(root)"
                 if pi in strip_pieces:
+                    wedge_color = (1.0, 0.0, 0.0, 0.0)
+                    _write_face_colors(
+                        pobj.ViewObject,
+                        [wedge_color] * max(1, len(s.Faces)))
+                    try:
+                        pobj.ViewObject.LineColor = (0.6, 0.0, 0.0)
+                    except Exception:
+                        pass
                     # Wedge: also show cut segment id
                     bi_w = strip_to_bend[pi]
                     if not hasattr(pobj, 'Cut'):
