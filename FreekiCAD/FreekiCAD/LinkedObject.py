@@ -2818,16 +2818,48 @@ class LinkedObject:
 
         # strip_pieces and strip_to_bend already computed before BFS.
 
-        # Map each wedge piece to its specific S-cut mi
-        # (from BFS tree: the mi through which BFS first reached the wedge).
+        # Map each wedge piece to its canonical entry S-cut mi
+        # (the mi through which BFS first reached the wedge).  Also keep
+        # reverse maps for every positive mi:
+        # - mi_to_wpi: which wedge this mi traverses, if any
+        # - mi_to_stationary_pi: the stationary-side/source piece for the
+        #   specific positive crossing. On multi-exit wedges this is not
+        #   necessarily the wedge's original BFS parent.
         strip_to_mi = {}
+        mi_to_wpi = {}
+        mi_to_stationary_pi = {}
         for wpi in strip_pieces:
             if wpi in bfs_tree:
-                _parent, mis_crossed, _ = bfs_tree[wpi]
+                parent_pi, mis_crossed, _ = bfs_tree[wpi]
                 for mi_val in mis_crossed:
-                    if mi_val >= 0 and micro_bend_info[mi_val][5] == strip_to_bend[wpi]:
+                    if (mi_val >= 0
+                            and micro_bend_info[mi_val][5]
+                            == strip_to_bend[wpi]):
                         strip_to_mi[wpi] = mi_val
+                        mi_to_wpi[mi_val] = wpi
+                        if parent_pi is not None:
+                            mi_to_stationary_pi.setdefault(
+                                mi_val, parent_pi)
                         break
+        for pi, entry in bfs_tree.items():
+            if pi in strip_pieces:
+                continue
+            parent_pi = entry[0]
+            wedge_pi = entry[2]
+            if wedge_pi is None:
+                for mi_val in entry[1]:
+                    if mi_val >= 0 and parent_pi is not None:
+                        mi_to_stationary_pi.setdefault(
+                            mi_val, parent_pi)
+                continue
+            for mi_val in entry[1]:
+                if (mi_val >= 0
+                        and micro_bend_info[mi_val][5]
+                        == strip_to_bend[wedge_pi]):
+                    mi_to_wpi.setdefault(mi_val, wedge_pi)
+                    if parent_pi is not None:
+                        mi_to_stationary_pi.setdefault(
+                            mi_val, parent_pi)
 
         # Compute per-mi crossing direction sign.
         # +1 if crossing goes in initial normal direction, -1 otherwise.
@@ -2983,20 +3015,13 @@ class LinkedObject:
 
             plc = bend_obj.Placement
 
-            # Find the stationary-side parent piece of this mi's wedge.
-            # Its accumulated piece_plc will be used to build
-            # virtual_plc for the cut geometry transform.
-            # With per-crossing s/m, the BFS parent side is always
-            # stationary, so there is no moving-side entry case.
-            s_parent_pi = None
-            mi_wpi = None
-            for wpi in strip_pieces:
-                if strip_to_mi.get(wpi) == mi:
-                    mi_wpi = wpi
-                    # stationary-parent = BFS parent of wedge
-                    if wpi in bfs_tree:
-                        s_parent_pi = bfs_tree[wpi][0]
-                    break
+            # Find the stationary/source piece for this specific
+            # positive-mi crossing. Its accumulated piece_plc will be
+            # used to build virtual_plc for the cut geometry transform.
+            # On multi-exit wedges this can differ from the wedge's
+            # original BFS parent, but the parent side of the crossing
+            # is always the stationary one.
+            s_parent_pi = mi_to_stationary_pi.get(mi)
 
             # Build virtual_plc from the stationary-parent's accumulated
             # transform composed with the bend's original placement.
@@ -3181,7 +3206,7 @@ class LinkedObject:
                     for pi in range(len(piece_shapes)):
                         is_own_wedge = (
                             pi in strip_pieces
-                            and strip_to_mi.get(pi) == mi)
+                            and mi_to_wpi.get(mi) == pi)
                         if is_own_wedge:
                             continue
                         if not _at_step(pi, step_pos, mi):
