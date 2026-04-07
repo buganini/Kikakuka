@@ -2535,6 +2535,41 @@ class LinkedObject:
                         strip_pieces.add(pi)
                         strip_to_bend[pi] = bi
 
+        # Map each debug cut to the rigid piece that owns that edge.
+        # The final debug line should follow the same rigid transform as
+        # the piece adjacent to that cut, rather than approximating the
+        # result from the bend line placement alone.
+        cut_owner_piece = {}
+        for fi, cut_seg in enumerate(cut_segments):
+            touching = []
+            for pi in range(len(pieces)):
+                if piece_slices[pi].distToShape(
+                        cut_seg)[0] < GEOMETRY_TOLERANCE:
+                    touching.append(pi)
+            rigid_touching = [pi for pi in touching
+                              if pi not in strip_pieces]
+            if len(rigid_touching) == 1:
+                cut_owner_piece[fi] = rigid_touching[0]
+            elif len(rigid_touching) > 1:
+                bi = face_bend.get(fi)
+                if bi is not None:
+                    p0_ref = bend_info[bi][1]
+                    normal_ref = bend_info[bi][4]
+                    side = face_topo_side.get(fi)
+                    if side == 'A':
+                        owner_pi = min(
+                            rigid_touching,
+                            key=lambda pi: (
+                                pieces[pi].CenterOfMass
+                                - p0_ref).dot(normal_ref))
+                    else:
+                        owner_pi = max(
+                            rigid_touching,
+                            key=lambda pi: (
+                                pieces[pi].CenterOfMass
+                                - p0_ref).dot(normal_ref))
+                    cut_owner_piece[fi] = owner_pi
+
         # Build geometric crossings and BFS for s/m assignment.
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 2c (pairing): "
@@ -3644,6 +3679,12 @@ class LinkedObject:
             f"FreekiCAD: [profile] Wedge loft: "
             f"{_time.time() - _t_loft:.3f}s\n")
 
+        bend_plc_debug = {}
+        for child in obj.Group:
+            proxy = getattr(child, 'Proxy', None)
+            if proxy and getattr(proxy, 'Type', None) == 'BendLine':
+                bend_plc_debug[child.Name] = child.Placement.copy()
+
         # Move bend lines to first stationary cut line's CoC (#9,
         # visual only, no effect on other geometry).
         for bi, (bl_obj, first_mi) in coc_offsets.items():
@@ -3707,6 +3748,9 @@ class LinkedObject:
             self._draw_debug_cuts(
                 obj, cut_plan, thickness,
                 bend_plc_original=bend_plc_original,
+                bend_plc_debug=bend_plc_debug,
+                cut_owner_piece=cut_owner_piece,
+                piece_plc=piece_plc,
                 face_to_seg=face_to_seg)
         else:
             # Log piece classification even without debug shapes
@@ -3903,6 +3947,9 @@ class LinkedObject:
 
     def _draw_debug_cuts(self, obj, debug_cut_segs, thickness,
                           bend_plc_original=None,
+                          bend_plc_debug=None,
+                          cut_owner_piece=None,
+                          piece_plc=None,
                           face_to_seg=None):
         """Draw trimmed cutting segments as individual objects.
 
@@ -3943,20 +3990,38 @@ class LinkedObject:
         for ci, entry in enumerate(debug_cut_segs):
             sp0, sp1, side = entry[0], entry[1], entry[2]
             bi = entry[3] if len(entry) > 3 else -1
-            # Transform cut endpoints using bend placement chain
-            if bend_plc_original is not None and len(entry) > 8:
+            start_flat = FreeCAD.Vector(
+                sp0.x, sp0.y, sp0.z + thickness)
+            end_flat = FreeCAD.Vector(
+                sp1.x, sp1.y, sp1.z + thickness)
+            owner_pi = (cut_owner_piece.get(ci)
+                        if cut_owner_piece else None)
+            if (owner_pi is not None and piece_plc is not None
+                    and 0 <= owner_pi < len(piece_plc)):
+                start = piece_plc[owner_pi].multVec(start_flat)
+                end = piece_plc[owner_pi].multVec(end_flat)
+            # Fallback: transform using the physical bend placement.
+            # The live bend line may later receive a visual-only
+            # offset so it sits on the wedge center.
+            elif bend_plc_original is not None and len(entry) > 8:
                 bend_obj = entry[8]
                 orig_plc = bend_plc_original.get(
                     bend_obj.Name)
                 if orig_plc is not None:
-                    xform = bend_obj.Placement.multiply(
+                    bend_plc = bend_obj.Placement
+                    if bend_plc_debug is not None:
+                        bend_plc = bend_plc_debug.get(
+                            bend_obj.Name, bend_plc)
+                    xform = bend_plc.multiply(
                         orig_plc.inverse())
-                    sp0 = xform.multVec(sp0)
-                    sp1 = xform.multVec(sp1)
-            start = FreeCAD.Vector(
-                sp0.x, sp0.y, sp0.z + thickness)
-            end = FreeCAD.Vector(
-                sp1.x, sp1.y, sp1.z + thickness)
+                    start = xform.multVec(start_flat)
+                    end = xform.multVec(end_flat)
+                else:
+                    start = start_flat
+                    end = end_flat
+            else:
+                start = start_flat
+                end = end_flat
             if start.distanceToPoint(end) <= GEOMETRY_TOLERANCE:
                 continue
 
