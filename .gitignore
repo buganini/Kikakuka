@@ -1,0 +1,11 @@
+*.kicad_pro
+*.kicad_prl
+*.kicad_dru
+*.lck
+*.FCBak
+jlcpcb
+.DS_Store
+*-backups
+fp-info-cache
+*.dmg
+*.step
