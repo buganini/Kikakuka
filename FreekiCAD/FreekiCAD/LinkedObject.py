@@ -3332,6 +3332,18 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 3 (rotation): "
             f"{_time.time() - _t_phase3:.3f}s\n")
+
+        # Debug wedge nodes should follow the accumulated rigid
+        # transform chain from Phase 3 regardless of whether the later
+        # loft succeeds or changes the wedge geometry centroid.
+        debug_piece_centers = {}
+        for wpi in strip_pieces:
+            try:
+                debug_piece_centers[wpi] = piece_plc[wpi].multVec(
+                    pieces[wpi].CenterOfMass)
+            except Exception:
+                pass
+
         # Bend wedge pieces into arcs via loft between
         # rotated cross-sections.
         _t_loft = _time.time()
@@ -3776,7 +3788,8 @@ class LinkedObject:
                 bend_info, insets, half_t,
                 micro_bend_info, bendline_piece_idx,
                 mi_seg_idx=mi_seg_idx,
-                piece_shapes=piece_shapes)
+                piece_shapes=piece_shapes,
+                piece_center_overrides=debug_piece_centers)
             self._draw_debug_cuts(
                 obj, cut_plan, thickness,
                 bend_plc_original=bend_plc_original,
@@ -4124,7 +4137,8 @@ class LinkedObject:
                             micro_bend_info=None,
                             bendline_piece_idx=None,
                             mi_seg_idx=None,
-                            piece_shapes=None):
+                            piece_shapes=None,
+                            piece_center_overrides=None):
         """Draw debug arrows showing the BFS tree from fixed to
         moving pieces.  Each piece is labeled fixed/moving/wedge."""
         doc = obj.Document
@@ -4140,6 +4154,9 @@ class LinkedObject:
             Uses CenterOfMass if it lies inside the shape;
             otherwise returns the closest point on the shape
             to the CenterOfMass."""
+            if (piece_center_overrides is not None
+                    and pi_idx in piece_center_overrides):
+                return piece_center_overrides[pi_idx]
             if (piece_shapes is not None
                     and 0 <= pi_idx < len(piece_shapes)):
                 s = piece_shapes[pi_idx]
