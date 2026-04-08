@@ -3,11 +3,12 @@
 ## Overview
 
 The bending pipeline transforms a flat PCB board into a 3D folded shape by:
-1. Cutting the flat board along bend lines to create pieces
-2. Classifying pieces via BFS to determine rotation order
-3. Rotating pieces sequentially around bend centers of curvature
-4. Lofting wedges into curved solids
-5. Applying correction translations to align pieces
+1. Planning trimmed center/cut segments from bend lines
+2. Cutting the flat board into rigid pieces and wedge strips
+3. Running a preliminary non-wedge parent search, then a wedge-aware BFS to determine rotation order
+4. Rotating pieces sequentially around bend centers of curvature
+5. Lofting wedges into curved solids
+6. Applying correction translations, visual bend-line offsets, and final assembly/debug output
 
 Entry point: `__apply_bends_impl()` in `LinkedObject.py`.
 
@@ -64,13 +65,18 @@ Extrudes each 2D cut segment into a vertical rectangular face spanning the full 
 - `face_to_micro[fi]`: initially bi (updated in Phase 2b-2)
 - `cut_plan_data[fi]`: (angle_rad, bend_obj, cut_mid, normal, radius, bi)
 
-### Phase 2c: Cut Board
+### Phase 2c: Cut Board and Build Topology
 
 1. `generalFuse(board, cut_faces)` -> compound solid
 2. Extract `pieces` (solids with volume > 1e-6)
 3. Create `piece_slices` (2D wire at z=half_t) and `cut_segments` (2D edge at z=half_t) for fast distance checks
-4. Build adjacency graph (see below)
-5. Pair A/B faces of same bend that share a wedge piece -> assign segment IDs (`face_to_seg`)
+4. Build `joints` from trimmed center segments:
+   - each joint corresponds to one trimmed center segment (`sid`)
+   - A/B faces are assigned to the joint by midpoint projection onto that center segment
+   - wedge pieces are assigned by center-of-mass distance to the center segment
+5. Build adjacency graph from joints (see below)
+6. Compute `cut_owner_piece` for debug cut visualization
+7. Run a preliminary non-wedge BFS to determine `fi_parent` / stationary-side ownership for each crossing face
 
 ### Adjacency Graph Construction
 
@@ -82,34 +88,44 @@ Produces `(i, j, fi)` crossings from the joint structure:
 
 The **side test** is the key filter — it prevents connecting two pieces that both touch the same face but are on the same side of it rather than separated by it.
 
-### Phase 2b-2: Assign Micro-Bends
+### Phase 2b-2: Assign Micro-Bends and Final BFS Labels
 
-Using geometric crossings and BFS from the stationary piece:
+After the preliminary parent search:
 
-1. Stationary/moving role is **per crossing**: for each crossing face, BFS determines which piece is the parent (closer to root); if the parent piece touches the face (`distToShape < tolerance`), the face is stationary
-2. Each stationary-side face creates a unique micro-bend (mi >= 0) in `micro_bend_info`
-3. Each moving-side face gets a negative ID in `m_face_to_bend`
-4. The normal is oriented per-cut: pointing from BFS parent piece into the wedge; `fi_parent[fi]` gives the non-wedge parent (BFS skips wedges)
-5. Identify wedge pieces (within inset distance of center line) → `wedge_pieces`
-6. Run **BFS** (wedge-skipping): uses micro-bend labels, skips through wedges
+1. Stationary/moving role is **per crossing face**: `fi_parent[fi]` records the non-wedge source piece for that face
+2. Micro-bends are assigned per **joint/segment** (`sid`), not per face:
+   - faces that share the same `sid` reuse the same positive micro-bend id via `sid_to_mi`
+   - if a moving-side face created the mi first and a stationary-side partner is seen later, the code keeps the same mi but replaces its geometry with the stationary-side face's geometry
+3. `face_to_micro[fi]` is rewritten from generic bend indices (`bi`) to shared positive mi labels
+4. Negative labels are **not** stored in `face_to_micro`; they are synthesized later by the wedge-aware BFS when traversing out of a wedge (`-(mi + 2)`)
+5. Run the final **wedge-aware BFS** using `face_to_micro` labels
 
 ### BFS Chain Building
 
 #### BFS (wedge-skipping)
 
-- Uses micro-bend labels (`mi >= 0` for stationary, `mi < 0` for moving)
-- **Wedge pass-through**: when BFS hits a wedge piece, it does not stop — it immediately traverses *through* the wedge to reach the non-wedge piece on the other side. Both the entry mi and exit mi are recorded in the crossed set.
-- BFS tree entry: `(parent_pi, mis_crossed_set, wedge_pi)` — the 3rd element records which wedge was traversed
+- Uses positive mi labels from `face_to_micro`
+- **Wedge pass-through**: when BFS hits a wedge piece, it records the positive entry mi on the wedge, then traverses through the wedge to candidate non-wedge neighbors; the exit side is recorded as a synthesized negative crossing `-(mi + 2)`
+- BFS is strict first-visit: first path wins, no revisiting / re-queuing
+- Wedges are special:
+  - the wedge itself gets a BFS entry when first reached
+  - later traversals can append extra exit crossings to the wedge's `mis_crossed_set`
+  - later traversals do **not** replace the wedge's parent
+- BFS tree entry: `(parent_pi, mis_crossed_set, wedge_pi)`
+  - for wedges themselves, `wedge_pi` is `None`
+  - for non-wedge pieces reached through a wedge, `wedge_pi` records the corridor wedge used for that edge
 
 #### piece_mi_list construction
 
 - For each **non-wedge** piece: walk the BFS parent chain from piece to root, collecting `mi >= 0` from each link's `mis_crossed_set`, then reverse to get root-to-piece order.
-- For **wedges**: stationary neighbor's chain + own mi
+- For **wedges**: first BFS parent's chain + the wedge's canonical entry mi (`strip_to_mi[wpi]`)
+- `strip_to_mi` is chosen from the wedge's BFS record as the first positive crossing on the wedge's own bend
 
 ### Key Data Structures
 
 - `micro_bend_info[mi]` = (angle_rad, bend_obj, cut_mid, normal, radius, orig_bi)
-  - One entry per stationary-side face (carries the rotation; moving-side faces are geometry-only)
+  - One entry per joint/segment crossing (`sid`); paired A/B faces can share the same mi
+  - Geometry is anchored to the stationary-side face when one is available
 - `mi_seg_idx[mi]` = segment index within bend (0, 1, 2, ...)
 - `wedge_pieces`: set of wedge piece indices (code: `strip_pieces`)
 - `wedge_to_bend[pi]` = bi (code: `strip_to_bend`)
@@ -118,15 +134,16 @@ Using geometric crossings and BFS from the stationary piece:
 - `bfs_tree[pi]` = (parent_pi, mis_crossed_set, wedge_pi)
 - `adjacency[pi]` = [(nbr_pi, mi, fi), ...]
 - `face_to_bend`: reassigned as alias for `face_to_micro` after Phase 2b-2
+- `fi_parent[fi]`: non-wedge source piece for crossing face `fi`, computed by the preliminary non-wedge BFS
 
 ---
 
 ## Phase 3: Apply Bends Sequentially
 
-Iterates chain positions; at each position collects mi's across all pieces and processes each. For each `(step_pos, mi)`:
+Iterates chain positions; at each position collects distinct mi's across all pieces and processes each. For each `(step_pos, mi)`:
 
-1. Find S-parent piece of the wedge for this mi
-2. Build `virtual_plc = piece_plc[s_parent] * plc_original`
+1. Find the stationary/source piece for this specific positive-mi crossing via `mi_to_stationary_pi`
+2. Build `virtual_plc = piece_plc[s_parent] * plc_original` when an `s_parent` exists; otherwise use `plc_original`
    - `piece_plc[pi]`: accumulated Placement per piece (identity initially)
    - `plc_original`: bend's original Placement saved before Phase 3 starts
 3. Transform to current space: cur_normal, cur_up, cur_p0
@@ -135,19 +152,12 @@ Iterates chain positions; at each position collects mi's across all pieces and p
    - `bend_sign = -1 if angle > 0 else 1`
    - `pivot = stat_edge_mid + cur_up * (r_eff * bend_sign)`
 5. **(First occurrence of mi only)** Save pivot data in `micro_pivots[mi]` for wedge loft
-6. **(First occurrence of mi only)** Save pre-rotation wedge shape in `wedge_pre_shapes[pi]`
-   - For moving-side entry: rebuilt from flat piece using stationary-side parent's piece_plc
-7. **(First occurrence of mi only)** Save `wedge_post_mi_plc[pi]` = current `piece_plc[pi]`
-8. Rotate all pieces where `piece_mi_list[pi][step_pos] == mi` by micro_angle around pivot
-9. Compose rotation into `piece_plc[pi]` for each rotated piece
-10. Rotate bend lines and components by same rotation (with multiplier for multi-segment bends)
-11. Apply inset correction within the Phase 3 loop (not deferred to post-loop)
-
-### M-Entry Handling
-
-When BFS reaches a wedge from the moving side (source != stationary neighbor):
-- The wedge's piece_shapes has been rotated by the moving-side path
-- Rebuild `wedge_pre_shapes[pi]` from the flat piece with stationary-side neighbor's piece_plc
+6. **(First occurrence of mi only)** Save `wedge_pre_shapes[wpi]` for wedges whose canonical `strip_to_mi[wpi] == mi`
+7. Rotate all pieces where `piece_mi_list[pi][step_pos] == mi` by `micro_angle` around the pivot
+8. Compose rotation into `piece_plc[pi]` for each rotated piece
+9. **(First occurrence of mi only, after rotation)** Save `wedge_post_mi_plc[wpi]`
+10. Rotate bend lines and components by the same transform, using piece-based multipliers where available
+11. Apply inset correction inside the Phase 3 loop to the affected non-wedge pieces, bend lines, and components
 
 ---
 
@@ -159,22 +169,26 @@ For each wedge piece, creates a curved 3D solid by lofting cross-sections along 
 
 1. Retrieve saved pivot data (virtual_plc, cur_p0, cur_normal, cur_up, bend_axis, coc)
 2. Get `positioned_flat` = `wedge_pre_shapes[pi]` or `piece_shapes[pi]`
-3. Build d-values:
+3. If the bend has multiple center segments, choose the nearest saved segment midpoint for this wedge and recompute `cur_p0` / pivot for that segment
+4. Build d-values:
    - `d_uniform`: N_SLICES+1 uniform positions in [gt, 2*ins - gt]
    - Vertex projections of positioned_flat → `vertex_proj_ds` (split points where cross-section topology may change)
-4. Split d-range into sub-ranges at vertex projection planes. Each sub-range has consistent cross-section topology.
-5. For each sub-range:
+5. Split d-range into sub-ranges at vertex projection planes. Each sub-range has consistent cross-section topology.
+6. For each sub-range:
    - Collect uniform d-values falling within the sub-range, plus boundary d-values
    - For each d-value:
      - Slice positioned_flat perpendicular to cur_normal at distance d from cur_p0
      - Compute `frac = (d - gt) / (2*ins - 2*gt)` and `slice_angle = frac * sweep_angle`
      - Translate slice back by -d along cur_normal (to stationary edge)
      - Rotate slice by slice_angle around CoC along bend_axis
+     - Use the first returned wire from `slice()` for that cross-section
    - Reorder vertices: OCCT's `slice()` can return vertices in different cyclic order depending on slice position; align each wire to match the first wire by trying all cyclic rotations and both directions
    - Collect as one loft segment
-6. Build loft: `Part.makeLoft(seg, True, False)` per segment, fuse segments together
-7. If volume < 0: reverse the solid (inside-out fix)
-8. Apply remaining Phase 3 rotations (`wedge_post_mi_plc`) to catch rotations that happened after the wedge's own mi
+7. Build loft:
+   - in wireframe mode: compound all slice wires
+   - otherwise: `Part.makeLoft(seg, True, not smooth_wedge)` per segment, then fuse segments together
+8. If volume < 0: reverse the solid (inside-out fix)
+9. Apply remaining Phase 3 rotations (`piece_plc[pi] * wedge_post_mi_plc[pi]^-1`) to catch rotations that happened after the wedge's own mi
 
 ### Failure Modes
 
@@ -184,15 +198,20 @@ For each wedge piece, creates a curved 3D solid by lofting cross-sections along 
 
 ---
 
-## Correction
+## Correction and Final Assembly
 
-After wedge loft, corrects alignment of moving pieces:
+During Phase 3, after each mi rotation, the code computes an inset correction:
 
-For each mi:
-1. Compute expected M-edge position: rotate S-edge by full angle around CoC
-2. Compute actual M-edge position: rotate flat M-edge position by full angle
+1. Compute expected M-edge position: rotate the stationary edge by the full angle around CoC
+2. Compute actual M-edge position: rotate the flat M-edge position by the same transform
 3. Correction = expected - actual
-4. Apply translation to all non-wedge pieces crossing this mi, and to bend lines/components
+4. Apply the translation to affected non-wedge pieces, bend lines, and components
+
+After wedge loft:
+
+5. Move each bend line visually to the center of the first wedge on that bend (`coc_offsets`)
+6. Optionally draw debug arrows, debug cuts, and debug piece objects
+7. Replace `board_obj.Shape` with a compound of the final `piece_shapes`
 
 ---
 
@@ -204,15 +223,18 @@ Builds adjacency from the joint structure. For each cut face in every joint, fin
 
 Returns: list of (i, j, fi) tuples.
 
-**Note:** Adjacency is between all pieces, including wedges; the cut face is attached as extra info. Traversal (BFS) is piece-to-piece (non-wedges), with the opposite-side test applied only during BFS, not during adjacency building.
+**Note:** Adjacency is between all pieces, including wedges; the cut face is attached as extra info. There are two side filters:
+- adjacency building uses a coarse center-of-mass side test to avoid connecting pieces on the same side of a cut face
+- BFS traversal applies `_side_test`, which uses the nearest off-cut vertex to the bend center segment for a more local and robust side classification
 
 ### `_classify_pieces_bfs(..., wedge_pieces)`
 
 Skips through wedge pieces to build piece-to-piece connectivity.
-- Wedges are visited but immediately traversed
-- Side test ensures pieces are on opposite sides of cut (applied during traversal)
-- BFS tree: 3-tuple (parent_pi, mis_crossed, wedge_pi)
-- BFS root: non-wedge piece closest to board center of mass.
+- BFS root is the non-wedge piece closest to board center of mass
+- Wedges are recorded on first visit, then used as pass-through corridors
+- First path wins; BFS does not revisit or re-queue pieces
+- Side test during traversal uses local near-cut vertices rather than center of mass
+- BFS tree entries are 3-tuples: `(parent_pi, mis_crossed, wedge_pi)`
 
 ---
 
@@ -249,8 +271,8 @@ Bend (user-drawn bend line, bi)
 | **piece_slices[pi]** | 2D Compound | The 2D cross-section of piece `pi` at z=half_t. Used for fast distance checks during adjacency building. |
 | **wedge** / **wedge piece** | piece | A narrow strip of material between the A and B cut faces of a bend segment. Lives within the inset zone. Lofted into a curved solid in the wedge loft phase. Code uses `strip_` prefix for historical reasons (e.g., `strip_pieces`, `strip_to_bend`). |
 | **joint** / **sid** | index | A center-segment-centric grouping. Each joint corresponds to one center segment and contains: the center segment endpoints, zero or more A faces, zero or more B faces, and zero or more wedge pieces. A and B faces are assigned to joints by projecting their midpoints onto center segments. Index into `joints[]`. Replaces the old A/B pairing logic. |
-| **micro-bend** / **mi** | index | One fold operation at one specific stationary-side cut face. Index into `micro_bend_info[]`. Each stationary-side face creates exactly one mi. Phase 3 iterates mi's in order, applying one rotation per mi. |
-| **micro_bend_info[mi]** | tuple | Per-mi data: (angle_rad, bend_obj, cut_mid, normal, radius, orig_bi). `cut_mid` is the pivot point; `normal` is oriented from stationary side into the wedge. |
+| **micro-bend** / **mi** | index | One atomic fold operation used by Phase 3. In the current code, mi is assigned per joint/segment (`sid`) and can be shared by paired A/B faces of the same center segment. |
+| **micro_bend_info[mi]** | tuple | Per-mi data: (angle_rad, bend_obj, cut_mid, normal, radius, orig_bi). Geometry is taken from the stationary-side face when available. |
 | **mi_seg_idx[mi]** | int | Which segment index (0, 1, 2, ...) within its parent bend this mi belongs to. |
 | **piece_mi_list[pi]** | list of mi | Ordered chain of mi's from root to piece `pi`. Phase 3 iterates chain positions; each piece rotates by its mi at that position. |
 | **bfs_tree[pi]** | tuple | BFS parent info: (parent_pi, mis_crossed_set, wedge_pi). |
@@ -258,19 +280,19 @@ Bend (user-drawn bend line, bi)
 | **adjacency[pi]** | list of (nbr_pi, mi, fi) | All crossings of piece `pi`: neighbors with the connecting mi label and cut face index. Built from joints. |
 | **stationary_idx** | pi | The BFS root piece — the non-wedge piece closest to the board center of mass. Remains fixed; all other pieces rotate relative to it. |
 | **piece_plc[pi]** | Placement | Accumulated rotation/translation for piece `pi` through Phase 3. Starts as identity. |
-| **wedge_pre_shapes[pi]** | Shape | Snapshot of a wedge piece's shape before its own mi rotation. Used as input for wedge loft. |
-| **wedge_post_mi_plc[pi]** | Placement | Snapshot of `piece_plc[pi]` right after the wedge's own mi. Remaining Phase 3 rotations are applied to the lofted solid afterward. |
+| **wedge_pre_shapes[pi]** | Shape | Snapshot of a wedge piece's shape before its canonical `strip_to_mi[pi]` rotation. Used as input for wedge loft. |
+| **wedge_post_mi_plc[pi]** | Placement | Snapshot of `piece_plc[pi]` right after the wedge's canonical `strip_to_mi[pi]` rotation. Remaining Phase 3 rotations are applied to the loft afterward. |
 | **micro_pivots[mi]** | tuple | Saved pivot geometry for wedge loft: (virtual_plc, cur_p0, cur_normal, cur_up, bend_axis, coc). |
 | **wedge_pieces** | set of pi | All wedge piece indices. Code: `strip_pieces`. |
 | **wedge_to_bend[pi]** | bi | Which bend a wedge piece belongs to. Code: `strip_to_bend`. |
-| **strip_to_mi[pi]** | mi | Maps a wedge to ONE mi (the first A-side match). Broken for multi-connection wedges — slated for removal. |
+| **strip_to_mi[pi]** | mi | Maps a wedge to its canonical positive entry mi, chosen from the wedge's BFS record as the first positive crossing on the wedge's own bend. |
 | **face_to_seg[fi]** | sid | Which joint/segment a cut face belongs to. |
 | **seg_to_bend[sid]** | bi | Which bend a segment/joint belongs to. |
-| **face_to_micro[fi]** | mi or neg ID | Maps cut face to its micro-bend label. Stationary faces get mi >= 0; moving faces get unique negative IDs. |
+| **face_to_micro[fi]** | mi | Maps each cut face to its shared positive micro-bend label after Phase 2b-2. Negative exit labels are synthesized only inside the final wedge-aware BFS. |
 | **face_topo_side[fi]** | 'A' or 'B' | Which topological side of the bend a cut face is on. |
 | **face_bend[fi]** | bi | Which bend a cut face belongs to. |
-| **m_face_to_bend[neg_id]** | (bi, seg_idx) | Maps negative moving-face IDs back to their bend and segment. |
-| **fi_parent[fi]** | pi | The non-wedge BFS parent piece for crossing face `fi`. BFS skips wedges so parent is always a non-wedge piece. |
+| **fi_parent[fi]** | pi | The non-wedge source/parent piece for crossing face `fi`, computed by the preliminary non-wedge BFS. |
+| **cut_owner_piece[fi]** | pi | Rigid piece used to place debug cut geometry so debug cut lines follow the same transform as the adjacent rigid piece. |
 | **CoC** | point | Center of curvature. The pivot point for a bend rotation: `stat_edge_mid + cur_up * (r_eff * bend_sign)`. |
 | **r_eff** | float | Effective bend radius: `radius + half_t` (outer fiber radius). |
 | **bend_sign** | int | -1 if angle > 0, else 1. Determines which side of the cut the CoC is on. |
@@ -279,13 +301,12 @@ Bend (user-drawn bend line, bi)
 
 ## Key Invariants
 
-1. Stationary/moving is per crossing (not per segment); each stationary-side crossing creates exactly one micro-bend; moving-side crossings create none
+1. Stationary/moving is per crossing face, but micro-bends are shared per joint/segment (`sid`) when paired A/B faces belong to the same center segment
 2. Wedge pieces are between A and B faces of the same bend segment
-3. piece_plc tracks accumulated rotations in correct interleaved order (fixes rotation non-commutativity)
-4. virtual_plc = piece_plc[s_parent] * plc_original (not chain composition)
-5. Normal is oriented per-cut from BFS parent (stationary side) into wedge; `fi_parent[fi]` gives the non-wedge parent (BFS skips wedges)
+3. `piece_plc` tracks accumulated transforms in execution order, avoiding non-commutative chain-composition errors
+4. `virtual_plc = piece_plc[s_parent] * plc_original` when an `s_parent` exists
+5. Normals used for `micro_bend_info` are anchored on the stationary-side geometry selected through `fi_parent`
 6. bend_sign = -1 if angle > 0 else 1
 7. All adjacency crossings have a matching cut face; non-cut connections are not emitted
-8. Wedge loft is built in the pre-mi frame; remaining Phase 3 rotations are applied via `wedge_post_mi_plc`
-
-
+8. Wedge chains are rooted on first BFS discovery; later traversals may add exit crossings but do not replace wedge parents
+9. Wedge loft is built in the pre-mi frame; remaining Phase 3 rotations are applied via `wedge_post_mi_plc`
