@@ -173,7 +173,7 @@ def find_PTH(filenames):
     for fn in filenames:
         if fn.lower().endswith(".pdf"):
             continue
-        if "PTH" in fn:
+        if "PTH" in fn and "NPTH" not in fn:
             return fn
     return None
 
