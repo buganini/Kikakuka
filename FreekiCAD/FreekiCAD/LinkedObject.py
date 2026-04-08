@@ -3001,6 +3001,38 @@ class LinkedObject:
         max_chain_len = max(
             (len(lst) for lst in piece_mi_list), default=0)
 
+        def _piece_path_labels(pi):
+            # Wedges accumulate extra exit crossings in bfs_tree when
+            # later traversals pass through them, so their display path
+            # must use the canonical entry mi instead of the full set.
+            path = []
+            cur = pi
+            while cur is not None:
+                entry = bfs_tree.get(cur)
+                if entry is None:
+                    break
+                parent = entry[0]
+                mis_crossed = entry[1]
+                if parent is not None:
+                    if cur in strip_pieces:
+                        mi_w = strip_to_mi.get(cur)
+                        crossings = [mi_w] if mi_w is not None else \
+                            sorted(mis_crossed)
+                    else:
+                        crossings = sorted(mis_crossed)
+                    for bi_crossed in crossings:
+                        pos = -(bi_crossed + 2) \
+                            if bi_crossed <= -2 else bi_crossed
+                        if pos < 0:
+                            continue
+                        orig_bi = micro_bend_info[pos][5]
+                        seg = mi_seg_idx.get(pos, 0)
+                        prefix = "-" if bi_crossed <= -2 else ""
+                        path.append(f"{prefix}{orig_bi}.{seg}")
+                cur = parent
+            path.reverse()
+            return path
+
         # Log piece_mi_list for neighbours of stationary piece
         for pi in range(len(pieces)):
             entry = bfs_tree.get(pi)
@@ -3764,30 +3796,7 @@ class LinkedObject:
                     bends = sorted(piece_bend_sets[pi])
                     label = f"p{pi}_M" + ",".join(
                         str(b) for b in bends)
-                # Build path notation
-                path = []
-                cur = pi
-                while cur is not None:
-                    entry = bfs_tree.get(cur)
-                    if entry is None:
-                        break
-                    parent = entry[0]
-                    mis_crossed = entry[1]  # set of mi indices
-                    if parent is not None:
-                        for bi_crossed in sorted(mis_crossed):
-                            pos = -(bi_crossed + 2) \
-                                if bi_crossed <= -2 \
-                                else bi_crossed
-                            if pos < 0:
-                                continue
-                            orig_bi = micro_bend_info[pos][5]
-                            seg = mi_seg_idx.get(pos, 0)
-                            prefix = "-" \
-                                if bi_crossed <= -2 else ""
-                            path.append(
-                                f"{prefix}{orig_bi}.{seg}")
-                    cur = parent
-                path.reverse()
+                path = _piece_path_labels(pi)
                 path_str = "/".join(path) if path \
                     else "(root)"
                 # Find source bend line name
@@ -3860,29 +3869,7 @@ class LinkedObject:
                 else:
                     bends = sorted(piece_bend_sets[pi])
                     lbl = "M" + ",".join(str(b) for b in bends)
-                path = []
-                cur = pi
-                while cur is not None:
-                    entry = bfs_tree.get(cur)
-                    if entry is None:
-                        break
-                    parent = entry[0]
-                    mis_crossed = entry[1]  # set of mi indices
-                    if parent is not None:
-                        for bi_crossed in sorted(mis_crossed):
-                            pos = -(bi_crossed + 2) \
-                                if bi_crossed <= -2 \
-                                else bi_crossed
-                            if pos < 0:
-                                continue
-                            obi = micro_bend_info[pos][5]
-                            seg = mi_seg_idx.get(pos, 0)
-                            prefix = "-" \
-                                if bi_crossed <= -2 else ""
-                            path.append(
-                                f"{prefix}{obi}.{seg}")
-                    cur = parent
-                path.reverse()
+                path = _piece_path_labels(pi)
                 path_str = "/".join(path) if path \
                     else "(root)"
                 pname = f"{debug_grp_name}_{pi}"
