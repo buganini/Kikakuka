@@ -149,7 +149,8 @@ class PCB(StateObject):
 
         if self.file_type == "kicad":
             for fp in panel.board.GetFootprints():
-                if fp.HasFieldByName(BUILDEXPR):
+                # TODO
+                if hasattr(fp, "HasFieldByName") and fp.HasFieldByName(BUILDEXPR):
                     expr = fp.GetFieldText(BUILDEXPR)
                     if expr:
                         try:
@@ -1055,7 +1056,8 @@ class PanelizerUI(Application):
                 # Build Variants
                 if (t in self.refMap or not multiple_pcb) and export:
                     fp_count += 1
-                    if fp.HasFieldByName(BUILDEXPR):
+                    # TODO
+                    if hasattr(fp, "HasFieldByName") and fp.HasFieldByName(BUILDEXPR):
                         expr = fp.GetFieldText(BUILDEXPR)
                         if expr:
                             place = buildexpr(expr, pcb.build_flags)
