@@ -1547,7 +1547,7 @@ class LinkedObject:
     has its own Shape and can hold component children in the tree view.
     """
 
-    _WEDGE_MODE_OPTIONS = ["Smoth", "Linear", "Wireframe"]
+    _WEDGE_MODE_OPTIONS = ["Smooth", "Linear", "Wireframe"]
 
 
     def __init__(self, obj):
@@ -1579,7 +1579,7 @@ class LinkedObject:
         obj.DebugBoard = False
         obj.addProperty(
             "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
-            "Wedge rendering mode: Smoth, Linear, or Wireframe"
+            "Wedge rendering mode: Smooth, Linear, or Wireframe"
         )
         obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
         obj.WedgeMode = "Linear"
@@ -3371,7 +3371,7 @@ class LinkedObject:
         # rotated cross-sections.
         _t_loft = _time.time()
         wedge_mode = self._get_wedge_mode(obj)
-        smooth_wedge = (wedge_mode == "Smoth")
+        smooth_wedge = (wedge_mode == "Smooth")
         wireframe_wedge = (wedge_mode == "Wireframe")
         # N_SLICES per wedge: at least 16, or 1 per degree
         # (computed per wedge below)
@@ -5767,7 +5767,7 @@ class LinkedObject:
         if mode in self._WEDGE_MODE_OPTIONS:
             return mode
         if hasattr(obj, "SmoothWedge"):
-            return "Smoth" if getattr(obj, "SmoothWedge", False) \
+            return "Smooth" if getattr(obj, "SmoothWedge", False) \
                 else "Linear"
         return "Linear"
 
@@ -5802,16 +5802,19 @@ class LinkedObject:
                 "App::PropertyBool", "DebugBoard", "LinkedFile",
                 "Show each board piece as a separate child object")
             obj.DebugBoard = False
-        if not hasattr(obj, 'WedgeMode'):
-            default_mode = "Linear"
+        mode_value = getattr(obj, 'WedgeMode', None)
+        if mode_value not in self._WEDGE_MODE_OPTIONS:
+            mode_value = "Linear"
             if hasattr(obj, 'SmoothWedge') \
                     and getattr(obj, 'SmoothWedge', False):
-                default_mode = "Smoth"
+                mode_value = "Smooth"
+
+        if not hasattr(obj, 'WedgeMode'):
             obj.addProperty(
                 "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
-                "Wedge rendering mode: Smoth, Linear, or Wireframe")
-            obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
-            obj.WedgeMode = default_mode
+                "Wedge rendering mode: Smooth, Linear, or Wireframe")
+        obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
+        obj.WedgeMode = mode_value
         # Remove obsolete properties from older saved files.
         for prop in list(obj.PropertiesList):
             if obj.getGroupOfProperty(prop) == "LinkedFile" \
