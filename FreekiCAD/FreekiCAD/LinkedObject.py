@@ -4674,7 +4674,109 @@ class LinkedObject:
                         applied_plc = remaining_plc
                         applied_frac = 1.0
                         if ra <= 1e-6 and rb > 1e-6:
-                            if is_wireframe_wedge:
+                            neighbor_shapes = []
+                            for nbr, _bi, _fi in adjacency[pi]:
+                                if nbr in strip_pieces:
+                                    continue
+                                if nbr < 0 or nbr >= len(piece_shapes):
+                                    continue
+                                neighbor_shapes.append(
+                                    (nbr, piece_shapes[nbr]))
+                            if neighbor_shapes:
+                                target_anchor_near = _closest_point_on_shape(
+                                    target_shape, target_near_ref)
+                                target_anchor_far = _closest_point_on_shape(
+                                    target_shape, target_far_ref)
+                                best_score = None
+                                best_plc = None
+                                best_frac = 1.0
+                                adaptive_scores = []
+                                for frac in (0.0, 0.5, 1.0):
+                                    cand_plc = FreeCAD.Placement()
+                                    cand_plc.Base = FreeCAD.Vector(
+                                        remaining_plc.Base.x * frac,
+                                        remaining_plc.Base.y * frac,
+                                        remaining_plc.Base.z * frac)
+                                    cand_shape = loft.copy()
+                                    if cand_plc.Base.Length > 1e-12:
+                                        cand_shape.transformShape(
+                                            cand_plc.toMatrix())
+                                    cand_dists = []
+                                    cand_labels = [] if wedge_diag else None
+                                    for nbr, nbr_shape in neighbor_shapes:
+                                        d_adj = _shape_distance(
+                                            cand_shape, nbr_shape)
+                                        if math.isnan(d_adj):
+                                            continue
+                                        cand_dists.append(d_adj)
+                                        if wedge_diag:
+                                            cand_labels.append(
+                                                f"p{nbr}:{d_adj:.6f}")
+                                    if not cand_dists:
+                                        if wedge_diag:
+                                            adaptive_scores.append(
+                                                f"{frac:.2f}:nan")
+                                        continue
+                                    cand_center = _shape_center(cand_shape)
+                                    cand_center_err = (
+                                        cand_center - target_cm).Length
+                                    cand_anchor_near = _closest_point_on_shape(
+                                        cand_shape, target_near_ref)
+                                    cand_anchor_far = _closest_point_on_shape(
+                                        cand_shape, target_far_ref)
+                                    cand_anchor_err_near = (
+                                        cand_anchor_near.distanceToPoint(
+                                            target_anchor_near))
+                                    cand_anchor_err_far = (
+                                        cand_anchor_far.distanceToPoint(
+                                            target_anchor_far))
+                                    cand_score = (
+                                        float(max(cand_dists)),
+                                        float(sum(cand_dists)),
+                                        float(max(
+                                            cand_anchor_err_near,
+                                            cand_anchor_err_far)),
+                                        float(
+                                            cand_anchor_err_near
+                                            + cand_anchor_err_far),
+                                        float(cand_center_err))
+                                    if wedge_diag:
+                                        adaptive_scores.append(
+                                            f"{frac:.2f}:"
+                                            f"max={cand_score[0]:.6f}"
+                                            f" sum={cand_score[1]:.6f}"
+                                            f" anchor={cand_score[2]:.6f}"
+                                            f" anchor_sum={cand_score[3]:.6f}"
+                                            f" center={cand_score[4]:.6f}"
+                                            f" [{' '.join(cand_labels)}]")
+                                    better = best_score is None
+                                    if not better:
+                                        # Treat sub-micron adjacency deltas as
+                                        # ties so the center match can decide.
+                                        for axis, (cand_v, best_v) in enumerate(
+                                                zip(cand_score, best_score)):
+                                            tol = 1e-6 if axis < 4 else 1e-9
+                                            if cand_v < best_v - tol:
+                                                better = True
+                                                break
+                                            if cand_v > best_v + tol:
+                                                break
+                                    if better:
+                                        best_score = cand_score
+                                        best_plc = cand_plc
+                                        best_frac = frac
+                                if best_plc is not None:
+                                    applied_plc = best_plc
+                                    applied_frac = best_frac
+                                    if wedge_diag:
+                                        FreeCAD.Console.PrintMessage(
+                                            f"FreekiCAD: wedge pi={pi}"
+                                            f" adaptive-translate"
+                                            f" choose={applied_frac:.2f}"
+                                            f" scores=["
+                                            f"{'; '.join(adaptive_scores)}"
+                                            f"]\n")
+                            elif is_wireframe_wedge:
                                 base = remaining_plc.Base
                                 base_len2 = (
                                     base.x * base.x
@@ -4696,110 +4798,8 @@ class LinkedObject:
                                             f" center-translate"
                                             f" choose={applied_frac:.6f}"
                                             f" center_delta={_fmt_vec(center_delta)}"
-                                            f" base={_fmt_vec(base)}\n")
-                            else:
-                                neighbor_shapes = []
-                                for nbr, _bi, _fi in adjacency[pi]:
-                                    if nbr in strip_pieces:
-                                        continue
-                                    if nbr < 0 or nbr >= len(piece_shapes):
-                                        continue
-                                    neighbor_shapes.append(
-                                        (nbr, piece_shapes[nbr]))
-                                if neighbor_shapes:
-                                    target_anchor_near = _closest_point_on_shape(
-                                        target_shape, target_near_ref)
-                                    target_anchor_far = _closest_point_on_shape(
-                                        target_shape, target_far_ref)
-                                    best_score = None
-                                    best_plc = None
-                                    best_frac = 1.0
-                                    adaptive_scores = []
-                                    for frac in (0.0, 0.5, 1.0):
-                                        cand_plc = FreeCAD.Placement()
-                                        cand_plc.Base = FreeCAD.Vector(
-                                            remaining_plc.Base.x * frac,
-                                            remaining_plc.Base.y * frac,
-                                            remaining_plc.Base.z * frac)
-                                        cand_shape = loft.copy()
-                                        if cand_plc.Base.Length > 1e-12:
-                                            cand_shape.transformShape(
-                                                cand_plc.toMatrix())
-                                        cand_dists = []
-                                        cand_labels = [] if wedge_diag else None
-                                        for nbr, nbr_shape in neighbor_shapes:
-                                            d_adj = _shape_distance(
-                                                cand_shape, nbr_shape)
-                                            if math.isnan(d_adj):
-                                                continue
-                                            cand_dists.append(d_adj)
-                                            if wedge_diag:
-                                                cand_labels.append(
-                                                    f"p{nbr}:{d_adj:.6f}")
-                                        if not cand_dists:
-                                            if wedge_diag:
-                                                adaptive_scores.append(
-                                                    f"{frac:.2f}:nan")
-                                            continue
-                                        cand_center = _shape_center(cand_shape)
-                                        cand_center_err = (
-                                            cand_center - target_cm).Length
-                                        cand_anchor_near = _closest_point_on_shape(
-                                            cand_shape, target_near_ref)
-                                        cand_anchor_far = _closest_point_on_shape(
-                                            cand_shape, target_far_ref)
-                                        cand_anchor_err_near = (
-                                            cand_anchor_near.distanceToPoint(
-                                                target_anchor_near))
-                                        cand_anchor_err_far = (
-                                            cand_anchor_far.distanceToPoint(
-                                                target_anchor_far))
-                                        cand_score = (
-                                            float(max(cand_dists)),
-                                            float(sum(cand_dists)),
-                                            float(max(
-                                                cand_anchor_err_near,
-                                                cand_anchor_err_far)),
-                                            float(
-                                                cand_anchor_err_near
-                                                + cand_anchor_err_far),
-                                            float(cand_center_err))
-                                        if wedge_diag:
-                                            adaptive_scores.append(
-                                                f"{frac:.2f}:"
-                                                f"max={cand_score[0]:.6f}"
-                                                f" sum={cand_score[1]:.6f}"
-                                                f" anchor={cand_score[2]:.6f}"
-                                                f" anchor_sum={cand_score[3]:.6f}"
-                                                f" center={cand_score[4]:.6f}"
-                                                f" [{' '.join(cand_labels)}]")
-                                        better = best_score is None
-                                        if not better:
-                                            # Treat sub-micron adjacency deltas as
-                                            # ties so the center match can decide.
-                                            for axis, (cand_v, best_v) in enumerate(
-                                                    zip(cand_score, best_score)):
-                                                tol = 1e-6 if axis < 4 else 1e-9
-                                                if cand_v < best_v - tol:
-                                                    better = True
-                                                    break
-                                                if cand_v > best_v + tol:
-                                                    break
-                                        if better:
-                                            best_score = cand_score
-                                            best_plc = cand_plc
-                                            best_frac = frac
-                                    if best_plc is not None:
-                                        applied_plc = best_plc
-                                        applied_frac = best_frac
-                                        if wedge_diag:
-                                            FreeCAD.Console.PrintMessage(
-                                                f"FreekiCAD: wedge pi={pi}"
-                                                f" adaptive-translate"
-                                                f" choose={applied_frac:.2f}"
-                                                f" scores=["
-                                                f"{'; '.join(adaptive_scores)}"
-                                                f"]\n")
+                                            f" base={_fmt_vec(base)}"
+                                            f" fallback=no-neighbors\n")
                         if (ra > 1e-6
                                 or applied_plc.Base.Length > 1e-6):
                             if ra <= 1e-6 and abs(applied_frac - 1.0) > 1e-9:
