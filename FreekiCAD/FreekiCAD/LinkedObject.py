@@ -1629,15 +1629,8 @@ class LinkedObject:
         """Remove all child objects from this group."""
         doc = obj.Document
         children = list(obj.Group)
-        if children:
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Removing {len(children)} children from '{obj.Name}'\n"
-            )
         for child in children:
             try:
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: Removing child '{child.Name}'\n"
-                )
                 doc.removeObject(child.Name)
             except (ReferenceError, Exception) as e:
                 FreeCAD.Console.PrintWarning(
@@ -5158,15 +5151,24 @@ class LinkedObject:
                             if piece_bend_sets[nbr2] is not None:
                                 continue
                             if not _side_test(cur, nbr2, fi):
+                                # Branched wedges can feed pieces that stay on
+                                # the source side of the entry cut. Keep the
+                                # wedge hop for parent/adjacency purposes, but
+                                # do not record any bend crossing for those
+                                # same-side pieces.
+                                piece_bend_sets[nbr2] = \
+                                    piece_bend_sets[cur].copy()
+                                bfs_tree[nbr2] = (cur, set(), nbr)
                                 if log:
                                     FreeCAD.Console.PrintMessage(
                                         f"FreekiCAD: BFS "
-                                        f"wedge side_test("
+                                        f"wedge same_side("
                                         f"p{cur}, p{nbr2}, "
-                                        f"fi={fi}) FAIL "
+                                        f"fi={fi}) "
                                         f"(entry="
                                         f"{_crossing_label(bi)}"
                                         f")\n")
+                                queue.append(nbr2)
                                 continue
                             bend_idx2 = _get_bend_idx(bi2)
                             # Exit crossing: wedge → dest = negative
@@ -5253,21 +5255,21 @@ class LinkedObject:
                     else:
                         labels = "-"
                         raw = []
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: bfs_tree[{pi}] ="
-                        f" parent={parent}"
-                        f" mis_crossed=[{labels}]"
-                        f" raw={raw}"
-                        f" wedge={wedge_pi}\n")
+                    # FreeCAD.Console.PrintMessage(
+                    #     f"FreekiCAD: bfs_tree[{pi}] ="
+                    #     f" parent={parent}"
+                    #     f" mis_crossed=[{labels}]"
+                    #     f" raw={raw}"
+                    #     f" wedge={wedge_pi}\n")
                 else:
                     parent, bi, fi = entry
                     lbl = _crossing_label(bi) \
                         if bi is not None else "-"
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: bfs_tree[{pi}] ="
-                        f" parent={parent}"
-                        f" mi={lbl} raw={bi}"
-                        f" fi={fi}\n")
+                    # FreeCAD.Console.PrintMessage(
+                    #     f"FreekiCAD: bfs_tree[{pi}] ="
+                    #     f" parent={parent}"
+                    #     f" mi={lbl} raw={bi}"
+                    #     f" fi={fi}\n")
 
         return piece_bend_sets, bfs_tree, adjacency, cached_geo_crossings
 
