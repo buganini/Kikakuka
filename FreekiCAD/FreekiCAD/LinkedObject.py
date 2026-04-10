@@ -1547,7 +1547,8 @@ class LinkedObject:
     has its own Shape and can hold component children in the tree view.
     """
 
-    _WEDGE_MODE_OPTIONS = ["Coarse", "Medium", "Fine", "Loft", "Wireframe"]
+    _WEDGE_MODE_OPTIONS = [
+        "Coarse", "Medium", "Fine", "Curved", "Loft", "Wireframe"]
 
 
     def __init__(self, obj):
@@ -1579,7 +1580,7 @@ class LinkedObject:
         obj.DebugBoard = False
         obj.addProperty(
             "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
-            "Wedge rendering mode: Coarse, Medium, Fine, Loft, or Wireframe"
+            "Wedge rendering mode: Coarse, Medium, Fine, Curved, Loft, or Wireframe"
         )
         obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
         obj.WedgeMode = "Coarse"
@@ -3377,7 +3378,8 @@ class LinkedObject:
                     pass
 
         # Build wedge shapes using the selected quality preset
-        # (`Coarse`, `Medium`, `Fine`), legacy `Loft`, or `Wireframe`.
+        # (`Coarse`, `Medium`, `Fine`), explicit `Curved`,
+        # legacy `Loft`, or `Wireframe`.
         _t_loft = _time.time()
         wedge_mode = self._get_wedge_mode(obj)
         is_wireframe_wedge = (wedge_mode == "Wireframe")
@@ -3920,24 +3922,13 @@ class LinkedObject:
             return pts
 
         def _build_wedge_wireframe_analytic(wedge_ctx):
-            curves = []
             profile = wedge_ctx.get('profile') or {}
             source_edges = profile.get('wireframe_edges')
             if not source_edges:
                 source_edges = list(wedge_ctx['positioned_flat'].Edges)
-            for edge in source_edges:
-                edge_len = 0.0
-                try:
-                    edge_len = float(edge.Length)
-                except Exception:
-                    pass
-                sample_count = max(
-                    wedge_ctx['edge_samples'],
-                    int(math.ceil(edge_len / 2.0)) + 1)
-                sample_count = min(max(sample_count, 2), 96)
-                pts = _discretize_wedge_edge(edge, sample_count)
-                bent_curve = _bend_wedge_curve_from_samples(
-                    pts, wedge_ctx, source_edge=edge)
+            curves = []
+            for edge, bent_curve in _build_bent_wedge_edges(
+                    source_edges, wedge_ctx):
                 if bent_curve is None:
                     continue
                 curves.append(bent_curve)
@@ -3951,6 +3942,415 @@ class LinkedObject:
                 return Part.makeCompound(curves)
             except Exception:
                 return None
+
+        def _build_bent_wedge_edges(source_edges, wedge_ctx):
+            bent_pairs = []
+            for edge in source_edges:
+                edge_len = 0.0
+                try:
+                    edge_len = float(edge.Length)
+                except Exception:
+                    pass
+                sample_count = max(
+                    wedge_ctx['edge_samples'],
+                    int(math.ceil(edge_len / 2.0)) + 1)
+                sample_count = min(max(sample_count, 2), 96)
+                pts = _discretize_wedge_edge(edge, sample_count)
+                bent_curve = _bend_wedge_curve_from_samples(
+                    pts, wedge_ctx, source_edge=edge)
+                bent_pairs.append((edge, bent_curve))
+            return bent_pairs
+
+        def _lookup_bent_wedge_edge(source_edge, bent_pairs):
+            for src_edge, bent_edge in bent_pairs:
+                if _shape_is_same(src_edge, source_edge):
+                    return bent_edge
+            return None
+
+        def _edge_d_span(edge, wedge_ctx):
+            pts = _discretize_wedge_edge(edge, 8)
+            if not pts:
+                pts = [v.Point for v in getattr(edge, 'Vertexes', [])]
+            if not pts:
+                return 0.0
+            cur_p0 = wedge_ctx['cur_p0']
+            cur_normal = wedge_ctx['cur_normal']
+            ds = [
+                (FreeCAD.Vector(pt) - cur_p0).dot(cur_normal)
+                for pt in pts
+            ]
+            return max(ds) - min(ds)
+
+        def _collect_shape_faces(shape):
+            if shape is None:
+                return []
+            faces = list(getattr(shape, 'Faces', []))
+            if faces:
+                return faces
+            try:
+                if getattr(shape, 'ShapeType', None) == 'Face':
+                    return [shape]
+            except Exception:
+                pass
+            return []
+
+        def _build_closed_wire_from_bent_edges(
+                source_wire, bent_pairs):
+            bent_edges = []
+            for edge in getattr(source_wire, 'Edges', []):
+                bent_edge = _lookup_bent_wedge_edge(
+                    edge, bent_pairs)
+                if bent_edge is None:
+                    return None
+                bent_edges.append(bent_edge.copy())
+            if not bent_edges:
+                return None
+            try:
+                sorted_groups = Part.sortEdges(bent_edges)
+            except Exception:
+                sorted_groups = [bent_edges]
+            if len(sorted_groups) != 1:
+                return None
+            wire = Part.Wire(sorted_groups[0])
+            if not wire.isClosed():
+                try:
+                    wire.fixWire(None, GEOMETRY_TOLERANCE)
+                except Exception:
+                    pass
+                if not wire.isClosed():
+                    verts = wire.Vertexes
+                    if len(verts) >= 2:
+                        gap = verts[-1].Point.distanceToPoint(
+                            verts[0].Point)
+                        if gap < GEOMETRY_TOLERANCE:
+                            closing = Part.makeLine(
+                                verts[-1].Point, verts[0].Point)
+                            wire = Part.Wire(
+                                list(wire.Edges) + [closing])
+            return wire if wire.isClosed() else None
+
+        def _make_filled_face_from_wire(wire):
+            if wire is None:
+                return None
+            make_filled_face = getattr(Part, 'makeFilledFace', None)
+            if callable(make_filled_face):
+                for edge_arg in (list(wire.Edges), wire.Edges):
+                    try:
+                        face = make_filled_face(edge_arg)
+                    except Exception:
+                        continue
+                    if getattr(face, 'Area', 0.0) > 1e-9:
+                        return face
+            try:
+                face = Part.Face(wire)
+                if getattr(face, 'Area', 0.0) > 1e-9:
+                    return face
+            except Exception:
+                pass
+            return None
+
+        def _build_surface_from_span_edges(
+                source_wire, bent_pairs, wedge_ctx, label):
+            source_edges = list(getattr(source_wire, 'Edges', []))
+            if len(source_edges) < 2:
+                return None
+            far_span = max(float(wedge_ctx.get('far_span', 0.0)), 0.0)
+            span_entries = []
+            for edge in source_edges:
+                span_entries.append((
+                    _edge_d_span(edge, wedge_ctx),
+                    float(getattr(edge, 'Length', 0.0)),
+                    edge))
+            span_entries.sort(key=lambda item: (item[0], item[1]),
+                              reverse=True)
+            span_tol = max(far_span * 0.5, GEOMETRY_TOLERANCE * 10)
+            span_candidates = [
+                entry[2] for entry in span_entries
+                if entry[0] >= span_tol]
+            if len(span_candidates) < 2:
+                span_candidates = [entry[2] for entry in span_entries[:2]]
+            if len(span_candidates) < 2:
+                return None
+
+            edge_a = _lookup_bent_wedge_edge(
+                span_candidates[0], bent_pairs)
+            edge_b = _lookup_bent_wedge_edge(
+                span_candidates[1], bent_pairs)
+            if edge_a is None or edge_b is None:
+                return None
+
+            if wedge_diag:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   curved {label} spans="
+                    f"{_edge_d_span(span_candidates[0], wedge_ctx):.6f},"
+                    f"{_edge_d_span(span_candidates[1], wedge_ctx):.6f}\n")
+
+            loft_variants = [
+                (edge_a, edge_b),
+                (edge_a, edge_b.reversed()),
+            ]
+            for loft_a, loft_b in loft_variants:
+                try:
+                    patch = Part.makeLoft(
+                        [loft_a, loft_b], False, False)
+                except Exception:
+                    patch = None
+                faces = _collect_shape_faces(patch)
+                if faces:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD:   curved {label}"
+                            f" surface=span-loft"
+                            f" faces={len(faces)}\n")
+                    return faces
+                make_ruled = getattr(
+                    Part, 'makeRuledSurface', None)
+                if callable(make_ruled):
+                    try:
+                        patch = make_ruled(loft_a, loft_b)
+                    except Exception:
+                        patch = None
+                    faces = _collect_shape_faces(patch)
+                    if faces:
+                        if wedge_diag:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD:   curved {label}"
+                                f" surface=span-ruled"
+                                f" faces={len(faces)}\n")
+                        return faces
+            return None
+
+        def _build_cap_surface_faces(
+                source_wire, bent_pairs, wedge_ctx, label,
+                prefer_span=None):
+            edge_count = len(getattr(source_wire, 'Edges', []))
+            if prefer_span is None:
+                prefer_span = (edge_count <= 4)
+            if wedge_diag:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   curved {label}"
+                    f" strategy={'span-first' if prefer_span else 'fill-first'}"
+                    f" edges={edge_count}\n")
+
+            strategies = (
+                ('span', 'fill') if prefer_span else ('fill', 'span'))
+            for strategy in strategies:
+                if strategy == 'span':
+                    faces = _build_surface_from_span_edges(
+                        source_wire, bent_pairs, wedge_ctx, label)
+                    if faces:
+                        return faces
+                    continue
+
+                wire = _build_closed_wire_from_bent_edges(
+                    source_wire, bent_pairs)
+                face = _make_filled_face_from_wire(wire)
+                if face is not None:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD:   curved {label}"
+                            f" surface=filled-face"
+                            f" faces=1\n")
+                    return [face]
+            return None
+
+        def _build_wedge_solid_hybrid(wedge_ctx):
+            profile = wedge_ctx.get('profile') or {}
+            top_wires = profile.get('top_wires') or []
+            bottom_wires = profile.get('bottom_wires') or []
+            side_pairs = profile.get('side_pairs') or []
+            source_edges = profile.get('wireframe_edges') or []
+
+            if (len(top_wires) != 1
+                    or len(bottom_wires) != 1
+                    or not side_pairs
+                    or not source_edges):
+                if wedge_diag:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: curved solid skipped"
+                        f" for piece {wedge_ctx['pi']}"
+                        f" top_wires={len(top_wires)}"
+                        f" bottom_wires={len(bottom_wires)}"
+                        f" side_pairs={len(side_pairs)}"
+                        f" edges={len(source_edges)}\n")
+                return None
+
+            bent_pairs = _build_bent_wedge_edges(
+                source_edges, wedge_ctx)
+            if not bent_pairs:
+                return None
+
+            patch_faces = []
+            side_face_count = 0
+            for pair in side_pairs:
+                top_edge = _lookup_bent_wedge_edge(
+                    pair['top_edge'], bent_pairs)
+                bottom_edge = _lookup_bent_wedge_edge(
+                    pair['bottom_edge'], bent_pairs)
+                if top_edge is None or bottom_edge is None:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   curved side lookup failed"
+                            f" for piece {wedge_ctx['pi']}\n")
+                    return None
+                side_patch = None
+                try:
+                    side_patch = Part.makeLoft(
+                        [top_edge, bottom_edge], False, True)
+                except Exception:
+                    side_patch = None
+                if side_patch is None:
+                    make_ruled = getattr(
+                        Part, 'makeRuledSurface', None)
+                    if callable(make_ruled):
+                        try:
+                            side_patch = make_ruled(
+                                top_edge, bottom_edge)
+                        except Exception:
+                            side_patch = None
+                side_faces = _collect_shape_faces(side_patch)
+                if not side_faces:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   curved side patch failed"
+                            f" for piece {wedge_ctx['pi']}\n")
+                    return None
+                side_face_count += len(side_faces)
+                for face in side_faces:
+                    _append_unique_shape(patch_faces, face)
+
+            target_vol = abs(float(wedge_ctx.get('target_vol', 0.0) or 0.0))
+
+            def _build_curved_with_cap_strategy(prefer_span_caps):
+                strategy_name = (
+                    "span-first" if prefer_span_caps else "fill-first")
+                cur_patch_faces = list(patch_faces)
+                top_surface_faces = _build_cap_surface_faces(
+                    top_wires[0], bent_pairs, wedge_ctx, "top",
+                    prefer_span=prefer_span_caps)
+                bottom_surface_faces = _build_cap_surface_faces(
+                    bottom_wires[0], bent_pairs, wedge_ctx, "bottom",
+                    prefer_span=prefer_span_caps)
+
+                if not top_surface_faces or not bottom_surface_faces:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   curved cap failed"
+                            f" for piece {wedge_ctx['pi']}"
+                            f" strategy={strategy_name}"
+                            f" top={'Y' if top_surface_faces else 'N'}"
+                            f" bottom={'Y' if bottom_surface_faces else 'N'}\n")
+                    return None
+
+                for face in top_surface_faces + bottom_surface_faces:
+                    _append_unique_shape(cur_patch_faces, face)
+
+                if wedge_diag:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   curved solid"
+                        f" strategy={strategy_name}"
+                        f" side_faces={side_face_count}"
+                        f" total_faces={len(cur_patch_faces)}\n")
+
+                shell = None
+                try:
+                    shell = Part.makeShell(cur_patch_faces)
+                except Exception:
+                    try:
+                        shell = Part.Shell(cur_patch_faces)
+                    except Exception:
+                        shell = None
+                if shell is None:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   curved shell failed"
+                            f" for piece {wedge_ctx['pi']}"
+                            f" strategy={strategy_name}"
+                            f" faces={len(cur_patch_faces)}\n")
+                    return None
+                try:
+                    shell_valid = shell.isValid()
+                except Exception:
+                    shell_valid = True
+                if not shell_valid:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   curved shell invalid"
+                            f" for piece {wedge_ctx['pi']}"
+                            f" strategy={strategy_name}"
+                            f" keep=Y\n")
+
+                solid = None
+                try:
+                    solid = Part.makeSolid(shell)
+                except Exception:
+                    try:
+                        solid = Part.Solid(shell)
+                    except Exception:
+                        solid = None
+                if solid is None:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   curved solidify failed"
+                            f" for piece {wedge_ctx['pi']}"
+                            f" strategy={strategy_name}\n")
+                    return None
+                try:
+                    vol = float(solid.Volume)
+                except Exception:
+                    vol = 0.0
+                if abs(vol) <= 1e-9:
+                    return None
+                if vol < 0:
+                    try:
+                        solid = solid.reversed()
+                        vol = abs(float(solid.Volume))
+                    except Exception:
+                        return None
+                try:
+                    solid_valid = solid.isValid()
+                except Exception:
+                    solid_valid = True
+                if not solid_valid:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   curved solid invalid"
+                            f" for piece {wedge_ctx['pi']}"
+                            f" strategy={strategy_name}"
+                            f" keep=Y\n")
+                vol_rel = 0.0
+                if target_vol > 1e-9:
+                    vol_rel = abs(vol - target_vol) / target_vol
+                if vol_rel > 0.20:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   curved solid suspicious"
+                            f" for piece {wedge_ctx['pi']}"
+                            f" strategy={strategy_name}"
+                            f" vol_rel={vol_rel:.3f}"
+                            f" vol={vol:.4f}"
+                            f" target={target_vol:.4f}"
+                            f" keep=Y\n")
+                return solid
+
+            primary_prefer_span = (len(side_pairs) <= 4)
+            strategies = [primary_prefer_span, not primary_prefer_span]
+            tried = set()
+            for prefer_span_caps in strategies:
+                if prefer_span_caps in tried:
+                    continue
+                tried.add(prefer_span_caps)
+                if wedge_diag and prefer_span_caps != primary_prefer_span:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   curved retry"
+                        f" for piece {wedge_ctx['pi']}"
+                        f" strategy="
+                        f"{'span-first' if prefer_span_caps else 'fill-first'}\n")
+                solid = _build_curved_with_cap_strategy(
+                    prefer_span_caps)
+                if solid is not None:
+                    return solid
+            return None
 
         def _make_triangle_face(p0, p1, p2):
             try:
@@ -4577,6 +4977,20 @@ class LinkedObject:
                     return _build_wedge_wireframe_analytic(ctx)
                 if mode == "Loft":
                     return _build_wedge_shape_legacy(mode)
+                if mode == "Curved":
+                    curved_solid = _build_wedge_solid_hybrid(ctx)
+                    if curved_solid is not None:
+                        if wedge_diag:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD:   curved solid ok"
+                                f" vol={_shape_volume(curved_solid):.4f}\n")
+                        return curved_solid
+                    elif wedge_diag:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD: curved solid failed"
+                            f" for piece {ctx['pi']},"
+                            f" no_fallback=Y\n")
+                    return None
                 analytic_solid = _build_wedge_solid_faceted(ctx)
                 if analytic_solid is not None:
                     if wedge_diag:
@@ -5011,6 +5425,144 @@ class LinkedObject:
             f"{_time.time() - _t_loft:.3f}s\n")
         # Update board shape with all pieces (including bent wedges)
         _t_final = _time.time()
+
+        def _build_piece_wireframe_fallback(shape, pi):
+            if shape is None:
+                return None
+
+            edges = []
+            try:
+                source_edges = list(getattr(shape, 'Edges', []))
+            except Exception:
+                source_edges = []
+
+            for edge in source_edges:
+                try:
+                    edge_copy = edge.copy()
+                except Exception:
+                    continue
+                try:
+                    if edge_copy.isNull():
+                        continue
+                except Exception:
+                    pass
+                try:
+                    if abs(float(edge_copy.Length)) <= 1e-9:
+                        continue
+                except Exception:
+                    pass
+                edges.append(edge_copy)
+
+            if not edges:
+                return None
+
+            try:
+                fallback = Part.makeCompound(edges)
+            except Exception:
+                return None
+
+            try:
+                if fallback.isNull():
+                    return None
+            except Exception:
+                pass
+
+            if wedge_diag:
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: piece {pi} fallback to wireframe"
+                    f" edges={len(edges)}\n")
+            return fallback
+
+        def _shape_should_display(shape):
+            if shape is None:
+                return False
+            try:
+                if shape.isValid():
+                    return True
+            except Exception:
+                pass
+            try:
+                has_edges = len(getattr(shape, 'Edges', [])) > 0
+                has_faces = len(getattr(shape, 'Faces', [])) > 0
+                has_solids = len(getattr(shape, 'Solids', [])) > 0
+                return has_edges and not has_faces and not has_solids
+            except Exception:
+                return False
+
+        def _repair_piece_shape_for_display(shape, pi):
+            if shape is None:
+                return None
+            try:
+                if shape.isValid():
+                    return shape
+            except Exception:
+                pass
+
+            if wedge_diag:
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: piece {pi} invalid after bending,"
+                    f" attempting repair\n")
+
+            fix_tol = GEOMETRY_TOLERANCE
+            fix_max_tol = max(GEOMETRY_TOLERANCE, GEOMETRY_TOLERANCE * 10.0)
+            attempts = []
+
+            def _add_attempt(label, candidate):
+                if candidate is not None:
+                    attempts.append((label, candidate))
+
+            try:
+                fixed = shape.copy()
+                fixed.fix(fix_tol, fix_tol, fix_max_tol)
+                _add_attempt("fix", fixed)
+            except Exception:
+                pass
+
+            try:
+                split = shape.copy().removeSplitter()
+                _add_attempt("removeSplitter", split)
+            except Exception:
+                pass
+
+            try:
+                fixed_split = shape.copy()
+                fixed_split.fix(fix_tol, fix_tol, fix_max_tol)
+                fixed_split = fixed_split.removeSplitter()
+                fixed_split.fix(fix_tol, fix_tol, fix_max_tol)
+                _add_attempt("fix+removeSplitter+fix", fixed_split)
+            except Exception:
+                pass
+
+            for label, candidate in attempts:
+                try:
+                    cand_valid = candidate.isValid()
+                except Exception:
+                    cand_valid = False
+                if not cand_valid:
+                    continue
+                try:
+                    cand_vol = abs(float(candidate.Volume))
+                except Exception:
+                    cand_vol = 0.0
+                if cand_vol <= 1e-9:
+                    continue
+                if wedge_diag:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: piece {pi} repaired"
+                        f" via {label} vol={cand_vol:.4f}\n")
+                return candidate
+
+            if wedge_mode == "Curved" and pi in strip_pieces:
+                fallback = _build_piece_wireframe_fallback(shape, pi)
+                if fallback is not None:
+                    return fallback
+
+            if wedge_diag:
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: piece {pi} repair failed,"
+                    f" dropping from display\n")
+            return None
+
         if enable_bending:
             saved_color = None
             try:
@@ -5018,8 +5570,12 @@ class LinkedObject:
             except Exception:
                 pass
 
+            piece_shapes = [
+                _repair_piece_shape_for_display(s, pi)
+                for pi, s in enumerate(piece_shapes)
+            ]
             board_obj.Shape = Part.makeCompound(
-                [s for s in piece_shapes if s.isValid()])
+                [s for s in piece_shapes if _shape_should_display(s)])
 
             if saved_color:
                 try:
@@ -6391,6 +6947,8 @@ class LinkedObject:
                                     smooth_legacy=False):
         if mode_value in self._WEDGE_MODE_OPTIONS:
             return mode_value
+        if mode_value == "Hybrid":
+            return "Curved"
         if mode_value == "Wireframe":
             return "Wireframe"
         if mode_value == "Solid":
@@ -6462,7 +7020,7 @@ class LinkedObject:
         if not hasattr(obj, 'WedgeMode'):
             obj.addProperty(
                 "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
-                "Wedge rendering mode: Coarse, Medium, Fine, Loft, or Wireframe")
+                "Wedge rendering mode: Coarse, Medium, Fine, Curved, Loft, or Wireframe")
         obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
         obj.WedgeMode = mode_value
         # Remove obsolete properties from older saved files.
