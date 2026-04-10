@@ -1547,7 +1547,7 @@ class LinkedObject:
     has its own Shape and can hold component children in the tree view.
     """
 
-    _WEDGE_MODE_OPTIONS = ["Smooth", "Linear", "Wireframe"]
+    _WEDGE_MODE_OPTIONS = ["Coarse", "Medium", "Fine", "Loft", "Wireframe"]
 
 
     def __init__(self, obj):
@@ -1579,10 +1579,15 @@ class LinkedObject:
         obj.DebugBoard = False
         obj.addProperty(
             "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
-            "Wedge rendering mode: Smooth, Linear, or Wireframe"
+            "Wedge rendering mode: Coarse, Medium, Fine, Loft, or Wireframe"
         )
         obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
-        obj.WedgeMode = "Linear"
+        obj.WedgeMode = "Coarse"
+        obj.addProperty(
+            "App::PropertyInteger", "RebendDebounceMs", "LinkedFile",
+            "Debounce delay in milliseconds before re-applying bends"
+        )
+        obj.RebendDebounceMs = 1000
         obj.addProperty(
             "App::PropertyString", "ComponentMtimes", "LinkedFile",
             "JSON: per-component model file mtimes for reuse"
@@ -1596,12 +1601,13 @@ class LinkedObject:
         obj.Proxy = self
         self.Type = "LinkedObject"
         self._board_color = None
+        self._ensure_rebend_timer_state()
 
     def onChanged(self, obj, prop):
         if prop in ("EnableBending", "BuildDebugObjects", "DebugBoard",
                     "WedgeMode", "SmoothWedge"):
             if not obj.Document.Restoring:
-                self._rebend(obj)
+                self._schedule_rebend(obj)
             return
         if prop == "AutoReload":
             try:
@@ -2042,8 +2048,9 @@ class LinkedObject:
                               thickness, enable_bending=enable)
         # Cancel any pending rebend timer — bending was already
         # handled by _apply_bends above.
-        if hasattr(self, '_rebend_timer'):
-            self._rebend_timer.stop()
+        timer = getattr(self, '_rebend_timer', None)
+        if timer is not None:
+            timer.stop()
 
     def _update_reused_component(self, comp_obj, kc, thickness, fp_info):
         """Update placement and KiCad coords for a reused component
@@ -2107,30 +2114,39 @@ class LinkedObject:
 
     def _schedule_rebend(self, obj):
         """Schedule a deferred rebend, coalescing changes from multiple
-        bend lines into a single rebend call."""
+        bend lines and LinkedObject properties into a single rebend call."""
         from PySide import QtCore, QtWidgets
 
-        if hasattr(self, '_rebend_timer'):
+        self._ensure_rebend_timer_state()
+        self._rebend_target = obj
+        delay_ms = self._get_rebend_debounce_ms(obj)
+
+        if self._rebend_timer is None:
+            self._rebend_timer = QtCore.QTimer()
+            self._rebend_timer.setSingleShot(True)
+
+            def _do_rebend():
+                # Check if a property editor widget is still focused
+                app = QtWidgets.QApplication.instance()
+                if app:
+                    w = app.focusWidget()
+                    if w and isinstance(
+                            w, (QtWidgets.QDoubleSpinBox,
+                                QtWidgets.QSpinBox,
+                                QtWidgets.QLineEdit)):
+                        # Still editing — retry later
+                        self._rebend_timer.start(
+                            self._get_rebend_debounce_ms(obj))
+                        return
+                target = self._rebend_target
+                if target is not None:
+                    self._rebend(target)
+
+            self._rebend_timer.timeout.connect(_do_rebend)
+
+        if self._rebend_timer.isActive():
             self._rebend_timer.stop()
-
-        def _do_rebend():
-            # Check if a property editor widget is still focused
-            app = QtWidgets.QApplication.instance()
-            if app:
-                w = app.focusWidget()
-                if w and isinstance(
-                        w, (QtWidgets.QDoubleSpinBox,
-                            QtWidgets.QSpinBox,
-                            QtWidgets.QLineEdit)):
-                    # Still editing — retry later
-                    self._rebend_timer.start(1000)
-                    return
-            self._rebend(obj)
-
-        self._rebend_timer = QtCore.QTimer()
-        self._rebend_timer.setSingleShot(True)
-        self._rebend_timer.timeout.connect(_do_rebend)
-        self._rebend_timer.start(1000)
+        self._rebend_timer.start(delay_ms)
 
     def _rebend(self, obj):
         """Re-apply bending after Radius/Angle/Active or EnableBending
@@ -3360,12 +3376,13 @@ class LinkedObject:
                 except Exception:
                     pass
 
-        # Bend wedge pieces into arcs via loft between
-        # rotated cross-sections.
+        # Build wedge shapes using the selected quality preset
+        # (`Coarse`, `Medium`, `Fine`), legacy `Loft`, or `Wireframe`.
         _t_loft = _time.time()
         wedge_mode = self._get_wedge_mode(obj)
-        smooth_wedge = (wedge_mode == "Smooth")
-        wireframe_wedge = (wedge_mode == "Wireframe")
+        is_wireframe_wedge = (wedge_mode == "Wireframe")
+        wedge_target_edge_splits = self._get_wedge_target_edge_splits(
+            wedge_mode)
         # N_SLICES per wedge: at least 16, or 1 per degree
         # (computed per wedge below)
         coc_offsets = {}  # bi → (bend_obj, first_s_mi)
@@ -3530,6 +3547,551 @@ class LinkedObject:
                     f" counts={counts} -> {new_counts}\n")
             return adjusted
 
+        def _shape_is_same(shape_a, shape_b):
+            try:
+                return shape_a.isSame(shape_b)
+            except Exception:
+                return False
+
+        def _shape_in_list(shape, shapes):
+            for cand in shapes:
+                if _shape_is_same(shape, cand):
+                    return True
+            return False
+
+        def _append_unique_shape(seq, shape):
+            if not _shape_in_list(shape, seq):
+                seq.append(shape)
+
+        def _collect_unique_edges(faces):
+            edges = []
+            for face in faces:
+                for edge in getattr(face, 'Edges', []):
+                    _append_unique_shape(edges, edge)
+            return edges
+
+        def _collect_unique_wires(faces):
+            wires = []
+            for face in faces:
+                for wire in getattr(face, 'Wires', []):
+                    _append_unique_shape(wires, wire)
+            return wires
+
+        def _face_normal(face):
+            try:
+                u0, u1, v0, v1 = face.ParameterRange
+                n = face.normalAt(
+                    0.5 * (u0 + u1), 0.5 * (v0 + v1))
+                if getattr(n, 'Length', 0.0) > 1e-9:
+                    n.normalize()
+                    return n
+            except Exception:
+                pass
+            pts = [v.Point for v in getattr(face, 'Vertexes', [])]
+            if len(pts) >= 3:
+                for idx in range(1, len(pts) - 1):
+                    n = (pts[idx] - pts[0]).cross(
+                        pts[idx + 1] - pts[0])
+                    if getattr(n, 'Length', 0.0) > 1e-9:
+                        n.normalize()
+                        return n
+            return None
+
+        def _extract_flat_wedge_profile(wedge_ctx):
+            flat_shape = wedge_ctx['positioned_flat']
+            cur_up = FreeCAD.Vector(wedge_ctx['cur_up'])
+            faces = list(getattr(flat_shape, 'Faces', []))
+            top_faces = []
+            bottom_faces = []
+            side_faces = []
+
+            for face in faces:
+                n = _face_normal(face)
+                dot_up = n.dot(cur_up) if n is not None else 0.0
+                if dot_up > 0.5:
+                    top_faces.append(face)
+                elif dot_up < -0.5:
+                    bottom_faces.append(face)
+                else:
+                    side_faces.append(face)
+
+            if (faces
+                    and (not top_faces or not bottom_faces)):
+                by_height = sorted(
+                    faces,
+                    key=lambda face: _shape_center(face).dot(cur_up))
+                top_faces = [by_height[-1]]
+                bottom_faces = [by_height[0]]
+                side_faces = []
+                for face in faces:
+                    if (_shape_is_same(face, top_faces[0])
+                            or _shape_is_same(face, bottom_faces[0])):
+                        continue
+                    side_faces.append(face)
+
+            top_wires = _collect_unique_wires(top_faces)
+            bottom_wires = _collect_unique_wires(bottom_faces)
+            top_edges = _collect_unique_edges(top_faces)
+            bottom_edges = _collect_unique_edges(bottom_faces)
+
+            side_pairs = []
+            connector_edges = []
+            for side_face in side_faces:
+                face_top_edges = []
+                face_bottom_edges = []
+                for edge in getattr(side_face, 'Edges', []):
+                    if _shape_in_list(edge, top_edges):
+                        _append_unique_shape(face_top_edges, edge)
+                    elif _shape_in_list(edge, bottom_edges):
+                        _append_unique_shape(face_bottom_edges, edge)
+                    else:
+                        _append_unique_shape(connector_edges, edge)
+
+                remaining_bottom = list(face_bottom_edges)
+                for top_edge in face_top_edges:
+                    if not remaining_bottom:
+                        break
+                    top_center = _shape_center(top_edge)
+                    best_idx = min(
+                        range(len(remaining_bottom)),
+                        key=lambda idx: _shape_center(
+                            remaining_bottom[idx]
+                        ).distanceToPoint(top_center))
+                    bottom_edge = remaining_bottom.pop(best_idx)
+                    side_pairs.append({
+                        'face': side_face,
+                        'top_edge': top_edge,
+                        'bottom_edge': bottom_edge,
+                    })
+
+            wireframe_edges = []
+            for edge in top_edges + bottom_edges + connector_edges:
+                _append_unique_shape(wireframe_edges, edge)
+
+            profile = {
+                'top_faces': top_faces,
+                'bottom_faces': bottom_faces,
+                'side_faces': side_faces,
+                'top_wires': top_wires,
+                'bottom_wires': bottom_wires,
+                'top_edges': top_edges,
+                'bottom_edges': bottom_edges,
+                'connector_edges': connector_edges,
+                'side_pairs': side_pairs,
+                'wireframe_edges': wireframe_edges,
+            }
+            if wedge_diag:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   profile"
+                    f" top_faces={len(top_faces)}"
+                    f" bottom_faces={len(bottom_faces)}"
+                    f" side_faces={len(side_faces)}"
+                    f" top_wires={len(top_wires)}"
+                    f" bottom_wires={len(bottom_wires)}"
+                    f" pairs={len(side_pairs)}"
+                    f" connectors={len(connector_edges)}\n")
+            return profile
+
+        def _make_wedge_build_context(
+                pi, bi, s_mi, positioned_flat, target_shape,
+                flat_cm, target_cm, target_vol, cur_p0,
+                cur_normal, cur_up, bend_axis, coc, sweep_angle,
+                ins, near_d, far_d, far_span, near_ref, far_ref,
+                slice_count, target_edge_splits):
+            angle_deg = abs(math.degrees(sweep_angle))
+            return {
+                'pi': pi,
+                'bi': bi,
+                's_mi': s_mi,
+                'positioned_flat': positioned_flat,
+                'target_shape': target_shape,
+                'flat_cm': flat_cm,
+                'target_cm': target_cm,
+                'target_vol': target_vol,
+                'cur_p0': FreeCAD.Vector(cur_p0),
+                'cur_normal': FreeCAD.Vector(cur_normal),
+                'cur_up': FreeCAD.Vector(cur_up),
+                'bend_axis': FreeCAD.Vector(bend_axis),
+                'coc': FreeCAD.Vector(coc),
+                'sweep_angle': sweep_angle,
+                'ins': ins,
+                'near_d': near_d,
+                'far_d': far_d,
+                'far_span': far_span,
+                'near_ref': FreeCAD.Vector(near_ref),
+                'far_ref': FreeCAD.Vector(far_ref),
+                'slice_count': max(int(slice_count), 1),
+                'target_edge_splits': max(int(target_edge_splits), 1),
+                'edge_samples': max(
+                    6,
+                    int(math.ceil(angle_deg / 8.0)) + 2),
+            }
+
+        def _bend_wedge_point(pt, wedge_ctx):
+            pt = FreeCAD.Vector(pt)
+            cur_p0 = wedge_ctx['cur_p0']
+            cur_normal = wedge_ctx['cur_normal']
+            bend_axis = wedge_ctx['bend_axis']
+            coc = wedge_ctx['coc']
+            near_d = wedge_ctx['near_d']
+            far_span = wedge_ctx['far_span']
+            sweep_angle = wedge_ctx['sweep_angle']
+            d = (pt - cur_p0).dot(cur_normal)
+            frac = abs(d - near_d) / far_span if far_span > 1e-9 else 0.0
+            frac = max(0.0, min(1.0, frac))
+            flat_pt = pt + cur_normal * (-d)
+            angle_deg = math.degrees(frac * sweep_angle)
+            if abs(angle_deg) <= 1e-9:
+                return flat_pt
+            rot = FreeCAD.Rotation(bend_axis, angle_deg)
+            return coc + rot.multVec(flat_pt - coc)
+
+        def _make_line_edge(p0, p1):
+            try:
+                if p0.distanceToPoint(p1) <= 1e-9:
+                    return None
+            except Exception:
+                return None
+            try:
+                return Part.LineSegment(p0, p1).toShape()
+            except Exception:
+                try:
+                    poly = Part.makePolygon([p0, p1])
+                    edges = list(getattr(poly, 'Edges', []))
+                    return edges[0] if edges else None
+                except Exception:
+                    return None
+
+        def _make_arc_edge(points):
+            if len(points) < 3:
+                return None
+            p0 = FreeCAD.Vector(points[0])
+            pm = FreeCAD.Vector(points[len(points) // 2])
+            p1 = FreeCAD.Vector(points[-1])
+            area = (pm - p0).cross(p1 - p0)
+            if getattr(area, 'Length', 0.0) <= 1e-9:
+                return _make_line_edge(p0, p1)
+            try:
+                return Part.Arc(p0, pm, p1).toShape()
+            except Exception:
+                return None
+
+        def _make_bspline_edge(points):
+            deduped = []
+            for pt in points:
+                pt = FreeCAD.Vector(pt)
+                if (not deduped
+                        or pt.distanceToPoint(deduped[-1]) > 1e-7):
+                    deduped.append(pt)
+            if len(deduped) < 2:
+                return None
+            if len(deduped) == 2:
+                return _make_line_edge(deduped[0], deduped[1])
+            try:
+                curve = Part.BSplineCurve()
+                try:
+                    curve.interpolate(Points=deduped)
+                except TypeError:
+                    curve.interpolate(deduped)
+                return curve.toShape()
+            except Exception:
+                return _make_line_edge(deduped[0], deduped[-1])
+
+        def _discretize_wedge_edge(edge, sample_count):
+            try:
+                pts = edge.discretize(Number=sample_count)
+            except Exception:
+                pts = [v.Point for v in getattr(edge, 'Vertexes', [])]
+            deduped = []
+            for pt in pts:
+                pt = FreeCAD.Vector(pt)
+                if (not deduped
+                        or pt.distanceToPoint(deduped[-1]) > 1e-7):
+                    deduped.append(pt)
+            if len(deduped) >= 2:
+                return deduped
+            verts = [FreeCAD.Vector(v.Point)
+                     for v in getattr(edge, 'Vertexes', [])]
+            deduped = []
+            for pt in verts:
+                if (not deduped
+                        or pt.distanceToPoint(deduped[-1]) > 1e-7):
+                    deduped.append(pt)
+            return deduped
+
+        def _bend_wedge_curve_from_samples(
+                flat_pts, wedge_ctx, source_edge=None):
+            flat_pts = [FreeCAD.Vector(pt) for pt in flat_pts]
+            if len(flat_pts) < 2:
+                return None
+            cur_p0 = wedge_ctx['cur_p0']
+            cur_normal = wedge_ctx['cur_normal']
+            bend_axis = wedge_ctx['bend_axis']
+            coc = wedge_ctx['coc']
+            near_d = wedge_ctx['near_d']
+            far_span = wedge_ctx['far_span']
+            sweep_angle = wedge_ctx['sweep_angle']
+
+            ds = [(pt - cur_p0).dot(cur_normal) for pt in flat_pts]
+            d_min = min(ds)
+            d_max = max(ds)
+            d_tol = max(1e-6, far_span * 1e-5)
+
+            if d_max - d_min <= d_tol:
+                d = sum(ds) / float(len(ds))
+                frac = abs(d - near_d) / far_span if far_span > 1e-9 else 0.0
+                frac = max(0.0, min(1.0, frac))
+                angle_deg = math.degrees(frac * sweep_angle)
+                if source_edge is not None:
+                    try:
+                        exact_edge = source_edge.copy()
+                        exact_edge.translate(cur_normal * (-d))
+                        if abs(angle_deg) > 1e-9:
+                            rot = FreeCAD.Rotation(
+                                bend_axis, angle_deg)
+                            plc = FreeCAD.Placement(
+                                FreeCAD.Vector(0, 0, 0),
+                                rot, coc)
+                            exact_edge.transformShape(
+                                plc.toMatrix())
+                        return exact_edge
+                    except Exception:
+                        pass
+                bent_pts = [
+                    _bend_wedge_point(flat_pts[0], wedge_ctx),
+                    _bend_wedge_point(flat_pts[-1], wedge_ctx),
+                ]
+                return _make_line_edge(bent_pts[0], bent_pts[1])
+
+            base_pts = []
+            base_ref = None
+            base_constant = True
+            for pt, d in zip(flat_pts, ds):
+                base_pt = pt + cur_normal * (-d)
+                base_pts.append(base_pt)
+                if base_ref is None:
+                    base_ref = base_pt
+                    continue
+                if base_pt.distanceToPoint(base_ref) > d_tol:
+                    base_constant = False
+                    break
+
+            bent_pts = []
+            for pt in flat_pts:
+                bent_pt = _bend_wedge_point(pt, wedge_ctx)
+                if (not bent_pts
+                        or bent_pt.distanceToPoint(bent_pts[-1]) > 1e-7):
+                    bent_pts.append(bent_pt)
+            if len(bent_pts) < 2:
+                return None
+
+            if base_constant:
+                arc_edge = _make_arc_edge(bent_pts)
+                if arc_edge is not None:
+                    return arc_edge
+
+            return _make_bspline_edge(bent_pts)
+
+        def _sample_flat_segment_points(p0, p1, wedge_ctx):
+            p0 = FreeCAD.Vector(p0)
+            p1 = FreeCAD.Vector(p1)
+            cur_p0 = wedge_ctx['cur_p0']
+            cur_normal = wedge_ctx['cur_normal']
+            far_span = wedge_ctx['far_span']
+            slice_count = max(
+                int(wedge_ctx.get('slice_count', 1) or 1), 1)
+            d0 = (p0 - cur_p0).dot(cur_normal)
+            d1 = (p1 - cur_p0).dot(cur_normal)
+            frac_span = abs(d1 - d0) / far_span if far_span > 1e-9 else 0.0
+            sample_count = max(
+                3,
+                int(math.ceil(
+                    max(frac_span, 0.25)
+                    * max(wedge_ctx['edge_samples'],
+                          slice_count + 1, 8))) + 1)
+            sample_count = min(sample_count, 64)
+            pts = []
+            for idx in range(sample_count):
+                frac = idx / float(sample_count - 1)
+                pt = p0 + (p1 - p0) * frac
+                if (not pts
+                        or pt.distanceToPoint(pts[-1]) > 1e-7):
+                    pts.append(pt)
+            return pts
+
+        def _build_wedge_wireframe_analytic(wedge_ctx):
+            curves = []
+            profile = wedge_ctx.get('profile') or {}
+            source_edges = profile.get('wireframe_edges')
+            if not source_edges:
+                source_edges = list(wedge_ctx['positioned_flat'].Edges)
+            for edge in source_edges:
+                edge_len = 0.0
+                try:
+                    edge_len = float(edge.Length)
+                except Exception:
+                    pass
+                sample_count = max(
+                    wedge_ctx['edge_samples'],
+                    int(math.ceil(edge_len / 2.0)) + 1)
+                sample_count = min(max(sample_count, 2), 96)
+                pts = _discretize_wedge_edge(edge, sample_count)
+                bent_curve = _bend_wedge_curve_from_samples(
+                    pts, wedge_ctx, source_edge=edge)
+                if bent_curve is None:
+                    continue
+                curves.append(bent_curve)
+            if not curves:
+                return None
+            if wedge_diag:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   analytic wireframe ok"
+                    f" edges={len(curves)}\n")
+            try:
+                return Part.makeCompound(curves)
+            except Exception:
+                return None
+
+        def _make_triangle_face(p0, p1, p2):
+            try:
+                area_vec = (p1 - p0).cross(p2 - p0)
+                if getattr(area_vec, 'Length', 0.0) <= 1e-9:
+                    return None
+                return Part.Face(Part.makePolygon([p0, p1, p2, p0]))
+            except Exception:
+                return None
+
+        def _tessellate_face_triangles(face, deflection):
+            try:
+                verts, tris = face.tessellate(deflection)
+            except Exception:
+                return []
+            tri_pts = []
+            for tri in tris:
+                if len(tri) < 3:
+                    continue
+                try:
+                    pts = [FreeCAD.Vector(verts[idx]) for idx in tri[:3]]
+                except Exception:
+                    continue
+                tri_pts.append(pts)
+            return tri_pts
+
+        def _subdivide_triangle_uniform(tri, max_depth):
+            pending = [([FreeCAD.Vector(pt) for pt in tri], 0)]
+            out = []
+            area_tol = 1e-10
+            while pending:
+                cur_tri, depth = pending.pop()
+                area_vec = (
+                    (cur_tri[1] - cur_tri[0]).cross(
+                        cur_tri[2] - cur_tri[0]))
+                if (depth >= max_depth
+                        or getattr(area_vec, 'Length', 0.0) <= area_tol):
+                    out.append(cur_tri)
+                    continue
+
+                p0 = FreeCAD.Vector(cur_tri[0])
+                p1 = FreeCAD.Vector(cur_tri[1])
+                p2 = FreeCAD.Vector(cur_tri[2])
+                m01 = (p0 + p1) * 0.5
+                m12 = (p1 + p2) * 0.5
+                m20 = (p2 + p0) * 0.5
+
+                sub_tris = [
+                    [p0, m01, m20],
+                    [m01, p1, m12],
+                    [m20, m12, p2],
+                    [m01, m12, m20],
+                ]
+                for sub_tri in sub_tris:
+                    pending.append((sub_tri, depth + 1))
+            return out
+
+        def _build_wedge_solid_faceted(wedge_ctx):
+            flat_shape = wedge_ctx['positioned_flat']
+            tri_faces = []
+            src_tri_count = 0
+            deflection = max(
+                0.05,
+                min(0.25, max(wedge_ctx['ins'], 0.05) / 8.0))
+            target_edge_splits = max(
+                int(wedge_ctx.get('target_edge_splits', 8) or 8), 1)
+            max_depth = max(
+                0,
+                int(round(math.log(target_edge_splits, 2))))
+            wedge_ctx['analytic_metrics'] = {
+                'patch_count': 0,
+                'planar_fallbacks': 0,
+                'nonplanar_patches': 0,
+                'deflection': deflection,
+            }
+            for face in getattr(flat_shape, 'Faces', []):
+                tris = _tessellate_face_triangles(face, deflection)
+                src_tri_count += len(tris)
+                for tri in tris:
+                    sub_tris = _subdivide_triangle_uniform(
+                        tri, max_depth)
+                    for sub_tri in sub_tris:
+                        bent = [
+                            _bend_wedge_point(pt, wedge_ctx)
+                            for pt in sub_tri
+                        ]
+                        tri_face = _make_triangle_face(
+                            bent[0], bent[1], bent[2])
+                        if tri_face is not None:
+                            tri_faces.append(tri_face)
+            wedge_ctx['analytic_metrics'] = {
+                'patch_count': len(tri_faces),
+                'planar_fallbacks': len(tri_faces),
+                'nonplanar_patches': 0,
+                'deflection': deflection,
+                'source_triangles': src_tri_count,
+                'target_edge_splits': target_edge_splits,
+                'max_depth': max_depth,
+            }
+            if not tri_faces:
+                return None
+            if wedge_diag:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   faceted solid tris={len(tri_faces)}"
+                    f" src={src_tri_count}"
+                    f" splits={target_edge_splits}"
+                    f" depth={max_depth}"
+                    f" defl={deflection:.4f}\n")
+            shell = None
+            try:
+                shell = Part.makeShell(tri_faces)
+            except Exception:
+                try:
+                    shell = Part.Shell(tri_faces)
+                except Exception:
+                    shell = None
+            if shell is None:
+                return None
+            solid = None
+            try:
+                solid = Part.makeSolid(shell)
+            except Exception:
+                try:
+                    solid = Part.Solid(shell)
+                except Exception:
+                    solid = None
+            if solid is None:
+                return None
+            try:
+                vol = float(solid.Volume)
+            except Exception:
+                vol = 0.0
+            if abs(vol) <= 1e-9:
+                return None
+            if vol < 0:
+                try:
+                    solid = solid.reversed()
+                except Exception:
+                    return None
+            return solid
+
         for pi in sorted(strip_to_bend):
             _t_loft_one = _time.time()
             bi = strip_to_bend[pi]
@@ -3665,6 +4227,32 @@ class LinkedObject:
                     f" far_pt={_fmt_vec(flat_anchor_far)}"
                     f"\n")
 
+            wedge_ctx = _make_wedge_build_context(
+                pi=pi,
+                bi=bi,
+                s_mi=s_mi,
+                positioned_flat=positioned_flat,
+                target_shape=target_shape,
+                flat_cm=flat_cm,
+                target_cm=target_cm,
+                target_vol=target_vol,
+                cur_p0=cur_p0,
+                cur_normal=cur_normal,
+                cur_up=cur_up,
+                bend_axis=bend_axis,
+                coc=coc,
+                sweep_angle=sweep_angle,
+                ins=ins,
+                near_d=near_d,
+                far_d=far_d,
+                far_span=far_span,
+                near_ref=near_ref,
+                far_ref=far_ref,
+                slice_count=N_SLICES,
+                target_edge_splits=wedge_target_edge_splits)
+            wedge_ctx['profile'] = _extract_flat_wedge_profile(
+                wedge_ctx)
+
             # Build uniform d-values over the wedge's actual projected span.
             d_uniform = []
             for si in range(N_SLICES + 1):
@@ -3681,51 +4269,7 @@ class LinkedObject:
             all_wires_flat = []  # for debug logging
             attempted_ds = []
             split_ds = []
-            if wireframe_wedge:
-                wire_ds = list(d_uniform)
-                if not wire_ds or wire_ds[0] > d_lo + min_sep:
-                    wire_ds.insert(0, d_lo + gt * 0.5)
-                if not wire_ds or wire_ds[-1] < d_hi - min_sep:
-                    wire_ds.append(d_hi - gt * 0.5)
-                wire_ds_dedup = [wire_ds[0]]
-                for sd in wire_ds[1:]:
-                    if sd - wire_ds_dedup[-1] >= min_sep:
-                        wire_ds_dedup.append(sd)
-
-                for d in wire_ds_dedup:
-                    attempted_ds.append(d)
-                    frac = abs(d - near_d) / far_span \
-                        if far_span > 1e-9 \
-                        else 0.0
-                    slice_pt = cur_p0 + cur_normal * d
-                    plane_dist = (
-                        slice_pt.x * cur_normal.x
-                        + slice_pt.y * cur_normal.y
-                        + slice_pt.z * cur_normal.z)
-                    try:
-                        wires = positioned_flat.slice(
-                            cur_normal, plane_dist)
-                    except Exception:
-                        wires = []
-                    if not wires:
-                        continue
-
-                    slice_angle = frac * sweep_angle
-                    trans_vec = cur_normal * (-d)
-                    for wire in wires:
-                        w = wire.copy()
-                        w.translate(trans_vec)
-                        if abs(slice_angle) > 1e-9:
-                            rot_s = FreeCAD.Rotation(
-                                bend_axis,
-                                math.degrees(slice_angle))
-                            plc_s = FreeCAD.Placement(
-                                FreeCAD.Vector(0, 0, 0),
-                                rot_s, coc)
-                            w.transformShape(
-                                plc_s.toMatrix())
-                        all_wires_flat.append(w)
-            else:
+            if not is_wireframe_wedge:
                 # Split the d-range at vertex projection planes
                 # so each sub-range has consistent cross-section
                 # topology.  We slice the original solid for each
@@ -3881,14 +4425,14 @@ class LinkedObject:
                         segments.append(
                             _normalize_wire_sequence(branch_seq))
 
-            if wedge_diag:
+            if wedge_diag and not is_wireframe_wedge:
                 wire_edges = [len(w.Edges)
                               for w in all_wires_flat]
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD:   slices={len(all_wires_flat)}"
                     f" edges={wire_edges}\n")
 
-            if not all_wires_flat:
+            if not is_wireframe_wedge and not all_wires_flat:
                 bbox = positioned_flat.BoundBox
                 attempted_ds = sorted(set(attempted_ds))
                 attempted_side_counts = []
@@ -3947,7 +4491,7 @@ class LinkedObject:
                     f" retry={list(zip([round(d, 6) for d in retry_ds], retry_hits))}"
                     f"\n")
 
-            def _try_loft(segs, label):
+            def _try_loft(segs, label, ruled):
                 """Try to build a loft from segments.
                 Returns the loft Shape or None."""
                 loft_parts = []
@@ -3955,7 +4499,7 @@ class LinkedObject:
                     if len(seg) < 2:
                         continue
                     part = Part.makeLoft(
-                        seg, True, not smooth_wedge)
+                        seg, True, ruled)
                     if abs(part.Volume) > 1e-9:
                         if part.Volume < 0:
                             part = part.reversed()
@@ -3978,41 +4522,84 @@ class LinkedObject:
                         f" vol={loft.Volume:.4f}\n")
                 return loft
 
-            loft = None
-            if wireframe_wedge:
-                if all_wires_flat:
-                    try:
-                        loft = Part.makeCompound(
-                            [w.copy() for w in all_wires_flat])
-                        if wedge_diag:
-                            FreeCAD.Console.PrintMessage(
-                                f"FreekiCAD:   wireframe ok"
-                                f" wires={len(all_wires_flat)}\n")
-                    except Exception as e:
-                        FreeCAD.Console.PrintWarning(
-                            f"FreekiCAD: wireframe build failed"
-                            f" for piece {pi}: {e}\n")
-            elif segments:
+            def _build_wedge_shape_legacy(mode):
+                if mode == "Wireframe":
+                    return None
+
+                if not segments:
+                    return None
+
+                smooth_loft = (mode == "Loft")
                 if wedge_diag:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD:   loft segments="
                         f"{len(segments)} splits_at="
-                        f"{[f'{d:.6f}' for d in split_ds]}\n")
+                        f"{[f'{d:.6f}' for d in split_ds]}"
+                        f" smooth={'Y' if smooth_loft else 'N'}\n")
 
                 try:
-                    loft = _try_loft(segments, "segmented")
+                    loft = _try_loft(
+                        segments,
+                        "smooth" if smooth_loft else "segmented",
+                        ruled=not smooth_loft)
+                    if loft is not None:
+                        return loft
+                    if smooth_loft and wedge_diag:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD: smooth loft produced no solid"
+                            f" for piece {pi},"
+                            f" fallback=segmented ruled loft\n")
+                    if smooth_loft:
+                        return _try_loft(
+                            segments, "segmented", ruled=True)
+                    return None
                 except Exception as e:
+                    if smooth_loft:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD: smooth loft failed"
+                            f" for piece {pi}: {e},"
+                            f" fallback=segmented ruled loft\n")
+                        try:
+                            return _try_loft(
+                                segments, "segmented", ruled=True)
+                        except Exception as fallback_e:
+                            FreeCAD.Console.PrintWarning(
+                                f"FreekiCAD: segmented loft failed"
+                                f" for piece {pi}: {fallback_e}\n")
+                            return None
                     FreeCAD.Console.PrintWarning(
                         f"FreekiCAD: segmented loft failed"
                         f" for piece {pi}: {e}\n")
+                    return None
+
+            def _build_wedge_shape(mode, ctx):
+                if mode == "Wireframe":
+                    return _build_wedge_wireframe_analytic(ctx)
+                if mode == "Loft":
+                    return _build_wedge_shape_legacy(mode)
+                analytic_solid = _build_wedge_solid_faceted(ctx)
+                if analytic_solid is not None:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD:   faceted solid ok"
+                            f" vol={_shape_volume(analytic_solid):.4f}\n")
+                    return analytic_solid
+                elif wedge_diag:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: faceted solid failed"
+                        f" for piece {ctx['pi']},"
+                        f" fallback=legacy loft\n")
+                return _build_wedge_shape_legacy(mode)
+
+            loft = _build_wedge_shape(wedge_mode, wedge_ctx)
 
             if loft is not None:
                     loft_pre_cm = _shape_center(loft)
                     remaining_plc = None
                     remaining_axis = FreeCAD.Vector() if wedge_diag else None
                     target_cm_pre = FreeCAD.Vector(target_cm)
-                    target_near_ref = FreeCAD.Vector(near_ref) if wedge_diag else None
-                    target_far_ref = FreeCAD.Vector(far_ref) if wedge_diag else None
+                    target_near_ref = FreeCAD.Vector(near_ref)
+                    target_far_ref = FreeCAD.Vector(far_ref)
                     # Apply remaining Phase 3
                     # rotations: the loft was built
                     # in the pre-mi frame; use the
@@ -4034,15 +4621,14 @@ class LinkedObject:
                             ).multVec(target_cm)
                         except Exception:
                             target_cm_pre = FreeCAD.Vector(target_cm)
-                        if wedge_diag:
-                            try:
-                                target_near_ref = remaining_plc.multVec(
-                                    near_ref)
-                                target_far_ref = remaining_plc.multVec(
-                                    far_ref)
-                            except Exception:
-                                target_near_ref = FreeCAD.Vector(near_ref)
-                                target_far_ref = FreeCAD.Vector(far_ref)
+                        try:
+                            target_near_ref = remaining_plc.multVec(
+                                near_ref)
+                            target_far_ref = remaining_plc.multVec(
+                                far_ref)
+                        except Exception:
+                            target_near_ref = FreeCAD.Vector(near_ref)
+                            target_far_ref = FreeCAD.Vector(far_ref)
                         ra = remaining_plc.Rotation.Angle
                         rb = remaining_plc.Base.Length
                         if wedge_diag:
@@ -4088,7 +4674,7 @@ class LinkedObject:
                         applied_plc = remaining_plc
                         applied_frac = 1.0
                         if ra <= 1e-6 and rb > 1e-6:
-                            if wireframe_wedge:
+                            if is_wireframe_wedge:
                                 base = remaining_plc.Base
                                 base_len2 = (
                                     base.x * base.x
@@ -4121,6 +4707,10 @@ class LinkedObject:
                                     neighbor_shapes.append(
                                         (nbr, piece_shapes[nbr]))
                                 if neighbor_shapes:
+                                    target_anchor_near = _closest_point_on_shape(
+                                        target_shape, target_near_ref)
+                                    target_anchor_far = _closest_point_on_shape(
+                                        target_shape, target_far_ref)
                                     best_score = None
                                     best_plc = None
                                     best_frac = 1.0
@@ -4154,16 +4744,34 @@ class LinkedObject:
                                         cand_center = _shape_center(cand_shape)
                                         cand_center_err = (
                                             cand_center - target_cm).Length
+                                        cand_anchor_near = _closest_point_on_shape(
+                                            cand_shape, target_near_ref)
+                                        cand_anchor_far = _closest_point_on_shape(
+                                            cand_shape, target_far_ref)
+                                        cand_anchor_err_near = (
+                                            cand_anchor_near.distanceToPoint(
+                                                target_anchor_near))
+                                        cand_anchor_err_far = (
+                                            cand_anchor_far.distanceToPoint(
+                                                target_anchor_far))
                                         cand_score = (
                                             float(max(cand_dists)),
                                             float(sum(cand_dists)),
+                                            float(max(
+                                                cand_anchor_err_near,
+                                                cand_anchor_err_far)),
+                                            float(
+                                                cand_anchor_err_near
+                                                + cand_anchor_err_far),
                                             float(cand_center_err))
                                         if wedge_diag:
                                             adaptive_scores.append(
                                                 f"{frac:.2f}:"
                                                 f"max={cand_score[0]:.6f}"
                                                 f" sum={cand_score[1]:.6f}"
-                                                f" center={cand_score[2]:.6f}"
+                                                f" anchor={cand_score[2]:.6f}"
+                                                f" anchor_sum={cand_score[3]:.6f}"
+                                                f" center={cand_score[4]:.6f}"
                                                 f" [{' '.join(cand_labels)}]")
                                         better = best_score is None
                                         if not better:
@@ -4171,7 +4779,7 @@ class LinkedObject:
                                             # ties so the center match can decide.
                                             for axis, (cand_v, best_v) in enumerate(
                                                     zip(cand_score, best_score)):
-                                                tol = 1e-6 if axis < 2 else 1e-9
+                                                tol = 1e-6 if axis < 4 else 1e-9
                                                 if cand_v < best_v - tol:
                                                     better = True
                                                     break
@@ -5763,15 +6371,50 @@ class LinkedObject:
         if state:
             self.Type = state.get("Type", "LinkedObject")
         self._board_color = None
+        self._ensure_rebend_timer_state()
+
+    def _ensure_rebend_timer_state(self):
+        if not hasattr(self, '_rebend_timer'):
+            self._rebend_timer = None
+        if not hasattr(self, '_rebend_target'):
+            self._rebend_target = None
 
     def _get_wedge_mode(self, obj):
-        mode = getattr(obj, "WedgeMode", None)
-        if mode in self._WEDGE_MODE_OPTIONS:
-            return mode
-        if hasattr(obj, "SmoothWedge"):
-            return "Smooth" if getattr(obj, "SmoothWedge", False) \
-                else "Linear"
-        return "Linear"
+        smooth_legacy = (
+            hasattr(obj, "SmoothWedge")
+            and getattr(obj, "SmoothWedge", False))
+        return self._normalize_wedge_mode_value(
+            getattr(obj, "WedgeMode", None),
+            smooth_legacy=smooth_legacy)
+
+    def _normalize_wedge_mode_value(self, mode_value,
+                                    smooth_legacy=False):
+        if mode_value in self._WEDGE_MODE_OPTIONS:
+            return mode_value
+        if mode_value == "Wireframe":
+            return "Wireframe"
+        if mode_value == "Solid":
+            return "Coarse"
+        if mode_value in ("Smooth", "Linear"):
+            return "Loft"
+        if smooth_legacy:
+            return "Loft"
+        return "Coarse"
+
+    def _get_wedge_target_edge_splits(self, mode_value):
+        mode = self._normalize_wedge_mode_value(mode_value)
+        if mode == "Coarse":
+            return 4
+        if mode == "Fine":
+            return 32
+        return 8
+
+    def _get_rebend_debounce_ms(self, obj):
+        try:
+            value = int(getattr(obj, 'RebendDebounceMs', 1000))
+        except Exception:
+            value = 1000
+        return max(0, value)
 
     # Properties that belong to this class (group "LinkedFile").
     # Anything in this group not listed here is obsolete and removed
@@ -5779,6 +6422,7 @@ class LinkedObject:
     _KNOWN_PROPERTIES = {
         "FileName", "AutoReload", "EnableBending",
         "BuildDebugObjects", "DebugBoard", "WedgeMode",
+        "RebendDebounceMs",
         "ComponentMtimes", "FileMtime",
     }
 
@@ -5804,17 +6448,21 @@ class LinkedObject:
                 "App::PropertyBool", "DebugBoard", "LinkedFile",
                 "Show each board piece as a separate child object")
             obj.DebugBoard = False
-        mode_value = getattr(obj, 'WedgeMode', None)
-        if mode_value not in self._WEDGE_MODE_OPTIONS:
-            mode_value = "Linear"
-            if hasattr(obj, 'SmoothWedge') \
-                    and getattr(obj, 'SmoothWedge', False):
-                mode_value = "Smooth"
+        if not hasattr(obj, 'RebendDebounceMs'):
+            obj.addProperty(
+                "App::PropertyInteger", "RebendDebounceMs", "LinkedFile",
+                "Debounce delay in milliseconds before re-applying bends")
+            obj.RebendDebounceMs = 1000
+        mode_value = self._normalize_wedge_mode_value(
+            getattr(obj, 'WedgeMode', None),
+            smooth_legacy=(
+                hasattr(obj, 'SmoothWedge')
+                and getattr(obj, 'SmoothWedge', False)))
 
         if not hasattr(obj, 'WedgeMode'):
             obj.addProperty(
                 "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
-                "Wedge rendering mode: Smooth, Linear, or Wireframe")
+                "Wedge rendering mode: Coarse, Medium, Fine, Loft, or Wireframe")
         obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
         obj.WedgeMode = mode_value
         # Remove obsolete properties from older saved files.
