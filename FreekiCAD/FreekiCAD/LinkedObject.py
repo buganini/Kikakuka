@@ -1582,7 +1582,7 @@ class LinkedObject:
     """
 
     _WEDGE_MODE_OPTIONS = [
-        "Coarse", "Medium", "Fine", "Smooth", "Loft", "Wireframe"]
+        "Smooth", "Loft", "Wireframe"]
     _REBEND_DEBOUNCE_MS = 1000
     _COMPONENT_MOVE_DEBOUNCE_MS = 200
     _COMPONENT_SYNC_GRACE_MS = 200
@@ -1617,7 +1617,7 @@ class LinkedObject:
         obj.DebugBoard = False
         obj.addProperty(
             "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
-            "Wedge rendering mode: Coarse, Medium, Fine, Smooth, Loft, or Wireframe"
+            "Wedge rendering mode: Smooth, Loft, or Wireframe"
         )
         obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
         obj.WedgeMode = "Smooth"
@@ -3583,9 +3583,8 @@ class LinkedObject:
                 except Exception:
                     pass
 
-        # Build wedge shapes using the selected quality preset
-        # (`Coarse`, `Medium`, `Fine`), explicit `Smooth`,
-        # legacy `Loft`, or `Wireframe`.
+        # Build wedge shapes using explicit `Smooth`,
+        # `Loft`, or `Wireframe`.
         _t_loft = _time.time()
         wedge_mode = self._get_wedge_mode(obj)
         is_wireframe_wedge = (wedge_mode == "Wireframe")
@@ -6108,110 +6107,6 @@ class LinkedObject:
                     f"{attempt_msg}\n")
             return tri_faces
 
-        def _build_bent_shape_triangle_patches(flat_shape, wedge_ctx):
-            tri_faces = []
-            src_tri_count = 0
-            deflection = max(
-                0.05,
-                min(0.25, max(wedge_ctx['ins'], 0.05) / 8.0))
-            (target_edge_splits,
-             effective_splits,
-             max_depth) = _triangle_fallback_subdivision_info(
-                wedge_ctx, reduction_levels=1)
-
-            for face in getattr(flat_shape, 'Faces', []):
-                tris = _tessellate_face_triangles(face, deflection)
-                src_tri_count += len(tris)
-                for tri in tris:
-                    sub_tris = _subdivide_triangle_uniform(
-                        tri, max_depth)
-                    for sub_tri in sub_tris:
-                        bent = [
-                            _bend_wedge_point(pt, wedge_ctx)
-                            for pt in sub_tri
-                        ]
-                        tri_face = _make_triangle_face(
-                            bent[0], bent[1], bent[2])
-                        if tri_face is not None:
-                            tri_faces.append(tri_face)
-
-            if tri_faces and wedge_diag:
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD:   curved tri-shell"
-                    f" patches={len(tri_faces)}"
-                    f" src={src_tri_count}"
-                    f" splits={effective_splits}"
-                    f" depth={max_depth}"
-                    f" defl={deflection:.4f}\n")
-            return tri_faces
-
-        def _build_wedge_solid_faceted(wedge_ctx):
-            flat_shape = wedge_ctx['positioned_flat']
-            tri_faces = _build_bent_shape_triangle_patches(
-                flat_shape, wedge_ctx)
-            deflection = max(
-                0.05,
-                min(0.25, max(wedge_ctx['ins'], 0.05) / 8.0))
-            target_edge_splits = max(
-                int(wedge_ctx.get('target_edge_splits', 8) or 8), 1)
-            max_depth = max(
-                0,
-                int(round(math.log(target_edge_splits, 2))))
-            src_tri_count = 0
-            for face in getattr(flat_shape, 'Faces', []):
-                src_tri_count += len(
-                    _tessellate_face_triangles(face, deflection))
-            wedge_ctx['analytic_metrics'] = {
-                'patch_count': len(tri_faces),
-                'planar_fallbacks': len(tri_faces),
-                'nonplanar_patches': 0,
-                'deflection': deflection,
-                'source_triangles': src_tri_count,
-                'target_edge_splits': target_edge_splits,
-                'max_depth': max_depth,
-            }
-            if not tri_faces:
-                return None
-            if wedge_diag:
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD:   faceted solid tris={len(tri_faces)}"
-                    f" src={src_tri_count}"
-                    f" splits={target_edge_splits}"
-                    f" depth={max_depth}"
-                    f" defl={deflection:.4f}\n")
-            shell = None
-            try:
-                shell = Part.makeShell(tri_faces)
-            except Exception:
-                try:
-                    shell = Part.Shell(tri_faces)
-                except Exception:
-                    shell = None
-            if shell is None:
-                return None
-            solid = None
-            try:
-                solid = Part.makeSolid(shell)
-            except Exception:
-                try:
-                    solid = Part.Solid(shell)
-                except Exception:
-                    solid = None
-            if solid is None:
-                return None
-            try:
-                vol = float(solid.Volume)
-            except Exception:
-                vol = 0.0
-            if abs(vol) <= 1e-9:
-                return None
-            if vol < 0:
-                try:
-                    solid = solid.reversed()
-                except Exception:
-                    return None
-            return solid
-
         for pi in sorted(strip_to_bend):
             _t_loft_one = _time.time()
             bi = strip_to_bend[pi]
@@ -6715,7 +6610,7 @@ class LinkedObject:
                         f" vol={loft.Volume:.4f}\n")
                 return loft
 
-            def _build_wedge_shape_legacy(mode):
+            def _build_wedge_shape_loft(mode):
                 if mode == "Wireframe":
                     return None
 
@@ -6769,7 +6664,7 @@ class LinkedObject:
                 if mode == "Wireframe":
                     return _build_wedge_wireframe_analytic(ctx)
                 if mode == "Loft":
-                    return _build_wedge_shape_legacy(mode)
+                    return _build_wedge_shape_loft(mode)
                 if mode == "Smooth":
                     curved_solid = _build_wedge_solid_hybrid(ctx)
                     if curved_solid is not None:
@@ -6784,19 +6679,7 @@ class LinkedObject:
                             f" for piece {ctx['pi']},"
                             f" fallback=wireframe\n")
                     return _build_wedge_wireframe_analytic(ctx)
-                analytic_solid = _build_wedge_solid_faceted(ctx)
-                if analytic_solid is not None:
-                    if wedge_diag:
-                        FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD:   faceted solid ok"
-                            f" vol={_shape_volume(analytic_solid):.4f}\n")
-                    return analytic_solid
-                elif wedge_diag:
-                    FreeCAD.Console.PrintWarning(
-                        f"FreekiCAD: faceted solid failed"
-                        f" for piece {ctx['pi']},"
-                        f" fallback=legacy loft\n")
-                return _build_wedge_shape_legacy(mode)
+                return _build_wedge_wireframe_analytic(ctx)
 
             loft = _build_wedge_shape(wedge_mode, wedge_ctx)
 
@@ -8745,11 +8628,7 @@ class LinkedObject:
         return "Smooth"
 
     def _get_wedge_target_edge_splits(self, mode_value):
-        mode = self._normalize_wedge_mode_value(mode_value)
-        if mode == "Coarse":
-            return 4
-        if mode == "Fine":
-            return 32
+        self._normalize_wedge_mode_value(mode_value)
         return 8
 
     def _get_rebend_debounce_ms(self, obj=None):
@@ -8792,7 +8671,7 @@ class LinkedObject:
         if not hasattr(obj, 'WedgeMode'):
             obj.addProperty(
                 "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
-                "Wedge rendering mode: Coarse, Medium, Fine, Smooth, Loft, or Wireframe")
+                "Wedge rendering mode: Smooth, Loft, or Wireframe")
         obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
         obj.WedgeMode = mode_value
         # Remove obsolete properties from older saved files.

@@ -167,21 +167,17 @@ For each wedge piece, creates a curved 3D solid by lofting cross-sections along 
 
 ### Wedge Modes
 
-`WedgeMode` is a user-facing rendering/build preset with six values:
+`WedgeMode` is a user-facing rendering/build preset with three values:
 
-- `Coarse`: analytic faceted wedge solid with target edge splits = 4
-- `Medium`: analytic faceted wedge solid with target edge splits = 8
-- `Fine`: analytic faceted wedge solid with target edge splits = 32
 - `Smooth`: hybrid curved wedge solid rebuilt from bent source topology
-- `Loft`: legacy sliced-loft wedge builder
+- `Loft`: sliced-loft wedge builder
 - `Wireframe`: analytic slice-wire preview only
 
 Current dispatch behavior:
 
 - `Wireframe` builds only the bent analytic slice wires
-- `Loft` uses the legacy loft path directly
+- `Loft` uses the sliced-loft path directly
 - `Smooth` tries the hybrid curved-solid builder; if that fails, it falls back to analytic wireframe
-- `Coarse` / `Medium` / `Fine` try the analytic faceted solid builder first; if that fails, they fall back to the legacy loft path
 
 ### Algorithm
 
@@ -231,15 +227,15 @@ Notes:
 - Constant-`d` side faces are rebuilt as anchored rigid faces (`anchored-sweep`)
 - Constant-`s` side faces (the two sweep-boundary faces) are rebuilt as planar `sweep-boundary-plane` faces
 - If a sweep-boundary face shares a collapsed cap edge, the rebuild first tries to reuse surviving exact bent edges and only synthesizes the collapsed edge as a projected line segment if necessary
-- The old sampled-boundary polygon path remains only as a last resort for sweep-boundary faces whose exact-edge wire still cannot be formed
-- Side faces no longer use the generic n-sided filled-face patch path, because that can synthesize poles or cone-like peaks that were not source vertices
+- A sampled-boundary polygon path remains only as a last resort for sweep-boundary faces whose exact-edge wire still cannot be formed
+- Side faces do not use the generic n-sided filled-face patch path, because that can synthesize poles or cone-like peaks that were not source vertices
 - In practice, side faces are rebuilt from anchored rigid faces, sweep-boundary planar faces, ruled/loft pair surfaces, or explicit triangle patches
 - Individual rebuilt faces can fall back to triangle patches; these are reported as `tri-fallback`
 - Triangle fallback density is intentionally lighter than the normal `Smooth` target: local fallback faces use one subdivision level less than the configured smooth split count
-- The old whole-wedge retry ladder (`generic-sides`, `generic-sides+fill-caps`, `side-triangles`, `tri-shell`) has been removed; `Smooth` now attempts a single source-topology rebuild for each wedge
-- The old scaled solidification retry was removed; if shell building fails, the smooth wedge rebuild stops at that single source-topology attempt
+- `Smooth` attempts a single source-topology rebuild for each wedge
+- If shell building fails, the smooth wedge rebuild stops at that single source-topology attempt
 - Smooth solid selection now ranks repaired shell candidates by volume error first, then by anchor alignment
-- Large volume error is no longer only diagnostic for fallback-heavy source-topology solids: if collapsed faces, dropped faces, or local triangle fallback were involved, a source-topology solid with high `vol_rel` is rejected outright
+- If collapsed faces, dropped faces, or local triangle fallback were involved, a source-topology solid with high `vol_rel` is rejected outright
 - If every smooth-stage solid attempt fails, the user-facing `Smooth` mode falls back to analytic wireframe for that wedge
 
 ### Smooth Strategy Inventory
@@ -294,19 +290,18 @@ Related diagnostics from the same stage:
 | `solid off-anchor` | diagnostic | A candidate solid misses the expected near/far anchor locations by more than the configured tolerance and is discarded. |
 | `solidify failed` | diagnostic | None of the shell candidates produced an acceptable solid. |
 
-### Faceted And Legacy Loft Labels
+### Loft Labels
 
 These labels are still live, but they are no longer part of the `Smooth` source-topology path:
 
 | Label | Layer | Used when / use case |
 | --- | --- | --- |
-| `tri-shell` | whole-wedge faceted builder | Used by the analytic faceted wedge builder behind `Coarse`, `Medium`, and `Fine`. It tessellates the whole wedge into triangles and builds a solid from that triangle shell. |
-| `smooth` | legacy loft sub-strategy | Used only by `WedgeMode=Loft`. It asks the legacy loft path to build one non-ruled loft across the sampled wedge segments. |
-| `segmented` | legacy loft fallback | Used by `Coarse` / `Medium` / `Fine` after the faceted build fails, and as the fallback from `WedgeMode=Loft` if the `smooth` loft does not produce a solid. This is the ruled segmented loft path. |
+| `smooth` | loft sub-strategy | Used only by `WedgeMode=Loft`. It asks the loft path to build one non-ruled loft across the sampled wedge segments. |
+| `segmented` | loft fallback | Used as the fallback from `WedgeMode=Loft` if the `smooth` loft does not produce a solid. This is the ruled segmented loft path. |
 
-### Legacy Loft Limits
+### Loft Limits
 
-The legacy `Loft` path is best suited to simple wedges whose slice topology stays consistent across the whole bend.
+The `Loft` path is best suited to simple wedges whose slice topology stays consistent across the whole bend.
 
 Important limits:
 
@@ -314,9 +309,9 @@ Important limits:
 - It is not robust for wedges whose slice topology branches, merges, or otherwise changes over the bend
 - If different slices in the same sub-range return different wire counts, the implementation drops to a `first-wire` fallback for that sub-range
 - In that inconsistent case, secondary branches can be ignored, so the resulting loft may miss parts of the intended shape or fail entirely
-- Even when multi-wire slices are present, the legacy path only works reliably when the branch count remains consistent from slice to slice
+- Even when multi-wire slices are present, the loft path only works reliably when the branch count remains consistent from slice to slice
 
-In practice, branched or topology-changing wedges should use `Smooth`; `Loft` remains mainly as a compatibility fallback for older, simpler wedge shapes.
+In practice, branched or topology-changing wedges should use `Smooth`; `Loft` is best reserved for simpler wedge shapes.
 
 ### Failure Modes
 
@@ -397,14 +392,14 @@ Bend (user-drawn bend line, bi)
 | **topo side** (A/B) | label | Neutral label for the two offset sides of a bend segment. 'A' and 'B' have no inherent directional meaning; stationary/moving roles are assigned later by BFS. |
 | **piece** / **pi** | index | A solid fragment after the board is sliced by all cut faces. Index into `pieces[]`. |
 | **piece_slices[pi]** | 2D Compound | The 2D cross-section of piece `pi` at z=half_t. Used for fast distance checks during adjacency building. |
-| **wedge** / **wedge piece** | piece | A narrow strip of material between the A and B cut faces of a bend segment. Lives within the inset zone. Lofted into a curved solid in the wedge loft phase. Code uses `strip_` prefix for historical reasons (e.g., `strip_pieces`, `strip_to_bend`). |
+| **wedge** / **wedge piece** | piece | A narrow strip of material between the A and B cut faces of a bend segment. Lives within the inset zone. Lofted into a curved solid in the wedge loft phase. Some helpers still use a `strip_` prefix (e.g., `strip_pieces`, `strip_to_bend`). |
 | **d** | local wedge coordinate | Projection along `cur_normal`: the across-bend direction used to measure inset span and sweep progress. |
 | **s** | local wedge coordinate | Projection along `bend_axis`: the along-bend direction used to identify the two sweep-boundary side faces. |
 | **up** | local wedge coordinate | Projection along `cur_up`: the board-thickness direction in the local wedge frame. |
 | **collapsed-to-line** | status | A cap face whose bent boundary degenerates to a line. This is treated as a legitimate singular limit of the wedge, not as a face reconstruction failure. |
 | **dropped face** | status | A source face for which neither exact rebuild nor local triangle fallback produced an acceptable face. Dropped faces cause the source-topology smooth rebuild to fail for that wedge. |
 | **sweep-boundary-plane** | face rebuild mode | A constant-`s` side face rebuilt as a planar face on one of the two sweep-boundary planes. These are the side faces orthogonal to the anchored constant-`d` side faces. |
-| **joint** / **sid** | index | A center-segment-centric grouping. Each joint corresponds to one center segment and contains: the center segment endpoints, zero or more A faces, zero or more B faces, and zero or more wedge pieces. A and B faces are assigned to joints by projecting their midpoints onto center segments. Index into `joints[]`. Replaces the old A/B pairing logic. |
+| **joint** / **sid** | index | A center-segment-centric grouping. Each joint corresponds to one center segment and contains: the center segment endpoints, zero or more A faces, zero or more B faces, and zero or more wedge pieces. A and B faces are assigned to joints by projecting their midpoints onto center segments. Index into `joints[]`. |
 | **micro-bend** / **mi** | index | One atomic fold operation used by Phase 3. In the current code, mi is assigned per joint/segment (`sid`) and can be shared by paired A/B faces of the same center segment. |
 | **micro_bend_info[mi]** | tuple | Per-mi data: (angle_rad, bend_obj, cut_mid, normal, radius, orig_bi). Geometry is taken from the stationary-side face when available. |
 | **mi_seg_idx[mi]** | int | Which segment index (0, 1, 2, ...) within its parent bend this mi belongs to. |
