@@ -2378,6 +2378,7 @@ class LinkedObject:
         #          p0, normal, bend_obj, moving_normal)
         cut_plan = []
         trimmed_bend_segs = []  # per bend: list of (sp0, sp1)
+
         for bi, (bend_obj_ref, p0, p1, line_dir, normal,
                  angle_rad, radius) in enumerate(bend_info):
             ins = insets[bi]
@@ -2981,6 +2982,14 @@ class LinkedObject:
             bendline_own_micros.setdefault(
                 bobj.Name, set()).add(mi)
 
+        def _classified_piece_bends(pi):
+            if pi is None or pi < 0 or pi >= len(piece_bend_sets):
+                return None
+            bends = piece_bend_sets[pi]
+            if bends is None:
+                return None
+            return bends
+
         for child in obj.Group:
             if (getattr(getattr(child, 'Proxy', None),
                         'Type', None) != 'BendLine'):
@@ -3010,15 +3019,19 @@ class LinkedObject:
                 stat_pi = None
                 for mi_own in own_mis:
                     for pi_a in range(len(pieces)):
+                        bends_a = _classified_piece_bends(pi_a)
+                        if bends_a is None:
+                            continue
                         for nbr, mi_adj, _fi in adjacency[pi_a]:
                             if mi_adj != mi_own:
                                 continue
+                            bends_nbr = _classified_piece_bends(nbr)
+                            if bends_nbr is None:
+                                continue
                             # pi_a and nbr separated by mi_own
-                            if mi_own not in \
-                                    piece_bend_sets[pi_a]:
+                            if mi_own not in bends_a:
                                 stat_pi = pi_a
-                            elif mi_own not in \
-                                    piece_bend_sets[nbr]:
+                            elif mi_own not in bends_nbr:
                                 stat_pi = nbr
                             if stat_pi is not None:
                                 break
@@ -3029,11 +3042,17 @@ class LinkedObject:
                 if stat_pi is not None:
                     found_pi = stat_pi
 
-            if found_pi is not None:
+            assigned_bends = _classified_piece_bends(found_pi)
+            if assigned_bends is not None:
                 bendline_bend_sets[child.Name] = \
-                    piece_bend_sets[found_pi]
+                    assigned_bends.copy()
                 bendline_piece_idx[child.Name] = found_pi
             else:
+                if found_pi is not None:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: bendline {child.Name}"
+                        f" maps to unclassified piece {found_pi};"
+                        f" using geometric bend-set fallback\n")
                 pt_2d = FreeCAD.Vector(pt.x, pt.y, 0)
                 fb = set()
                 for bi, (_, p0, _, _, normal, _, _) in enumerate(
@@ -7772,11 +7791,11 @@ class LinkedObject:
 
         All crossings ADD the bend (union, sets only grow).
 
-        When *strip_pieces* is set, BFS builds piece-to-piece arrows
-        that skip through wedges.  Each bfs_tree entry is
+        BFS returns a normalized tree entry shape for both wedge and
+        non-wedge traversals:
         ``(parent_pi, mis_crossed, wedge_pi)`` where *mis_crossed*
-        is a set of mi indices.  Without *strip_pieces*, entries are
-        ``(parent_pi, mi_crossed)`` (2-tuple, legacy path).
+        is a set of mi indices and *wedge_pi* is ``None`` unless the
+        piece was reached through a wedge strip.
 
         Returns (piece_bend_sets, bfs_tree, adjacency, cached_geo_crossings)."""
         n = len(pieces)
@@ -7852,7 +7871,10 @@ class LinkedObject:
             Uses the nearest vertex to the cut midpoint (that is not
             on the cut line itself) rather than CenterOfMass, so that
             curl-back pieces are classified by their local side near
-            the cut rather than by a distant center of mass.
+            the cut rather than by a distant center of mass.  If that
+            local heuristic is inconclusive or disagrees with the older
+            center-of-mass test, fall back to the center-of-mass result
+            so the traversal graph does not collapse.
             """
             if fi_cut is None:
                 return True
@@ -7897,7 +7919,19 @@ class LinkedObject:
             pt_b = _near_cut_point(pi_b)
             ca = sdx * (pt_a.y - sp0.y) - sdy * (pt_a.x - sp0.x)
             cb = sdx * (pt_b.y - sp0.y) - sdy * (pt_b.x - sp0.x)
-            return ca * cb < 0
+            if ca * cb < 0:
+                return True
+
+            # Fallback to the older center-of-mass classification when
+            # the local nearest-vertex heuristic keeps both pieces on
+            # the same side.  This preserves traversal through broad or
+            # highly segmented pieces where the nearest local vertex can
+            # be misleading.
+            cm_a = pieces[pi_a].CenterOfMass
+            cm_b = pieces[pi_b].CenterOfMass
+            cm_ca = sdx * (cm_a.y - sp0.y) - sdy * (cm_a.x - sp0.x)
+            cm_cb = sdx * (cm_b.y - sp0.y) - sdy * (cm_b.x - sp0.x)
+            return cm_ca * cm_cb < 0
 
         def _get_bend_idx(bi):
             pos = -(bi + 2) if bi <= -2 else bi
@@ -8018,8 +8052,10 @@ class LinkedObject:
                         queue.append(nbr)
 
         else:
-            # Legacy 3-tuple BFS (preliminary, no wedges).
-            bfs_tree = {stationary_idx: (None, None, None)}
+            # Non-wedge BFS uses the same normalized tuple shape as the
+            # wedge-aware path so later Phase 3 code can consume one
+            # structure regardless of whether strip pieces exist.
+            bfs_tree = {stationary_idx: (None, set(), None)}
             queue = [stationary_idx]
             while queue:
                 cur = queue.pop(0)
@@ -8031,41 +8067,44 @@ class LinkedObject:
                             if micro_bend_info is not None \
                             else bi
                         piece_bend_sets[nbr] = \
-                            piece_bend_sets[cur] | {bend_idx}
+                            piece_bend_sets[cur] | (
+                                {bend_idx} if bend_idx is not None
+                                else set())
+                        crossed = {bi}
                     else:
                         piece_bend_sets[nbr] = \
                             piece_bend_sets[cur].copy()
-                    bfs_tree[nbr] = (cur, bi, _fi)
+                        crossed = set()
+                    bfs_tree[nbr] = (cur, crossed, None)
                     queue.append(nbr)
 
         if log:
             for pi in sorted(bfs_tree):
-                entry = bfs_tree[pi]
-                if _sp:
-                    parent, mis_crossed, wedge_pi = entry
-                    if mis_crossed:
-                        labels = ", ".join(
-                            _crossing_label(m)
-                            for m in sorted(mis_crossed))
-                        raw = sorted(mis_crossed)
-                    else:
-                        labels = "-"
-                        raw = []
-                    _log_bending_bfs(
-                        f"FreekiCAD: bfs_tree[{pi}] ="
-                        f" parent={parent}"
-                        f" mis_crossed=[{labels}]"
-                        f" raw={raw}"
-                        f" wedge={wedge_pi}\n")
+                parent, mis_crossed, wedge_pi = bfs_tree[pi]
+                if mis_crossed:
+                    labels = ", ".join(
+                        _crossing_label(m)
+                        for m in sorted(mis_crossed))
+                    raw = sorted(mis_crossed)
                 else:
-                    parent, bi, fi = entry
-                    lbl = _crossing_label(bi) \
-                        if bi is not None else "-"
-                    _log_bending_bfs(
-                        f"FreekiCAD: bfs_tree[{pi}] ="
-                        f" parent={parent}"
-                        f" mi={lbl} raw={bi}"
-                        f" fi={fi}\n")
+                    labels = "-"
+                    raw = []
+                _log_bending_bfs(
+                    f"FreekiCAD: bfs_tree[{pi}] ="
+                    f" parent={parent}"
+                    f" mis_crossed=[{labels}]"
+                    f" raw={raw}"
+                    f" wedge={wedge_pi}\n")
+
+        classified_count = sum(
+            1 for bends in piece_bend_sets if bends is not None)
+        crossed_count = sum(
+            1 for bends in piece_bend_sets if bends)
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: BFS summary"
+            f" classified={classified_count}/{n}"
+            f" crossed={crossed_count}/{n}"
+            f" root={stationary_idx}\n")
 
         return piece_bend_sets, bfs_tree, adjacency, cached_geo_crossings
 
