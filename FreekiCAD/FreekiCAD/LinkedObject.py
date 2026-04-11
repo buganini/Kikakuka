@@ -5668,10 +5668,6 @@ class LinkedObject:
             if not source_face_entries:
                 return None
 
-            has_side_faces = any(
-                isinstance(entry, dict)
-                and entry.get('role') == 'side'
-                for entry in source_face_entries)
             tol_cfg = wedge_ctx.get('tolerances') or {}
             close_tol = float(tol_cfg.get('close', GEOMETRY_TOLERANCE))
             area_tol = float(tol_cfg.get('face_area', 1e-9))
@@ -5679,22 +5675,6 @@ class LinkedObject:
             side_surface_cache = {}
             exact_face_cache = {}
             tri_face_cache = {}
-            auto_caps_need_fill_retry = False
-            for source_face_entry in source_face_entries:
-                if isinstance(source_face_entry, dict):
-                    source_face = source_face_entry.get('face')
-                    face_role = source_face_entry.get('role') or "face"
-                else:
-                    source_face = source_face_entry
-                    face_role = "face"
-                if source_face is None or face_role not in ("top", "bottom"):
-                    continue
-                source_wires = list(getattr(source_face, 'Wires', []))
-                if len(source_wires) != 1:
-                    continue
-                if len(getattr(source_wires[0], 'Edges', [])) <= 4:
-                    auto_caps_need_fill_retry = True
-                    break
 
             def _cached_cap_surface_faces(
                     source_wire, face_label, prefer_span):
@@ -5740,13 +5720,11 @@ class LinkedObject:
                         source_face, wedge_ctx)
                 return tri_face_cache[key]
 
-            def _build_rebuilt_faces(
-                    side_strategy, cap_strategy="auto"):
+            def _build_rebuilt_faces():
                 rebuilt_faces = []
                 tri_fallback_faces = 0
                 dropped_faces = 0
                 collapsed_faces = 0
-                used_side_pair_surfaces = False
                 for face_idx, source_face_entry in enumerate(
                         source_face_entries):
                     if isinstance(source_face_entry, dict):
@@ -5767,10 +5745,6 @@ class LinkedObject:
                             and len(source_wires) == 1):
                         cap_prefer_span = (
                             len(getattr(source_wires[0], 'Edges', [])) <= 4)
-                        if cap_strategy == "fill-first":
-                            cap_prefer_span = False
-                        elif cap_strategy == "span-first":
-                            cap_prefer_span = True
                         cap_faces = _cached_cap_surface_faces(
                             source_wires[0], face_label, cap_prefer_span)
                         if cap_faces is not None:
@@ -5786,34 +5760,12 @@ class LinkedObject:
                             continue
 
                     if face_role == "side":
-                        if side_strategy in ("ruled", "generic", "triangles"):
-                            side_faces, side_mode = _cached_side_surface_faces(
-                                source_face, face_label,
-                                source_face_entry.get('pairs'))
-                            if side_faces:
-                                if (side_strategy != "triangles"
-                                        or side_mode in (
-                                            "anchored",
-                                            "boundary-plane")):
-                                    if side_mode == "pairs":
-                                        used_side_pair_surfaces = True
-                                    rebuilt_faces.extend(side_faces)
-                                    continue
-                                if side_mode == "pairs":
-                                    used_side_pair_surfaces = True
-                        if side_strategy == "triangles":
-                            tri_faces = _cached_tri_faces(
-                                source_face, face_label)
-                            if tri_faces:
-                                if wedge_diag:
-                                    FreeCAD.Console.PrintMessage(
-                                        f"FreekiCAD:   curved source-face"
-                                        f" {face_label}"
-                                        f" tri-fallback"
-                                        f" faces={len(tri_faces)}\n")
-                                tri_fallback_faces += len(tri_faces)
-                                rebuilt_faces.extend(tri_faces)
-                                continue
+                        side_faces, _side_mode = _cached_side_surface_faces(
+                            source_face, face_label,
+                            source_face_entry.get('pairs'))
+                        if side_faces:
+                            rebuilt_faces.extend(side_faces)
+                            continue
 
                     rebuilt_face = _cached_exact_face(
                         source_face, face_label,
@@ -5850,27 +5802,15 @@ class LinkedObject:
                     tri_fallback_faces,
                     collapsed_faces,
                     dropped_faces,
-                    used_side_pair_surfaces,
                 )
 
-            def _try_source_topology(
-                    side_strategy, cap_strategy="auto",
-                    retry_label=None):
-                if retry_label and wedge_diag:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD:   curved source-topology"
-                        f" retry={retry_label}\n")
+            def _try_source_topology():
                 (rebuilt_faces,
                  tri_fallback_faces,
                  collapsed_faces,
-                 dropped_faces,
-                 used_side_pair_surfaces) = _build_rebuilt_faces(
-                    side_strategy, cap_strategy=cap_strategy)
-                stage_meta = {
-                    'used_side_pair_surfaces': used_side_pair_surfaces,
-                }
+                 dropped_faces) = _build_rebuilt_faces()
                 if not rebuilt_faces:
-                    return None, stage_meta
+                    return None
                 if wedge_diag:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD:   curved source-topology"
@@ -5881,7 +5821,7 @@ class LinkedObject:
                 solid = _solidify_surface_faces(
                     rebuilt_faces, wedge_ctx, "source-topology")
                 if solid is None:
-                    return None, stage_meta
+                    return None
                 target_vol = abs(float(
                     wedge_ctx.get('target_vol', 0.0) or 0.0))
                 vol_rel = 0.0
@@ -5904,57 +5844,14 @@ class LinkedObject:
                             f" tri_fallback={tri_fallback_faces}"
                             f" collapsed={collapsed_faces}"
                             f" dropped={dropped_faces}\n")
-                    return None, stage_meta
-                return solid, stage_meta
+                    return None
+                return solid
 
-            source_topology_solid, ruled_stage_meta = _try_source_topology(
-                "ruled")
+            source_topology_solid = _try_source_topology()
             if source_topology_solid is not None:
                 return source_topology_solid
 
-            if has_side_faces:
-                if ruled_stage_meta.get('used_side_pair_surfaces'):
-                    source_topology_solid, _generic_stage_meta = (
-                        _try_source_topology(
-                            "generic", retry_label="generic-sides"))
-                    if source_topology_solid is not None:
-                        return source_topology_solid
-                elif wedge_diag:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD:   curved source-topology"
-                        f" skip=generic-sides"
-                        f" reason=no-side-pair-surfaces\n")
-
-                if auto_caps_need_fill_retry:
-                    source_topology_solid, _fill_caps_stage_meta = (
-                        _try_source_topology(
-                            "generic",
-                            cap_strategy="fill-first",
-                            retry_label="generic-sides+fill-caps"))
-                    if source_topology_solid is not None:
-                        return source_topology_solid
-                elif wedge_diag:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD:   curved source-topology"
-                        f" skip=generic-sides+fill-caps"
-                        f" reason=auto-caps-already-fill-first\n")
-
-                source_topology_solid, _triangle_stage_meta = _try_source_topology(
-                    "triangles", retry_label="side-triangles")
-                if source_topology_solid is not None:
-                    return source_topology_solid
-
-            tri_shell_faces = _build_bent_shape_triangle_patches(
-                wedge_ctx['positioned_flat'], wedge_ctx)
-            if not tri_shell_faces:
-                return None
-            if wedge_diag:
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD:   curved source-topology"
-                    f" retry=tri-shell"
-                    f" faces={len(tri_shell_faces)}\n")
-            return _solidify_surface_faces(
-                tri_shell_faces, wedge_ctx, "source-triangles")
+            return None
 
         def _build_wedge_solid_hybrid(wedge_ctx):
             profile = wedge_ctx.get('profile') or {}

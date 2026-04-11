@@ -210,7 +210,7 @@ Current dispatch behavior:
 
 ### Smooth Hybrid Rebuild
 
-`Smooth` rebuilds the wedge from bent versions of the flat source faces instead of relying only on a single raw loft. The current retry ladder is:
+`Smooth` rebuilds the wedge from bent versions of the flat source faces instead of relying only on a single raw loft. The active strategy stack is:
 
 The smooth wedge builder uses a local frame for each wedge:
 
@@ -219,11 +219,7 @@ The smooth wedge builder uses a local frame for each wedge:
 - `up`: projection along `cur_up` (board thickness direction)
 
 0. Rebuild constant-`d` sweep-boundary side faces as exact rigid transforms first (`anchored-sweep`)
-1. Rebuild source topology with ruled side faces and normal cap preferences
-2. Retry under the historical `generic-sides` label
-3. Retry with fill-first caps (`generic-sides+fill-caps`)
-4. Retry with triangle patches on side faces only (`side-triangles`)
-5. Retry with a full triangle shell over the whole wedge (`tri-shell`)
+1. Rebuild source topology with analytic side faces, normal cap preferences, and local triangle fallback only for source faces that cannot be rebuilt
 
 Notes:
 
@@ -239,14 +235,74 @@ Notes:
 - Side faces no longer use the generic n-sided filled-face patch path, because that can synthesize poles or cone-like peaks that were not source vertices
 - In practice, side faces are rebuilt from anchored rigid faces, sweep-boundary planar faces, ruled/loft pair surfaces, or explicit triangle patches
 - Individual rebuilt faces can fall back to triangle patches; these are reported as `tri-fallback`
-- Triangle fallback density is intentionally lighter than the normal `Smooth` target: fallback faces and `tri-shell` both use one subdivision level less than the configured smooth split count
-- The retry labels `generic-sides` / `generic-sides+fill-caps` are historical; they no longer imply that side faces themselves are rebuilt with generic filled patches
-- `generic-sides` is skipped entirely if the first ruled stage never produced any pair-built side surfaces
-- Later fallback stages preserve already-good analytic side faces (`anchored-sweep` / `sweep-boundary-plane`) instead of replacing them with triangles
-- The old scaled solidification retry was removed; the smooth path now advances directly to the next fallback stage when shell building fails
+- Triangle fallback density is intentionally lighter than the normal `Smooth` target: local fallback faces use one subdivision level less than the configured smooth split count
+- The old whole-wedge retry ladder (`generic-sides`, `generic-sides+fill-caps`, `side-triangles`, `tri-shell`) has been removed; `Smooth` now attempts a single source-topology rebuild for each wedge
+- The old scaled solidification retry was removed; if shell building fails, the smooth wedge rebuild stops at that single source-topology attempt
 - Smooth solid selection now ranks repaired shell candidates by volume error first, then by anchor alignment
-- Large volume error is no longer only diagnostic for fallback-heavy source-topology solids: if collapsed faces, dropped faces, or local triangle fallback were involved, a source-topology solid with high `vol_rel` is rejected and the stage advances
+- Large volume error is no longer only diagnostic for fallback-heavy source-topology solids: if collapsed faces, dropped faces, or local triangle fallback were involved, a source-topology solid with high `vol_rel` is rejected outright
 - If every smooth-stage solid attempt fails, the user-facing `Smooth` mode falls back to analytic wireframe for that wedge
+
+### Smooth Strategy Inventory
+
+| Label | Layer | Used when / use case |
+| --- | --- | --- |
+| `vertex-weld` | preprocessing | Always runs before the `Smooth` source-topology rebuild. It welds bent edge vertices so adjacent rebuilt faces share endpoints and shell construction has a better chance to close cleanly. |
+| `source-topology` | whole-wedge strategy | Default and only whole-wedge `Smooth` strategy. Rebuilds the wedge from the original top/bottom/side face decomposition instead of tessellating the whole wedge into triangles. |
+| `anchored-sweep` | side-face rebuild | Used when a source side face is constant-`d`. This is the most exact side-face path: rigidly transform the source face to its bent position at a fixed inset distance. |
+| `sweep-boundary-plane` | side-face rebuild | Used when a source side face is constant-`s`. This is the dedicated rebuild for the two sweep-boundary planes; it prefers exact bent edges and only drops to projected sampled edges if the exact wire cannot be closed. |
+| `side-ruled` | side-pair rebuild | Used when a side face is neither constant-`d` nor constant-`s`, but matched top/bottom edge pairs are available and `Part.makeRuledSurface(...)` succeeds. Preferred pair-based rebuild because it preserves straight edge correspondence. |
+| `side-loft` | side-pair fallback | Used only when a valid side pair exists but `side-ruled` does not succeed. It is the fallback pair-based side rebuild. |
+| `span-first` | cap preference | Default cap policy when a top/bottom source wire has 4 or fewer edges. Use case: simple caps whose shape is best reconstructed from the two long sweep-boundary edges before trying a generic fill. |
+| `fill-first` | cap preference | Default cap policy when a top/bottom source wire has more than 4 edges. Use case: more complex caps where a filled boundary is usually more reliable than span reconstruction. |
+| `span-loft` | cap surface build | Used when the cap builder can identify two strong sweep-boundary edges and a loft between them succeeds. Preferred for simple ribbon-like caps. |
+| `span-ruled` | cap surface fallback | Used when the same span edges are available but `span-loft` fails and a ruled surface succeeds instead. |
+| `filled-face` | cap surface build | Used when a cap wire can be rebuilt as a closed bent wire and filled directly. This is the main non-span cap strategy, and the first fill-based choice when `fill-first` is active. |
+| `dense-filled-face` | cap surface fallback | Used when the ordinary filled cap wire is too sparse or fragile for OCC, but a denser sampled wire produces a valid fill. |
+| `surface=exact` | generic face rebuild | Used for residual non-side faces whose bent boundary wires can still be reconstructed exactly and filled without a cap- or side-specific strategy. |
+| `tri-fallback` | per-face fallback | Used only for the individual source face that could not be rebuilt analytically or exactly. This is no longer a whole-wedge retry stage. |
+
+### Smooth Status And Diagnostic Labels
+
+| Label | Meaning | Used when / use case |
+| --- | --- | --- |
+| `collapsed-to-line` | status | A cap legitimately degenerates to a line after bending. Use case: keep the shell valid by omitting a singular cap instead of treating it as a reconstruction error. |
+| `dropped` | status | A source face could not be rebuilt analytically, exactly, or via local triangle fallback. Use case: mark the whole `source-topology` attempt as failed for that wedge. |
+| `side-pairs-missing` | diagnostic | A non-constant side face had no pair metadata. Use case: explain why pair-based side reconstruction was unavailable at all. |
+| `side-pairs-failed` | diagnostic | Pair metadata existed, but neither ruled nor loft reconstruction produced a usable side surface. Use case: explain why the side face had to fall through to exact or local triangle fallback. |
+| `sweep-boundaries=fallback` | diagnostic | The cap span search could not confidently identify two constant-`s` sweep-boundary edges. Use case: explain why the cap builder skipped span reconstruction and had to rely on fill-based methods. |
+| `source=sampled` | diagnostic | A `sweep-boundary-plane` face could not close from exact bent edges, so the implementation projected sampled/source edges onto the constant-`s` plane instead. |
+| `rejected after fallback faces` | diagnostic | A `source-topology` solid was assembled, but its volume error was too large after using collapsed faces, dropped faces, or local triangle fallback. Use case: reject fallback-heavy solids that are geometrically plausible but materially wrong. |
+
+### Shell Candidate Inventory
+
+`_solidify_surface_faces(...)` tries several shell-building sub-strategies before giving up on a face set:
+
+| Label | Layer | Used when / use case |
+| --- | --- | --- |
+| `makeShell` | shell candidate | First direct OCC shell attempt from the oriented rebuilt faces. Best case when the faces already form a clean closed shell. |
+| `Shell` | shell candidate | Alternate OCC shell constructor used when `makeShell` does not yield a usable shell. |
+| `compound` | shell candidate | Builds a compound of faces and extracts any shells already implicit in that compound. Useful when direct shell constructors miss a shell the topology already implies. |
+| `sewShape` | shell candidate | Stitches the face compound before re-extracting shells. Use case: the rebuilt faces are close enough to sew, but are not yet connected as one shell. |
+| `sewShape+fix` | shell candidate fallback | Applies OCC `fix(...)` after sewing. Last shell-building pass before the candidate face set is rejected. |
+
+Related diagnostics from the same stage:
+
+| Label | Meaning | Used when / use case |
+| --- | --- | --- |
+| `solid repaired` | diagnostic | `_repair_valid_solid_candidate(...)` had to heal or rebuild the solid after shell construction. |
+| `solid suspicious` | diagnostic | A valid solid exists, but its volume error is large enough to warn about before ranking candidates. |
+| `solid off-anchor` | diagnostic | A candidate solid misses the expected near/far anchor locations by more than the configured tolerance and is discarded. |
+| `solidify failed` | diagnostic | None of the shell candidates produced an acceptable solid. |
+
+### Faceted And Legacy Loft Labels
+
+These labels are still live, but they are no longer part of the `Smooth` source-topology path:
+
+| Label | Layer | Used when / use case |
+| --- | --- | --- |
+| `tri-shell` | whole-wedge faceted builder | Used by the analytic faceted wedge builder behind `Coarse`, `Medium`, and `Fine`. It tessellates the whole wedge into triangles and builds a solid from that triangle shell. |
+| `smooth` | legacy loft sub-strategy | Used only by `WedgeMode=Loft`. It asks the legacy loft path to build one non-ruled loft across the sampled wedge segments. |
+| `segmented` | legacy loft fallback | Used by `Coarse` / `Medium` / `Fine` after the faceted build fails, and as the fallback from `WedgeMode=Loft` if the `smooth` loft does not produce a solid. This is the ruled segmented loft path. |
 
 ### Legacy Loft Limits
 
@@ -346,7 +402,7 @@ Bend (user-drawn bend line, bi)
 | **s** | local wedge coordinate | Projection along `bend_axis`: the along-bend direction used to identify the two sweep-boundary side faces. |
 | **up** | local wedge coordinate | Projection along `cur_up`: the board-thickness direction in the local wedge frame. |
 | **collapsed-to-line** | status | A cap face whose bent boundary degenerates to a line. This is treated as a legitimate singular limit of the wedge, not as a face reconstruction failure. |
-| **dropped face** | status | A source face for which neither exact rebuild nor local triangle fallback produced an acceptable face. Dropped faces are what drive later smooth-stage fallback retries. |
+| **dropped face** | status | A source face for which neither exact rebuild nor local triangle fallback produced an acceptable face. Dropped faces cause the source-topology smooth rebuild to fail for that wedge. |
 | **sweep-boundary-plane** | face rebuild mode | A constant-`s` side face rebuilt as a planar face on one of the two sweep-boundary planes. These are the side faces orthogonal to the anchored constant-`d` side faces. |
 | **joint** / **sid** | index | A center-segment-centric grouping. Each joint corresponds to one center segment and contains: the center segment endpoints, zero or more A faces, zero or more B faces, and zero or more wedge pieces. A and B faces are assigned to joints by projecting their midpoints onto center segments. Index into `joints[]`. Replaces the old A/B pairing logic. |
 | **micro-bend** / **mi** | index | One atomic fold operation used by Phase 3. In the current code, mi is assigned per joint/segment (`sid`) and can be shared by paired A/B faces of the same center segment. |
