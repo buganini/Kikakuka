@@ -1269,6 +1269,7 @@ class _OutlineSketchObserver:
         self._suppressed = set()
         self._constraining = False  # re-entrancy guard
         self._move_timers = {}  # obj.Name → QTimer for debounce
+        self._move_timer_parents = {}  # obj.Name → parent.Name
 
     def suppress(self, name):
         self._suppressed.add(name)
@@ -1313,6 +1314,25 @@ class _OutlineSketchObserver:
                     return True
         return False
 
+    def _is_component_move_blocked(self, parent):
+        proxy = getattr(parent, "Proxy", None)
+        if proxy and hasattr(proxy, "_is_component_move_blocked"):
+            try:
+                return proxy._is_component_move_blocked(parent)
+            except Exception:
+                pass
+        return self._is_bending_active(parent)
+
+    def cancel_component_moves(self, parent):
+        parent_name = getattr(parent, "Name", parent)
+        for name, owner in list(self._move_timer_parents.items()):
+            if owner != parent_name:
+                continue
+            timer = self._move_timers.pop(name, None)
+            self._move_timer_parents.pop(name, None)
+            if timer is not None:
+                timer.stop()
+
     def slotInEdit(self, vobj):
         """Called when an object enters edit mode (sketch editor opened).
         Note: Gui observer passes the ViewProvider, not the App object."""
@@ -1337,11 +1357,11 @@ class _OutlineSketchObserver:
             if parent is not None:
                 # Skip when bending is active — placement changes are
                 # cosmetic (applied by the bend transform).
-                proxy = getattr(parent, "Proxy", None)
-                if (proxy and getattr(proxy, '_bending', False)) \
-                        or self._is_bending_active(parent):
+                if self._is_component_move_blocked(parent):
                     return
                 self._constrain_placement(obj)
+                if self._is_component_move_blocked(parent):
+                    return
                 self._schedule_move_component(obj, parent)
                 return
             elif hasattr(obj, 'TypeId') and obj.TypeId == "Part::Feature":
@@ -1407,6 +1427,8 @@ class _OutlineSketchObserver:
         name = obj.Name
         if name in self._move_timers:
             self._move_timers[name].stop()
+            self._move_timers.pop(name, None)
+            self._move_timer_parents.pop(name, None)
 
         # Extract designator from component label: parentName_REF
         # Use Label (which we explicitly set) rather than Name
@@ -1428,12 +1450,18 @@ class _OutlineSketchObserver:
         timer.timeout.connect(
             lambda: self._send_move_component(obj, parent, ref))
         self._move_timers[name] = timer
-        timer.start(200)
+        self._move_timer_parents[name] = parent.Name
+        delay_ms = getattr(parent.Proxy, "_COMPONENT_MOVE_DEBOUNCE_MS", 200)
+        timer.start(delay_ms)
 
     def _send_move_component(self, obj, parent, ref):
         """Send move-component request to workspace bus."""
         self._move_timers.pop(obj.Name, None)
+        self._move_timer_parents.pop(obj.Name, None)
         try:
+            proxy = getattr(parent, "Proxy", None)
+            if proxy and proxy._is_component_move_blocked(parent):
+                return
             if not hasattr(obj, 'X'):
                 return
             init_p = getattr(obj, 'FreekiCAD_InitPlacement', None)
@@ -1550,6 +1578,8 @@ class LinkedObject:
     _WEDGE_MODE_OPTIONS = [
         "Coarse", "Medium", "Fine", "Smooth", "Loft", "Wireframe"]
     _REBEND_DEBOUNCE_MS = 1000
+    _COMPONENT_MOVE_DEBOUNCE_MS = 200
+    _COMPONENT_SYNC_GRACE_MS = 200
 
 
     def __init__(self, obj):
@@ -1599,6 +1629,7 @@ class LinkedObject:
         self.Type = "LinkedObject"
         self._board_color = None
         self._ensure_rebend_timer_state()
+        self._ensure_component_sync_state()
 
     def onChanged(self, obj, prop):
         if prop in ("EnableBending", "BuildDebugObjects", "DebugBoard",
@@ -1627,6 +1658,49 @@ class LinkedObject:
             self._suppress_execute = False
             # mtime watcher (always running) will detect the
             # cleared FileMtime and trigger reload
+
+    def _ensure_component_sync_state(self):
+        if not hasattr(self, '_component_sync_suspended'):
+            self._component_sync_suspended = False
+        if not hasattr(self, '_component_sync_generation'):
+            self._component_sync_generation = 0
+
+    def _is_component_move_blocked(self, obj=None):
+        self._ensure_component_sync_state()
+        if self._component_sync_suspended or getattr(self, '_bending', False):
+            return True
+        if obj is None or not getattr(obj, 'EnableBending', False):
+            return False
+        for c in getattr(obj, 'Group', []):
+            proxy = getattr(c, 'Proxy', None)
+            if proxy and getattr(proxy, 'Type', None) == 'BendLine':
+                if c.Active and c.Angle.Value != 0:
+                    return True
+        return False
+
+    def _suspend_component_move_sync(self, obj=None):
+        self._ensure_component_sync_state()
+        self._component_sync_suspended = True
+        self._component_sync_generation += 1
+        self._pending_move = None
+        if obj is not None and _sketch_observer is not None:
+            _sketch_observer.cancel_component_moves(obj)
+
+    def _resume_component_move_sync(self, delay_ms=None):
+        self._ensure_component_sync_state()
+        token = self._component_sync_generation
+        if delay_ms is None:
+            delay_ms = self._COMPONENT_SYNC_GRACE_MS
+        if delay_ms <= 0:
+            self._component_sync_suspended = False
+            return
+        from PySide import QtCore
+
+        def _resume():
+            if self._component_sync_generation == token:
+                self._component_sync_suspended = False
+
+        QtCore.QTimer.singleShot(delay_ms, _resume)
 
     def _remove_children(self, obj):
         """Remove all child objects from this group."""
@@ -2115,6 +2189,7 @@ class LinkedObject:
         from PySide import QtCore, QtWidgets
 
         self._ensure_rebend_timer_state()
+        self._suspend_component_move_sync(obj)
         self._rebend_target = obj
         delay_ms = self._get_rebend_debounce_ms(obj)
 
@@ -2149,9 +2224,11 @@ class LinkedObject:
         """Re-apply bending after Radius/Angle/Active or EnableBending
         changes on a bend line."""
         if not hasattr(self, '_unbent_board_shape'):
+            self._resume_component_move_sync(delay_ms=0)
             return
         import time as _time
         _t0_rebend = _time.time()
+        self._suspend_component_move_sync(obj)
         self._bending = True
         try:
             thickness = getattr(self, '_board_thickness',
@@ -2207,6 +2284,7 @@ class LinkedObject:
                                   thickness)
         finally:
             self._bending = False
+            self._resume_component_move_sync()
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: [profile] TOTAL _rebend: "
                 f"{_time.time() - _t0_rebend:.3f}s\n")
@@ -2214,12 +2292,14 @@ class LinkedObject:
     def _apply_bends(self, obj, board_obj, bend_children, thickness,
                      enable_bending=True):
         """Apply bending deformation to the board shape."""
+        self._suspend_component_move_sync(obj)
         self._bending = True
         try:
             self.__apply_bends_impl(obj, board_obj, bend_children,
                                     thickness, enable_bending)
         finally:
             self._bending = False
+            self._resume_component_move_sync()
 
     def __apply_bends_impl(self, obj, board_obj, bend_children,
                            thickness, enable_bending=True):
@@ -7572,6 +7652,12 @@ class LinkedObject:
     def _handle_move_component_response(self, obj, socket_path, component):
         """Called when the workspace bus responds to a move-component request.
         Pushes the component's new position/angle to KiCad via kipy."""
+        if self._is_component_move_blocked(obj):
+            self._pending_move = None
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Dropping pending move for '{component}' "
+                "(component sync blocked)\n")
+            return
         move = getattr(self, '_pending_move', None)
         if move is None or move.get('ref') != component:
             FreeCAD.Console.PrintWarning(
@@ -7643,6 +7729,7 @@ class LinkedObject:
             self.Type = state.get("Type", "LinkedObject")
         self._board_color = None
         self._ensure_rebend_timer_state()
+        self._ensure_component_sync_state()
 
     def _ensure_rebend_timer_state(self):
         if not hasattr(self, '_rebend_timer'):
