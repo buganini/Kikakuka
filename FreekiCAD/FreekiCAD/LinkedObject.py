@@ -7,6 +7,12 @@ import Part
 
 DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
+DEBUG_BENDING_BFS = False
+
+
+def _log_bending_bfs(message):
+    if DEBUG_BENDING_BFS:
+        FreeCAD.Console.PrintMessage(message)
 
 
 def _kipy_retry(func, max_retries=15, delay_s=1.0):
@@ -3092,7 +3098,7 @@ class LinkedObject:
         for pi in range(len(pieces)):
             angles = [f"{math.degrees(micro_bend_info[mi][0]):.1f}°"
                       for mi in piece_mi_list[pi]]
-            FreeCAD.Console.PrintMessage(
+            _log_bending_bfs(
                 f"FreekiCAD: piece_mi_list[{pi}]"
                 f" = {piece_mi_list[pi]}"
                 f" angles={angles}"
@@ -3142,7 +3148,7 @@ class LinkedObject:
         for pi in range(len(pieces)):
             entry = bfs_tree.get(pi)
             if entry is not None and entry[0] == stationary_idx:
-                FreeCAD.Console.PrintMessage(
+                _log_bending_bfs(
                     f"FreekiCAD: piece_mi_list[{pi}]"
                     f" (neighbour of fixed p{stationary_idx})"
                     f" = {piece_mi_list[pi]}"
@@ -3150,7 +3156,7 @@ class LinkedObject:
             # Also log if entry[2] is wedge that connects to fixed
             if (entry is not None and entry[2] is not None
                     and entry[0] == stationary_idx):
-                FreeCAD.Console.PrintMessage(
+                _log_bending_bfs(
                     f"FreekiCAD: p{pi} reaches fixed"
                     f" via wedge p{entry[2]}"
                     f" crossed={sorted(entry[1])}\n")
@@ -3223,7 +3229,7 @@ class LinkedObject:
             bend_sign = -1.0 if micro_angle > 0 else 1.0
             stat_edge_mid = cur_p0 + cur_up * half_t
             pivot = stat_edge_mid + cur_up * (r_eff_bi * bend_sign)
-            FreeCAD.Console.PrintMessage(
+            _log_bending_bfs(
                 f"FreekiCAD: mi {mi} CoC:"
                 f" pivot=({pivot.x:.4f},{pivot.y:.4f},"
                 f"{pivot.z:.4f})\n")
@@ -3250,7 +3256,7 @@ class LinkedObject:
                         wedge_pre_shapes[wpi] = \
                             piece_shapes[wpi].copy()
 
-            FreeCAD.Console.PrintMessage(
+            _log_bending_bfs(
                 f"FreekiCAD: micro {mi}:"
                 f" angle={math.degrees(micro_angle):.1f}°,"
                 f" orig_bi={orig_bi},"
@@ -3275,12 +3281,12 @@ class LinkedObject:
                 entry_dbg = bfs_tree.get(pi)
                 if (entry_dbg is not None
                         and entry_dbg[0] == stationary_idx):
-                    FreeCAD.Console.PrintMessage(
+                    _log_bending_bfs(
                         f"FreekiCAD:   mi {mi} rotated"
                         f" p{pi} (fixed-nbr):"
                         f" z {pre_cm.z:.4f}"
                         f" → {post_cm.z:.4f}\n")
-            FreeCAD.Console.PrintMessage(
+            _log_bending_bfs(
                 f"FreekiCAD:   mi {mi} rotated"
                 f" {len(rotated_pis)} pieces:"
                 f" {rotated_pis[:10]}"
@@ -3362,7 +3368,7 @@ class LinkedObject:
                 correction = mid_expected - mid_actual
 
                 if correction.Length > 1e-6:
-                    FreeCAD.Console.PrintMessage(
+                    _log_bending_bfs(
                         f"FreekiCAD: correction mi {mi}"
                         f" (bend {orig_bi}):"
                         f" ins={ins_bi:.4f}"
@@ -7000,7 +7006,7 @@ class LinkedObject:
                     crossings.append(
                         f"{nbr}({_crossing_label(bi)})")
                 if crossings:
-                    FreeCAD.Console.PrintMessage(
+                    _log_bending_bfs(
                         f"FreekiCAD: adjacent {pi} → "
                         f"{', '.join(crossings)}\n")
 
@@ -7099,7 +7105,7 @@ class LinkedObject:
                             bfs_tree[nbr] = (
                                 cur, {bi}, None)
                         if log:
-                            FreeCAD.Console.PrintMessage(
+                            _log_bending_bfs(
                                 f"FreekiCAD: BFS p{cur} → "
                                 f"wedge p{nbr} "
                                 f"(entry={_crossing_label(bi)})"
@@ -7119,7 +7125,7 @@ class LinkedObject:
                                     piece_bend_sets[cur].copy()
                                 bfs_tree[nbr2] = (cur, set(), nbr)
                                 if log:
-                                    FreeCAD.Console.PrintMessage(
+                                    _log_bending_bfs(
                                         f"FreekiCAD: BFS "
                                         f"wedge same_side("
                                         f"p{cur}, p{nbr2}, "
@@ -7147,7 +7153,7 @@ class LinkedObject:
                             if nbr in bfs_tree:
                                 bfs_tree[nbr][1].add(sbi2)
                             if log:
-                                FreeCAD.Console.PrintMessage(
+                                _log_bending_bfs(
                                     f"FreekiCAD: BFS   "
                                     f"p{cur} →[{_crossing_label(bi)}"
                                     f"]→ p{nbr}(W) →["
@@ -7160,7 +7166,7 @@ class LinkedObject:
                             continue
                         if not _side_test(cur, nbr, fi):
                             if log:
-                                FreeCAD.Console.PrintMessage(
+                                _log_bending_bfs(
                                     f"FreekiCAD: BFS "
                                     f"side_test("
                                     f"p{cur}, p{nbr}, "
@@ -7174,7 +7180,7 @@ class LinkedObject:
                                 else set())
                         bfs_tree[nbr] = (cur, {bi}, None)
                         if log:
-                            FreeCAD.Console.PrintMessage(
+                            _log_bending_bfs(
                                 f"FreekiCAD: BFS p{cur} →"
                                 f"[{_crossing_label(bi)}]→ "
                                 f"p{nbr}\n")
@@ -7214,21 +7220,21 @@ class LinkedObject:
                     else:
                         labels = "-"
                         raw = []
-                    # FreeCAD.Console.PrintMessage(
-                    #     f"FreekiCAD: bfs_tree[{pi}] ="
-                    #     f" parent={parent}"
-                    #     f" mis_crossed=[{labels}]"
-                    #     f" raw={raw}"
-                    #     f" wedge={wedge_pi}\n")
+                    _log_bending_bfs(
+                        f"FreekiCAD: bfs_tree[{pi}] ="
+                        f" parent={parent}"
+                        f" mis_crossed=[{labels}]"
+                        f" raw={raw}"
+                        f" wedge={wedge_pi}\n")
                 else:
                     parent, bi, fi = entry
                     lbl = _crossing_label(bi) \
                         if bi is not None else "-"
-                    # FreeCAD.Console.PrintMessage(
-                    #     f"FreekiCAD: bfs_tree[{pi}] ="
-                    #     f" parent={parent}"
-                    #     f" mi={lbl} raw={bi}"
-                    #     f" fi={fi}\n")
+                    _log_bending_bfs(
+                        f"FreekiCAD: bfs_tree[{pi}] ="
+                        f" parent={parent}"
+                        f" mi={lbl} raw={bi}"
+                        f" fi={fi}\n")
 
         return piece_bend_sets, bfs_tree, adjacency, cached_geo_crossings
 
