@@ -2539,6 +2539,53 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] 2D piece slices: "
             f"{_time.time() - _t_slices:.3f}s\n")
+        wedge_assign_diag = getattr(obj, 'BuildDebugObjects', False)
+
+        def _project_point_to_segment_xy(pt, seg_p0, seg_p1):
+            sx = seg_p1.x - seg_p0.x
+            sy = seg_p1.y - seg_p0.y
+            sl2 = sx * sx + sy * sy
+            if sl2 < 1e-12:
+                dx = pt.x - seg_p0.x
+                dy = pt.y - seg_p0.y
+                return 0.0, 0.0, math.sqrt(dx * dx + dy * dy)
+            t_raw = (
+                ((pt.x - seg_p0.x) * sx
+                 + (pt.y - seg_p0.y) * sy)
+                / sl2)
+            t = max(0.0, min(1.0, t_raw))
+            px = seg_p0.x + t * sx
+            py = seg_p0.y + t * sy
+            dx = pt.x - px
+            dy = pt.y - py
+            return t_raw, t, math.sqrt(dx * dx + dy * dy)
+
+        def _piece_segment_debug_metrics(piece, seg_p0, seg_p1):
+            cm = piece.CenterOfMass
+            cm_t_raw, cm_t, cm_d = _project_point_to_segment_xy(
+                cm, seg_p0, seg_p1)
+            vertex_t_raw = []
+            vertex_t = []
+            vertex_d = []
+            for vertex in getattr(piece, 'Vertexes', []):
+                t_raw_v, t_v, d_v = _project_point_to_segment_xy(
+                    vertex.Point, seg_p0, seg_p1)
+                vertex_t_raw.append(t_raw_v)
+                vertex_t.append(t_v)
+                vertex_d.append(d_v)
+            bbox = getattr(piece, 'BoundBox', None)
+            return {
+                'cm_t_raw': cm_t_raw,
+                'cm_t': cm_t,
+                'cm_d': cm_d,
+                't_raw_min': min(vertex_t_raw) if vertex_t_raw else float('nan'),
+                't_raw_max': max(vertex_t_raw) if vertex_t_raw else float('nan'),
+                't_min': min(vertex_t) if vertex_t else float('nan'),
+                't_max': max(vertex_t) if vertex_t else float('nan'),
+                'd_min': min(vertex_d) if vertex_d else float('nan'),
+                'd_max': max(vertex_d) if vertex_d else float('nan'),
+                'bbox': bbox,
+            }
 
         # Build 2D cut segments for adjacency face matching.
         cut_segments = []
@@ -2562,6 +2609,7 @@ class LinkedObject:
         face_to_seg = {}      # fi → sid
         strip_pieces = set()
         strip_to_bend = {}
+        strip_to_seg = {}
         for bi, (_, p0, p1, line_dir, normal,
                  angle_rad, radius) in enumerate(bend_info):
             ins = insets[bi]
@@ -2631,6 +2679,82 @@ class LinkedObject:
                         joint['wedges'].append(pi)
                         strip_pieces.add(pi)
                         strip_to_bend[pi] = bi
+                        strip_to_seg[pi] = sid
+
+        if wedge_assign_diag:
+            tol = GEOMETRY_TOLERANCE
+            for sid, joint in enumerate(joints):
+                seg_p0, seg_p1 = joint['center']
+                sx = seg_p1.x - seg_p0.x
+                sy = seg_p1.y - seg_p0.y
+                seg_len = math.sqrt(sx * sx + sy * sy)
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: joint sid={sid} bi={joint['bi']}"
+                    f" len={seg_len:.6f}"
+                    f" A={joint['a_faces']}"
+                    f" B={joint['b_faces']}"
+                    f" wedges={joint['wedges']}\n")
+                for pi in joint['wedges']:
+                    piece = pieces[pi]
+                    metrics = _piece_segment_debug_metrics(
+                        piece, seg_p0, seg_p1)
+                    touch_faces = []
+                    for fi in range(len(cut_faces)):
+                        try:
+                            d_touch = piece_slices[pi].distToShape(
+                                cut_segments[fi])[0]
+                        except Exception:
+                            d_touch = float('inf')
+                        if d_touch < tol:
+                            touch_faces.append(fi)
+                    touch_sids = sorted(set(
+                        face_to_seg[fi]
+                        for fi in touch_faces
+                        if fi in face_to_seg))
+                    touch_ab = [
+                        f"{fi}:{face_topo_side.get(fi, '?')}"
+                        for fi in touch_faces
+                        if face_bend.get(fi) == joint['bi']
+                    ]
+                    bbox = metrics['bbox']
+                    bbox_str = "-"
+                    if bbox is not None:
+                        bbox_str = (
+                            f"({bbox.XMin:.3f},{bbox.YMin:.3f},{bbox.ZMin:.3f})"
+                            f"->({bbox.XMax:.3f},{bbox.YMax:.3f},{bbox.ZMax:.3f})")
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   wedge-src p{pi}"
+                        f" cm=({piece.CenterOfMass.x:.6f},{piece.CenterOfMass.y:.6f},{piece.CenterOfMass.z:.6f})"
+                        f" vol={piece.Volume:.6f}"
+                        f" cm_t={metrics['cm_t']:.6f}"
+                        f" cm_t_raw={metrics['cm_t_raw']:.6f}"
+                        f" cm_d={metrics['cm_d']:.6f}"
+                        f" t_raw=[{metrics['t_raw_min']:.6f},{metrics['t_raw_max']:.6f}]"
+                        f" t=[{metrics['t_min']:.6f},{metrics['t_max']:.6f}]"
+                        f" d=[{metrics['d_min']:.6f},{metrics['d_max']:.6f}]"
+                        f" touch={touch_ab if touch_ab else '-'}"
+                        f" touch_sid={touch_sids if touch_sids else '-'}"
+                        f" bbox={bbox_str}\n")
+                    if (metrics['t_raw_min'] < -tol
+                            or metrics['t_raw_max'] > 1.0 + tol):
+                        vertex_samples = []
+                        for vi, vertex in enumerate(
+                                getattr(piece, 'Vertexes', [])[:12]):
+                            t_raw_v, _t_v, d_v = _project_point_to_segment_xy(
+                                vertex.Point, seg_p0, seg_p1)
+                            vertex_samples.append(
+                                f"v{vi}:t_raw={t_raw_v:.6f}"
+                                f" d={d_v:.6f}"
+                                f" xyz=({vertex.Point.x:.6f},{vertex.Point.y:.6f},{vertex.Point.z:.6f})")
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   wedge-src p{pi}"
+                            f" extends past joint sid={sid}"
+                            f" verts=[{'; '.join(vertex_samples)}]\n")
+                    if touch_sids and touch_sids != [sid]:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   wedge-src p{pi}"
+                            f" assigned_sid={sid}"
+                            f" but touches_sid={touch_sids}\n")
 
         # Map each debug cut to the rigid piece that owns that edge.
         # The final debug line should follow the same rigid transform as
@@ -3814,7 +3938,10 @@ class LinkedObject:
                 flat_cm, target_cm, target_vol, cur_p0,
                 cur_normal, cur_up, bend_axis, coc, sweep_angle,
                 ins, near_d, far_d, far_span, near_ref, far_ref,
-                slice_count, target_edge_splits):
+                slice_count, target_edge_splits,
+                anchor_post_plc=None,
+                anchor_ref_near=None, anchor_ref_far=None,
+                anchor_target_near=None, anchor_target_far=None):
             angle_deg = abs(math.degrees(sweep_angle))
             feature_candidates = []
             try:
@@ -3853,6 +3980,13 @@ class LinkedObject:
                 fix_tol,
                 min(GEOMETRY_TOLERANCE * 10.0,
                     max(feature_size * 0.05, fix_tol * 4.0)))
+            anchor_tol = max(
+                0.02,
+                min(0.25, max(feature_size * 0.05, close_tol * 10.0)))
+            sweep_ref_d = 0.0
+            sweep_span = abs(ins) * 2.0
+            if sweep_span <= 1e-6:
+                sweep_span = abs(far_span)
             return {
                 'pi': pi,
                 'bi': bi,
@@ -3872,8 +4006,31 @@ class LinkedObject:
                 'near_d': near_d,
                 'far_d': far_d,
                 'far_span': far_span,
+                'sweep_ref_d': sweep_ref_d,
+                'sweep_span': sweep_span,
                 'near_ref': FreeCAD.Vector(near_ref),
                 'far_ref': FreeCAD.Vector(far_ref),
+                'anchor_post_plc': (
+                    anchor_post_plc.copy()
+                    if anchor_post_plc is not None
+                    else None),
+                'anchor_ref_near': FreeCAD.Vector(
+                    anchor_ref_near
+                    if anchor_ref_near is not None
+                    else near_ref),
+                'anchor_ref_far': FreeCAD.Vector(
+                    anchor_ref_far
+                    if anchor_ref_far is not None
+                    else far_ref),
+                'anchor_target_near': (
+                    FreeCAD.Vector(anchor_target_near)
+                    if anchor_target_near is not None
+                    else None),
+                'anchor_target_far': (
+                    FreeCAD.Vector(anchor_target_far)
+                    if anchor_target_far is not None
+                    else None),
+                'anchor_tolerance': anchor_tol,
                 'slice_count': max(int(slice_count), 1),
                 'target_edge_splits': max(int(target_edge_splits), 1),
                 'edge_samples': max(
@@ -3895,18 +4052,111 @@ class LinkedObject:
             cur_normal = wedge_ctx['cur_normal']
             bend_axis = wedge_ctx['bend_axis']
             coc = wedge_ctx['coc']
-            near_d = wedge_ctx['near_d']
-            far_span = wedge_ctx['far_span']
             sweep_angle = wedge_ctx['sweep_angle']
             d = (pt - cur_p0).dot(cur_normal)
-            frac = abs(d - near_d) / far_span if far_span > 1e-9 else 0.0
-            frac = max(0.0, min(1.0, frac))
+            frac = _wedge_sweep_fraction(d, wedge_ctx)
             flat_pt = pt + cur_normal * (-d)
             angle_deg = math.degrees(frac * sweep_angle)
             if abs(angle_deg) <= 1e-9:
                 return flat_pt
             rot = FreeCAD.Rotation(bend_axis, angle_deg)
             return coc + rot.multVec(flat_pt - coc)
+
+        def _constant_d_tolerance(wedge_ctx):
+            tol_cfg = wedge_ctx.get('tolerances') or {}
+            far_span = abs(float(wedge_ctx.get('far_span', 0.0) or 0.0))
+            return max(
+                1e-6,
+                float(tol_cfg.get('close', GEOMETRY_TOLERANCE)),
+                far_span * 1e-5)
+
+        def _wedge_sweep_fraction(d, wedge_ctx):
+            sweep_ref_d = float(wedge_ctx.get('sweep_ref_d', 0.0) or 0.0)
+            sweep_span = abs(float(wedge_ctx.get('sweep_span', 0.0) or 0.0))
+            if sweep_span <= 1e-9:
+                sweep_ref_d = float(wedge_ctx.get('near_d', 0.0) or 0.0)
+                sweep_span = abs(
+                    float(wedge_ctx.get('far_span', 0.0) or 0.0))
+            frac = abs(d - sweep_ref_d) / sweep_span if sweep_span > 1e-9 \
+                else 0.0
+            return max(0.0, min(1.0, frac))
+
+        def _shape_constant_projection_info(
+                shape, wedge_ctx, direction, tol=None):
+            pts = [
+                FreeCAD.Vector(v.Point)
+                for v in getattr(shape, 'Vertexes', [])
+            ]
+            if not pts:
+                return False, None, 0.0
+            if tol is None:
+                tol = _constant_d_tolerance(wedge_ctx)
+            cur_p0 = wedge_ctx['cur_p0']
+            direction = FreeCAD.Vector(direction)
+            ds = [(pt - cur_p0).dot(direction) for pt in pts]
+            d_min = min(ds)
+            d_max = max(ds)
+            d_mid = sum(ds) / float(len(ds))
+            return ((d_max - d_min) <= tol, d_mid, d_max - d_min)
+
+        def _shape_constant_d_info(shape, wedge_ctx, tol=None):
+            return _shape_constant_projection_info(
+                shape, wedge_ctx, wedge_ctx['cur_normal'], tol=tol)
+
+        def _transform_shape_for_wedge_d(shape, wedge_ctx, d):
+            if shape is None:
+                return None
+            try:
+                bent_shape = shape.copy()
+            except Exception:
+                bent_shape = shape
+
+            cur_normal = wedge_ctx['cur_normal']
+            bend_axis = wedge_ctx['bend_axis']
+            coc = wedge_ctx['coc']
+            sweep_angle = wedge_ctx['sweep_angle']
+            frac = _wedge_sweep_fraction(d, wedge_ctx)
+            angle_deg = math.degrees(frac * sweep_angle)
+
+            try:
+                bent_shape.translate(cur_normal * (-d))
+            except Exception:
+                return None
+            if abs(angle_deg) > 1e-9:
+                try:
+                    rot = FreeCAD.Rotation(bend_axis, angle_deg)
+                    plc = FreeCAD.Placement(
+                        FreeCAD.Vector(0, 0, 0), rot, coc)
+                    bent_shape.transformShape(plc.toMatrix())
+                except Exception:
+                    return None
+            return bent_shape
+
+        def _build_anchored_sweep_face(
+                source_face, wedge_ctx, label, area_tol=1e-9):
+            is_constant_d, face_d, face_span = _shape_constant_d_info(
+                source_face, wedge_ctx)
+            if not is_constant_d:
+                return None
+
+            bent_shape = _transform_shape_for_wedge_d(
+                source_face, wedge_ctx, face_d)
+            faces = _collect_shape_faces(bent_shape)
+            if len(faces) != 1:
+                return None
+            face = faces[0]
+            try:
+                if getattr(face, 'Area', 0.0) <= area_tol:
+                    return None
+            except Exception:
+                pass
+            if wedge_diag:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   curved {label}"
+                    f" surface=anchored-sweep"
+                    f" d={face_d:.6f}"
+                    f" span={face_span:.6f}\n")
+            return face
 
         def _make_line_edge(p0, p1):
             try:
@@ -3987,21 +4237,10 @@ class LinkedObject:
 
             if d_max - d_min <= d_tol:
                 d = sum(ds) / float(len(ds))
-                frac = abs(d - near_d) / far_span if far_span > 1e-9 else 0.0
-                frac = max(0.0, min(1.0, frac))
-                angle_deg = math.degrees(frac * sweep_angle)
                 if source_edge is not None:
                     try:
-                        exact_edge = source_edge.copy()
-                        exact_edge.translate(cur_normal * (-d))
-                        if abs(angle_deg) > 1e-9:
-                            rot = FreeCAD.Rotation(
-                                bend_axis, angle_deg)
-                            plc = FreeCAD.Placement(
-                                FreeCAD.Vector(0, 0, 0),
-                                    rot, coc)
-                            exact_edge.transformShape(
-                                plc.toMatrix())
+                        exact_edge = _transform_shape_for_wedge_d(
+                            source_edge, wedge_ctx, d)
                         exact_verts = list(
                             getattr(exact_edge, 'Vertexes', []))
                         start_ok = True
@@ -4067,12 +4306,15 @@ class LinkedObject:
             p1 = FreeCAD.Vector(p1)
             cur_p0 = wedge_ctx['cur_p0']
             cur_normal = wedge_ctx['cur_normal']
-            far_span = wedge_ctx['far_span']
+            sweep_span = abs(float(
+                wedge_ctx.get('sweep_span', wedge_ctx.get('far_span', 0.0))
+                or 0.0))
             slice_count = max(
                 int(wedge_ctx.get('slice_count', 1) or 1), 1)
             d0 = (p0 - cur_p0).dot(cur_normal)
             d1 = (p1 - cur_p0).dot(cur_normal)
-            frac_span = abs(d1 - d0) / far_span if far_span > 1e-9 else 0.0
+            frac_span = abs(d1 - d0) / sweep_span if sweep_span > 1e-9 \
+                else 0.0
             sample_count = max(
                 3,
                 int(math.ceil(
@@ -4305,21 +4547,129 @@ class LinkedObject:
             return _close_wire_if_near_closed(
                 wire, close_tol=close_tol)
 
-        def _wire_collapses_after_bending(source_wire, bent_pairs):
+        def _build_dense_closed_wire_from_bent_edges(
+                source_wire, bent_pairs, close_tol=None):
+            if close_tol is None:
+                close_tol = GEOMETRY_TOLERANCE
+            source_edges = list(getattr(source_wire, 'Edges', []))
+            if not source_edges:
+                return None
+
+            pts = []
+            point_tol = max(close_tol * 0.5, 1e-7)
+            for source_edge in source_edges:
+                bent_edge = _lookup_bent_wedge_edge(
+                    source_edge, bent_pairs)
+                if bent_edge is None:
+                    return None
+                edge_len = 0.0
+                try:
+                    edge_len = float(getattr(bent_edge, 'Length', 0.0))
+                except Exception:
+                    edge_len = 0.0
+                sample_count = max(
+                    8,
+                    min(48, int(math.ceil(edge_len / 0.05)) + 1))
+                edge_pts = _discretize_wedge_edge(
+                    bent_edge, sample_count)
+                if len(edge_pts) < 2:
+                    continue
+                edge_pts = [FreeCAD.Vector(pt) for pt in edge_pts]
+                if pts:
+                    keep_gap = pts[-1].distanceToPoint(edge_pts[0])
+                    rev_gap = pts[-1].distanceToPoint(edge_pts[-1])
+                    if rev_gap + point_tol < keep_gap:
+                        edge_pts.reverse()
+                for pt in edge_pts:
+                    if (not pts
+                            or pts[-1].distanceToPoint(pt) > point_tol):
+                        pts.append(pt)
+            pts = _dedupe_point_sequence(pts)
+            if len(pts) < 3:
+                return None
+
+            gap_tol = max(close_tol * 20.0, 1e-4)
+            if pts[-1].distanceToPoint(pts[0]) <= gap_tol:
+                pts[-1] = FreeCAD.Vector(pts[0])
+
+            poly_pts = list(pts)
+            if poly_pts[-1].distanceToPoint(poly_pts[0]) > point_tol:
+                poly_pts.append(FreeCAD.Vector(poly_pts[0]))
+            if len(poly_pts) < 4:
+                return None
+
+            try:
+                poly = Part.makePolygon(poly_pts)
+                wire = Part.Wire(poly.Edges)
+            except Exception:
+                return None
+            return _close_wire_if_near_closed(
+                wire, close_tol=gap_tol)
+
+        def _points_collapse_to_line(points, point_tol, line_tol=None):
+            pts = _dedupe_point_sequence(points, tol=point_tol)
+            if len(pts) < 3:
+                return True
+            axis_p0 = None
+            axis_p1 = None
+            axis_len = 0.0
+            for idx, p0 in enumerate(pts):
+                for p1 in pts[idx + 1:]:
+                    dist = p0.distanceToPoint(p1)
+                    if dist > axis_len:
+                        axis_len = dist
+                        axis_p0 = p0
+                        axis_p1 = p1
+            if axis_p0 is None or axis_p1 is None or axis_len <= point_tol:
+                return True
+            if line_tol is None:
+                line_tol = point_tol * 2.0
+            axis = axis_p1 - axis_p0
+            for pt in pts:
+                perp = ((pt - axis_p0).cross(axis)).Length / axis_len
+                if perp > line_tol:
+                    return False
+            return True
+
+        def _wire_collapses_after_bending(
+                source_wire, bent_pairs, wedge_ctx=None):
+            close_tol = GEOMETRY_TOLERANCE
+            if wedge_ctx is not None:
+                tol_cfg = wedge_ctx.get('tolerances') or {}
+                close_tol = float(
+                    tol_cfg.get('close', GEOMETRY_TOLERANCE))
+            point_tol = max(close_tol * 0.5, 1e-7)
+            line_tol = max(close_tol * 2.0, point_tol * 2.0)
             bent_pts = []
             for source_edge in getattr(source_wire, 'Edges', []):
                 bent_edge = _lookup_bent_wedge_edge(
                     source_edge, bent_pairs)
                 if bent_edge is None:
                     continue
-                for vertex in getattr(bent_edge, 'Vertexes', []):
-                    pt = FreeCAD.Vector(vertex.Point)
+                edge_len = 0.0
+                try:
+                    edge_len = float(getattr(bent_edge, 'Length', 0.0))
+                except Exception:
+                    edge_len = 0.0
+                sample_count = max(
+                    8,
+                    min(48, int(math.ceil(edge_len / 0.05)) + 1))
+                edge_pts = _discretize_wedge_edge(
+                    bent_edge, sample_count)
+                if len(edge_pts) < 2:
+                    edge_pts = [
+                        FreeCAD.Vector(vertex.Point)
+                        for vertex in getattr(bent_edge, 'Vertexes', [])
+                    ]
+                for pt in edge_pts:
+                    pt = FreeCAD.Vector(pt)
                     if any(
-                            pt.distanceToPoint(existing) <= 1e-7
+                            pt.distanceToPoint(existing) <= point_tol
                             for existing in bent_pts):
                         continue
                     bent_pts.append(pt)
-            return len(bent_pts) < 3
+            return _points_collapse_to_line(
+                bent_pts, point_tol, line_tol=line_tol)
 
         def _make_filled_face_from_wire(wire, area_tol=1e-9):
             if wire is None:
@@ -4347,20 +4697,72 @@ class LinkedObject:
             if len(source_edges) < 2:
                 return None
             far_span = max(float(wedge_ctx.get('far_span', 0.0)), 0.0)
+            axis_tol = _constant_d_tolerance(wedge_ctx)
+            sweep_boundary_candidates = []
             span_entries = []
             for edge in source_edges:
-                span_entries.append((
-                    _edge_d_span(edge, wedge_ctx),
-                    float(getattr(edge, 'Length', 0.0)),
-                    edge))
+                d_span = _edge_d_span(edge, wedge_ctx)
+                edge_len = float(getattr(edge, 'Length', 0.0))
+                span_entries.append((d_span, edge_len, edge))
+                is_constant_s, s_mid, s_span = (
+                    _shape_constant_projection_info(
+                        edge, wedge_ctx, wedge_ctx['bend_axis'],
+                        tol=axis_tol))
+                if is_constant_s:
+                    sweep_boundary_candidates.append({
+                        'edge': edge,
+                        's_mid': s_mid,
+                        's_span': s_span,
+                        'd_span': d_span,
+                        'length': edge_len,
+                    })
             span_entries.sort(key=lambda item: (item[0], item[1]),
                               reverse=True)
             span_tol = max(far_span * 0.5, GEOMETRY_TOLERANCE * 10)
-            span_candidates = [
-                entry[2] for entry in span_entries
-                if entry[0] >= span_tol]
-            if len(span_candidates) < 2:
-                span_candidates = [entry[2] for entry in span_entries[:2]]
+            sweep_boundary_candidates = [
+                entry for entry in sweep_boundary_candidates
+                if entry['d_span'] >= span_tol]
+            span_candidates = []
+            if len(sweep_boundary_candidates) >= 2:
+                sweep_boundary_candidates.sort(
+                    key=lambda entry: (
+                        entry['s_mid'],
+                        -entry['d_span'],
+                        -entry['length']))
+                first_entry = sweep_boundary_candidates[0]
+                last_entry = sweep_boundary_candidates[-1]
+                if not _shape_is_same(
+                        first_entry['edge'], last_entry['edge']):
+                    span_candidates = [
+                        first_entry['edge'],
+                        last_entry['edge']]
+                    if wedge_diag:
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD:   curved {label}"
+                            f" sweep-boundaries="
+                            f"[{first_entry['s_mid']:.6f},"
+                            f"{last_entry['s_mid']:.6f}]"
+                            f" d=[{first_entry['d_span']:.6f},"
+                            f"{last_entry['d_span']:.6f}]\n")
+            if not span_candidates:
+                if wedge_diag:
+                    labels = []
+                    for d_span, edge_len, edge in span_entries[:4]:
+                        is_constant_s, s_mid, s_span = (
+                            _shape_constant_projection_info(
+                                edge, wedge_ctx,
+                                wedge_ctx['bend_axis'],
+                                tol=axis_tol))
+                        labels.append(
+                            f"d={d_span:.6f}"
+                            f"/len={edge_len:.6f}"
+                            f"/s={'const' if is_constant_s else 'var'}"
+                            f"{'' if not is_constant_s else f'@{s_mid:.6f}'}")
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   curved {label}"
+                        f" sweep-boundaries=fallback"
+                        f" candidates=[{'; '.join(labels)}]\n")
+                return None
             if len(span_candidates) < 2:
                 return None
 
@@ -4416,7 +4818,8 @@ class LinkedObject:
                 source_wire, bent_pairs, wedge_ctx, label,
                 prefer_span=None):
             edge_count = len(getattr(source_wire, 'Edges', []))
-            if _wire_collapses_after_bending(source_wire, bent_pairs):
+            if _wire_collapses_after_bending(
+                    source_wire, bent_pairs, wedge_ctx):
                 if wedge_diag:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD:   curved {label}"
@@ -4451,10 +4854,25 @@ class LinkedObject:
                             f" surface=filled-face"
                             f" faces=1\n")
                     return [face]
+                dense_wire = _build_dense_closed_wire_from_bent_edges(
+                    source_wire, bent_pairs)
+                dense_face = _make_filled_face_from_wire(dense_wire)
+                if dense_face is not None:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD:   curved {label}"
+                            f" surface=dense-filled-face"
+                            f" faces=1\n")
+                    return [dense_face]
             return None
 
         def _build_side_surface_faces(
-                bent_pairs, label, pair_entries=None):
+                source_face, bent_pairs, wedge_ctx, label,
+                pair_entries=None, area_tol=1e-9):
+            anchored_face = _build_anchored_sweep_face(
+                source_face, wedge_ctx, label, area_tol=area_tol)
+            if anchored_face is not None:
+                return [anchored_face]
             if not pair_entries:
                 if wedge_diag:
                     FreeCAD.Console.PrintWarning(
@@ -4546,8 +4964,17 @@ class LinkedObject:
             return None
 
         def _build_face_from_source_face(
-                source_face, bent_pairs, close_tol=None,
-                area_tol=1e-9):
+                source_face, bent_pairs, wedge_ctx,
+                close_tol=None, area_tol=1e-9,
+                face_label=None, allow_filled=True):
+            anchored_face = _build_anchored_sweep_face(
+                source_face, wedge_ctx,
+                face_label if face_label is not None else "face",
+                area_tol=area_tol)
+            if anchored_face is not None:
+                return anchored_face
+            if not allow_filled:
+                return None
             bent_wires = []
             for source_wire in getattr(source_face, 'Wires', []):
                 bent_wire = _build_closed_wire_from_bent_edges(
@@ -4668,6 +5095,69 @@ class LinkedObject:
             except Exception:
                 return face, False
 
+        def _measure_wedge_anchor_alignment(shape, wedge_ctx):
+            if shape is None:
+                return None
+            anchor_ref_near = wedge_ctx.get('anchor_ref_near')
+            anchor_ref_far = wedge_ctx.get('anchor_ref_far')
+            anchor_target_near = wedge_ctx.get('anchor_target_near')
+            anchor_target_far = wedge_ctx.get('anchor_target_far')
+            if (anchor_ref_near is None or anchor_ref_far is None
+                    or anchor_target_near is None
+                    or anchor_target_far is None):
+                return None
+
+            score_shape = shape
+            anchor_post_plc = wedge_ctx.get('anchor_post_plc')
+            if anchor_post_plc is not None:
+                try:
+                    rot_angle = anchor_post_plc.Rotation.Angle
+                    base_len = anchor_post_plc.Base.Length
+                    needs_post = (
+                        base_len > 1e-9
+                        or rot_angle > 1e-9)
+                except Exception:
+                    rot_angle = None
+                    base_len = None
+                    needs_post = True
+                if (rot_angle is not None and base_len is not None
+                        and rot_angle <= 1e-6
+                        and base_len > 1e-9):
+                    # Translation-only post placement is refined later by
+                    # adaptive translation scoring; don't reject a solid here
+                    # against a full-translation anchor that may not be used.
+                    return None
+                if needs_post:
+                    try:
+                        score_shape = shape.copy()
+                        score_shape.transformShape(
+                            anchor_post_plc.toMatrix())
+                    except Exception:
+                        return None
+
+            cand_anchor_near = _closest_point_on_shape(
+                score_shape, anchor_ref_near)
+            cand_anchor_far = _closest_point_on_shape(
+                score_shape, anchor_ref_far)
+            near_err = cand_anchor_near.distanceToPoint(
+                anchor_target_near)
+            far_err = cand_anchor_far.distanceToPoint(
+                anchor_target_far)
+            center_err = (
+                _shape_center(score_shape)
+                - wedge_ctx.get('target_cm', FreeCAD.Vector())
+            ).Length
+            return {
+                'near': cand_anchor_near,
+                'far': cand_anchor_far,
+                'near_err': near_err,
+                'far_err': far_err,
+                'score': (
+                    float(max(near_err, far_err)),
+                    float(near_err + far_err),
+                    float(center_err)),
+            }
+
         def _solidify_surface_faces(
                 surface_faces, wedge_ctx, strategy_name,
                 side_face_count=None):
@@ -4713,6 +5203,8 @@ class LinkedObject:
             fix_max_tol = float(tol_cfg.get(
                 'fix_max',
                 max(GEOMETRY_TOLERANCE, GEOMETRY_TOLERANCE * 10.0)))
+            anchor_tol = float(
+                wedge_ctx.get('anchor_tolerance', 0.0) or 0.0)
 
             def _build_shell_candidates(
                     candidate_faces,
@@ -4769,6 +5261,8 @@ class LinkedObject:
                     candidate_target_vol,
                     candidate_fix_tol,
                     candidate_fix_max_tol):
+                best = None
+                best_score = None
                 for shell_label, shell in shell_candidates:
                     display_label = shell_label
                     shell_to_use = shell
@@ -4815,18 +5309,31 @@ class LinkedObject:
                             f" shell={display_label}"
                             f" via={repair_label}\n")
 
-                    vol_rel = 0.0
-                    if candidate_target_vol > 1e-9:
-                        if vol < candidate_target_vol * 0.5:
+                    anchor_metrics = _measure_wedge_anchor_alignment(
+                        solid, wedge_ctx)
+                    if anchor_metrics is not None:
+                        if wedge_diag:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD:   curved solid anchor"
+                                f" strategy={strategy_name}"
+                                f" shell={display_label}"
+                                f" near={anchor_metrics['near_err']:.6f}"
+                                f" far={anchor_metrics['far_err']:.6f}\n")
+                        if (anchor_tol > 1e-9
+                                and anchor_metrics['score'][0]
+                                > anchor_tol):
                             if wedge_diag:
                                 FreeCAD.Console.PrintWarning(
-                                    f"FreekiCAD:   curved solid collapsed"
+                                    f"FreekiCAD:   curved solid off-anchor"
                                     f" for piece {wedge_ctx['pi']}"
                                     f" strategy={strategy_name}"
                                     f" shell={display_label}"
-                                    f" vol={vol:.4f}"
-                                    f" target={candidate_target_vol:.4f}\n")
+                                    f" max_err={anchor_metrics['score'][0]:.6f}"
+                                    f" tol={anchor_tol:.6f}\n")
                             continue
+
+                    vol_rel = 0.0
+                    if candidate_target_vol > 1e-9:
                         vol_rel = abs(vol - candidate_target_vol) / (
                             candidate_target_vol)
                     if vol_rel > 0.20 and wedge_diag:
@@ -4837,9 +5344,25 @@ class LinkedObject:
                             f" vol_rel={vol_rel:.3f}"
                             f" vol={vol:.4f}"
                             f" target={candidate_target_vol:.4f}\n")
-                    return solid
+                    cand_score = (
+                        anchor_metrics['score']
+                        if anchor_metrics is not None
+                        else (float('inf'), float('inf'), float('inf')))
+                    better = best_score is None
+                    if not better:
+                        for axis, (cand_v, best_v) in enumerate(
+                                zip(cand_score, best_score)):
+                            tol = 1e-6 if axis < 2 else 1e-9
+                            if cand_v < best_v - tol:
+                                better = True
+                                break
+                            if cand_v > best_v + tol:
+                                break
+                    if better:
+                        best = solid
+                        best_score = cand_score
 
-                return None
+                return best
 
             shell_candidates = _build_shell_candidates(
                 unique_faces, fix_tol, fix_max_tol)
@@ -4916,9 +5439,12 @@ class LinkedObject:
                     if face_role == "side":
                         if side_strategy == "ruled":
                             side_faces = _build_side_surface_faces(
+                                source_face,
                                 bent_pairs,
+                                wedge_ctx,
                                 face_label,
-                                source_face_entry.get('pairs'))
+                                source_face_entry.get('pairs'),
+                                area_tol=area_tol)
                             if side_faces:
                                 rebuilt_faces.extend(side_faces)
                                 continue
@@ -4939,9 +5465,17 @@ class LinkedObject:
 
                     rebuilt_face = _build_face_from_source_face(
                         source_face, bent_pairs,
+                        wedge_ctx,
                         close_tol=close_tol,
-                        area_tol=area_tol)
+                        area_tol=area_tol,
+                        face_label=face_label,
+                        allow_filled=(face_role != "side"))
                     if rebuilt_face is not None:
+                        if wedge_diag:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD:   curved source-face"
+                                f" {face_label}"
+                                f" surface=exact\n")
                         rebuilt_faces.append(rebuilt_face)
                         continue
 
@@ -4992,8 +5526,30 @@ class LinkedObject:
                         f" tri_fallback={tri_fallback_faces}"
                         f" collapsed={collapsed_faces}"
                         f" dropped={dropped_faces}\n")
-                return _solidify_surface_faces(
+                solid = _solidify_surface_faces(
                     rebuilt_faces, wedge_ctx, "source-topology")
+                if solid is None:
+                    return None
+                target_vol = abs(float(
+                    wedge_ctx.get('target_vol', 0.0) or 0.0))
+                vol_rel = 0.0
+                if target_vol > 1e-9:
+                    try:
+                        vol_rel = abs(
+                            float(getattr(solid, 'Volume', 0.0)) - target_vol
+                        ) / target_vol
+                    except Exception:
+                        vol_rel = float('inf')
+                if dropped_faces > 0 and vol_rel > 0.35:
+                    if wedge_diag:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   curved source-topology"
+                            f" rejected after dropped faces"
+                            f" vol_rel={vol_rel:.3f}"
+                            f" collapsed={collapsed_faces}"
+                            f" dropped={dropped_faces}\n")
+                    return None
+                return solid
 
             source_topology_solid = _try_source_topology("ruled")
             if source_topology_solid is not None:
@@ -5108,6 +5664,41 @@ class LinkedObject:
             except Exception:
                 return None
 
+        def _shape_feature_size(shape, fallback=None):
+            candidates = []
+            try:
+                area = float(getattr(shape, 'Area', 0.0))
+            except Exception:
+                area = 0.0
+            if area > 1e-12:
+                try:
+                    candidates.append(math.sqrt(area))
+                except Exception:
+                    pass
+            try:
+                bbox = getattr(shape, 'BoundBox', None)
+                if bbox is not None:
+                    for length in (
+                            float(getattr(bbox, 'XLength', 0.0)),
+                            float(getattr(bbox, 'YLength', 0.0)),
+                            float(getattr(bbox, 'ZLength', 0.0))):
+                        if length > 1e-6:
+                            candidates.append(length)
+            except Exception:
+                pass
+            for edge in getattr(shape, 'Edges', []):
+                try:
+                    edge_len = float(getattr(edge, 'Length', 0.0))
+                except Exception:
+                    edge_len = 0.0
+                if edge_len > 1e-6:
+                    candidates.append(edge_len)
+            if candidates:
+                return min(candidates)
+            if fallback is not None:
+                return float(fallback)
+            return GEOMETRY_TOLERANCE * 50.0
+
         def _tessellate_face_triangles(face, deflection):
             try:
                 verts, tris = face.tessellate(deflection)
@@ -5123,6 +5714,44 @@ class LinkedObject:
                     continue
                 tri_pts.append(pts)
             return tri_pts
+
+        def _source_face_tessellation_deflections(source_face, wedge_ctx):
+            tol_cfg = wedge_ctx.get('tolerances') or {}
+            close_tol = float(tol_cfg.get('close', GEOMETRY_TOLERANCE))
+            feature_size = float(
+                tol_cfg.get(
+                    'feature_size',
+                    max(
+                        GEOMETRY_TOLERANCE * 50.0,
+                        abs(float(wedge_ctx.get('ins', 0.0) or 0.0)) * 2.0)))
+            local_size = _shape_feature_size(
+                source_face, fallback=feature_size)
+            global_deflection = max(
+                0.05,
+                min(0.25, max(wedge_ctx['ins'], 0.05) / 8.0))
+            base_deflection = max(
+                close_tol * 2.0,
+                min(global_deflection, local_size / 8.0))
+            min_deflection = max(
+                close_tol * 0.5,
+                min(base_deflection, local_size / 64.0))
+            deflections = []
+            cur_deflection = base_deflection
+            while cur_deflection >= min_deflection - 1e-12:
+                if not any(
+                        abs(cur_deflection - existing) <= 1e-9
+                        for existing in deflections):
+                    deflections.append(cur_deflection)
+                if cur_deflection <= min_deflection * 1.25:
+                    break
+                cur_deflection *= 0.5
+            if not deflections:
+                deflections.append(base_deflection)
+            if not any(
+                    abs(min_deflection - existing) <= 1e-9
+                    for existing in deflections):
+                deflections.append(min_deflection)
+            return deflections
 
         def _subdivide_triangle_uniform(tri, max_depth):
             pending = [([FreeCAD.Vector(pt) for pt in tri], 0)]
@@ -5158,34 +5787,44 @@ class LinkedObject:
         def _build_bent_source_face_triangle_patches(
                 source_face, wedge_ctx):
             tri_faces = []
-            deflection = max(
-                0.05,
-                min(0.25, max(wedge_ctx['ins'], 0.05) / 8.0))
             target_edge_splits = max(
                 int(wedge_ctx.get('target_edge_splits', 8) or 8), 1)
             max_depth = max(
                 0,
                 int(round(math.log(target_edge_splits, 2))))
+            used_deflection = None
+            deflection_attempts = _source_face_tessellation_deflections(
+                source_face, wedge_ctx)
 
-            for tri in _tessellate_face_triangles(source_face, deflection):
-                sub_tris = _subdivide_triangle_uniform(
-                    tri, max_depth)
-                for sub_tri in sub_tris:
-                    bent = [
-                        _bend_wedge_point(pt, wedge_ctx)
-                        for pt in sub_tri
-                    ]
-                    tri_face = _make_triangle_face(
-                        bent[0], bent[1], bent[2])
-                    if tri_face is not None:
-                        tri_faces.append(tri_face)
+            for deflection in deflection_attempts:
+                tri_faces = []
+                for tri in _tessellate_face_triangles(source_face, deflection):
+                    sub_tris = _subdivide_triangle_uniform(
+                        tri, max_depth)
+                    for sub_tri in sub_tris:
+                        bent = [
+                            _bend_wedge_point(pt, wedge_ctx)
+                            for pt in sub_tri
+                        ]
+                        tri_face = _make_triangle_face(
+                            bent[0], bent[1], bent[2])
+                        if tri_face is not None:
+                            tri_faces.append(tri_face)
+                if tri_faces:
+                    used_deflection = deflection
+                    break
 
             if tri_faces and wedge_diag:
+                attempt_msg = ""
+                if len(deflection_attempts) > 1:
+                    attempt_msg = (
+                        f" tries={len(deflection_attempts)}")
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD:   curved face tri-fallback"
                     f" patches={len(tri_faces)}"
-                    f" defl={deflection:.4f}"
-                    f" depth={max_depth}\n")
+                    f" defl={used_deflection:.4f}"
+                    f" depth={max_depth}"
+                    f"{attempt_msg}\n")
             return tri_faces
 
         def _build_bent_shape_triangle_patches(flat_shape, wedge_ctx):
@@ -5350,6 +5989,46 @@ class LinkedObject:
                     f" axis=({bend_axis.x:.3f},{bend_axis.y:.3f},{bend_axis.z:.3f})"
                     f" coc=({coc.x:.2f},{coc.y:.2f},{coc.z:.2f})"
                     f"\n")
+                sid_dbg = strip_to_seg.get(pi)
+                if sid_dbg is not None and 0 <= sid_dbg < len(joints):
+                    joint_dbg = joints[sid_dbg]
+                    seg_p0_dbg, seg_p1_dbg = joint_dbg['center']
+                    metrics_dbg = _piece_segment_debug_metrics(
+                        pieces[pi], seg_p0_dbg, seg_p1_dbg)
+                    touch_faces_dbg = []
+                    for fi_dbg in range(len(cut_faces)):
+                        try:
+                            d_touch_dbg = piece_slices[pi].distToShape(
+                                cut_segments[fi_dbg])[0]
+                        except Exception:
+                            d_touch_dbg = float('inf')
+                        if d_touch_dbg < GEOMETRY_TOLERANCE:
+                            touch_faces_dbg.append(fi_dbg)
+                    touch_sids_dbg = sorted(set(
+                        face_to_seg[fi_dbg]
+                        for fi_dbg in touch_faces_dbg
+                        if fi_dbg in face_to_seg))
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   wedge-src"
+                        f" sid={sid_dbg}"
+                        f" faces=A{joint_dbg['a_faces']}/B{joint_dbg['b_faces']}"
+                        f" cm_t_raw={metrics_dbg['cm_t_raw']:.6f}"
+                        f" t_raw=[{metrics_dbg['t_raw_min']:.6f},{metrics_dbg['t_raw_max']:.6f}]"
+                        f" d=[{metrics_dbg['d_min']:.6f},{metrics_dbg['d_max']:.6f}]"
+                        f" touch_sid={touch_sids_dbg if touch_sids_dbg else '-'}"
+                        f"\n")
+                    if (metrics_dbg['t_raw_min'] < -GEOMETRY_TOLERANCE
+                            or metrics_dbg['t_raw_max'] > 1.0 + GEOMETRY_TOLERANCE):
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   wedge-src p{pi}"
+                            f" exceeds assigned sid={sid_dbg}"
+                            f" t_raw=[{metrics_dbg['t_raw_min']:.6f},"
+                            f"{metrics_dbg['t_raw_max']:.6f}]\n")
+                    if touch_sids_dbg and touch_sids_dbg != [sid_dbg]:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD:   wedge-src p{pi}"
+                            f" assigned_sid={sid_dbg}"
+                            f" touch_sid={touch_sids_dbg}\n")
 
             # Count how many distinct mi's of this bend the piece crosses
             piece_mi_set_pi = set(piece_mi_list[pi])
@@ -5414,6 +6093,9 @@ class LinkedObject:
             far_span = abs(far_d - near_d)
             near_ref = cur_p0 + cur_normal * near_d + cur_up * half_t
             far_ref = cur_p0 + cur_normal * far_d + cur_up * half_t
+            sweep_span_dbg = abs(ins) * 2.0
+            if sweep_span_dbg <= 1e-6:
+                sweep_span_dbg = far_span
             if wedge_diag:
                 flat_anchor_near = _closest_point_on_shape(
                     positioned_flat, near_ref)
@@ -5427,6 +6109,33 @@ class LinkedObject:
                     f" far_ref={_fmt_vec(far_ref)}"
                     f" far_pt={_fmt_vec(flat_anchor_far)}"
                     f"\n")
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   sweep-window"
+                    f" ref=0.000000"
+                    f" span={sweep_span_dbg:.6f}"
+                    f" actual_d=[{near_d:.6f},{far_d:.6f}]"
+                    f"\n")
+
+            anchor_post_plc = None
+            anchor_ref_near = FreeCAD.Vector(near_ref)
+            anchor_ref_far = FreeCAD.Vector(far_ref)
+            if pi in wedge_post_mi_plc:
+                anchor_post_plc = piece_plc[
+                    pi].multiply(
+                    wedge_post_mi_plc[
+                        pi].inverse())
+                try:
+                    anchor_ref_near = anchor_post_plc.multVec(
+                        near_ref)
+                    anchor_ref_far = anchor_post_plc.multVec(
+                        far_ref)
+                except Exception:
+                    anchor_ref_near = FreeCAD.Vector(near_ref)
+                    anchor_ref_far = FreeCAD.Vector(far_ref)
+            anchor_target_near = _closest_point_on_shape(
+                target_shape, anchor_ref_near)
+            anchor_target_far = _closest_point_on_shape(
+                target_shape, anchor_ref_far)
 
             wedge_ctx = _make_wedge_build_context(
                 pi=pi,
@@ -5450,7 +6159,12 @@ class LinkedObject:
                 near_ref=near_ref,
                 far_ref=far_ref,
                 slice_count=N_SLICES,
-                target_edge_splits=wedge_target_edge_splits)
+                target_edge_splits=wedge_target_edge_splits,
+                anchor_post_plc=anchor_post_plc,
+                anchor_ref_near=anchor_ref_near,
+                anchor_ref_far=anchor_ref_far,
+                anchor_target_near=anchor_target_near,
+                anchor_target_far=anchor_target_far)
             wedge_ctx['profile'] = _extract_flat_wedge_profile(
                 wedge_ctx)
 
@@ -5526,9 +6240,7 @@ class LinkedObject:
                     seg_wire_counts = []
                     for d in seg_ds:
                         attempted_ds.append(d)
-                        frac = abs(d - near_d) / far_span \
-                            if far_span > 1e-9 \
-                            else 0.0
+                        frac = _wedge_sweep_fraction(d, wedge_ctx)
                         slice_pt = cur_p0 + cur_normal * d
                         plane_dist = (
                             slice_pt.x * cur_normal.x

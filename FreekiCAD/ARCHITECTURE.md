@@ -212,17 +212,28 @@ Current dispatch behavior:
 
 `Smooth` rebuilds the wedge from bent versions of the flat source faces instead of relying only on a single raw loft. The current retry ladder is:
 
+0. Rebuild constant-`d` sweep-boundary side faces as exact rigid transforms first (`anchored-sweep`)
 1. Rebuild source topology with ruled side faces and normal cap preferences
-2. Retry with generic rebuilt side faces (`generic-sides`)
-3. Retry with generic rebuilt side faces and fill-first caps (`generic-sides+fill-caps`)
+2. Retry under the historical `generic-sides` label
+3. Retry with fill-first caps (`generic-sides+fill-caps`)
 4. Retry with triangle patches on side faces only (`side-triangles`)
 5. Retry with a full triangle shell over the whole wedge (`tri-shell`)
 
 Notes:
 
 - Top or bottom caps can collapse to a line after bending; these are reported as `collapsed-to-line`
+- Cap collapse is detected from sampled bent boundary points, not just by counting distinct end vertices
+- `collapsed-to-line` and `dropped` are different outcomes:
+  `collapsed-to-line` means the cap legitimately degenerates to a line and is omitted from the shell
+  `dropped` means no acceptable rebuilt face or local triangle fallback could be produced
+- Collapsed caps do not by themselves reject a source-topology solid; later fallback stages are forced only by genuinely dropped faces
+- Sweep-start / sweep-end side faces are constant-`d` faces and are rebuilt as anchored rigid faces; they are not part of the collapse-to-line handling
+- Side faces no longer use the generic n-sided filled-face patch path, because that can synthesize poles or cone-like peaks that were not source vertices
+- In practice, side faces are rebuilt from anchored rigid faces, ruled/loft pair surfaces, or explicit triangle patches
 - Individual rebuilt faces can fall back to triangle patches; these are reported as `tri-fallback`
+- The retry labels `generic-sides` / `generic-sides+fill-caps` are historical; they no longer imply that side faces themselves are rebuilt with generic filled patches
 - The old scaled solidification retry was removed; the smooth path now advances directly to the next fallback stage when shell building fails
+- Smooth solid selection prefers candidates whose sweep-start / sweep-end anchors match the target placement; target volume is treated as a diagnostic signal rather than a hard acceptance gate
 - If every smooth-stage solid attempt fails, the user-facing `Smooth` mode falls back to analytic wireframe for that wedge
 
 ### Legacy Loft Limits
@@ -319,6 +330,8 @@ Bend (user-drawn bend line, bi)
 | **piece** / **pi** | index | A solid fragment after the board is sliced by all cut faces. Index into `pieces[]`. |
 | **piece_slices[pi]** | 2D Compound | The 2D cross-section of piece `pi` at z=half_t. Used for fast distance checks during adjacency building. |
 | **wedge** / **wedge piece** | piece | A narrow strip of material between the A and B cut faces of a bend segment. Lives within the inset zone. Lofted into a curved solid in the wedge loft phase. Code uses `strip_` prefix for historical reasons (e.g., `strip_pieces`, `strip_to_bend`). |
+| **collapsed-to-line** | status | A cap face whose bent boundary degenerates to a line. This is treated as a legitimate singular limit of the wedge, not as a face reconstruction failure. |
+| **dropped face** | status | A source face for which neither exact rebuild nor local triangle fallback produced an acceptable face. Dropped faces are what drive later smooth-stage fallback retries. |
 | **joint** / **sid** | index | A center-segment-centric grouping. Each joint corresponds to one center segment and contains: the center segment endpoints, zero or more A faces, zero or more B faces, and zero or more wedge pieces. A and B faces are assigned to joints by projecting their midpoints onto center segments. Index into `joints[]`. Replaces the old A/B pairing logic. |
 | **micro-bend** / **mi** | index | One atomic fold operation used by Phase 3. In the current code, mi is assigned per joint/segment (`sid`) and can be shared by paired A/B faces of the same center segment. |
 | **micro_bend_info[mi]** | tuple | Per-mi data: (angle_rad, bend_obj, cut_mid, normal, radius, orig_bi). Geometry is taken from the stationary-side face when available. |
