@@ -4562,37 +4562,6 @@ class LinkedObject:
                 return candidate, label, vol
             return None, None, 0.0
 
-        def _scale_shape_about_point(shape, center, factor):
-            if shape is None:
-                return None
-            if abs(factor - 1.0) <= 1e-12:
-                try:
-                    return shape.copy()
-                except Exception:
-                    return shape
-
-            try:
-                scaled = shape.copy()
-            except Exception:
-                scaled = shape
-
-            center = FreeCAD.Vector(center)
-            shift = FreeCAD.Vector(-center.x, -center.y, -center.z)
-            try:
-                scaled.translate(shift)
-            except Exception:
-                pass
-
-            mat = FreeCAD.Matrix()
-            mat.scale(factor, factor, factor)
-            scaled = scaled.transformGeometry(mat)
-
-            try:
-                scaled.translate(center)
-            except Exception:
-                pass
-            return scaled
-
         def _orient_face_outward(face, solid_center):
             if face is None:
                 return None, False
@@ -4713,11 +4682,9 @@ class LinkedObject:
                     shell_candidates,
                     candidate_target_vol,
                     candidate_fix_tol,
-                    candidate_fix_max_tol,
-                    shell_prefix="",
-                    downscale_factor=None):
+                    candidate_fix_max_tol):
                 for shell_label, shell in shell_candidates:
-                    display_label = f"{shell_prefix}{shell_label}"
+                    display_label = shell_label
                     shell_to_use = shell
                     try:
                         if not shell_to_use.isValid():
@@ -4784,61 +4751,7 @@ class LinkedObject:
                             f" vol_rel={vol_rel:.3f}"
                             f" vol={vol:.4f}"
                             f" target={candidate_target_vol:.4f}\n")
-
-                    if downscale_factor is None:
-                        return solid
-
-                    try:
-                        downscaled = _scale_shape_about_point(
-                            solid, target_center, 1.0 / downscale_factor)
-                    except Exception:
-                        downscaled = None
-                    downscaled, down_label, down_vol = (
-                        _repair_valid_solid_candidate(
-                            downscaled,
-                            fix_tol=fix_tol,
-                            fix_max_tol=fix_max_tol))
-                    if downscaled is None:
-                        if wedge_diag:
-                            FreeCAD.Console.PrintWarning(
-                                f"FreekiCAD:   curved solid invalid"
-                                f" after scale-down"
-                                f" for piece {wedge_ctx['pi']}"
-                                f" strategy={strategy_name}"
-                                f" shell={display_label}\n")
-                        continue
-                    if wedge_diag and down_label not in (None, "raw"):
-                        FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD:   curved solid repaired"
-                            f" after scale-down"
-                            f" strategy={strategy_name}"
-                            f" shell={display_label}"
-                            f" via={down_label}\n")
-
-                    post_rel = 0.0
-                    if target_vol > 1e-9:
-                        if down_vol < target_vol * 0.5:
-                            if wedge_diag:
-                                FreeCAD.Console.PrintWarning(
-                                    f"FreekiCAD:   curved solid collapsed"
-                                    f" after scale-down"
-                                    f" for piece {wedge_ctx['pi']}"
-                                    f" strategy={strategy_name}"
-                                    f" shell={display_label}"
-                                    f" vol={down_vol:.4f}"
-                                    f" target={target_vol:.4f}\n")
-                            continue
-                        post_rel = abs(down_vol - target_vol) / target_vol
-                    if post_rel > 0.20 and wedge_diag:
-                        FreeCAD.Console.PrintWarning(
-                            f"FreekiCAD:   curved solid suspicious"
-                            f" after scale-down"
-                            f" for piece {wedge_ctx['pi']}"
-                            f" strategy={strategy_name}"
-                            f" vol_rel={post_rel:.3f}"
-                            f" vol={down_vol:.4f}"
-                            f" target={target_vol:.4f}\n")
-                    return downscaled
+                    return solid
 
                 return None
 
@@ -4848,47 +4761,6 @@ class LinkedObject:
                 shell_candidates, target_vol, fix_tol, fix_max_tol)
             if solid is not None:
                 return solid
-
-            feature_size = abs(float(
-                tol_cfg.get('feature_size', 0.0) or 0.0))
-            scale_factor = 1.0
-            if feature_size > 1e-9:
-                scale_factor = min(1000.0, max(10.0, 10.0 / feature_size))
-            elif target_vol > 0.0:
-                scale_factor = 1000.0
-            if target_vol <= 0.01 and scale_factor > 1.5:
-                if wedge_diag:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD:   curved solid retry=scaled"
-                        f" strategy={strategy_name}"
-                        f" factor={scale_factor:.1f}\n")
-                scaled_faces = []
-                for face in unique_faces:
-                    scaled_face = _scale_shape_about_point(
-                        face, target_center, scale_factor)
-                    if scaled_face is not None:
-                        scaled_faces.append(scaled_face)
-                if scaled_faces:
-                    scaled_fix_tol = max(fix_tol * scale_factor, fix_tol)
-                    scaled_fix_max_tol = max(
-                        fix_max_tol * scale_factor,
-                        scaled_fix_tol)
-                    scaled_target_vol = (
-                        target_vol * scale_factor
-                        * scale_factor * scale_factor)
-                    scaled_shell_candidates = _build_shell_candidates(
-                        scaled_faces,
-                        scaled_fix_tol,
-                        scaled_fix_max_tol)
-                    solid = _try_shell_candidates(
-                        scaled_shell_candidates,
-                        scaled_target_vol,
-                        scaled_fix_tol,
-                        scaled_fix_max_tol,
-                        shell_prefix=f"scaled@{scale_factor:.1f}:",
-                        downscale_factor=scale_factor)
-                    if solid is not None:
-                        return solid
 
             if wedge_diag:
                 FreeCAD.Console.PrintWarning(

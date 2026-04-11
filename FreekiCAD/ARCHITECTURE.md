@@ -165,6 +165,24 @@ Iterates chain positions; at each position collects distinct mi's across all pie
 
 For each wedge piece, creates a curved 3D solid by lofting cross-sections along the bend arc.
 
+### Wedge Modes
+
+`WedgeMode` is a user-facing rendering/build preset with six values:
+
+- `Coarse`: analytic faceted wedge solid with target edge splits = 4
+- `Medium`: analytic faceted wedge solid with target edge splits = 8
+- `Fine`: analytic faceted wedge solid with target edge splits = 32
+- `Smooth`: hybrid curved wedge solid rebuilt from bent source topology
+- `Loft`: legacy sliced-loft wedge builder
+- `Wireframe`: analytic slice-wire preview only
+
+Current dispatch behavior:
+
+- `Wireframe` builds only the bent analytic slice wires
+- `Loft` uses the legacy loft path directly
+- `Smooth` tries the hybrid curved-solid builder; if that fails, it falls back to analytic wireframe
+- `Coarse` / `Medium` / `Fine` try the analytic faceted solid builder first; if that fails, they fall back to the legacy loft path
+
 ### Algorithm
 
 1. Retrieve saved pivot data (virtual_plc, cur_p0, cur_normal, cur_up, bend_axis, coc)
@@ -189,6 +207,37 @@ For each wedge piece, creates a curved 3D solid by lofting cross-sections along 
    - otherwise: `Part.makeLoft(seg, True, not smooth_wedge)` per segment, then fuse segments together
 8. If volume < 0: reverse the solid (inside-out fix)
 9. Apply remaining Phase 3 rotations (`piece_plc[pi] * wedge_post_mi_plc[pi]^-1`) to catch rotations that happened after the wedge's own mi
+
+### Smooth Hybrid Rebuild
+
+`Smooth` rebuilds the wedge from bent versions of the flat source faces instead of relying only on a single raw loft. The current retry ladder is:
+
+1. Rebuild source topology with ruled side faces and normal cap preferences
+2. Retry with generic rebuilt side faces (`generic-sides`)
+3. Retry with generic rebuilt side faces and fill-first caps (`generic-sides+fill-caps`)
+4. Retry with triangle patches on side faces only (`side-triangles`)
+5. Retry with a full triangle shell over the whole wedge (`tri-shell`)
+
+Notes:
+
+- Top or bottom caps can collapse to a line after bending; these are reported as `collapsed-to-line`
+- Individual rebuilt faces can fall back to triangle patches; these are reported as `tri-fallback`
+- The old scaled solidification retry was removed; the smooth path now advances directly to the next fallback stage when shell building fails
+- If every smooth-stage solid attempt fails, the user-facing `Smooth` mode falls back to analytic wireframe for that wedge
+
+### Legacy Loft Limits
+
+The legacy `Loft` path is best suited to simple wedges whose slice topology stays consistent across the whole bend.
+
+Important limits:
+
+- It assumes each sub-range can be followed as one or more stable wire sequences and then lofted directly
+- It is not robust for wedges whose slice topology branches, merges, or otherwise changes over the bend
+- If different slices in the same sub-range return different wire counts, the implementation drops to a `first-wire` fallback for that sub-range
+- In that inconsistent case, secondary branches can be ignored, so the resulting loft may miss parts of the intended shape or fail entirely
+- Even when multi-wire slices are present, the legacy path only works reliably when the branch count remains consistent from slice to slice
+
+In practice, branched or topology-changing wedges should use `Smooth`; `Loft` remains mainly as a compatibility fallback for older, simpler wedge shapes.
 
 ### Failure Modes
 
