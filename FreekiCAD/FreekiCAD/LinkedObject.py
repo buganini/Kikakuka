@@ -1582,7 +1582,7 @@ class LinkedObject:
     """
 
     _WEDGE_MODE_OPTIONS = [
-        "Smooth", "Loft", "Wireframe"]
+        "Smooth", "Wireframe"]
     _REBEND_DEBOUNCE_MS = 1000
     _COMPONENT_MOVE_DEBOUNCE_MS = 200
     _COMPONENT_SYNC_GRACE_MS = 200
@@ -1617,7 +1617,7 @@ class LinkedObject:
         obj.DebugBoard = False
         obj.addProperty(
             "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
-            "Wedge rendering mode: Smooth, Loft, or Wireframe"
+            "Wedge rendering mode: Smooth or Wireframe"
         )
         obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
         obj.WedgeMode = "Smooth"
@@ -2735,21 +2735,6 @@ class LinkedObject:
                         f" touch={touch_ab if touch_ab else '-'}"
                         f" touch_sid={touch_sids if touch_sids else '-'}"
                         f" bbox={bbox_str}\n")
-                    if (metrics['t_raw_min'] < -tol
-                            or metrics['t_raw_max'] > 1.0 + tol):
-                        vertex_samples = []
-                        for vi, vertex in enumerate(
-                                getattr(piece, 'Vertexes', [])[:12]):
-                            t_raw_v, _t_v, d_v = _project_point_to_segment_xy(
-                                vertex.Point, seg_p0, seg_p1)
-                            vertex_samples.append(
-                                f"v{vi}:t_raw={t_raw_v:.6f}"
-                                f" d={d_v:.6f}"
-                                f" xyz=({vertex.Point.x:.6f},{vertex.Point.y:.6f},{vertex.Point.z:.6f})")
-                        FreeCAD.Console.PrintWarning(
-                            f"FreekiCAD:   wedge-src p{pi}"
-                            f" extends past joint sid={sid}"
-                            f" verts=[{'; '.join(vertex_samples)}]\n")
                     if touch_sids and touch_sids != [sid]:
                         FreeCAD.Console.PrintWarning(
                             f"FreekiCAD:   wedge-src p{pi}"
@@ -2895,7 +2880,7 @@ class LinkedObject:
                 mi = sid_to_mi[sid]
                 face_to_micro[fi] = mi
                 # Keep the canonical segment geometry anchored on the
-                # stationary-side face. Wedge loft slices from cut_mid
+                # stationary-side face. Wedge build slices from cut_mid
                 # along normal, so picking the moving-side partner can
                 # leave every slice plane outside the wedge.
                 if is_stationary and not mi_has_stationary_face.get(mi, False):
@@ -3511,7 +3496,7 @@ class LinkedObject:
                     for pi in range(len(piece_shapes)):
                         if not _at_step(pi, step_pos, mi):
                             continue
-                        # Wedge lofts are rebuilt later from the
+                        # Wedge geometry is rebuilt later from the
                         # pre-mi snapshot, but their final rigid
                         # target still needs the same inset
                         # correction as neighboring pieces.  Because
@@ -3583,8 +3568,8 @@ class LinkedObject:
                 except Exception:
                     pass
 
-        # Build wedge shapes using explicit `Smooth`,
-        # `Loft`, or `Wireframe`.
+        # Build wedge shapes using explicit `Smooth`
+        # or `Wireframe`.
         _t_loft = _time.time()
         wedge_mode = self._get_wedge_mode(obj)
         is_wireframe_wedge = (wedge_mode == "Wireframe")
@@ -4231,6 +4216,45 @@ class LinkedObject:
                     f" s={face_s:.6f}"
                     f" span={face_span:.6f}"
                     f"{'' if boundary_source == 'exact' else ' source=sampled'}\n")
+            return face
+
+        def _build_exact_side_face(
+                source_face, bent_pairs, wedge_ctx, label,
+                close_tol=None, area_tol=1e-9):
+            if close_tol is None:
+                close_tol = GEOMETRY_TOLERANCE
+
+            bent_wires = []
+            for source_wire in getattr(source_face, 'Wires', []):
+                bent_wire = _build_closed_wire_from_bent_edges(
+                    source_wire, bent_pairs, close_tol=close_tol)
+                if bent_wire is None:
+                    bent_wire = _build_dense_closed_wire_from_bent_edges(
+                        source_wire, bent_pairs, close_tol=close_tol)
+                if bent_wire is None:
+                    return None
+                bent_wires.append(bent_wire)
+            if not bent_wires:
+                return None
+
+            face = _make_filled_face_from_wires(
+                bent_wires, area_tol=area_tol)
+            if face is None and len(bent_wires) == 1:
+                try:
+                    face = Part.Face(bent_wires[0])
+                except Exception:
+                    face = None
+            if face is None:
+                return None
+            try:
+                if getattr(face, 'Area', 0.0) <= area_tol:
+                    return None
+            except Exception:
+                pass
+            if wedge_diag:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   curved {label}"
+                    f" surface=exact\n")
             return face
 
         def _make_line_edge(p0, p1):
@@ -5145,6 +5169,21 @@ class LinkedObject:
                 close_tol=close_tol, area_tol=area_tol)
             if boundary_face is not None:
                 return [boundary_face], "boundary-plane"
+
+            sweep_deg = abs(math.degrees(float(
+                wedge_ctx.get('sweep_angle', 0.0) or 0.0)))
+            source_edge_count = len(getattr(source_face, 'Edges', []))
+            if sweep_deg >= 179.0 and source_edge_count <= 4:
+                exact_side_face = _build_exact_side_face(
+                    source_face,
+                    bent_pairs,
+                    wedge_ctx,
+                    label,
+                    close_tol=close_tol,
+                    area_tol=area_tol)
+                if exact_side_face is not None:
+                    return [exact_side_face], "exact"
+
             if not pair_entries:
                 if wedge_diag:
                     FreeCAD.Console.PrintWarning(
@@ -6579,92 +6618,9 @@ class LinkedObject:
                     f" retry={list(zip([round(d, 6) for d in retry_ds], retry_hits))}"
                     f"\n")
 
-            def _try_loft(segs, label, ruled):
-                """Try to build a loft from segments.
-                Returns the loft Shape or None."""
-                loft_parts = []
-                for seg in segs:
-                    if len(seg) < 2:
-                        continue
-                    part = Part.makeLoft(
-                        seg, True, ruled)
-                    if abs(part.Volume) > 1e-9:
-                        if part.Volume < 0:
-                            part = part.reversed()
-                        loft_parts.append(part)
-                if not loft_parts:
-                    return None
-                if len(loft_parts) == 1:
-                    loft = loft_parts[0]
-                else:
-                    loft = loft_parts[0].fuse(
-                        loft_parts[1:])
-                vol = loft.Volume
-                if abs(vol) <= 1e-9:
-                    return None
-                if vol < 0:
-                    loft = loft.reversed()
-                if wedge_diag:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD:   {label} loft ok"
-                        f" vol={loft.Volume:.4f}\n")
-                return loft
-
-            def _build_wedge_shape_loft(mode):
-                if mode == "Wireframe":
-                    return None
-
-                if not segments:
-                    return None
-
-                smooth_loft = (mode == "Loft")
-                if wedge_diag:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD:   loft segments="
-                        f"{len(segments)} splits_at="
-                        f"{[f'{d:.6f}' for d in split_ds]}"
-                        f" smooth={'Y' if smooth_loft else 'N'}\n")
-
-                try:
-                    loft = _try_loft(
-                        segments,
-                        "smooth" if smooth_loft else "segmented",
-                        ruled=not smooth_loft)
-                    if loft is not None:
-                        return loft
-                    if smooth_loft and wedge_diag:
-                        FreeCAD.Console.PrintWarning(
-                            f"FreekiCAD: smooth loft produced no solid"
-                            f" for piece {pi},"
-                            f" fallback=segmented ruled loft\n")
-                    if smooth_loft:
-                        return _try_loft(
-                            segments, "segmented", ruled=True)
-                    return None
-                except Exception as e:
-                    if smooth_loft:
-                        FreeCAD.Console.PrintWarning(
-                            f"FreekiCAD: smooth loft failed"
-                            f" for piece {pi}: {e},"
-                            f" fallback=segmented ruled loft\n")
-                        try:
-                            return _try_loft(
-                                segments, "segmented", ruled=True)
-                        except Exception as fallback_e:
-                            FreeCAD.Console.PrintWarning(
-                                f"FreekiCAD: segmented loft failed"
-                                f" for piece {pi}: {fallback_e}\n")
-                            return None
-                    FreeCAD.Console.PrintWarning(
-                        f"FreekiCAD: segmented loft failed"
-                        f" for piece {pi}: {e}\n")
-                    return None
-
             def _build_wedge_shape(mode, ctx):
                 if mode == "Wireframe":
                     return _build_wedge_wireframe_analytic(ctx)
-                if mode == "Loft":
-                    return _build_wedge_shape_loft(mode)
                 if mode == "Smooth":
                     curved_solid = _build_wedge_solid_hybrid(ctx)
                     if curved_solid is not None:
@@ -7022,7 +6978,7 @@ class LinkedObject:
                     f" loft: {_time.time() - _t_loft_one:.3f}s\n")
 
         FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: [profile] Wedge loft: "
+            f"FreekiCAD: [profile] Wedge build: "
             f"{_time.time() - _t_loft:.3f}s\n")
 
         bend_plc_debug = {}
@@ -8671,7 +8627,7 @@ class LinkedObject:
         if not hasattr(obj, 'WedgeMode'):
             obj.addProperty(
                 "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
-                "Wedge rendering mode: Smooth, Loft, or Wireframe")
+                "Wedge rendering mode: Smooth or Wireframe")
         obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
         obj.WedgeMode = mode_value
         # Remove obsolete properties from older saved files.

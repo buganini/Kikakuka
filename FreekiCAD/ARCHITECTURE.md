@@ -7,7 +7,7 @@ The bending pipeline transforms a flat PCB board into a 3D folded shape by:
 2. Cutting the flat board into rigid pieces and wedge strips
 3. Running a preliminary non-wedge parent search, then a wedge-aware BFS to determine rotation order
 4. Rotating pieces sequentially around bend centers of curvature
-5. Lofting wedges into curved solids
+5. Building wedge geometry
 6. Applying correction translations, visual bend-line offsets, and final assembly/debug output
 
 Entry point: `__apply_bends_impl()` in `LinkedObject.py`.
@@ -161,22 +161,20 @@ Iterates chain positions; at each position collects distinct mi's across all pie
 
 ---
 
-## Wedge Loft
+## Wedge Build
 
-For each wedge piece, creates a curved 3D solid by lofting cross-sections along the bend arc.
+For each wedge piece, creates either a curved 3D solid or an analytic wire preview along the bend arc.
 
 ### Wedge Modes
 
-`WedgeMode` is a user-facing rendering/build preset with three values:
+`WedgeMode` is a user-facing rendering/build preset with two values:
 
 - `Smooth`: hybrid curved wedge solid rebuilt from bent source topology
-- `Loft`: sliced-loft wedge builder
 - `Wireframe`: analytic slice-wire preview only
 
 Current dispatch behavior:
 
 - `Wireframe` builds only the bent analytic slice wires
-- `Loft` uses the sliced-loft path directly
 - `Smooth` tries the hybrid curved-solid builder; if that fails, it falls back to analytic wireframe
 
 ### Algorithm
@@ -198,11 +196,10 @@ Current dispatch behavior:
      - Use the first returned wire from `slice()` for that cross-section
    - Reorder vertices: OCCT's `slice()` can return vertices in different cyclic order depending on slice position; align each wire to match the first wire by trying all cyclic rotations and both directions
    - Collect as one loft segment
-7. Build loft:
+7. Build wedge output:
    - in wireframe mode: compound all slice wires
-   - otherwise: `Part.makeLoft(seg, True, not smooth_wedge)` per segment, then fuse segments together
-8. If volume < 0: reverse the solid (inside-out fix)
-9. Apply remaining Phase 3 rotations (`piece_plc[pi] * wedge_post_mi_plc[pi]^-1`) to catch rotations that happened after the wedge's own mi
+   - in smooth mode: rebuild the wedge from bent source faces instead of turning the slice stack directly into one user-facing solid
+8. Apply remaining Phase 3 rotations (`piece_plc[pi] * wedge_post_mi_plc[pi]^-1`) to catch rotations that happened after the wedge's own mi
 
 ### Smooth Hybrid Rebuild
 
@@ -229,7 +226,8 @@ Notes:
 - If a sweep-boundary face shares a collapsed cap edge, the rebuild first tries to reuse surviving exact bent edges and only synthesizes the collapsed edge as a projected line segment if necessary
 - A sampled-boundary polygon path remains only as a last resort for sweep-boundary faces whose exact-edge wire still cannot be formed
 - Side faces do not use the generic n-sided filled-face patch path, because that can synthesize poles or cone-like peaks that were not source vertices
-- In practice, side faces are rebuilt from anchored rigid faces, sweep-boundary planar faces, ruled/loft pair surfaces, or explicit triangle patches
+- Near the 180° singular limit, simple non-constant side faces can still be rebuilt from their exact bent boundary wire before falling back to pair surfaces
+- In practice, side faces are rebuilt from anchored rigid faces, sweep-boundary planar faces, exact bent-boundary fills in the near-180° case, ruled/loft pair surfaces, or explicit triangle patches
 - Individual rebuilt faces can fall back to triangle patches; these are reported as `tri-fallback`
 - Triangle fallback density is intentionally lighter than the normal `Smooth` target: local fallback faces use one subdivision level less than the configured smooth split count
 - `Smooth` attempts a single source-topology rebuild for each wedge
@@ -240,22 +238,41 @@ Notes:
 
 ### Smooth Strategy Inventory
 
-| Label | Layer | Used when / use case |
+`Smooth` uses a small set of labels that fall into four buckets: whole-wedge setup, side-face rebuilds, cap rebuilds, and per-face fallback.
+
+#### Whole-Wedge
+
+| Label | Kind | Used for |
 | --- | --- | --- |
-| `vertex-weld` | preprocessing | Always runs before the `Smooth` source-topology rebuild. It welds bent edge vertices so adjacent rebuilt faces share endpoints and shell construction has a better chance to close cleanly. |
-| `source-topology` | whole-wedge strategy | Default and only whole-wedge `Smooth` strategy. Rebuilds the wedge from the original top/bottom/side face decomposition instead of tessellating the whole wedge into triangles. |
-| `anchored-sweep` | side-face rebuild | Used when a source side face is constant-`d`. This is the most exact side-face path: rigidly transform the source face to its bent position at a fixed inset distance. |
-| `sweep-boundary-plane` | side-face rebuild | Used when a source side face is constant-`s`. This is the dedicated rebuild for the two sweep-boundary planes; it prefers exact bent edges and only drops to projected sampled edges if the exact wire cannot be closed. |
-| `side-ruled` | side-pair rebuild | Used when a side face is neither constant-`d` nor constant-`s`, but matched top/bottom edge pairs are available and `Part.makeRuledSurface(...)` succeeds. Preferred pair-based rebuild because it preserves straight edge correspondence. |
-| `side-loft` | side-pair fallback | Used only when a valid side pair exists but `side-ruled` does not succeed. It is the fallback pair-based side rebuild. |
-| `span-first` | cap preference | Default cap policy when a top/bottom source wire has 4 or fewer edges. Use case: simple caps whose shape is best reconstructed from the two long sweep-boundary edges before trying a generic fill. |
-| `fill-first` | cap preference | Default cap policy when a top/bottom source wire has more than 4 edges. Use case: more complex caps where a filled boundary is usually more reliable than span reconstruction. |
+| `vertex-weld` | preprocessing | Runs before face rebuild. Welds bent edge vertices so neighboring rebuilt faces share endpoints and shell construction has a better chance to close cleanly. |
+| `source-topology` | whole-wedge strategy | The only top-level `Smooth` rebuild path. Rebuilds the wedge from the original top/bottom/side face decomposition rather than tessellating the whole wedge into triangles. |
+
+#### Side-Face Rebuilds
+
+| Label | Kind | Used for |
+| --- | --- | --- |
+| `anchored-sweep` | side-face rebuild | Used for constant-`d` side faces. Rebuilds the face by rigidly transforming the source face to its bent position at a fixed inset distance. |
+| `sweep-boundary-plane` | side-face rebuild | Used for constant-`s` side faces. Rebuilds the two sweep-boundary planes, preferring exact bent edges and only falling back to projected sampled edges if the exact wire cannot be closed. |
+| `side-ruled` | side-pair rebuild | Used for non-constant side faces when matched top/bottom edge pairs are available and `Part.makeRuledSurface(...)` succeeds. This is the preferred pair-based side rebuild. |
+| `side-loft` | side-pair fallback | Used only when a valid side pair exists but `side-ruled` does not succeed. |
+| `surface=exact` | exact boundary rebuild | Used when a face can still be reconstructed from its exact bent boundary wire and filled directly. In practice this mainly covers residual non-side faces plus simple near-180° side faces whose exact boundary is more reliable than a ruled patch. |
+
+#### Cap Rebuilds
+
+| Label | Kind | Used for |
+| --- | --- | --- |
+| `span-first` | cap preference | Default cap policy when a top/bottom source wire has 4 or fewer edges. Prefer a span-based rebuild from the two long sweep-boundary edges before trying a generic fill. |
+| `fill-first` | cap preference | Default cap policy when a top/bottom source wire has more than 4 edges. Prefer a filled boundary rebuild before trying span reconstruction. |
 | `span-loft` | cap surface build | Used when the cap builder can identify two strong sweep-boundary edges and a loft between them succeeds. Preferred for simple ribbon-like caps. |
 | `span-ruled` | cap surface fallback | Used when the same span edges are available but `span-loft` fails and a ruled surface succeeds instead. |
 | `filled-face` | cap surface build | Used when a cap wire can be rebuilt as a closed bent wire and filled directly. This is the main non-span cap strategy, and the first fill-based choice when `fill-first` is active. |
 | `dense-filled-face` | cap surface fallback | Used when the ordinary filled cap wire is too sparse or fragile for OCC, but a denser sampled wire produces a valid fill. |
-| `surface=exact` | generic face rebuild | Used for residual non-side faces whose bent boundary wires can still be reconstructed exactly and filled without a cap- or side-specific strategy. |
-| `tri-fallback` | per-face fallback | Used only for the individual source face that could not be rebuilt analytically or exactly. This is no longer a whole-wedge retry stage. |
+
+#### Per-Face Fallback
+
+| Label | Kind | Used for |
+| --- | --- | --- |
+| `tri-fallback` | per-face fallback | Used only for an individual source face that could not be rebuilt analytically or exactly. This is no longer a whole-wedge retry stage. |
 
 ### Smooth Status And Diagnostic Labels
 
@@ -289,29 +306,6 @@ Related diagnostics from the same stage:
 | `solid suspicious` | diagnostic | A valid solid exists, but its volume error is large enough to warn about before ranking candidates. |
 | `solid off-anchor` | diagnostic | A candidate solid misses the expected near/far anchor locations by more than the configured tolerance and is discarded. |
 | `solidify failed` | diagnostic | None of the shell candidates produced an acceptable solid. |
-
-### Loft Labels
-
-These labels are still live, but they are no longer part of the `Smooth` source-topology path:
-
-| Label | Layer | Used when / use case |
-| --- | --- | --- |
-| `smooth` | loft sub-strategy | Used only by `WedgeMode=Loft`. It asks the loft path to build one non-ruled loft across the sampled wedge segments. |
-| `segmented` | loft fallback | Used as the fallback from `WedgeMode=Loft` if the `smooth` loft does not produce a solid. This is the ruled segmented loft path. |
-
-### Loft Limits
-
-The `Loft` path is best suited to simple wedges whose slice topology stays consistent across the whole bend.
-
-Important limits:
-
-- It assumes each sub-range can be followed as one or more stable wire sequences and then lofted directly
-- It is not robust for wedges whose slice topology branches, merges, or otherwise changes over the bend
-- If different slices in the same sub-range return different wire counts, the implementation drops to a `first-wire` fallback for that sub-range
-- In that inconsistent case, secondary branches can be ignored, so the resulting loft may miss parts of the intended shape or fail entirely
-- Even when multi-wire slices are present, the loft path only works reliably when the branch count remains consistent from slice to slice
-
-In practice, branched or topology-changing wedges should use `Smooth`; `Loft` is best reserved for simpler wedge shapes.
 
 ### Failure Modes
 
@@ -392,7 +386,7 @@ Bend (user-drawn bend line, bi)
 | **topo side** (A/B) | label | Neutral label for the two offset sides of a bend segment. 'A' and 'B' have no inherent directional meaning; stationary/moving roles are assigned later by BFS. |
 | **piece** / **pi** | index | A solid fragment after the board is sliced by all cut faces. Index into `pieces[]`. |
 | **piece_slices[pi]** | 2D Compound | The 2D cross-section of piece `pi` at z=half_t. Used for fast distance checks during adjacency building. |
-| **wedge** / **wedge piece** | piece | A narrow strip of material between the A and B cut faces of a bend segment. Lives within the inset zone. Lofted into a curved solid in the wedge loft phase. Some helpers still use a `strip_` prefix (e.g., `strip_pieces`, `strip_to_bend`). |
+| **wedge** / **wedge piece** | piece | A narrow strip of material between the A and B cut faces of a bend segment. Lives within the inset zone. Built into either curved solid geometry or a wire preview during the wedge build phase. Some helpers still use a `strip_` prefix (e.g., `strip_pieces`, `strip_to_bend`). |
 | **d** | local wedge coordinate | Projection along `cur_normal`: the across-bend direction used to measure inset span and sweep progress. |
 | **s** | local wedge coordinate | Projection along `bend_axis`: the along-bend direction used to identify the two sweep-boundary side faces. |
 | **up** | local wedge coordinate | Projection along `cur_up`: the board-thickness direction in the local wedge frame. |
@@ -409,9 +403,9 @@ Bend (user-drawn bend line, bi)
 | **adjacency[pi]** | list of (nbr_pi, mi, fi) | All crossings of piece `pi`: neighbors with the connecting mi label and cut face index. Built from joints. |
 | **stationary_idx** | pi | The BFS root piece — the non-wedge piece closest to the board center of mass. Remains fixed; all other pieces rotate relative to it. |
 | **piece_plc[pi]** | Placement | Accumulated rotation/translation for piece `pi` through Phase 3. Starts as identity. |
-| **wedge_pre_shapes[pi]** | Shape | Snapshot of a wedge piece's shape before its canonical `strip_to_mi[pi]` rotation. Used as input for wedge loft. |
+| **wedge_pre_shapes[pi]** | Shape | Snapshot of a wedge piece's shape before its canonical `strip_to_mi[pi]` rotation. Used as input for wedge building. |
 | **wedge_post_mi_plc[pi]** | Placement | Snapshot of `piece_plc[pi]` right after the wedge's canonical `strip_to_mi[pi]` rotation. Remaining Phase 3 rotations are applied to the loft afterward. |
-| **micro_pivots[mi]** | tuple | Saved pivot geometry for wedge loft: (virtual_plc, cur_p0, cur_normal, cur_up, bend_axis, coc). |
+| **micro_pivots[mi]** | tuple | Saved pivot geometry for wedge building: (virtual_plc, cur_p0, cur_normal, cur_up, bend_axis, coc). |
 | **wedge_pieces** | set of pi | All wedge piece indices. Code: `strip_pieces`. |
 | **wedge_to_bend[pi]** | bi | Which bend a wedge piece belongs to. Code: `strip_to_bend`. |
 | **strip_to_mi[pi]** | mi | Maps a wedge to its canonical positive entry mi, chosen from the wedge's BFS record as the first positive crossing on the wedge's own bend. |
@@ -438,4 +432,4 @@ Bend (user-drawn bend line, bi)
 6. bend_sign = -1 if angle > 0 else 1
 7. All adjacency crossings have a matching cut face; non-cut connections are not emitted
 8. Wedge chains are rooted on first BFS discovery; later traversals may add exit crossings but do not replace wedge parents
-9. Wedge loft is built in the pre-mi frame; remaining Phase 3 rotations are applied via `wedge_post_mi_plc`
+9. Wedge geometry is built in the pre-mi frame; remaining Phase 3 rotations are applied via `wedge_post_mi_plc`
