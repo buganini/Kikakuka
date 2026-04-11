@@ -212,6 +212,12 @@ Current dispatch behavior:
 
 `Smooth` rebuilds the wedge from bent versions of the flat source faces instead of relying only on a single raw loft. The current retry ladder is:
 
+The smooth wedge builder uses a local frame for each wedge:
+
+- `d`: projection along `cur_normal` (across the bend / inset direction)
+- `s`: projection along `bend_axis` (along the bend line / segment direction)
+- `up`: projection along `cur_up` (board thickness direction)
+
 0. Rebuild constant-`d` sweep-boundary side faces as exact rigid transforms first (`anchored-sweep`)
 1. Rebuild source topology with ruled side faces and normal cap preferences
 2. Retry under the historical `generic-sides` label
@@ -226,14 +232,20 @@ Notes:
 - `collapsed-to-line` and `dropped` are different outcomes:
   `collapsed-to-line` means the cap legitimately degenerates to a line and is omitted from the shell
   `dropped` means no acceptable rebuilt face or local triangle fallback could be produced
-- Collapsed caps do not by themselves reject a source-topology solid; later fallback stages are forced only by genuinely dropped faces
-- Sweep-start / sweep-end side faces are constant-`d` faces and are rebuilt as anchored rigid faces; they are not part of the collapse-to-line handling
+- Constant-`d` side faces are rebuilt as anchored rigid faces (`anchored-sweep`)
+- Constant-`s` side faces (the two sweep-boundary faces) are rebuilt as planar `sweep-boundary-plane` faces
+- If a sweep-boundary face shares a collapsed cap edge, the rebuild first tries to reuse surviving exact bent edges and only synthesizes the collapsed edge as a projected line segment if necessary
+- The old sampled-boundary polygon path remains only as a last resort for sweep-boundary faces whose exact-edge wire still cannot be formed
 - Side faces no longer use the generic n-sided filled-face patch path, because that can synthesize poles or cone-like peaks that were not source vertices
-- In practice, side faces are rebuilt from anchored rigid faces, ruled/loft pair surfaces, or explicit triangle patches
+- In practice, side faces are rebuilt from anchored rigid faces, sweep-boundary planar faces, ruled/loft pair surfaces, or explicit triangle patches
 - Individual rebuilt faces can fall back to triangle patches; these are reported as `tri-fallback`
+- Triangle fallback density is intentionally lighter than the normal `Smooth` target: fallback faces and `tri-shell` both use one subdivision level less than the configured smooth split count
 - The retry labels `generic-sides` / `generic-sides+fill-caps` are historical; they no longer imply that side faces themselves are rebuilt with generic filled patches
+- `generic-sides` is skipped entirely if the first ruled stage never produced any pair-built side surfaces
+- Later fallback stages preserve already-good analytic side faces (`anchored-sweep` / `sweep-boundary-plane`) instead of replacing them with triangles
 - The old scaled solidification retry was removed; the smooth path now advances directly to the next fallback stage when shell building fails
-- Smooth solid selection prefers candidates whose sweep-start / sweep-end anchors match the target placement; target volume is treated as a diagnostic signal rather than a hard acceptance gate
+- Smooth solid selection now ranks repaired shell candidates by volume error first, then by anchor alignment
+- Large volume error is no longer only diagnostic for fallback-heavy source-topology solids: if collapsed faces, dropped faces, or local triangle fallback were involved, a source-topology solid with high `vol_rel` is rejected and the stage advances
 - If every smooth-stage solid attempt fails, the user-facing `Smooth` mode falls back to analytic wireframe for that wedge
 
 ### Legacy Loft Limits
@@ -330,8 +342,12 @@ Bend (user-drawn bend line, bi)
 | **piece** / **pi** | index | A solid fragment after the board is sliced by all cut faces. Index into `pieces[]`. |
 | **piece_slices[pi]** | 2D Compound | The 2D cross-section of piece `pi` at z=half_t. Used for fast distance checks during adjacency building. |
 | **wedge** / **wedge piece** | piece | A narrow strip of material between the A and B cut faces of a bend segment. Lives within the inset zone. Lofted into a curved solid in the wedge loft phase. Code uses `strip_` prefix for historical reasons (e.g., `strip_pieces`, `strip_to_bend`). |
+| **d** | local wedge coordinate | Projection along `cur_normal`: the across-bend direction used to measure inset span and sweep progress. |
+| **s** | local wedge coordinate | Projection along `bend_axis`: the along-bend direction used to identify the two sweep-boundary side faces. |
+| **up** | local wedge coordinate | Projection along `cur_up`: the board-thickness direction in the local wedge frame. |
 | **collapsed-to-line** | status | A cap face whose bent boundary degenerates to a line. This is treated as a legitimate singular limit of the wedge, not as a face reconstruction failure. |
 | **dropped face** | status | A source face for which neither exact rebuild nor local triangle fallback produced an acceptable face. Dropped faces are what drive later smooth-stage fallback retries. |
+| **sweep-boundary-plane** | face rebuild mode | A constant-`s` side face rebuilt as a planar face on one of the two sweep-boundary planes. These are the side faces orthogonal to the anchored constant-`d` side faces. |
 | **joint** / **sid** | index | A center-segment-centric grouping. Each joint corresponds to one center segment and contains: the center segment endpoints, zero or more A faces, zero or more B faces, and zero or more wedge pieces. A and B faces are assigned to joints by projecting their midpoints onto center segments. Index into `joints[]`. Replaces the old A/B pairing logic. |
 | **micro-bend** / **mi** | index | One atomic fold operation used by Phase 3. In the current code, mi is assigned per joint/segment (`sid`) and can be shared by paired A/B faces of the same center segment. |
 | **micro_bend_info[mi]** | tuple | Per-mi data: (angle_rad, bend_obj, cut_mid, normal, radius, orig_bi). Geometry is taken from the stationary-side face when available. |
