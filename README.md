@@ -152,6 +152,23 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
     * Edit Board Shape
         * Expand the object's children.
         * Open the sketch with the `_Outline` suffix.
+    * Flex PCB Bending
+        * Draw bend lines as line segments on KiCad's `User.4` layer.
+        * Add bend parameters as `User.4` text near a bend line endpoint, for example `a=-70 r=0.5`.
+            * `a` is bend angle in degrees.
+            * `r` is bend radius in mm.
+        * After loading the board in FreeCAD, each bend line appears as a child object with `Angle`, `Radius`, and `Active` properties.
+        * The linked PCB object also has an `EnableBending` property to toggle the deformation on or off.
+        * If no `User.4` text is provided, the bend line still loads and can be configured directly in FreeCAD.
+
+## Bending Samples
+Manual bending checks are currently done with these sample boards:
+
+* [`samples/fpc.kicad_pcb`](samples/fpc.kicad_pcb)
+* [`samples/maze.kicad_pcb`](samples/maze.kicad_pcb)
+* [`samples/maze_radius.kicad_pcb`](samples/maze_radius.kicad_pcb)
+
+For the implementation details of the bending pipeline, see [`FreekiCAD/ARCHITECTURE.md`](FreekiCAD/ARCHITECTURE.md).
 
 # Run from source (Linux/macOS)
 Make sure your python can import `pcbnew`
