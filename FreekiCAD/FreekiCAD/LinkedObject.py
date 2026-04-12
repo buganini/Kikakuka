@@ -2410,52 +2410,6 @@ class LinkedObject:
                                  angle_rad, radius, p0, normal,
                                  bend_obj_ref, normal))
 
-        # Validate: discard virtual cuts whose midpoint is too
-        # far from any trimmed bend CENTER segment.
-        # Uses 2D distance (not parameter projection) so that
-        # angled outlines don't discard valid cuts (bend 8 fix),
-        # while phantom segments far from the center line are
-        # still caught (bend 4 phantom fix).
-        validated_plan = []
-        for entry in cut_plan:
-            sp0, sp1, side, bi = entry[0], entry[1], entry[2], entry[3]
-            ins_bi = insets[bi]
-            mid = (sp0 + sp1) * 0.5
-            mid_2d = FreeCAD.Vector(mid.x, mid.y, 0)
-            # 2D distance from cut midpoint to nearest center
-            # line segment.  Valid cuts are at ~ins distance
-            # (perpendicular offset).  Phantom segments are
-            # much further.
-            min_dist = float('inf')
-            for bl_sp0, bl_sp1 in trimmed_bend_segs[bi]:
-                dx = bl_sp1.x - bl_sp0.x
-                dy = bl_sp1.y - bl_sp0.y
-                len2 = dx * dx + dy * dy
-                if len2 < 1e-12:
-                    d = math.sqrt((mid_2d.x - bl_sp0.x) ** 2
-                                  + (mid_2d.y - bl_sp0.y) ** 2)
-                else:
-                    t = max(0.0, min(1.0,
-                        ((mid_2d.x - bl_sp0.x) * dx
-                         + (mid_2d.y - bl_sp0.y) * dy)
-                        / len2))
-                    px = bl_sp0.x + t * dx
-                    py = bl_sp0.y + t * dy
-                    d = math.sqrt((mid_2d.x - px) ** 2
-                                  + (mid_2d.y - py) ** 2)
-                if d < min_dist:
-                    min_dist = d
-            on_bend = min_dist < ins_bi + GEOMETRY_TOLERANCE
-            if on_bend:
-                validated_plan.append(entry)
-            else:
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: discard cut side={side}"
-                    f" dist={min_dist:.3f}"
-                    f" ({sp0.x:.2f},{sp0.y:.2f})"
-                    f"-({sp1.x:.2f},{sp1.y:.2f})\n")
-        cut_plan = validated_plan
-
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 2a (2D cut plan): "
             f"{_time.time() - _t_phase2a:.3f}s\n")

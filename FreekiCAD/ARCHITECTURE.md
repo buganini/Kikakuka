@@ -44,14 +44,13 @@ For each bend, creates cut line segments offset from the center line by +/- inse
 1. Trim center line to board outline -> `trimmed_bend_segs[bi]` = [(sp0, sp1), ...]
 2. Offset each segment by -inset (A-side) and +inset (B-side)
 3. Trim offset lines to board outline independently
-4. Validate: discard cuts whose midpoint is far from any center segment
 
 ### Output
 
 - `cut_plan[]` = (sp0, sp1, side, bi, angle_rad, radius, p0, normal, bend_obj, moving_normal)
   - `side`: 'A' or 'B' -- neutral topological label (no directional meaning)
   - Stationary/moving role is determined later by BFS chain selection
-  - One entry per validated cut segment
+  - One entry per cut segment
 
 ### Phase 2b-1: Create 3D Cutting Faces
 
