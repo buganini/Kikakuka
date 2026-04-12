@@ -2700,6 +2700,110 @@ class LinkedObject:
                     f" side={side}"
                     f" sid={sid}\n")
 
+        # Rescue any still-unassigned strip pieces using the matched cut
+        # faces they actually touch, instead of only their center of mass.
+        # A true strip piece must touch both topo sides of at least one bend:
+        # either both A/B faces of a single trimmed segment, or neighboring
+        # trimmed segments on opposite topo sides (for branched strips such as
+        # p162 in maze_radius_skewed).
+        piece_bend_touch = {}  # pi -> bi -> {'sids', 'sides', 'sid_sides'}
+        for fi, sid in face_to_seg.items():
+            bi = face_bend.get(fi)
+            if bi is None:
+                continue
+            side = face_topo_side.get(fi)
+            if side not in ('A', 'B'):
+                continue
+            cut_shape = cut_segments[fi]
+            for pi in range(len(pieces)):
+                if pi in strip_pieces:
+                    continue
+                try:
+                    d_touch = piece_slices[pi].distToShape(cut_shape)[0]
+                except Exception:
+                    d_touch = float('inf')
+                if d_touch >= GEOMETRY_TOLERANCE:
+                    continue
+                bend_touch = piece_bend_touch.setdefault(pi, {})
+                touch = bend_touch.setdefault(bi, {
+                    'sids': set(),
+                    'sides': set(),
+                    'sid_sides': {},
+                })
+                touch['sids'].add(sid)
+                touch['sides'].add(side)
+                touch['sid_sides'].setdefault(sid, set()).add(side)
+
+        def _match_unassigned_piece_to_sid(pi):
+            bend_touch = piece_bend_touch.get(pi)
+            if not bend_touch:
+                return None
+            best_match = None
+            for bi, touch in bend_touch.items():
+                if len(touch['sides']) < 2:
+                    continue
+                ins = insets[bi]
+                if ins < 1e-6:
+                    continue
+                for sid in sorted(touch['sids']):
+                    joint = joints[sid]
+                    if joint['bi'] != bi:
+                        continue
+                    seg_p0, seg_p1 = joint['center']
+                    seg_dx = seg_p1.x - seg_p0.x
+                    seg_dy = seg_p1.y - seg_p0.y
+                    seg_len = math.sqrt(seg_dx * seg_dx + seg_dy * seg_dy)
+                    if seg_len < 1e-12:
+                        continue
+                    try:
+                        whole_d = piece_slices[pi].distToShape(
+                            center_segments_2d[sid])[0]
+                    except Exception:
+                        continue
+                    if whole_d > ins + GEOMETRY_TOLERANCE:
+                        continue
+                    metrics = _piece_segment_debug_metrics(
+                        pieces[pi], seg_p0, seg_p1)
+                    tol_t = GEOMETRY_TOLERANCE / seg_len
+                    if (metrics['t_raw_max'] < -tol_t
+                            or metrics['t_raw_min'] > 1.0 + tol_t):
+                        continue
+                    overlap = max(
+                        0.0,
+                        min(1.0, metrics['t_raw_max'])
+                        - max(0.0, metrics['t_raw_min']))
+                    score = (
+                        len(touch['sid_sides'].get(sid, ())) == 2,
+                        overlap > 0.0,
+                        overlap,
+                        -whole_d,
+                        -metrics['cm_d'],
+                        -abs(metrics['cm_t_raw'] - 0.5),
+                        -sid,
+                    )
+                    if best_match is None or score > best_match[0]:
+                        best_match = (score, sid, bi, touch)
+            return best_match
+
+        for pi in range(len(pieces)):
+            if pi in strip_pieces:
+                continue
+            match = _match_unassigned_piece_to_sid(pi)
+            if match is None:
+                continue
+            _score, sid, bi, touch = match
+            joints[sid]['wedges'].append(pi)
+            strip_pieces.add(pi)
+            strip_to_bend[pi] = bi
+            strip_to_seg[pi] = sid
+            if wedge_assign_diag:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: rescued strip piece p{pi}"
+                    f" bend={bi}"
+                    f" sid={sid}"
+                    f" touch_sids={sorted(touch['sids'])}"
+                    f" touch_sides={sorted(touch['sides'])}\n")
+
         if wedge_assign_diag:
             tol = GEOMETRY_TOLERANCE
             for sid, joint in enumerate(joints):
