@@ -7,7 +7,7 @@ import Part
 
 DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
-DEBUG_BENDING_BFS = False
+DEBUG_BENDING_BFS = True
 
 
 def _log_bending_bfs(message):
@@ -2612,6 +2612,93 @@ class LinkedObject:
                         strip_pieces.add(pi)
                         strip_to_bend[pi] = bi
                         strip_to_seg[pi] = sid
+
+        # Rescue any still-unmatched A/B cut faces using the whole 2D cut
+        # segment instead of only the cut midpoint. This catches branch/
+        # concavity cases where the face is visibly part of a trimmed bend
+        # segment but its midpoint falls outside the inset band.
+        center_segments_2d = []
+        for joint in joints:
+            seg_p0, seg_p1 = joint['center']
+            center_segments_2d.append(Part.makeLine(
+                FreeCAD.Vector(seg_p0.x, seg_p0.y, half_t),
+                FreeCAD.Vector(seg_p1.x, seg_p1.y, half_t)))
+
+        def _match_unassigned_face_to_sid(fi):
+            bi = face_bend.get(fi)
+            if bi is None:
+                return None
+            ins = insets[bi]
+            face_seg = cut_segments[fi]
+            face_sp0, face_sp1 = cut_plan[fi][0], cut_plan[fi][1]
+            face_mid = (face_sp0 + face_sp1) * 0.5
+            best_sid = None
+            best_score = None
+            for sid, joint in enumerate(joints):
+                if joint['bi'] != bi:
+                    continue
+                seg_p0, seg_p1 = joint['center']
+                seg_dx = seg_p1.x - seg_p0.x
+                seg_dy = seg_p1.y - seg_p0.y
+                seg_len = math.sqrt(seg_dx * seg_dx + seg_dy * seg_dy)
+                if seg_len < 1e-12:
+                    continue
+                try:
+                    whole_d = face_seg.distToShape(
+                        center_segments_2d[sid])[0]
+                except Exception:
+                    continue
+                if whole_d > ins + GEOMETRY_TOLERANCE:
+                    continue
+
+                t0_raw, _, _ = _project_point_to_segment_xy(
+                    face_sp0, seg_p0, seg_p1)
+                t1_raw, _, _ = _project_point_to_segment_xy(
+                    face_sp1, seg_p0, seg_p1)
+                t_min_raw = min(t0_raw, t1_raw)
+                t_max_raw = max(t0_raw, t1_raw)
+                tol_t = GEOMETRY_TOLERANCE / seg_len
+                if t_max_raw < -tol_t or t_min_raw > 1.0 + tol_t:
+                    continue
+
+                # Prefer candidates whose full cut segment overlaps the
+                # trimmed center segment, then fall back to smallest whole-
+                # segment distance and midpoint closeness as tie-breakers.
+                overlap = max(0.0, min(1.0, t_max_raw) - max(0.0, t_min_raw))
+                mid_t_raw, _, mid_d = _project_point_to_segment_xy(
+                    face_mid, seg_p0, seg_p1)
+                score = (
+                    overlap > 0.0,
+                    overlap,
+                    -whole_d,
+                    -mid_d,
+                    -abs(mid_t_raw - 0.5),
+                )
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_sid = sid
+            return best_sid
+
+        for fi in range(len(cut_faces)):
+            if fi in face_to_seg:
+                continue
+            sid = _match_unassigned_face_to_sid(fi)
+            if sid is None:
+                continue
+            face_to_seg[fi] = sid
+            side = face_topo_side.get(fi)
+            if side == 'A':
+                if fi not in joints[sid]['a_faces']:
+                    joints[sid]['a_faces'].append(fi)
+            else:
+                if fi not in joints[sid]['b_faces']:
+                    joints[sid]['b_faces'].append(fi)
+            if wedge_assign_diag:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: rescued face fi={fi}"
+                    f" bend={face_bend.get(fi)}"
+                    f" side={side}"
+                    f" sid={sid}\n")
 
         if wedge_assign_diag:
             tol = GEOMETRY_TOLERANCE
