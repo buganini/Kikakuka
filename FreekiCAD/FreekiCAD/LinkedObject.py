@@ -2590,6 +2590,9 @@ class LinkedObject:
         strip_pieces = set()
         strip_to_bend = {}
         strip_to_seg = {}
+        strip_seed_mi = {}
+        strip_seed_parent = {}
+        strip_seed_source = {}
         for bi, (_, p0, p1, line_dir, normal,
                  angle_rad, radius) in enumerate(bend_info):
             ins = insets[bi]
@@ -2759,13 +2762,48 @@ class LinkedObject:
                 touch['sides'].add(side)
                 touch['sid_sides'].setdefault(sid, set()).add(side)
 
+        if wedge_assign_diag:
+            for pi in sorted(piece_bend_touch):
+                if pieces[pi].Volume > 0.15:
+                    continue
+                bend_touch = piece_bend_touch[pi]
+                for bi in sorted(bend_touch):
+                    touch = bend_touch[bi]
+                    sid_sides = ", ".join(
+                        f"{sid}:{''.join(sorted(sides))}"
+                        for sid, sides in sorted(
+                            touch['sid_sides'].items()))
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: strip-touch p{pi}"
+                        f" bend={bi}"
+                        f" sides={sorted(touch['sides'])}"
+                        f" sids={sorted(touch['sids'])}"
+                        f" sid_sides=[{sid_sides}]\n")
+
         def _match_unassigned_piece_to_sid(pi):
             bend_touch = piece_bend_touch.get(pi)
             if not bend_touch:
+                if wedge_assign_diag and pieces[pi].Volume <= 0.15:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: strip-touch reject p{pi}"
+                        f" reason=no-touch-map"
+                        f" vol={pieces[pi].Volume:.6f}\n")
                 return None
             best_match = None
             for bi, touch in bend_touch.items():
                 if len(touch['sides']) < 2:
+                    if wedge_assign_diag and pieces[pi].Volume <= 0.15:
+                        sid_sides = ", ".join(
+                            f"{sid}:{''.join(sorted(sides))}"
+                            for sid, sides in sorted(
+                                touch['sid_sides'].items()))
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD: strip-touch reject p{pi}"
+                            f" bend={bi}"
+                            f" reason=single-side"
+                            f" sides={sorted(touch['sides'])}"
+                            f" sids={sorted(touch['sids'])}"
+                            f" sid_sides=[{sid_sides}]\n")
                     continue
                 ins = insets[bi]
                 if ins < 1e-6:
@@ -2786,12 +2824,29 @@ class LinkedObject:
                     except Exception:
                         continue
                     if whole_d > ins + GEOMETRY_TOLERANCE:
+                        if wedge_assign_diag and pieces[pi].Volume <= 0.15:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD: strip-touch reject p{pi}"
+                                f" bend={bi}"
+                                f" sid={sid}"
+                                f" reason=outside-band"
+                                f" whole_d={whole_d:.6f}"
+                                f" limit={ins + GEOMETRY_TOLERANCE:.6f}\n")
                         continue
                     metrics = _piece_segment_debug_metrics(
                         pieces[pi], seg_p0, seg_p1)
                     tol_t = GEOMETRY_TOLERANCE / seg_len
                     if (metrics['t_raw_max'] < -tol_t
                             or metrics['t_raw_min'] > 1.0 + tol_t):
+                        if wedge_assign_diag and pieces[pi].Volume <= 0.15:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD: strip-touch reject p{pi}"
+                                f" bend={bi}"
+                                f" sid={sid}"
+                                f" reason=no-segment-overlap"
+                                f" t_raw=[{metrics['t_raw_min']:.6f},"
+                                f"{metrics['t_raw_max']:.6f}]"
+                                f" tol_t={tol_t:.6f}\n")
                         continue
                     overlap = max(
                         0.0,
@@ -2806,6 +2861,16 @@ class LinkedObject:
                         -abs(metrics['cm_t_raw'] - 0.5),
                         -sid,
                     )
+                    if wedge_assign_diag and pieces[pi].Volume <= 0.15:
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD: strip-touch candidate p{pi}"
+                            f" bend={bi}"
+                            f" sid={sid}"
+                            f" overlap={overlap:.6f}"
+                            f" whole_d={whole_d:.6f}"
+                            f" cm_d={metrics['cm_d']:.6f}"
+                            f" line_d_max={metrics['line_d_max']:.6f}"
+                            f" cm_t_raw={metrics['cm_t_raw']:.6f}\n")
                     if best_match is None or score > best_match[0]:
                         best_match = (score, sid, bi, touch)
             return best_match
@@ -3121,6 +3186,13 @@ class LinkedObject:
             if parent_pi is not None:
                 child_count[parent_pi] = child_count.get(parent_pi, 0) + 1
 
+        def _resolve_leaf_strip_source(parent_pi, promote_mi, candidate_mode):
+            # Leaf strips should reuse the immediate parent as their rigid
+            # source frame. Trailing exit leaves already inherit the moving-side
+            # orientation from that parent; trying to source them from an
+            # earlier stationary ancestor detaches them from the parent instead.
+            return parent_pi
+
         for pi in range(len(pieces)):
             if pi in strip_pieces:
                 continue
@@ -3144,14 +3216,14 @@ class LinkedObject:
             candidate_infos = []
             seen_candidates = set()
 
-            def _append_candidate(mode, bi_val, sid_val):
+            def _append_candidate(mode, bi_val, sid_val, mi_val=None):
                 if sid_val is None:
                     return
-                key = (mode, bi_val, sid_val)
+                key = (mode, bi_val, sid_val, mi_val)
                 if key in seen_candidates:
                     return
                 seen_candidates.add(key)
-                candidate_infos.append((mode, bi_val, sid_val))
+                candidate_infos.append((mode, bi_val, sid_val, mi_val))
 
             for mi_val in sorted(entry[1]):
                 if (mi_val >= 0
@@ -3159,8 +3231,11 @@ class LinkedObject:
                     _append_candidate(
                         'own-entry',
                         micro_bend_info[mi_val][5],
-                        mi_to_sid.get(mi_val))
+                        mi_to_sid.get(mi_val),
+                        mi_val)
                     break
+
+            shared_edge_is_unlabeled = adjacency[pi][0][1] < 0
 
             if not candidate_infos and entry[2] is None:
                 parent_entry = bfs_tree.get(parent_pi)
@@ -3176,7 +3251,8 @@ class LinkedObject:
                         _append_candidate(
                             'parent-balance',
                             micro_bend_info[mi_val][5],
-                            mi_to_sid.get(mi_val))
+                            mi_to_sid.get(mi_val),
+                            mi_val)
                         break
                     parent_wedge_pi = parent_entry[2]
                     parent_wedge_bi = strip_to_bend.get(parent_wedge_pi)
@@ -3192,7 +3268,8 @@ class LinkedObject:
                             _append_candidate(
                                 'parent-exit',
                                 parent_wedge_bi,
-                                mi_to_sid.get(pos_mi))
+                                mi_to_sid.get(pos_mi),
+                                pos_mi)
                     if parent_wedge_bi is not None:
                         wedge_entry = bfs_tree.get(parent_wedge_pi)
                         if wedge_entry is not None:
@@ -3211,13 +3288,18 @@ class LinkedObject:
                                 _append_candidate(
                                     'parent-wedge-mis',
                                     parent_wedge_bi,
-                                    mi_to_sid.get(pos_mi))
+                                    mi_to_sid.get(pos_mi),
+                                    pos_mi)
 
             if not candidate_infos:
                 continue
 
             promoted = False
-            for candidate_mode, promote_bi, promote_sid in candidate_infos:
+            trailing_candidate = None
+            for (candidate_mode,
+                 promote_bi,
+                 promote_sid,
+                 promote_mi) in candidate_infos:
                 if (candidate_mode in ('parent-balance', 'parent-exit',
                                        'parent-wedge-mis')
                         and pieces[pi].Volume > 0.02):
@@ -3249,20 +3331,70 @@ class LinkedObject:
                         f" limit={band_limit:.6f}"
                         f" pass={within_line_band}\n")
                 if not within_line_band:
+                    if (trailing_candidate is None
+                            and shared_edge_is_unlabeled
+                            and pieces[pi].Volume <= 0.02
+                            and candidate_mode in (
+                                'parent-exit',
+                                'parent-wedge-mis')
+                            and promote_mi is not None):
+                        trailing_candidate = (
+                            candidate_mode,
+                            promote_bi,
+                            promote_sid,
+                            promote_mi)
                     continue
                 strip_pieces.add(pi)
                 strip_to_bend[pi] = promote_bi
                 strip_to_seg[pi] = promote_sid
+                source_pi = None
+                if promote_mi is not None:
+                    strip_seed_mi[pi] = promote_mi
+                    strip_seed_parent[pi] = parent_pi
+                    source_pi = _resolve_leaf_strip_source(
+                        parent_pi, promote_mi, candidate_mode)
+                    strip_seed_source[pi] = source_pi
+                if pi not in joints[promote_sid]['wedges']:
+                    joints[promote_sid]['wedges'].append(pi)
+                if wedge_assign_diag:
+                    source_msg = ""
+                    if promote_mi is not None:
+                        source_msg = (
+                            f" parent={parent_pi}"
+                            f" source={source_pi}")
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: promoted leaf strip p{pi}"
+                        f" via {candidate_mode}"
+                        f" bend={promote_bi}"
+                        f" sid={promote_sid}"
+                        f"{source_msg}\n")
+                promoted = True
+                break
+            if not promoted and trailing_candidate is not None:
+                (candidate_mode,
+                 promote_bi,
+                 promote_sid,
+                 promote_mi) = trailing_candidate
+                strip_pieces.add(pi)
+                strip_to_bend[pi] = promote_bi
+                strip_to_seg[pi] = promote_sid
+                strip_seed_mi[pi] = promote_mi
+                strip_seed_parent[pi] = parent_pi
+                source_pi = _resolve_leaf_strip_source(
+                    parent_pi, promote_mi, candidate_mode)
+                strip_seed_source[pi] = source_pi
                 if pi not in joints[promote_sid]['wedges']:
                     joints[promote_sid]['wedges'].append(pi)
                 if wedge_assign_diag:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD: promoted leaf strip p{pi}"
-                        f" via {candidate_mode}"
+                        f" via {candidate_mode}-trailing"
                         f" bend={promote_bi}"
-                        f" sid={promote_sid}\n")
+                        f" sid={promote_sid}"
+                        f" mi={promote_mi}"
+                        f" parent={parent_pi}"
+                        f" source={source_pi}\n")
                 promoted = True
-                break
             if not promoted:
                 continue
 
@@ -3403,6 +3535,17 @@ class LinkedObject:
         strip_to_mi = {}
         mi_to_wpis = {}
         mi_to_stationary_pi = {}
+        for wpi in sorted(strip_seed_mi):
+            mi_val = strip_seed_mi[wpi]
+            if (mi_val < 0
+                    or micro_bend_info[mi_val][5] != strip_to_bend[wpi]):
+                continue
+            strip_to_mi[wpi] = mi_val
+            mi_to_wpis.setdefault(mi_val, set()).add(wpi)
+            source_parent = strip_seed_source.get(
+                wpi, strip_seed_parent.get(wpi))
+            if source_parent is not None:
+                mi_to_stationary_pi.setdefault(mi_val, source_parent)
         for wpi in strip_pieces:
             if wpi in bfs_tree:
                 parent_pi, mis_crossed, _ = bfs_tree[wpi]
@@ -3570,10 +3713,18 @@ class LinkedObject:
                 wpi_parent = bfs_tree[wpi][0]
                 if wpi_parent is not None:
                     parent_chain = piece_mi_list[wpi_parent]
+                    parent_entry = bfs_tree.get(wpi_parent)
+                    parent_crossed_exit = (
+                        parent_entry is not None
+                        and (-(mi_w + 2)) in parent_entry[1])
                     # Borrowed terminal slivers can inherit a bend entry that
-                    # already terminates the parent's chain; don't append it
-                    # twice or the wedge gets rotated a second time.
-                    if parent_chain and parent_chain[-1] == mi_w:
+                    # already terminates the parent's chain, or they may hang
+                    # off the parent's moving-side exit for the same segment.
+                    # In both cases, don't append the positive mi again or the
+                    # strip gets an extra rigid rotation that detaches it from
+                    # its parent.
+                    if ((parent_chain and parent_chain[-1] == mi_w)
+                            or parent_crossed_exit):
                         piece_mi_list[wpi] = list(parent_chain)
                     else:
                         piece_mi_list[wpi] = parent_chain + [mi_w]
