@@ -2379,6 +2379,24 @@ class LinkedObject:
         cut_plan = []
         trimmed_bend_segs = []  # per bend: list of (sp0, sp1)
 
+        def _project_point_to_line_xy(pt, seg_p0, seg_p1):
+            sx = seg_p1.x - seg_p0.x
+            sy = seg_p1.y - seg_p0.y
+            sl2 = sx * sx + sy * sy
+            if sl2 < 1e-12:
+                dx = pt.x - seg_p0.x
+                dy = pt.y - seg_p0.y
+                return 0.0, math.sqrt(dx * dx + dy * dy)
+            t_raw = (
+                ((pt.x - seg_p0.x) * sx
+                 + (pt.y - seg_p0.y) * sy)
+                / sl2)
+            px = seg_p0.x + t_raw * sx
+            py = seg_p0.y + t_raw * sy
+            dx = pt.x - px
+            dy = pt.y - py
+            return t_raw, math.sqrt(dx * dx + dy * dy)
+
         def _project_point_to_segment_xy(pt, seg_p0, seg_p1):
             sx = seg_p1.x - seg_p0.x
             sy = seg_p1.y - seg_p0.y
@@ -2519,12 +2537,16 @@ class LinkedObject:
             cm = piece.CenterOfMass
             cm_t_raw, cm_t, cm_d = _project_point_to_segment_xy(
                 cm, seg_p0, seg_p1)
+            vertex_line_d = []
             vertex_t_raw = []
             vertex_t = []
             vertex_d = []
             for vertex in getattr(piece, 'Vertexes', []):
+                _, d_line_v = _project_point_to_line_xy(
+                    vertex.Point, seg_p0, seg_p1)
                 t_raw_v, t_v, d_v = _project_point_to_segment_xy(
                     vertex.Point, seg_p0, seg_p1)
+                vertex_line_d.append(d_line_v)
                 vertex_t_raw.append(t_raw_v)
                 vertex_t.append(t_v)
                 vertex_d.append(d_v)
@@ -2533,6 +2555,9 @@ class LinkedObject:
                 'cm_t_raw': cm_t_raw,
                 'cm_t': cm_t,
                 'cm_d': cm_d,
+                'line_d_max': (
+                    max(vertex_line_d)
+                    if vertex_line_d else float('nan')),
                 't_raw_min': min(vertex_t_raw) if vertex_t_raw else float('nan'),
                 't_raw_max': max(vertex_t_raw) if vertex_t_raw else float('nan'),
                 't_min': min(vertex_t) if vertex_t else float('nan'),
@@ -3085,6 +3110,162 @@ class LinkedObject:
             f"FreekiCAD: [profile] BFS (final): "
             f"{_time.time() - _t_bfs2:.3f}s\n")
 
+        # Promote tiny same-set leaf slivers to strip pieces. These can be
+        # created by generalFuse as terminal crumbs that stay inside a bend
+        # band but never got caught by the first strip pass because their
+        # center of mass or touched cut topology is skewed by the split.
+        mi_to_sid = {mi: sid for sid, mi in sid_to_mi.items()}
+        child_count = {}
+        for _pi, _entry in bfs_tree.items():
+            parent_pi = _entry[0]
+            if parent_pi is not None:
+                child_count[parent_pi] = child_count.get(parent_pi, 0) + 1
+
+        for pi in range(len(pieces)):
+            if pi in strip_pieces:
+                continue
+            entry = bfs_tree.get(pi)
+            if entry is None or entry[0] is None:
+                continue
+            parent_pi = entry[0]
+            if child_count.get(pi, 0) != 0:
+                continue
+            if len(adjacency[pi]) != 1:
+                continue
+            bends_pi = piece_bend_sets[pi]
+            bends_parent = piece_bend_sets[parent_pi]
+            if (bends_pi is None or bends_parent is None
+                    or bends_pi != bends_parent):
+                continue
+            # Keep this heuristic narrowly targeted at tiny terminal slivers.
+            if pieces[pi].Volume > 0.15:
+                continue
+
+            candidate_infos = []
+            seen_candidates = set()
+
+            def _append_candidate(mode, bi_val, sid_val):
+                if sid_val is None:
+                    return
+                key = (mode, bi_val, sid_val)
+                if key in seen_candidates:
+                    return
+                seen_candidates.add(key)
+                candidate_infos.append((mode, bi_val, sid_val))
+
+            for mi_val in sorted(entry[1]):
+                if (mi_val >= 0
+                        and micro_bend_info[mi_val][5] in bends_parent):
+                    _append_candidate(
+                        'own-entry',
+                        micro_bend_info[mi_val][5],
+                        mi_to_sid.get(mi_val))
+                    break
+
+            if not candidate_infos and entry[2] is None:
+                parent_entry = bfs_tree.get(parent_pi)
+                if parent_entry is not None:
+                    parent_mis = parent_entry[1]
+                    for mi_val in sorted(parent_mis, reverse=True):
+                        if mi_val < 0:
+                            continue
+                        if micro_bend_info[mi_val][5] not in bends_parent:
+                            continue
+                        if -(mi_val + 2) not in parent_mis:
+                            continue
+                        _append_candidate(
+                            'parent-balance',
+                            micro_bend_info[mi_val][5],
+                            mi_to_sid.get(mi_val))
+                        break
+                    parent_wedge_pi = parent_entry[2]
+                    parent_wedge_bi = strip_to_bend.get(parent_wedge_pi)
+                    if not candidate_infos and parent_wedge_bi is not None:
+                        for mi_val in sorted(parent_mis):
+                            if mi_val > -2:
+                                continue
+                            pos_mi = -(mi_val + 2)
+                            if pos_mi < 0:
+                                continue
+                            if micro_bend_info[pos_mi][5] != parent_wedge_bi:
+                                continue
+                            _append_candidate(
+                                'parent-exit',
+                                parent_wedge_bi,
+                                mi_to_sid.get(pos_mi))
+                    if parent_wedge_bi is not None:
+                        wedge_entry = bfs_tree.get(parent_wedge_pi)
+                        if wedge_entry is not None:
+                            # Branched wedges can spill into a same-side leaf
+                            # through a neighboring sid that is still part of
+                            # the parent wedge's own local crossing set.
+                            for wedge_mi in sorted(wedge_entry[1]):
+                                if wedge_mi >= 0:
+                                    pos_mi = wedge_mi
+                                else:
+                                    pos_mi = -(wedge_mi + 2)
+                                if pos_mi < 0:
+                                    continue
+                                if micro_bend_info[pos_mi][5] != parent_wedge_bi:
+                                    continue
+                                _append_candidate(
+                                    'parent-wedge-mis',
+                                    parent_wedge_bi,
+                                    mi_to_sid.get(pos_mi))
+
+            if not candidate_infos:
+                continue
+
+            promoted = False
+            for candidate_mode, promote_bi, promote_sid in candidate_infos:
+                if (candidate_mode in ('parent-balance', 'parent-exit',
+                                       'parent-wedge-mis')
+                        and pieces[pi].Volume > 0.02):
+                    continue
+                seg_p0, seg_p1 = joints[promote_sid]['center']
+                seg_dx = seg_p1.x - seg_p0.x
+                seg_dy = seg_p1.y - seg_p0.y
+                seg_len = math.sqrt(seg_dx * seg_dx + seg_dy * seg_dy)
+                if seg_len < 1e-12:
+                    continue
+                metrics = _piece_segment_debug_metrics(
+                    pieces[pi], seg_p0, seg_p1)
+                band_margin = max(
+                    GEOMETRY_TOLERANCE,
+                    min(insets[promote_bi] * 0.15, 0.05))
+                band_limit = insets[promote_bi] + band_margin
+                within_line_band = (
+                    math.isfinite(metrics['line_d_max'])
+                    and metrics['line_d_max']
+                    <= band_limit)
+                if wedge_assign_diag:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: leaf-strip candidate p{pi}"
+                        f" mode={candidate_mode}"
+                        f" bend={promote_bi}"
+                        f" sid={promote_sid}"
+                        f" vol={pieces[pi].Volume:.6f}"
+                        f" line_d_max={metrics['line_d_max']:.6f}"
+                        f" limit={band_limit:.6f}"
+                        f" pass={within_line_band}\n")
+                if not within_line_band:
+                    continue
+                strip_pieces.add(pi)
+                strip_to_bend[pi] = promote_bi
+                strip_to_seg[pi] = promote_sid
+                if pi not in joints[promote_sid]['wedges']:
+                    joints[promote_sid]['wedges'].append(pi)
+                if wedge_assign_diag:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: promoted leaf strip p{pi}"
+                        f" via {candidate_mode}"
+                        f" bend={promote_bi}"
+                        f" sid={promote_sid}\n")
+                promoted = True
+                break
+            if not promoted:
+                continue
+
         # Map components to pieces using flat (X, Y) in 2D
         comp_piece_idx = {}  # child.Name → pi
         for child in obj.Group:
@@ -3235,6 +3416,44 @@ class LinkedObject:
                             mi_to_stationary_pi.setdefault(
                                 mi_val, parent_pi)
                         break
+
+        def _find_parent_chain_mi(pi, bend_idx):
+            """Find the nearest positive mi for *bend_idx* in pi's parent chain.
+
+            Some sliver wedges enter BFS through a phantom split face, so their
+            own entry crossing is unlabeled even though they belong to a real
+            bend. Fall back to the nearest ancestor crossing for the same bend
+            so the wedge can still reuse the correct micro-bend geometry.
+            """
+            seen = set()
+            cur = pi
+            while cur is not None and cur not in seen:
+                seen.add(cur)
+                entry = bfs_tree.get(cur)
+                if entry is None:
+                    break
+                parent_pi = entry[0]
+                for mi_val in sorted(entry[1], reverse=True):
+                    if (mi_val >= 0
+                            and micro_bend_info[mi_val][5] == bend_idx):
+                        return mi_val, parent_pi
+                cur = parent_pi
+            return None, None
+
+        for wpi in sorted(strip_pieces):
+            if wpi in strip_to_mi:
+                continue
+            entry = bfs_tree.get(wpi)
+            if entry is None or entry[0] is None:
+                continue
+            mi_val, source_parent = _find_parent_chain_mi(
+                entry[0], strip_to_bend[wpi])
+            if mi_val is None:
+                continue
+            strip_to_mi[wpi] = mi_val
+            mi_to_wpis.setdefault(mi_val, set()).add(wpi)
+            if source_parent is not None:
+                mi_to_stationary_pi.setdefault(mi_val, source_parent)
         for pi, entry in bfs_tree.items():
             if pi in strip_pieces:
                 continue
@@ -3350,8 +3569,14 @@ class LinkedObject:
             if mi_w is not None and wpi in bfs_tree:
                 wpi_parent = bfs_tree[wpi][0]
                 if wpi_parent is not None:
-                    piece_mi_list[wpi] = \
-                        piece_mi_list[wpi_parent] + [mi_w]
+                    parent_chain = piece_mi_list[wpi_parent]
+                    # Borrowed terminal slivers can inherit a bend entry that
+                    # already terminates the parent's chain; don't append it
+                    # twice or the wedge gets rotated a second time.
+                    if parent_chain and parent_chain[-1] == mi_w:
+                        piece_mi_list[wpi] = list(parent_chain)
+                    else:
+                        piece_mi_list[wpi] = parent_chain + [mi_w]
 
         for pi in range(len(pieces)):
             angles = [f"{math.degrees(micro_bend_info[mi][0]):.1f}°"
