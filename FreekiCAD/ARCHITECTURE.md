@@ -117,8 +117,11 @@ After the preliminary parent search:
 #### piece_mi_list construction
 
 - For each **non-wedge** piece: walk the BFS parent chain from piece to root, collecting `mi >= 0` from each link's `mis_crossed_set`, then reverse to get root-to-piece order.
-- For **wedges**: first BFS parent's chain + the wedge's canonical entry mi (`strip_to_mi[wpi]`)
-- `strip_to_mi` is chosen from the wedge's BFS record as the first positive crossing on the wedge's own bend
+- For **wedges**: start from the BFS parent's chain, then append the wedge's canonical entry mi (`strip_to_mi[wpi]`) only when that mi is not already implied by the parent link.
+  - If the parent chain already ends with the same positive mi, reuse the parent chain unchanged.
+  - If the parent BFS link already carries the matching synthesized moving-side exit `-(mi + 2)`, reuse the parent chain unchanged. This is the trailing leaf-strip case: the sliver hangs off the parent's moving-side exit and must not get an extra rigid bend step.
+- `strip_to_mi` is usually chosen from the wedge's BFS record as the first positive crossing on the wedge's own bend.
+  - Promoted leaf strips may instead seed `strip_to_mi` from parent-side candidate data when their own BFS entry is incomplete or borrowed from a neighboring wedge corridor.
 
 ### Key Data Structures
 
@@ -396,7 +399,7 @@ Bend (user-drawn bend line, bi)
 | **micro-bend** / **mi** | index | One atomic fold operation used by Phase 3. In the current code, mi is assigned per joint/segment (`sid`) and can be shared by paired A/B faces of the same center segment. |
 | **micro_bend_info[mi]** | tuple | Per-mi data: (angle_rad, bend_obj, cut_mid, normal, radius, orig_bi). Geometry is taken from the stationary-side face when available. |
 | **mi_seg_idx[mi]** | int | Which segment index (0, 1, 2, ...) within its parent bend this mi belongs to. |
-| **piece_mi_list[pi]** | list of mi | Ordered chain of mi's from root to piece `pi`. Phase 3 iterates chain positions; each piece rotates by its mi at that position. |
+| **piece_mi_list[pi]** | list of mi | Ordered chain of mi's from root to piece `pi`. Phase 3 iterates chain positions; each piece rotates by its mi at that position. Borrowed trailing leaf strips can intentionally reuse the parent chain unchanged, without appending a new mi, when the parent already crossed the matching moving-side exit. |
 | **bfs_tree[pi]** | tuple | BFS parent info: (parent_pi, mis_crossed_set, wedge_pi). |
 | **crossing** | concept | An adjacency link between two pieces that share a cut face. Each crossing records the neighbor piece, the micro-bend label, and the cut face index. Crossings form the graph traversed by BFS to determine rotation order. |
 | **adjacency[pi]** | list of (nbr_pi, mi, fi) | All crossings of piece `pi`: neighbors with the connecting mi label and cut face index. Built from joints. |
@@ -407,7 +410,9 @@ Bend (user-drawn bend line, bi)
 | **micro_pivots[mi]** | tuple | Saved pivot geometry for wedge building: (virtual_plc, cur_p0, cur_normal, cur_up, bend_axis, coc). |
 | **wedge_pieces** | set of pi | All wedge piece indices. Code: `strip_pieces`. |
 | **wedge_to_bend[pi]** | bi | Which bend a wedge piece belongs to. Code: `strip_to_bend`. |
-| **strip_to_mi[pi]** | mi | Maps a wedge to its canonical positive entry mi, chosen from the wedge's BFS record as the first positive crossing on the wedge's own bend. |
+| **strip_to_mi[pi]** | mi | Maps a wedge to its canonical positive entry mi, usually chosen from the wedge's BFS record as the first positive crossing on the wedge's own bend. Promoted leaf strips may borrow this from parent-side candidate data. |
+| **strip_seed_parent[pi]** | pi | Immediate rigid parent recorded when a promoted leaf strip borrows a parent-side crossing. Used to preserve the attachment frame for trailing slivers. |
+| **strip_seed_source[pi]** | pi | Source piece used when resolving the rigid frame for a promoted leaf strip's canonical mi. Trailing exit slivers reuse the immediate parent here rather than an earlier stationary ancestor. |
 | **face_to_seg[fi]** | sid | Which joint/segment a cut face belongs to. |
 | **seg_to_bend[sid]** | bi | Which bend a segment/joint belongs to. |
 | **face_to_micro[fi]** | mi | Maps each cut face to its shared positive micro-bend label after Phase 2b-2. Negative exit labels are synthesized only inside the final wedge-aware BFS. |
@@ -428,7 +433,8 @@ Bend (user-drawn bend line, bi)
 3. `piece_plc` tracks accumulated transforms in execution order, avoiding non-commutative chain-composition errors
 4. `virtual_plc = piece_plc[s_parent] * plc_original` when an `s_parent` exists
 5. Normals used for `micro_bend_info` are anchored on the stationary-side geometry selected through `fi_parent`
-6. bend_sign = -1 if angle > 0 else 1
-7. All adjacency crossings have a matching cut face; non-cut connections are not emitted
-8. Wedge chains are rooted on first BFS discovery; later traversals may add exit crossings but do not replace wedge parents
-9. Wedge geometry is built in the pre-mi frame; remaining Phase 3 rotations are applied via `wedge_post_mi_plc`
+6. A promoted trailing leaf strip must stay attached to its immediate parent frame and must not receive a duplicate positive mi if the parent already crossed the matching synthesized exit
+7. `bend_sign = -1` if angle > 0, else 1
+8. All adjacency crossings have a matching cut face; non-cut connections are not emitted
+9. Wedge chains are rooted on first BFS discovery; later traversals may add exit crossings but do not replace wedge parents
+10. Wedge geometry is built in the pre-mi frame; remaining Phase 3 rotations are applied via `wedge_post_mi_plc`
