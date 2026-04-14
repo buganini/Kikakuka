@@ -519,6 +519,46 @@ def _load_footprint_models(fp_info, thickness, doc, step_cache=None):
     return components, mtimes
 
 
+def _component_transform_cache_value(fp_info, thickness):
+    """Return a stable JSON string describing baked model transforms."""
+    import json
+
+    is_back = bool(fp_info.get('is_back', False))
+    fp_z = thickness if not is_back else 0.0
+    models = []
+    for model in fp_info.get('models', []):
+        models.append({
+            'path': os.path.realpath(model['path']),
+            'offset': [float(v) for v in model['offset']],
+            'rotation': [float(v) for v in model['rotation']],
+            'scale': [float(v) for v in model['scale']],
+        })
+    return json.dumps(
+        {
+            'is_back': is_back,
+            'fp_z': float(fp_z),
+            'models': models,
+        },
+        sort_keys=True,
+        separators=(',', ':'),
+    )
+
+
+def _ensure_component_transform_cache_property(comp_obj):
+    """Ensure the hidden cached-transform property exists on *comp_obj*."""
+    if hasattr(comp_obj, 'FreekiCAD_ModelTransformCache'):
+        return
+    comp_obj.addProperty(
+        "App::PropertyString", "FreekiCAD_ModelTransformCache",
+        "FreekiCAD", "Cached model transform settings for reuse"
+    )
+    try:
+        comp_obj.setPropertyStatus(
+            "FreekiCAD_ModelTransformCache", "Hidden")
+    except Exception:
+        pass
+
+
 # Default solder mask color when stackup has no color set.
 # Matches KiCad g_DefaultSolderMask: COLOR4D(0.08, 0.20, 0.14, 0.83)
 _DEFAULT_SOLDER_MASK_COLOR = (0.08, 0.20, 0.14)
@@ -1922,9 +1962,11 @@ class LinkedObject:
         # Map ref → (kicad_x_mm, kicad_y_mm, kicad_angle_deg)
         # for storing original KiCad coordinates on component objects.
         kicad_coords = {}
+        footprint_info_by_ref = {}
 
         for fp_info in footprints_data:
             ref = fp_info['ref']
+            footprint_info_by_ref[ref] = fp_info
             kicad_coords[ref] = (fp_info['x'], fp_info['y'],
                                  fp_info['angle'])
 
@@ -1938,25 +1980,44 @@ class LinkedObject:
                 if set(stored.keys()) == fp_paths:
                     can_reuse = True
                     changed_file = None
+                    reuse_reason = None
                     for path, old_mt in stored.items():
                         try:
                             cur_mt = os.path.getmtime(path)
                         except OSError:
                             can_reuse = False
                             changed_file = path
+                            reuse_reason = "missing model file"
                             break
                         if cur_mt != old_mt:
                             can_reuse = False
                             changed_file = path
+                            reuse_reason = "mtime changed"
                             break
+                    child = existing_components[ref]
+                    current_transform_cache = _component_transform_cache_value(
+                        fp_info, thickness)
+                    cached_transform_cache = ""
+                    if can_reuse:
+                        if hasattr(child, 'FreekiCAD_ModelTransformCache'):
+                            cached_transform_cache = \
+                                child.FreekiCAD_ModelTransformCache or ""
+                        if not cached_transform_cache:
+                            can_reuse = False
+                            reuse_reason = "no cached transform settings"
+                        elif cached_transform_cache != current_transform_cache:
+                            can_reuse = False
+                            reuse_reason = "transform settings changed"
                     if can_reuse:
                         matched.add(ref)
                         all_mtimes[ref] = stored_mtimes[ref]
                         # Ensure prefixed name for migration
                         expected = obj.Name + "_" + ref
-                        child = existing_components[ref]
                         if child.Label != expected:
                             child.Label = expected
+                        _ensure_component_transform_cache_property(child)
+                        child.FreekiCAD_ModelTransformCache = \
+                            current_transform_cache
                         # Update placement from new KiCad position
                         kc = kicad_coords.get(ref)
                         if kc is not None:
@@ -1968,10 +2029,15 @@ class LinkedObject:
                                 f"{os.path.basename(m['path'])}\n")
                         continue
                     else:
-                        FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD:   {ref}: mtime changed "
-                            f"({os.path.basename(changed_file)}), "
-                            f"reloading\n")
+                        if changed_file:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD:   {ref}: {reuse_reason} "
+                                f"({os.path.basename(changed_file)}), "
+                                f"reloading\n")
+                        else:
+                            FreeCAD.Console.PrintMessage(
+                                f"FreekiCAD:   {ref}: {reuse_reason}, "
+                                f"reloading\n")
                 else:
                     added = fp_paths - set(stored.keys())
                     removed = set(stored.keys()) - fp_paths
@@ -2062,6 +2128,11 @@ class LinkedObject:
                 comp_obj.X = kc[0]
                 comp_obj.Y = kc[1]
                 comp_obj.Rotation = kc[2]
+            fp_info = footprint_info_by_ref.get(label)
+            if fp_info is not None:
+                _ensure_component_transform_cache_property(comp_obj)
+                comp_obj.FreekiCAD_ModelTransformCache = \
+                    _component_transform_cache_value(fp_info, thickness)
             if comp_colors and hasattr(comp_obj, 'ViewObject') \
                     and comp_obj.ViewObject:
                 _write_face_colors(comp_obj.ViewObject, comp_colors)
