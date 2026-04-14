@@ -652,11 +652,16 @@ def _get_board_color(board, filepath):
                     f"r={c.red} g={c.green} b={c.blue} a={c.alpha}\n"
                 )
                 # Normalize – if values look like 0‑255 range, scale down
-                r, g, b = c.red, c.green, c.blue
-                if any(v > 1.0 for v in (r, g, b)):
-                    r, g, b = r / 255.0, g / 255.0, b / 255.0
-                if r > 0 or g > 0 or b > 0:
-                    return (r, g, b)
+                r, g, b, a = c.red, c.green, c.blue, c.alpha
+                if any(v > 1.0 for v in (r, g, b, a)):
+                    r, g, b, a = r / 255.0, g / 255.0, b / 255.0, a / 255.0
+                if r == 0 and g == 0 and b == 0 and a == 0:
+                    FreeCAD.Console.PrintMessage(
+                        "FreekiCAD: Stackup F.Mask color from API is transparent black; "
+                        f"using default solder mask color {_DEFAULT_SOLDER_MASK_COLOR}\n"
+                    )
+                    return _DEFAULT_SOLDER_MASK_COLOR
+                return (r, g, b)
     except Exception as ex:
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD: Could not read board color from API: {ex}\n"
