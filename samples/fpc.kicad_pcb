@@ -1841,6 +1841,18 @@
 		(layer "User.4")
 		(uuid "4f68cd3c-fa1c-4304-8fe0-9733b06f6b80")
 	)
+	(gr_text "a=-30 r=1"
+		(at 102 82.7 0)
+		(layer "User.4")
+		(uuid "f3bc2e67-479d-4e49-a9b5-eecfefea60e6")
+		(effects
+			(font
+				(size 0.2 0.2)
+				(thickness 0.01)
+			)
+			(justify left bottom)
+		)
+	)
 	(gr_text "a=-70"
 		(at 94.655 97.345 270)
 		(layer "User.4")

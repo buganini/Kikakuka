@@ -168,6 +168,8 @@ Manual bending checks are currently done with these sample boards:
 * [`samples/maze.kicad_pcb`](samples/maze.kicad_pcb)
 * [`samples/maze_radius.kicad_pcb`](samples/maze_radius.kicad_pcb)
 
+![FreekiCAD-FPC](screenshots/freekicad_fpc.png)
+
 For the implementation details of the bending pipeline, see [`FreekiCAD/ARCHITECTURE.md`](FreekiCAD/ARCHITECTURE.md).
 
 # Run from source (Linux/macOS)
