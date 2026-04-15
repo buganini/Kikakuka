@@ -680,6 +680,9 @@ def _get_board_color(board, filepath):
       3. KiCad default solder mask green
 
     Returns (r, g, b) floats 0‑1."""
+
+    color = None
+
     # 1. Try kipy API
     try:
         from kipy.proto.board.board_types_pb2 import BoardLayer
@@ -692,32 +695,41 @@ def _get_board_color(board, filepath):
                     f"r={c.red} g={c.green} b={c.blue} a={c.alpha}\n"
                 )
                 # Normalize – if values look like 0‑255 range, scale down
-                r, g, b, a = c.red, c.green, c.blue, c.alpha
-                if any(v > 1.0 for v in (r, g, b, a)):
-                    r, g, b, a = r / 255.0, g / 255.0, b / 255.0, a / 255.0
-                if r == 0 and g == 0 and b == 0 and a == 0:
-                    FreeCAD.Console.PrintMessage(
-                        "FreekiCAD: Stackup F.Mask color from API is transparent black; "
-                        f"using default solder mask color {_DEFAULT_SOLDER_MASK_COLOR}\n"
-                    )
-                    return _DEFAULT_SOLDER_MASK_COLOR
-                return (r, g, b)
+                color = c.red, c.green, c.blue, c.alpha
+                if all([x==0 for x in color]):
+                    color = None
+                break
     except Exception as ex:
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD: Could not read board color from API: {ex}\n"
         )
 
     # 2. Fallback: parse the .kicad_pcb file directly
-    if filepath:
+    if color is None and filepath:
         color = _get_board_color_from_file(filepath)
         if color:
-            return color
+            color = [x*255 for x in color]
+            if len(color) == 3:
+                color.append(255)
 
-    # 3. Ultimate fallback: KiCad default solder mask green
-    FreeCAD.Console.PrintMessage(
-        f"FreekiCAD: Using default solder mask color {_DEFAULT_SOLDER_MASK_COLOR}\n"
-    )
-    return _DEFAULT_SOLDER_MASK_COLOR
+    if color and (all([x==0 for x in color]) or color == [0x80, 0x80, 0x80, 0xFF]):
+        FreeCAD.Console.PrintMessage(
+            "FreekiCAD: Stackup F.Mask color from API is transparent black, use default color"
+        )
+        color = None
+
+    if color:
+        ret = tuple([x/255.0 for x in color[:3]])
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Use color {ret}"
+        )
+        return ret
+    else:
+        # 3. Ultimate fallback: KiCad default solder mask green
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Using default solder mask color {_DEFAULT_SOLDER_MASK_COLOR}\n"
+        )
+        return _DEFAULT_SOLDER_MASK_COLOR
 
 
 def load_board(filepath, socket_path):
