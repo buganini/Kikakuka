@@ -2211,6 +2211,8 @@ class LinkedObject:
         if board_obj and bend_children:
             self._apply_bends(obj, board_obj, bend_children,
                               thickness, enable_bending=enable)
+        elif board_obj:
+            self._update_conflicts_debug_object(obj, None, thickness)
         # Cancel any pending rebend timer — bending was already
         # handled by _apply_bends above.
         timer = getattr(self, '_rebend_timer', None)
@@ -2434,6 +2436,7 @@ class LinkedObject:
                               math.radians(angle_deg), radius))
 
         if not bend_info:
+            self._update_conflicts_debug_object(obj, None, thickness)
             return
 
         # --- Phase 2: cut flat board with all bend faces, classify
@@ -2456,6 +2459,69 @@ class LinkedObject:
         for bi, ins in enumerate(insets):
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: bend {bi} inset={ins:.4f}mm\n")
+
+        bend_span_shapes = []
+        overlap_area_tol = max(
+            GEOMETRY_TOLERANCE * GEOMETRY_TOLERANCE, 1e-4)
+        conflict_pairs = []
+        conflict_bends = set()
+        for bi, (_, p0, p1, _, normal, _, _) in enumerate(bend_info):
+            bend_span_shapes.append(
+                self._build_bend_span_shape(
+                    p0, p1, normal, insets[bi], board_face))
+        for i in range(len(bend_span_shapes)):
+            span_i = bend_span_shapes[i]
+            if span_i is None:
+                continue
+            for j in range(i + 1, len(bend_span_shapes)):
+                span_j = bend_span_shapes[j]
+                if span_j is None:
+                    continue
+                try:
+                    overlap = span_i.common(span_j)
+                    overlap_area = float(getattr(overlap, "Area", 0.0))
+                except Exception:
+                    continue
+                if overlap_area <= overlap_area_tol:
+                    continue
+                conflict_pairs.append((i, j, overlap_area))
+                conflict_bends.add(i)
+                conflict_bends.add(j)
+                bend_i = bend_info[i][0]
+                bend_j = bend_info[j][0]
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: Bend span conflict "
+                    f"{i} ({bend_i.Name}) <-> {j} ({bend_j.Name}) "
+                    f"area={overlap_area:.4f} mm^2\n")
+
+        if conflict_bends:
+            conflict_shapes = []
+            for bi in sorted(conflict_bends):
+                span_shape = bend_span_shapes[bi]
+                if span_shape is None:
+                    continue
+                try:
+                    conflict_shapes.append(span_shape.copy())
+                except Exception:
+                    conflict_shapes.append(span_shape)
+            conflict_shape = None
+            if conflict_shapes:
+                try:
+                    conflict_shape = Part.makeCompound(conflict_shapes)
+                except Exception:
+                    conflict_shape = conflict_shapes[0]
+            self._clear_bend_debug_artifacts(
+                obj, board_obj=board_obj)
+            self._update_conflicts_debug_object(
+                obj, conflict_shape, thickness)
+            state = "disabling bending" if enable_bending \
+                else "keeping board flat"
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Found {len(conflict_pairs)} bend span "
+                f"conflict(s), {state}\n")
+            return
+
+        self._update_conflicts_debug_object(obj, None, thickness)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 1 (bend info): "
             f"{_time.time() - _t_phase1:.3f}s\n")
@@ -8040,6 +8106,125 @@ class LinkedObject:
                 pass
 
             grp.addObject(pobj)
+
+    def _clear_bend_debug_artifacts(self, obj, board_obj=None):
+        """Remove transient bend debug objects from a previous solve."""
+        doc = obj.Document
+        for grp_name in (obj.Name + "_DebugCuts",
+                         obj.Name + "_DebugPieces"):
+            grp = doc.getObject(grp_name)
+            if grp is None:
+                continue
+            for child in list(getattr(grp, "Group", [])):
+                try:
+                    doc.removeObject(child.Name)
+                except Exception:
+                    pass
+            try:
+                doc.removeObject(grp.Name)
+            except Exception:
+                pass
+
+        debug_obj = doc.getObject(obj.Name + "_DebugArrows")
+        if debug_obj is not None:
+            try:
+                doc.removeObject(debug_obj.Name)
+            except Exception:
+                try:
+                    debug_obj.Shape = Part.Shape()
+                except Exception:
+                    pass
+
+        if (board_obj is not None
+                and hasattr(board_obj, 'ViewObject')
+                and board_obj.ViewObject is not None):
+            try:
+                board_obj.ViewObject.Visibility = True
+            except Exception:
+                pass
+
+    def _build_bend_span_shape(self, p0, p1, normal, inset, board_face):
+        """Build the 2D board-clipped span area for one bend."""
+        if board_face is None or inset <= GEOMETRY_TOLERANCE:
+            return None
+
+        line_dir = p1 - p0
+        if line_dir.Length <= GEOMETRY_TOLERANCE:
+            return None
+
+        try:
+            band = Part.Face(Part.makePolygon([
+                p0 - normal * inset,
+                p1 - normal * inset,
+                p1 + normal * inset,
+                p0 + normal * inset,
+                p0 - normal * inset,
+            ]))
+        except Exception:
+            return None
+
+        try:
+            span = band.common(board_face)
+        except Exception:
+            return None
+
+        try:
+            if span.isNull() or float(getattr(span, "Area", 0.0)) <= 0.0:
+                return None
+        except Exception:
+            pass
+        return span
+
+    def _update_conflicts_debug_object(self, obj, conflict_shape, thickness):
+        """Show or remove the red conflict area overlay."""
+        doc = obj.Document
+        conflict_name = obj.Name + "_Conflicts"
+        debug_obj = doc.getObject(conflict_name)
+
+        has_conflicts = False
+        if conflict_shape is not None:
+            try:
+                has_conflicts = (not conflict_shape.isNull()
+                                 and float(getattr(
+                                     conflict_shape, "Area", 0.0)) > 0.0)
+            except Exception:
+                has_conflicts = True
+
+        if not has_conflicts:
+            if debug_obj is not None:
+                try:
+                    doc.removeObject(debug_obj.Name)
+                except Exception:
+                    try:
+                        debug_obj.Shape = Part.Shape()
+                        debug_obj.ViewObject.Visibility = False
+                    except Exception:
+                        pass
+            return
+
+        try:
+            display_shape = conflict_shape.copy()
+        except Exception:
+            display_shape = conflict_shape
+        try:
+            display_shape.translate(FreeCAD.Vector(
+                0, 0, thickness + max(0.05, thickness * 0.02)))
+        except Exception:
+            pass
+
+        if debug_obj is None:
+            debug_obj = doc.addObject("Part::Feature", conflict_name)
+            obj.addObject(debug_obj)
+        debug_obj.Label = "Conflicts"
+        debug_obj.Shape = display_shape
+
+        try:
+            debug_obj.ViewObject.ShapeColor = (1.0, 0.0, 0.0)
+            debug_obj.ViewObject.LineColor = (0.6, 0.0, 0.0)
+            debug_obj.ViewObject.Transparency = 75
+            debug_obj.ViewObject.Visibility = True
+        except Exception:
+            pass
 
     def _trim_line_to_outline(self, p0, p1, board_face):
         """Trim a 2D line to the board face using BRep section.
