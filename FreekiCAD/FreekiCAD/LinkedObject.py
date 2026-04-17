@@ -2862,8 +2862,12 @@ class LinkedObject:
                             joint['a_faces'].append(fi)
                         else:
                             joint['b_faces'].append(fi)
-                # Seed obvious wedge pieces whose farthest sampled point
-                # still stays inside the inset band for this center segment.
+                # Seed obvious wedge pieces that overlap this trimmed segment
+                # and stay inside the inset band measured against the bend
+                # center line. Using segment-clamped distance here is too
+                # strict for valid wedges that extend past one trimmed end
+                # while still hugging the bend line, so keep the overlap test
+                # separate from the band-width test.
                 # Give this first pass a slightly looser tolerance because it
                 # only samples vertices; the touch-based rescue pass below
                 # still does the precise geometric cleanup.
@@ -2885,12 +2889,12 @@ class LinkedObject:
                         continue
                     if math.isnan(metrics['t_raw_max']):
                         continue
-                    if math.isnan(metrics['d_max']):
+                    if math.isnan(metrics['line_d_max']):
                         continue
                     if (metrics['t_raw_max'] < -tol_t
                             or metrics['t_raw_min'] > 1.0 + tol_t):
                         continue
-                    if metrics['d_max'] > ins + seed_tol:
+                    if metrics['line_d_max'] > ins + seed_tol:
                         continue
                     joint['wedges'].append(pi)
                     strip_pieces.add(pi)
