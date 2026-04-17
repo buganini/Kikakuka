@@ -8588,6 +8588,13 @@ class LinkedObject:
             if len(adj) >= 2:
                 face_pieces[fi] = adj
         # Build crossings: pairs of pieces that share a cut face.
+        #
+        # Do not pre-filter by center-of-mass side here. Wedge/rigid
+        # adjacency near a bend can be locally valid even when the two
+        # piece centers happen to lie on the same side of the cut face.
+        # The BFS stage performs the more robust, local side test against
+        # the bend center segment and can prefer true cross-bend traversals
+        # over same-side branch hops.
         crossing_set = set()
         geo_crossings = []
         for fi, pis in face_pieces.items():
@@ -8597,20 +8604,6 @@ class LinkedObject:
                     i, j = pis_list[idx_a], pis_list[idx_b]
                     key = (i, j)
                     if key in crossing_set:
-                        continue
-                    # Only connect pieces on opposite sides
-                    # of the cut face.
-                    sp0_e = cut_plan[fi][0]
-                    sp1_e = cut_plan[fi][1]
-                    sdx = sp1_e.x - sp0_e.x
-                    sdy = sp1_e.y - sp0_e.y
-                    cm_i = pieces[i].CenterOfMass
-                    cm_j = pieces[j].CenterOfMass
-                    ci = sdx * (cm_i.y - sp0_e.y) \
-                        - sdy * (cm_i.x - sp0_e.x)
-                    cj = sdx * (cm_j.y - sp0_e.y) \
-                        - sdy * (cm_j.x - sp0_e.x)
-                    if ci * cj >= 0:
                         continue
                     crossing_set.add(key)
                     geo_crossings.append((i, j, fi))
@@ -8780,6 +8773,25 @@ class LinkedObject:
                 return pos
             return None
 
+        def _ordered_wedge_neighbors(src_pi, wedge_pi, entry_fi):
+            """Prefer destinations on the opposite side of the bend.
+
+            Same-side wedge branches are still allowed, but they should not
+            win first-visit BFS over a real cross-bend traversal.
+            """
+            ordered = []
+            for nbr2, bi2, fi2 in adjacency[wedge_pi]:
+                if nbr2 == src_pi:
+                    continue
+                ordered.append((
+                    0 if _side_test(src_pi, nbr2, entry_fi) else 1,
+                    nbr2,
+                    bi2,
+                    fi2,
+                ))
+            ordered.sort(key=lambda item: (item[0], item[1]))
+            return [(nbr2, bi2, fi2) for _, nbr2, bi2, fi2 in ordered]
+
         piece_bend_sets = [None] * n
         piece_bend_sets[stationary_idx] = set()
         if _sp:
@@ -8814,9 +8826,8 @@ class LinkedObject:
                                 f"wedge p{nbr} "
                                 f"(entry={_crossing_label(bi)})"
                                 f"\n")
-                        for nbr2, bi2, fi2 in adjacency[nbr]:
-                            if nbr2 == cur:
-                                continue
+                        for nbr2, bi2, fi2 in _ordered_wedge_neighbors(
+                                cur, nbr, fi):
                             if piece_bend_sets[nbr2] is not None:
                                 continue
                             if not _side_test(cur, nbr2, fi):
