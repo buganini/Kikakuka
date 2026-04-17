@@ -1,5 +1,6 @@
 import os
 import math
+import re
 import FreeCAD
 import Part
 
@@ -38,6 +39,49 @@ def _kipy_retry(func, max_retries=15, delay_s=1.0):
 def _vec(x_nm, y_nm, z=0):
     """Convert KiCad nanometres to FreeCAD mm, flipping Y."""
     return FreeCAD.Vector(x_nm / 1e6, -y_nm / 1e6, z)
+
+
+_BEND_ANNOTATION_NUMBER_RE = (
+    r'([+-]?(?:\d+(?:\.\d+)?|\.\d+))'
+)
+
+
+def _parse_bend_annotation(text_val, thickness):
+    """Parse User.4 bend text and return ``(angle_deg, radius_mm, span_mm)``.
+
+    ``r=...`` remains the explicit radius input. When ``r`` is omitted,
+    ``s=...`` is interpreted as bend spanning (the full inset band width)
+    and converted into a radius via:
+
+    ``s / 2 = (r + thickness / 2) * |angle_rad| / 2``
+    """
+    angle = 0.0
+    radius = 0.0
+    span = None
+
+    m_a = re.search(r'a\s*=\s*' + _BEND_ANNOTATION_NUMBER_RE, text_val)
+    if m_a:
+        angle = float(m_a.group(1))
+
+    m_r = re.search(r'r\s*=\s*' + _BEND_ANNOTATION_NUMBER_RE, text_val)
+    if m_r:
+        radius = float(m_r.group(1))
+        return angle, radius, span
+
+    m_s = re.search(r's\s*=\s*' + _BEND_ANNOTATION_NUMBER_RE, text_val)
+    if not m_s:
+        return angle, radius, span
+
+    span = float(m_s.group(1))
+    angle_rad = math.radians(angle)
+    if abs(angle_rad) <= 1e-9:
+        FreeCAD.Console.PrintWarning(
+            "FreekiCAD:   bend text has s=... but angle is 0°, "
+            "cannot derive radius\n")
+        return angle, radius, span
+
+    radius = span / abs(angle_rad) - thickness / 2.0
+    return angle, radius, span
 
 
 def _polyline_to_edges(polyline):
@@ -847,11 +891,25 @@ def load_board(filepath, socket_path):
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: User.4 bend lines: {len(bend_lines)}\n")
 
+        # Get board thickness from stackup
+        thickness = DEFAULT_PCB_THICKNESS
+        try:
+            stackup = board.get_stackup()
+            total_nm = sum(layer.thickness for layer in stackup.layers)
+            if total_nm > 0:
+                thickness = total_nm / 1e6
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: Board thickness from stackup: {thickness}mm\n"
+                )
+        except Exception as ex:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Could not read stackup, using default {DEFAULT_PCB_THICKNESS}mm: {ex}\n"
+            )
+
         # --- Parse text on User.4 for bend parameters ---
         if bend_lines:
             try:
                 from kipy.board_types import BoardText as KiPyBoardText
-                import re
                 all_text = board.get_text()
                 u4_text_count = 0
                 for t in all_text:
@@ -868,17 +926,9 @@ def load_board(filepath, socket_path):
                         f"at ({tx:.3f},{ty:.3f})\n")
                     if not text_val:
                         continue
-                    # Parse "a=-70 r=0.5" style text
-                    angle = 0.0
-                    radius = 0.0
-                    m_a = re.search(r'a\s*=\s*([+-]?\d+(?:\.\d+)?)',
-                                    text_val)
-                    if m_a:
-                        angle = float(m_a.group(1))
-                    m_r = re.search(r'r\s*=\s*([+-]?\d+(?:\.\d+)?)',
-                                    text_val)
-                    if m_r:
-                        radius = float(m_r.group(1))
+                    # Parse "a=-70 r=0.5" or "a=-70 s=0.61" style text.
+                    angle, radius, span = _parse_bend_annotation(
+                        text_val, thickness)
                     # Match text position to nearest bend line endpoint
                     best_dist = float('inf')
                     best_bl = None
@@ -897,10 +947,16 @@ def load_board(filepath, socket_path):
                     if best_bl is not None and best_dist < GEOMETRY_TOLERANCE:
                         best_bl['angle'] = angle
                         best_bl['radius'] = radius
-                        FreeCAD.Console.PrintMessage(
+                        msg = (
                             f"FreekiCAD:   matched → "
                             f"angle={angle}° "
-                            f"radius={radius}mm\n")
+                            f"radius={radius}mm"
+                        )
+                        if span is not None:
+                            msg += (
+                                f" (from s={span}mm, t={thickness}mm)"
+                            )
+                        FreeCAD.Console.PrintMessage(msg + "\n")
                     else:
                         FreeCAD.Console.PrintWarning(
                             f"FreekiCAD:   not matched "
@@ -915,21 +971,6 @@ def load_board(filepath, socket_path):
                     f"text: {ex}\n")
                 FreeCAD.Console.PrintWarning(
                     f"FreekiCAD: {traceback.format_exc()}\n")
-
-        # Get board thickness from stackup
-        thickness = DEFAULT_PCB_THICKNESS
-        try:
-            stackup = board.get_stackup()
-            total_nm = sum(layer.thickness for layer in stackup.layers)
-            if total_nm > 0:
-                thickness = total_nm / 1e6
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: Board thickness from stackup: {thickness}mm\n"
-                )
-        except Exception as ex:
-            FreeCAD.Console.PrintWarning(
-                f"FreekiCAD: Could not read stackup, using default {DEFAULT_PCB_THICKNESS}mm: {ex}\n"
-            )
 
         board_solid = None
         outline_edges = []
@@ -2445,7 +2486,7 @@ class LinkedObject:
         diag = bb.DiagonalLength + 50
         thickness = half_t * 2
 
-        # Compute inset for each bend using r_eff = R + T/θ
+        # Compute inset for each bend using r_eff = R + T/2
         # inset = r_eff * |θ| / 2 = R*|θ|/2 + T/2
         insets = []
         for _, _, _, _, _, angle_rad, radius in bend_info:
