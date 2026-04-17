@@ -41,6 +41,66 @@ def _vec(x_nm, y_nm, z=0):
     return FreeCAD.Vector(x_nm / 1e6, -y_nm / 1e6, z)
 
 
+def _signed_line_side_2d(point, seg_p0, seg_p1):
+    """Signed 2D side value of *point* relative to line *seg_p0*→*seg_p1*."""
+    return ((seg_p1.x - seg_p0.x) * (point.y - seg_p0.y)
+            - (seg_p1.y - seg_p0.y) * (point.x - seg_p0.x))
+
+
+def _piece_local_side_point(piece, seg_p0, seg_p1):
+    """Pick a piece point that best represents its local side near a bend.
+
+    Uses the nearest off-line vertex to the segment midpoint and falls back
+    to the piece center of mass when no such vertex exists.
+    """
+    sdx = seg_p1.x - seg_p0.x
+    sdy = seg_p1.y - seg_p0.y
+    seg_len = math.hypot(sdx, sdy)
+    if seg_len < 1e-12:
+        cm = piece.CenterOfMass
+        return FreeCAD.Vector(cm.x, cm.y, cm.z)
+
+    mid_x = (seg_p0.x + seg_p1.x) * 0.5
+    mid_y = (seg_p0.y + seg_p1.y) * 0.5
+    best = None
+    best_d2 = float('inf')
+    for v in getattr(piece, 'Vertexes', []):
+        p = v.Point
+        cross = _signed_line_side_2d(p, seg_p0, seg_p1)
+        # Ignore points that lie essentially on the bend line.
+        if abs(cross) < 1e-3 * seg_len:
+            continue
+        d2 = ((p.x - mid_x) ** 2 + (p.y - mid_y) ** 2)
+        if d2 < best_d2:
+            best_d2 = d2
+            best = FreeCAD.Vector(p.x, p.y, p.z)
+    if best is not None:
+        return best
+
+    cm = piece.CenterOfMass
+    return FreeCAD.Vector(cm.x, cm.y, cm.z)
+
+
+def _project_point_to_line_xy(pt, seg_p0, seg_p1):
+    """Project *pt* to the infinite 2D line through *seg_p0*→*seg_p1*."""
+    sx = seg_p1.x - seg_p0.x
+    sy = seg_p1.y - seg_p0.y
+    sl2 = sx * sx + sy * sy
+    if sl2 < 1e-12:
+        dx = pt.x - seg_p0.x
+        dy = pt.y - seg_p0.y
+        return 0.0, math.sqrt(dx * dx + dy * dy)
+    t_raw = (
+        ((pt.x - seg_p0.x) * sx
+         + (pt.y - seg_p0.y) * sy)
+        / sl2)
+    px = seg_p0.x + t_raw * sx
+    py = seg_p0.y + t_raw * sy
+    dx = pt.x - px
+    dy = pt.y - py
+    return t_raw, math.sqrt(dx * dx + dy * dy)
+
+
 _BEND_ANNOTATION_NUMBER_RE = (
     r'([+-]?(?:\d+(?:\.\d+)?|\.\d+))'
 )
@@ -2574,24 +2634,6 @@ class LinkedObject:
         cut_plan = []
         trimmed_bend_segs = []  # per bend: list of (sp0, sp1)
 
-        def _project_point_to_line_xy(pt, seg_p0, seg_p1):
-            sx = seg_p1.x - seg_p0.x
-            sy = seg_p1.y - seg_p0.y
-            sl2 = sx * sx + sy * sy
-            if sl2 < 1e-12:
-                dx = pt.x - seg_p0.x
-                dy = pt.y - seg_p0.y
-                return 0.0, math.sqrt(dx * dx + dy * dy)
-            t_raw = (
-                ((pt.x - seg_p0.x) * sx
-                 + (pt.y - seg_p0.y) * sy)
-                / sl2)
-            px = seg_p0.x + t_raw * sx
-            py = seg_p0.y + t_raw * sy
-            dx = pt.x - px
-            dy = pt.y - py
-            return t_raw, math.sqrt(dx * dx + dy * dy)
-
         def _project_point_to_segment_xy(pt, seg_p0, seg_p1):
             sx = seg_p1.x - seg_p0.x
             sy = seg_p1.y - seg_p0.y
@@ -3272,6 +3314,7 @@ class LinkedObject:
         # get the same seg_idx within their bend.
         sid_to_seg_idx = {}  # sid → seg_idx
         sid_to_mi = {}  # sid → positive mi (paired A/B faces share one mi)
+        mi_to_sid = {}  # mi → sid
         mi_has_stationary_face = {}  # mi → geometry chosen from stationary face
         bend_seg_count = {}  # bi → next seg_idx
         for fi in range(len(cut_faces)):
@@ -3287,10 +3330,29 @@ class LinkedObject:
                 face_to_micro[fi] = -1
                 continue
             parent_pi = fi_parent.get(fi)
-            is_stationary = (
-                parent_pi is not None
-                and pieces[parent_pi].distToShape(
-                    cut_faces[fi])[0] < GEOMETRY_TOLERANCE)
+            is_stationary = False
+            if parent_pi is not None:
+                if sid is not None and joints is not None:
+                    seg_p0, seg_p1 = joints[sid]['center']
+                else:
+                    seg_p0, seg_p1 = cut_plan[fi][0], cut_plan[fi][1]
+                parent_pt = _piece_local_side_point(
+                    pieces[parent_pi], seg_p0, seg_p1)
+                seg_mid = (seg_p0 + seg_p1) * 0.5
+                normal_ref = cut_plan_data[fi][3]
+                side_dot = (parent_pt - seg_mid).dot(normal_ref)
+                side_tol = max(GEOMETRY_TOLERANCE * 10.0, 1e-4)
+                side_label = face_topo_side.get(fi)
+                if side_label == 'A':
+                    is_stationary = side_dot < -side_tol
+                elif side_label == 'B':
+                    is_stationary = side_dot > side_tol
+                if not is_stationary and abs(side_dot) <= side_tol:
+                    # Local geometry is too close to the bend line; fall back
+                    # to direct face contact as a tie-breaker.
+                    is_stationary = (
+                        pieces[parent_pi].distToShape(
+                            cut_faces[fi])[0] < GEOMETRY_TOLERANCE)
             # Reuse mi if partner face already processed
             if sid is not None and sid in sid_to_mi:
                 mi = sid_to_mi[sid]
@@ -3330,6 +3392,7 @@ class LinkedObject:
             mi_seg_idx[mi] = seg_idx
             if sid is not None:
                 sid_to_mi[sid] = mi
+                mi_to_sid[mi] = sid
             mi_has_stationary_face[mi] = is_stationary
             data = cut_plan_data[fi]
             angle_rad, bend_obj_ref, cut_mid, normal_ref, \
@@ -3837,8 +3900,19 @@ class LinkedObject:
                 if mi < 0 or mi in mi_sign:
                     continue
                 _, _, cut_mid, normal, _, _ = micro_bend_info[mi]
-                parent_cm = pieces[parent].CenterOfMass
-                dot_val = (parent_cm - cut_mid).dot(normal)
+                sid = mi_to_sid.get(mi)
+                if sid is not None and joints is not None:
+                    seg_p0, seg_p1 = joints[sid]['center']
+                    parent_pt = _piece_local_side_point(
+                        pieces[parent], seg_p0, seg_p1)
+                    ref_pt = (seg_p0 + seg_p1) * 0.5
+                else:
+                    parent_pt = pieces[parent].CenterOfMass
+                    ref_pt = cut_mid
+                dot_val = (parent_pt - ref_pt).dot(normal)
+                if abs(dot_val) <= max(GEOMETRY_TOLERANCE * 10.0, 1e-4):
+                    parent_cm = pieces[parent].CenterOfMass
+                    dot_val = (parent_cm - cut_mid).dot(normal)
                 # Parent on +normal side → crossing goes in -normal
                 mi_sign[mi] = -1 if dot_val > 0 else 1
 
