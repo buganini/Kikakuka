@@ -2862,21 +2862,40 @@ class LinkedObject:
                             joint['a_faces'].append(fi)
                         else:
                             joint['b_faces'].append(fi)
-                # Assign wedge pieces whose center of mass is
-                # within ins of this center segment.
+                # Seed obvious wedge pieces whose farthest sampled point
+                # still stays inside the inset band for this center segment.
+                # Give this first pass a slightly looser tolerance because it
+                # only samples vertices; the touch-based rescue pass below
+                # still does the precise geometric cleanup.
                 if ins < 1e-6:
                     continue
+                seg_dx = bl_sp1.x - bl_sp0.x
+                seg_dy = bl_sp1.y - bl_sp0.y
+                seg_len = math.hypot(seg_dx, seg_dy)
+                if seg_len < 1e-12:
+                    continue
+                seed_tol = max(GEOMETRY_TOLERANCE, min(0.05, ins * 0.05))
+                tol_t = seed_tol / seg_len
                 for pi, piece in enumerate(pieces):
                     if pi in strip_pieces:
                         continue
-                    cm = piece.CenterOfMass
-                    _, _, d = _project_point_to_segment_xy(
-                        cm, bl_sp0, bl_sp1)
-                    if d < ins + GEOMETRY_TOLERANCE:
-                        joint['wedges'].append(pi)
-                        strip_pieces.add(pi)
-                        strip_to_bend[pi] = bi
-                        strip_to_seg[pi] = sid
+                    metrics = _piece_segment_debug_metrics(
+                        piece, bl_sp0, bl_sp1)
+                    if math.isnan(metrics['t_raw_min']):
+                        continue
+                    if math.isnan(metrics['t_raw_max']):
+                        continue
+                    if math.isnan(metrics['d_max']):
+                        continue
+                    if (metrics['t_raw_max'] < -tol_t
+                            or metrics['t_raw_min'] > 1.0 + tol_t):
+                        continue
+                    if metrics['d_max'] > ins + seed_tol:
+                        continue
+                    joint['wedges'].append(pi)
+                    strip_pieces.add(pi)
+                    strip_to_bend[pi] = bi
+                    strip_to_seg[pi] = sid
 
         # Rescue any still-unmatched A/B cut faces using the whole 2D cut
         # segment instead of only the cut midpoint. This catches branch/
