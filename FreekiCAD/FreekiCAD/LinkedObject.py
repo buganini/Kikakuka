@@ -1,6 +1,7 @@
 import os
 import math
 import re
+import time
 import FreeCAD
 import Part
 
@@ -19,21 +20,17 @@ def _log_bending_bfs(message):
 def _kipy_retry(func, max_retries=15, delay_s=1.0):
     """Call *func* and retry up to *max_retries* times when KiCad reports
     AS_NOT_READY or AS_BUSY.  Sleeps *delay_s* seconds between attempts."""
-    import time
-    from kipy.errors import ApiError
-    from kipy.proto.common import ApiStatusCode
-    _RETRYABLE = (ApiStatusCode.AS_NOT_READY, ApiStatusCode.AS_BUSY)
-    for attempt in range(max_retries + 1):
-        try:
-            return func()
-        except ApiError as e:
-            if e.code in _RETRYABLE and attempt < max_retries:
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: KiCad not ready, retrying "
-                    f"({attempt + 1}/{max_retries})...\n")
-                time.sleep(delay_s)
-                continue
-            raise
+    from FreekiCAD.kicad_api_retry import retry_kicad_call
+
+    return retry_kicad_call(
+        func,
+        max_retries=max_retries,
+        delay_s=delay_s,
+        on_retry=lambda attempt, total, exc: FreeCAD.Console.PrintMessage(
+            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+            f"FreekiCAD: KiCad not ready, retrying ({attempt}/{total}): {exc}\n"
+        ),
+    )
 
 
 def _vec(x_nm, y_nm, z=0):

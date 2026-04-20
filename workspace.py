@@ -696,11 +696,20 @@ class MainUI(Application):
                 lambda: dict(self.pidmap),
                 open_file=self._open_kicad_file,
                 remove_pid=lambda fp: self.pidmap.pop(fp, None),
+                update_pid=self._update_pidmap_entry,
             )
             import atexit
             atexit.register(self._shutdown_bus)
         except Exception as e:
             print(f"WorkspaceBus: Could not start: {e}")
+
+    def _update_pidmap_entry(self, filepath, pid):
+        """Record the canonical board path for a KiCad PID."""
+        filepath = os.path.abspath(filepath)
+        for existing_path, existing_pid in list(self.pidmap.items()):
+            if existing_pid == pid and existing_path != filepath:
+                self.pidmap.pop(existing_path, None)
+        self.pidmap[filepath] = pid
 
     def _open_kicad_file(self, filepath, bring_to_front=False):
         """Open a .kicad_pcb file in a new KiCad instance.

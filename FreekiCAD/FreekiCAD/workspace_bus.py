@@ -15,10 +15,11 @@ import os
 import platform
 import socket
 import threading
+import time
 import FreeCAD
 from PySide import QtCore
 
-RECV_TIMEOUT = 30.0     # per-request recv timeout (seconds)
+RECV_TIMEOUT = 45.0     # per-request recv timeout (seconds)
 
 # Global response handler callback.
 # Set via set_response_handler(callback).
@@ -43,6 +44,18 @@ class _Dispatcher(QtCore.QObject):
 
 # Created lazily on the main thread by set_response_handler().
 _dispatcher = None
+
+
+def _timestamp():
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _log_message(message):
+    FreeCAD.Console.PrintMessage(f"[{_timestamp()}] FreekiCAD: {message}\n")
+
+
+def _log_error(message):
+    FreeCAD.Console.PrintError(f"[{_timestamp()}] FreekiCAD: {message}\n")
 
 
 def set_response_handler(handler):
@@ -125,14 +138,11 @@ def _listener_thread(s):
         reply = _recv(s)
         if reply is None:
             return
-        FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: RESP {reply}\n"
-        )
+        _log_message(f"RESP {reply}")
         status = reply.get("status")
         if status == "error":
-            FreeCAD.Console.PrintError(
-                f"FreekiCAD: Workspace manager error: "
-                f"{reply.get('message', 'unknown error')}\n"
+            _log_error(
+                f"Workspace manager error: {reply.get('message', 'unknown error')}"
             )
             return
         with _response_handler_lock:
@@ -143,9 +153,7 @@ def _listener_thread(s):
             else:
                 handler(reply)
     except Exception as e:
-        FreeCAD.Console.PrintError(
-            f"FreekiCAD: Workspace bus listener error: {e}\n"
-        )
+        _log_error(f"Workspace bus listener error: {e}")
     finally:
         s.close()
 
@@ -165,23 +173,19 @@ def send_request(action, filepath, object_label="", component=""):
     if component:
         msg["component"] = component
 
-    FreeCAD.Console.PrintMessage(
-        f"FreekiCAD: REQ  {msg}\n"
-    )
+    _log_message(f"REQ  {msg}")
     s = _connect(action=action)
     if s is None:
-        FreeCAD.Console.PrintError(
-            "FreekiCAD: Could not connect to Kikakuka workspace manager. "
-            "Start the workspace manager first.\n"
+        _log_error(
+            "Could not connect to Kikakuka workspace manager. "
+            "Start the workspace manager first."
         )
         return
 
     try:
         _send(s, msg)
     except Exception as e:
-        FreeCAD.Console.PrintError(
-            f"FreekiCAD: Workspace manager send error: {e}\n"
-        )
+        _log_error(f"Workspace manager send error: {e}")
         s.close()
         return
 
