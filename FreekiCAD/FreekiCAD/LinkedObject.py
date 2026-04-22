@@ -5984,10 +5984,7 @@ class LinkedObject:
             if boundary_face is not None:
                 return [boundary_face], "boundary-plane"
 
-            sweep_deg = abs(math.degrees(float(
-                wedge_ctx.get('sweep_angle', 0.0) or 0.0)))
-            source_edge_count = len(getattr(source_face, 'Edges', []))
-            if sweep_deg >= 179.0 and source_edge_count <= 4:
+            def _try_exact_side_fallback():
                 exact_side_face = _build_exact_side_face(
                     source_face,
                     bent_pairs,
@@ -5997,8 +5994,12 @@ class LinkedObject:
                     area_tol=area_tol)
                 if exact_side_face is not None:
                     return [exact_side_face], "exact"
+                return None, None
 
             if not pair_entries:
+                exact_faces, exact_mode = _try_exact_side_fallback()
+                if exact_faces:
+                    return exact_faces, exact_mode
                 if wedge_diag:
                     FreeCAD.Console.PrintWarning(
                         f"FreekiCAD:   curved {label}"
@@ -6065,6 +6066,9 @@ class LinkedObject:
                     f" surface=side-pairs-failed"
                     f" pairs={len(pair_entries)}\n")
             if not rebuilt_faces:
+                exact_faces, exact_mode = _try_exact_side_fallback()
+                if exact_faces:
+                    return exact_faces, exact_mode
                 return None, None
             return rebuilt_faces, "pairs"
 
