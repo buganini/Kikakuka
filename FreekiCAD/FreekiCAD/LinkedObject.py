@@ -7801,20 +7801,31 @@ class LinkedObject:
             if proxy and getattr(proxy, 'Type', None) == 'BendLine':
                 bend_plc_debug[child.Name] = child.Placement.copy()
 
-        # Bend lines represent the bend center. Their placements have
-        # already been updated by the same rotation chain as the board
-        # pieces, so don't add any extra visual offset here.
+        # Bend-line shapes are authored on the board's top surface, but the
+        # visual guide should sit on the bend center line after the wedge is
+        # rebuilt. Shift each active bend line down onto the local mid-plane
+        # after all piece and wedge transforms have been applied.
         for bi, (bl_obj, first_mi) in coc_offsets.items():
-            _, p0_bi, _, _, _, _, _ = bend_info[bi]
             final_plc = bl_obj.Placement
-            final_bend_p0 = final_plc.multVec(p0_bi)
             final_up = final_plc.Rotation.multVec(up)
-            final_center = final_bend_p0 + final_up * half_t
+            visual_off = final_up * (-half_t)
+            if visual_off.Length > 1e-12:
+                bl_obj.Placement.Base = (
+                    bl_obj.Placement.Base + visual_off)
+                final_plc = bl_obj.Placement
+            shape_verts = list(getattr(bl_obj.Shape, 'Vertexes', []))
+            if len(shape_verts) >= 2:
+                final_p0 = final_plc.multVec(shape_verts[0].Point)
+                final_p1 = final_plc.multVec(shape_verts[-1].Point)
+                final_center = (final_p0 + final_p1) * 0.5
+            else:
+                final_center = final_plc.Base
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: bendline {bl_obj.Name} (mi={first_mi})"
                 f" center=({final_center.x:.2f},{final_center.y:.2f},"
                 f"{final_center.z:.2f})"
-                f" off=(0.000,0.000,0.000)\n")
+                f" off=({visual_off.x:.3f},{visual_off.y:.3f},"
+                f"{visual_off.z:.3f})\n")
 
         # Draw debug visualizations if enabled
         show_debug = getattr(obj, 'BuildDebugObjects', False)
