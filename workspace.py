@@ -586,7 +586,9 @@ class WorkspaceUI(PUIView):
             self.state()
 
     def newPanelization(self):
-        filepath = SaveFile("New Panelization", types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
+        if self.state.filepath:
+            dir = os.path.dirname(self.state.filepath)
+        filepath = SaveFile("New Panelization", dir=dir, types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
         if filepath:
             if not filepath.endswith(".kikit_pnl"):
                 filepath = filepath + ".kikit_pnl"
