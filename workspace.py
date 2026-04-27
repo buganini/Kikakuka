@@ -372,6 +372,11 @@ class WorkspaceUI(PUIView):
         with open(self.state.filepath, "r") as f:
             self.state.root = os.path.dirname(os.path.abspath(self.state.filepath))
             self.state.workspace = json.load(f)
+            projects = []
+            for proj in self.state.workspace["projects"]:
+                if not proj["path"] in [p["path"] for p in projects]:
+                    projects.append(proj)
+            self.state.workspace["projects"] = projects
             for project in self.state.workspace["projects"]:
                 if not os.path.isabs(project["path"]):
                     project["path"] = os.path.join(self.state.root, project["path"])
