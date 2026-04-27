@@ -1570,7 +1570,7 @@ class PanelizerUI(Application):
         panel.makeVCuts(vcuts)
 
 
-        if not self.state.frame_pcb and self.state.frame_tooling_holes:
+        if not self.state.frame_pcb and self.state.use_frame and self.state.frame_tooling_holes:
             horizontalOffset = self.state.frame_tooling_horizontal_offset * self.unit
             verticalOffset = self.state.frame_tooling_vertical_offset * self.unit
             holeCount = 4
@@ -1584,7 +1584,7 @@ class PanelizerUI(Application):
                     pad.SetSize(toKiCADPoint((solderMaskDiameter, solderMaskDiameter)))
                 panel.board.Add(footprint)
 
-        if not self.state.frame_pcb and self.state.fiducials:
+        if not self.state.frame_pcb and self.state.use_frame and self.state.fiducials:
             diameter = self.state.fiducials_diameter * self.unit
             solderMaskDiameter = self.state.fiducials_solder_mask_opening_diameter * self.unit
             if self.state.frame_top and self.state.frame_bottom:
