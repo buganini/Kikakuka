@@ -207,11 +207,12 @@ Run
 
 
 # Run from source (Windows)
-On Windows the Python interpreter is at `C:\Program Files\KiCad\9.0\bin\python.exe`.
+On Windows the Python interpreter is at `C:\Program Files\KiCad\10.0\bin\python.exe`.
 But however in my Windows environment venv is not working properly, here is how I run it with everything installed in the KiCad's environment.
-```
-"C:\Program Files\KiCad\9.0\bin\python.exe" -m pip install -r requirements.txt
-"C:\Program Files\KiCad\9.0\bin\python.exe" kikakuka.py
+``` powershell
+# Powersheel
+&"C:\Program Files\KiCad\10.0\bin\python.exe" -m pip install -r requirements.txt
+&"C:\Program Files\KiCad\10.0\bin\python.exe" kikakuka.py
 ```
 
 # CLI Usage
