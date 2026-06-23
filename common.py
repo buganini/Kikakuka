@@ -3,7 +3,7 @@ import sys
 import re
 import sexpr
 
-VERSION = "6.1"
+VERSION = "6.2"
 
 WORKSPACE_SUFFIX = ".kkkk"
 PNL_SUFFIX = ".kikit_pnl"
