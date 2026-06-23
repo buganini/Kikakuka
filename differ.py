@@ -20,7 +20,8 @@ import pcbnew
 if platform.system() == "Darwin":
     kicad_cli = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
 elif platform.system() == "Windows":
-    kicad_cli = "C:/Program Files/KiCad/10.0/bin/kicad-cli.exe"
+    cands = glob.glob("C:/Program Files/KiCad/*/bin/kicad-cli.exe")
+    kicad_cli = cands[0] if cands else "C:/Program Files/KiCad/bin/kicad-cli.exe"
 else:
     kicad_cli = "/usr/bin/kicad-cli"
 
