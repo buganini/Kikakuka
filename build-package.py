@@ -71,10 +71,12 @@ if platform.system() == "Darwin":
     shutil.copytree("/Applications/KiCad/KiCad.app/Contents/PlugIns/sim", "dist/Kikakuka.app/Contents/PlugIns/sim")
 elif platform.system() == "Windows":
     if os.path.exists(kicad_cli):
-        os.makedirs("dist/Kikakuka/_internal/KiCad/bin", exist_ok=True)
-        shutil.copy(kicad_cli, "dist/Kikakuka/_internal/KiCad/bin")
-        shutil.copy(os.path.join(os.path.dirname(kicad_cli), "_pcbnew.dll"), "dist/Kikakuka/_internal/KiCad/bin")
-        shutil.copy(os.path.join(os.path.dirname(kicad_cli), "_eeschema.dll"), "dist/Kikakuka/_internal/KiCad/bin")
+        kicad_bin = os.path.dirname(kicad_cli)
+        kicad_dist_bin = "dist/Kikakuka/_internal/KiCad/bin"
+        os.makedirs(kicad_dist_bin, exist_ok=True)
+        shutil.copy(kicad_cli, kicad_dist_bin)
+        for dll in glob.glob(os.path.join(kicad_bin, "*.dll")):
+            shutil.copy(dll, kicad_dist_bin)
     else:
         print("KiCad CLI not found at", kicad_cli)
         exit(1)
