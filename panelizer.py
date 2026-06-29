@@ -1396,7 +1396,7 @@ class PanelizerUI(Application):
                     conflicts.append(out_of_frame)
                     errors.append("PCB placement exceeds frame boundaries")
             except:
-                pass
+                traceback.print_exc()
         frames = []
         if frame_top_polygon:
             frames.append(frame_top_polygon)
