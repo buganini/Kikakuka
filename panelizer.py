@@ -31,6 +31,7 @@ import shutil
 import psutil
 import re
 from buildexpr import buildexpr
+import gc
 
 BUILDEXPR = "BUILDEXPR"
 
@@ -1569,7 +1570,6 @@ class PanelizerUI(Application):
 
         panel.makeVCuts(vcuts)
 
-
         if not self.state.frame_pcb and self.state.use_frame and self.state.frame_tooling_holes:
             horizontalOffset = self.state.frame_tooling_horizontal_offset * self.unit
             verticalOffset = self.state.frame_tooling_vertical_offset * self.unit
@@ -1607,6 +1607,8 @@ class PanelizerUI(Application):
 
         if export:
             panel.save()
+
+        gc.collect()
 
     def addHole(self, e):
         self.tool = Tool.HOLE
