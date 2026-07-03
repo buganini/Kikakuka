@@ -904,6 +904,8 @@ class PanelizerUI(Application):
                 errors.append(pcb.error)
 
         pcbs = [pcb for pcb in self.state.pcb if not pcb.error]
+        if not pcbs:
+            return
 
         if self.state.spacing < MIN_SPACING:
             self.state.spacing = MIN_SPACING
