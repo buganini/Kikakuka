@@ -16,6 +16,14 @@ if getattr(sys, 'frozen', False):
     KIKAKUKA_LIB = os.path.join(sys._MEIPASS, "kikakuka.pretty")
 
 
+def get_footprint_field(footprint, name):
+    if hasattr(footprint, "GetFieldByName"):
+        return footprint.GetFieldByName(name)
+    if hasattr(footprint, "HasField") and footprint.HasField(name):
+        return footprint.GetField(name)
+    return None
+
+
 def is_gerber_file(filename):
     if os.path.splitext(filename)[1].lower() in (".gbr", ".gm1", ".gm3", ".gko", ".g1"):
         return True
@@ -673,8 +681,9 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False,
                         if k in bom_ignore_headers:
                             continue
                         footprint.SetField(k, v)
-                        text = footprint.GetFieldByName(k)
-                        text.SetVisible(False)
+                        text = get_footprint_field(footprint, k)
+                        if text:
+                            text.SetVisible(False)
                     footprint.SetReference(designator)
                     footprint.SetValue(bom.get(designator, {}).get(bom_comment_header, ""))
                     ref = footprint.Reference()
