@@ -1039,16 +1039,22 @@ class PanelizerUI(Application):
                     convert_errors = convert_to_kicad(pcb.file, pcb.kicad_file, outline_only=False, bom_file=pcb.bom_file if os.path.exists(pcb.bom_file) else None, cpl_file=pcb.cpl_file if os.path.exists(pcb.cpl_file) else None)
                     pcb.permanent_errors.extend(convert_errors)
 
-            panel.appendBoard(
-                file,
-                pcbnew.VECTOR2I(round(self.off_x + pcb.x), round(self.off_y + pcb.y)),
-                origin=panelize.Origin.TopLeft,
-                tolerance=panelize.fromMm(1),
-                rotationAngle=pcbnew.EDA_ANGLE(pcb.rotate, pcbnew.DEGREES_T),
-                inheritDrc=False,
-                netRenamer=self.netRenamer if multiple_pcb else None,
-                refRenamer=self.refRenamer if multiple_pcb else None
-            )
+            if export:
+                panel.appendBoard(
+                    file,
+                    pcbnew.VECTOR2I(round(self.off_x + pcb.x), round(self.off_y + pcb.y)),
+                    origin=panelize.Origin.TopLeft,
+                    tolerance=panelize.fromMm(1),
+                    rotationAngle=pcbnew.EDA_ANGLE(pcb.rotate, pcbnew.DEGREES_T),
+                    inheritDrc=False,
+                    netRenamer=self.netRenamer if multiple_pcb else None,
+                    refRenamer=self.refRenamer if multiple_pcb else None
+                )
+            else:
+                pcb_substrate = Substrate([])
+                pcb_substrate.union(shapely.union_all(pcb.shapes))
+                panel.boardSubstrate.union(pcb_substrate)
+                panel.substrates.append(pcb_substrate)
 
             if export:
                 fp_count = 0
