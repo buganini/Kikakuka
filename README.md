@@ -31,10 +31,12 @@ It creates a few more dimensions for KiCad:
 * Build Variants (as a usage of the Panelizer)
     * Single PCB without panelization can be done with frameless setting
     * Each PCB can have its own flag settings
-* Gerber handling (experimental)
+* Gerber handling
     * In panelizer context
     * Or direct conversion to .kicad_pcb
-    * Allow attaching BOM/CPL (converted to reference-only footprints)
+    * Compared with KiCad output
+        * Better restoration of oval drill holes
+        * Allow attaching BOM/CPL (converted to reference-only footprints)
 * CLI
     * Convert saved .kkkk_pnl to kicad files in one command
     * Same usage for panelizer & build variants
