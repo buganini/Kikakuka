@@ -89,6 +89,8 @@ class PCB(StateObject):
         orig_x = None
         orig_y = None
         board = pcbnew.LoadBoard(self.outline_file)
+        self.board_thickness = board.GetDesignSettings().GetBoardThickness()
+        self.copper_layer_count = board.GetCopperLayerCount()
         for draw in board.GetDrawings():
             if draw.GetLayer() == pcbnew.Edge_Cuts:
                 width = draw.GetWidth()
@@ -506,6 +508,7 @@ class PanelizerUI(Application):
         self.state.holes = []
         self.state.conflicts = []
         self.state.errors = []
+        self.state.warnings = []
 
         self.state.boardSubstrate = None
 
@@ -897,6 +900,7 @@ class PanelizerUI(Application):
             return
 
         errors = []
+        warnings = []
         conflicts = []
 
         for pcb in self.state.pcb:
@@ -906,6 +910,18 @@ class PanelizerUI(Application):
         pcbs = [pcb for pcb in self.state.pcb if not pcb.error]
         if not pcbs:
             return
+
+        board_thickness = pcbs[0].board_thickness
+        for pcb in pcbs[1:]:
+            if pcb.board_thickness != board_thickness:
+                warnings.append("Panelizing boards with different thicknesses")
+                break
+
+        copper_layer_count = pcbs[0].copper_layer_count
+        for pcb in pcbs[1:]:
+            if pcb.copper_layer_count != copper_layer_count:
+                errors.append("Attempting to panelize boards together of mixed layer counts")
+                break
 
         if self.state.spacing < MIN_SPACING:
             self.state.spacing = MIN_SPACING
@@ -1610,6 +1626,7 @@ class PanelizerUI(Application):
                 self.state.dbg_rects = dbg_rects
                 self.state.dbg_polygons = dbg_polygons
                 self.state.dbg_text = dbg_text
+                self.state.warnings = warnings
                 self.state.boardSubstrate = panel.boardSubstrate.substrates
                 self.state.vcuts = vcuts
                 self.state.bites = bites
@@ -2283,6 +2300,8 @@ class PanelizerUI(Application):
             errors.extend(pcb.errors)
         for i, error in enumerate(errors):
             canvas.drawText(10, 10+i*15, error, color=0xFF0000)
+        for i, warning in enumerate(self.state.warnings):
+            canvas.drawText(10, 10+(len(errors)+i)*15, warning, color=0xFFCF55)
 
         if drawCross and self.state.mousepos:
             x, y = self.state.mousepos[0], self.state.mousepos[1]
