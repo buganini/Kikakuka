@@ -1508,7 +1508,7 @@ class PanelizerUI(Application):
                     if cut_method != "vc_or_skip":
                         bites.append(cut)
 
-        if bites:
+        if export and bites:
             panel.makeMouseBites(bites, diameter=mb_diameter * self.unit, spacing=mb_spacing * self.unit - SHP_EPSILON, offset=mb_offset * self.unit, prolongation=0 * self.unit)
 
         # normalize linestring direction
@@ -1562,9 +1562,10 @@ class PanelizerUI(Application):
             for x in vertical_groups:
                 vcuts.append(LineString([(x, boardSubstrateBounds[1]), (x, boardSubstrateBounds[3])]))
 
-        panel.makeVCuts(vcuts)
+        if export and vcuts:
+            panel.makeVCuts(vcuts)
 
-        if not self.state.frame_pcb and self.state.use_frame and self.state.frame_tooling_holes:
+        if export and not self.state.frame_pcb and self.state.use_frame and self.state.frame_tooling_holes:
             horizontalOffset = self.state.frame_tooling_horizontal_offset * self.unit
             verticalOffset = self.state.frame_tooling_vertical_offset * self.unit
             holeCount = 4
@@ -1578,7 +1579,7 @@ class PanelizerUI(Application):
                     pad.SetSize(toKiCADPoint((solderMaskDiameter, solderMaskDiameter)))
                 panel.board.Add(footprint)
 
-        if not self.state.frame_pcb and self.state.use_frame and self.state.fiducials:
+        if export and not self.state.frame_pcb and self.state.use_frame and self.state.fiducials:
             diameter = self.state.fiducials_diameter * self.unit
             solderMaskDiameter = self.state.fiducials_solder_mask_opening_diameter * self.unit
             if self.state.frame_top and self.state.frame_bottom:
