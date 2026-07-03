@@ -1050,65 +1050,66 @@ class PanelizerUI(Application):
                 refRenamer=self.refRenamer if multiple_pcb else None
             )
 
-            fp_count = 0
-            for fp in panel.board.GetFootprints():
-                ref = fp.Reference()
-                t = ref.GetText()
+            if export:
+                fp_count = 0
+                for fp in panel.board.GetFootprints():
+                    ref = fp.Reference()
+                    t = ref.GetText()
 
-                # Build Variants
-                if (t in self.refMap or not multiple_pcb) and export:
-                    fp_count += 1
-                    if fp.HasField(BUILDEXPR):
-                        expr = fp.GetFieldText(BUILDEXPR)
-                        if expr:
-                            place = buildexpr(expr, pcb.build_flags)
-                            # print("BUILDEXPR", i, expr, pcb.build_flags, place)
+                    # Build Variants
+                    if (t in self.refMap or not multiple_pcb):
+                        fp_count += 1
+                        if fp.HasField(BUILDEXPR):
+                            expr = fp.GetFieldText(BUILDEXPR)
+                            if expr:
+                                place = buildexpr(expr, pcb.build_flags)
+                                # print("BUILDEXPR", i, expr, pcb.build_flags, place)
 
-                            if place:
-                                fp.SetExcludedFromPosFiles(False)
-                                fp.SetExcludedFromBOM(False)
-                                fp.SetDNP(False)
-                            else:
-                                # print("SET DNP", i, fp.GetReference(), expr, pcb.build_flags, place)
-                                fp.SetDNP(True)
-
-                    for k,v in fp.GetFieldsText().items():
-                        if "#" in k:
-                            tks = k.split("#")
-                            field = tks[0]
-                            matched = True
-                            for v in [t.strip() for t in tks[1:]]:
-                                if "=" in v:
-                                    k, v = v.split("=")
-                                    if pcb.build_options.get(k) != v:
-                                        matched = False
-                                        break
+                                if place:
+                                    fp.SetExcludedFromPosFiles(False)
+                                    fp.SetExcludedFromBOM(False)
+                                    fp.SetDNP(False)
                                 else:
-                                    if v not in pcb.build_flags:
-                                        matched = False
-                                        break
-                            if matched:
-                                fp.SetField(field, v)
+                                    # print("SET DNP", i, fp.GetReference(), expr, pcb.build_flags, place)
+                                    fp.SetDNP(True)
 
-                # Cannot loop inside panel, do incremental update to map footprint to the pccb
-                # Preserve silkscreen text regardless of reference renaming
-                # https://github.com/yaqwsx/KiKit/pull/845
-                if multiple_pcb and ref.IsVisible() and t != self.refMap.get(t, t):
-                    text = pcbnew.PCB_TEXT(panel.board)
-                    text.SetText(self.refMap.get(t, t))
-                    text.SetTextX(ref.GetTextPos()[0])
-                    text.SetTextY(ref.GetTextPos()[1])
-                    text.SetTextThickness(ref.GetTextThickness())
-                    text.SetTextSize(ref.GetTextSize())
-                    text.SetHorizJustify(ref.GetHorizJustify())
-                    text.SetVertJustify(ref.GetVertJustify())
-                    text.SetTextAngle(ref.GetTextAngle())
-                    text.SetLayer(ref.GetLayer())
-                    text.SetMirrored(ref.IsMirrored())
-                    panel.board.Add(text)
-                    ref.SetVisible(False)
+                        for k,v in fp.GetFieldsText().items():
+                            if "#" in k:
+                                tks = k.split("#")
+                                field = tks[0]
+                                matched = True
+                                for v in [t.strip() for t in tks[1:]]:
+                                    if "=" in v:
+                                        k, v = v.split("=")
+                                        if pcb.build_options.get(k) != v:
+                                            matched = False
+                                            break
+                                    else:
+                                        if v not in pcb.build_flags:
+                                            matched = False
+                                            break
+                                if matched:
+                                    fp.SetField(field, v)
 
-            pcb.fp_count = fp_count
+                    # Cannot loop inside panel, do incremental update to map footprint to the pccb
+                    # Preserve silkscreen text regardless of reference renaming
+                    # https://github.com/yaqwsx/KiKit/pull/845
+                    if multiple_pcb and ref.IsVisible() and t != self.refMap.get(t, t):
+                        text = pcbnew.PCB_TEXT(panel.board)
+                        text.SetText(self.refMap.get(t, t))
+                        text.SetTextX(ref.GetTextPos()[0])
+                        text.SetTextY(ref.GetTextPos()[1])
+                        text.SetTextThickness(ref.GetTextThickness())
+                        text.SetTextSize(ref.GetTextSize())
+                        text.SetHorizJustify(ref.GetHorizJustify())
+                        text.SetVertJustify(ref.GetVertJustify())
+                        text.SetTextAngle(ref.GetTextAngle())
+                        text.SetLayer(ref.GetLayer())
+                        text.SetMirrored(ref.IsMirrored())
+                        panel.board.Add(text)
+                        ref.SetVisible(False)
+
+                pcb.fp_count = fp_count
 
         if self.state.hide_outside_reference_value and export:
             for fp in panel.board.GetFootprints():
