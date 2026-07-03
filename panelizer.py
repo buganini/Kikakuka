@@ -61,9 +61,8 @@ def extrapolate(x1, y1, x2, y2, r, d):
     l = n*r + d
     return x1 + dx*l/n, y1 + dy*l/n
 
-class PCB(StateObject):
+class PCBFile:
     def __init__(self, main, boardpath):
-        super().__init__()
         self.main = main
         self.error = None
 
@@ -114,15 +113,18 @@ class PCB(StateObject):
             bbox = s.bounds()
 
             if isinstance(s.substrates, MultiPolygon):
-                self._shapes = s.substrates.geoms
+                self._shapes = list(s.substrates.geoms)
             elif isinstance(s.substrates, Polygon):
                 self._shapes = [s.substrates]
             else:
                 self._shapes = []
+            self.width = bbox[2] - bbox[0]
+            self.height = bbox[3] - bbox[1]
         except Exception as e:
             self.error = str(e).replace(self.outline_file, os.path.basename(self.file))
             self._shapes = []
-            bbox = (0, 0, 0, 0)
+            self.width = 0
+            self.height = 0
 
         folder = os.path.basename(os.path.dirname(boardpath))
         name = os.path.splitext(os.path.basename(boardpath))[0]
@@ -130,28 +132,12 @@ class PCB(StateObject):
             name = os.path.join(folder, name)
         self.ident = name
 
-        self.x = 0
-        self.y = 0
-        self.width = bbox[2] - bbox[0]
-        self.height = bbox[3] - bbox[1]
-        self.margin_left = 0
-        self.margin_right = 0
-        self.margin_top = 0
-        self.margin_bottom = 0
-        self.rotate = 0
-        self._tabs = []
         self.avail_options = {}
         self.avail_flags = []
-        self.build_options = defaultdict(str)
-        self.build_flags = []
         self.errors = []
-        self.permanent_errors = []
-        self.fp_count = 0
-        self.bom_file = ""
-        self.cpl_file = ""
 
         if self.file_type == "kicad":
-            for fp in panel.board.GetFootprints():
+            for fp in board.GetFootprints():
                 if fp.HasField(BUILDEXPR):
                     expr = fp.GetFieldText(BUILDEXPR)
                     if expr:
@@ -186,6 +172,85 @@ class PCB(StateObject):
                         except:
                             self.errors.append(f"{self.ident}: Invalid field {k}: {repr(v)}")
 
+
+class PanelCell(StateObject):
+    def __init__(self, main, pcb_file):
+        super().__init__()
+        self.main = main
+        self.pcb_file = pcb_file
+
+        if self.file_type == "gerber":
+            self.kicad_file = os.path.join(self.main.temp_dir, f"{id(self)}_full.kicad_pcb")
+        else:
+            self.kicad_file = self.pcb_file.kicad_file
+
+        self.x = 0
+        self.y = 0
+        self.margin_left = 0
+        self.margin_right = 0
+        self.margin_top = 0
+        self.margin_bottom = 0
+        self.rotate = 0
+        self._tabs = []
+        self.build_options = defaultdict(str)
+        self.build_flags = []
+        self.permanent_errors = []
+        self.fp_count = 0
+        self.bom_file = ""
+        self.cpl_file = ""
+
+    @property
+    def file(self):
+        return self.pcb_file.file
+
+    @property
+    def file_type(self):
+        return self.pcb_file.file_type
+
+    @property
+    def outline_file(self):
+        return self.pcb_file.outline_file
+
+    @property
+    def board_thickness(self):
+        return self.pcb_file.board_thickness
+
+    @property
+    def copper_layer_count(self):
+        return self.pcb_file.copper_layer_count
+
+    @property
+    def orig(self):
+        return self.pcb_file.orig
+
+    @property
+    def width(self):
+        return self.pcb_file.width
+
+    @property
+    def height(self):
+        return self.pcb_file.height
+
+    @property
+    def error(self):
+        return self.pcb_file.error
+
+    @property
+    def ident(self):
+        return self.pcb_file.ident
+
+    @property
+    def avail_options(self):
+        return self.pcb_file.avail_options
+
+    @property
+    def avail_flags(self):
+        return self.pcb_file.avail_flags
+
+    @property
+    def errors(self):
+        return self.pcb_file.errors
+
     def transform(self, shape):
         shape = affinity.rotate(shape, (self.rotate % 360)*-1, origin=(0,0))
         shape = transform(shape, lambda x: x+[self.x+self.main.off_x, self.y+self.main.off_y])
@@ -197,7 +262,7 @@ class PCB(StateObject):
         Return shapes in global coordinate system
         """
         ret = []
-        for shape in self._shapes:
+        for shape in self.pcb_file._shapes:
             ret.append(self.transform(shape))
         return ret
 
@@ -242,7 +307,7 @@ class PCB(StateObject):
         return ret
 
     def clone(self):
-        pcb = PCB(self.main, self.file)
+        pcb = PanelCell(self.main, self.pcb_file)
         pcb.rotate = self.rotate
         pcb._tabs = [StateDict({**tab}) for tab in self._tabs]
         return pcb
@@ -255,7 +320,7 @@ class PCB(StateObject):
 
     def distance(self, obj):
         mdist = None
-        if type(obj) is PCB:
+        if isinstance(obj, PanelCell):
             objs = obj.shapes
         else:
             objs = [obj]
@@ -269,7 +334,7 @@ class PCB(StateObject):
 
     def directional_distance(self, obj, direction):
         mdist = None
-        if type(obj) is PCB:
+        if isinstance(obj, PanelCell):
             objs = obj.shapes
         else:
             objs = [obj]
@@ -341,6 +406,7 @@ class PCB(StateObject):
             "closest": True,
             "direction": 0.0,
         }))
+
 
 class Hole(StateObject):
     def __init__(self, main, coords):
@@ -490,6 +556,7 @@ class PanelizerUI(Application):
         self.state.show_vc = True
 
         self.state.pcb = []
+        self.pcb_files = {}
         self.state.scale = None
 
         self.state.target_path = ""
@@ -598,26 +665,41 @@ class PanelizerUI(Application):
             dir = os.path.dirname(self.state.pcb[0].file)
         boardfile = OpenFile("Open PCB", dir=dir, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
         if boardfile:
+            p = None
             try:
-                p = PCB(self, boardfile)
+                p = self.makePanelCell(boardfile)
                 self._addPCB(p)
             except Exception as e:
                 Critical("Error loading PCB: {}".format(e), "Error loading PCB")
-                self.state.pcb.pop()
+                if p in self.state.pcb:
+                    self.state.pcb.remove(p)
 
     def addGerberFolder(self, e):
         folder = OpenDirectory("Open Gerber Folder")
         if is_gerber_dir(folder):
-            self._addPCB(PCB(self, folder))
+            self._addPCB(self.makePanelCell(folder))
         else:
             Critical("Invalid Gerber folder: {}".format(folder), "Invalid Gerber folder")
 
     def addGerberZip(self, e):
         zipfile = OpenFile("Open Gerber Zip", types="Gerber Zip (*.zip)|*.zip")
         if is_gerber_zip(zipfile):
-            self._addPCB(PCB(self, zipfile))
+            self._addPCB(self.makePanelCell(zipfile))
         else:
             Critical("Invalid Gerber zip: {}".format(zipfile), "Invalid Gerber zip")
+
+    def getPCBFile(self, path):
+        if os.path.isfile(path):
+            dirpath = os.path.dirname(path)
+            if is_gerber_dir(dirpath):
+                path = dirpath
+        path = os.path.realpath(path)
+        if path not in self.pcb_files:
+            self.pcb_files[path] = PCBFile(self, path)
+        return self.pcb_files[path]
+
+    def makePanelCell(self, path):
+        return PanelCell(self, self.getPCBFile(path))
 
     def _addPCB(self, pcb):
         if len(self.state.pcb) > 0:
@@ -633,7 +715,7 @@ class PanelizerUI(Application):
         self._addPCB(pcb.clone())
 
     def remove(self, e, obj):
-        if isinstance(obj, PCB):
+        if isinstance(obj, PanelCell):
             self.state.pcb = [p for p in self.state.pcb if p is not obj]
             self.state.scale = None
         elif obj:
@@ -834,7 +916,7 @@ class PanelizerUI(Application):
                 file = p["file"]
                 if not os.path.isabs(file):
                     file = os.path.realpath(os.path.join(os.path.dirname(target), file))
-                pcb = PCB(self, file)
+                pcb = self.makePanelCell(file)
                 pcb.x = p["x"]
                 pcb.y = p["y"]
                 pcb.margin_left = p.get("margin_left", 0)
@@ -2041,7 +2123,7 @@ class PanelizerUI(Application):
         self.state.scale = offx, offy, nscale
 
     def keypress(self, event):
-        if isinstance(self.state.focus, PCB):
+        if isinstance(self.state.focus, PanelCell):
             if event.text == "r":
                 self.rotateBy(-90)
                 self.build()
@@ -2535,7 +2617,7 @@ class PanelizerUI(Application):
                         if self.state.pcb:
                             with Scroll().layout(weight=1):
                                 with VBox():
-                                    if isinstance(self.state.focus, PCB):
+                                    if isinstance(self.state.focus, PanelCell):
                                         with HBox():
                                             Label(f"Selected PCB: {self.state.pcb.index(self.state.focus)}. {self.state.focus.ident}")
 

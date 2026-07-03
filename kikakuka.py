@@ -62,7 +62,7 @@ if inputs:
         ui = PanelizerUI()
         for path in inputs:
             if path.endswith(PCB_SUFFIX) or is_gerber_dir(path) or is_gerber_zip(path) or is_gerber_file(path):
-                ui._addPCB(PCB(ui, path))
+                ui._addPCB(ui.makePanelCell(path))
 
         ui.build()
         ui.run()
