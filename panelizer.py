@@ -2130,10 +2130,10 @@ class PanelizerUI(Application):
 
         boardSubstrate = self.state.boardSubstrate
         if boardSubstrate:
-            if isinstance(boardSubstrate.substrates, MultiPolygon):
-                geoms = boardSubstrate.substrates.geoms
-            elif isinstance(boardSubstrate.substrates, Polygon):
-                geoms = [boardSubstrate.substrates]
+            if isinstance(boardSubstrate, MultiPolygon):
+                geoms = boardSubstrate.geoms
+            elif isinstance(boardSubstrate, Polygon):
+                geoms = [boardSubstrate]
             else:
                 geoms = []
             for polygon in geoms:
