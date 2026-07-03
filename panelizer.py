@@ -1451,15 +1451,6 @@ class PanelizerUI(Application):
         if not export or self.state.export_mill_fillets:
             panel.addMillFillets(self.state.mill_fillets*self.unit)
 
-        if not export:
-            self.state.errors = errors
-            self.state.conflicts = conflicts
-            self.state.dbg_points = dbg_points
-            self.state.dbg_rects = dbg_rects
-            self.state.dbg_polygons = dbg_polygons
-            self.state.dbg_text = dbg_text
-            self.state.boardSubstrate = panel.boardSubstrate
-
         cuts = sorted(cuts,key=lambda cut: cut.bounds)
 
         vcuts = []
@@ -1604,8 +1595,16 @@ class PanelizerUI(Application):
                     panel.addFiducial(pos, diameter, solderMaskDiameter)
 
         if not export:
-            self.state.vcuts = vcuts
-            self.state.bites = bites
+            with self.state:
+                self.state.errors = errors
+                self.state.conflicts = conflicts
+                self.state.dbg_points = dbg_points
+                self.state.dbg_rects = dbg_rects
+                self.state.dbg_polygons = dbg_polygons
+                self.state.dbg_text = dbg_text
+                self.state.boardSubstrate = panel.boardSubstrate.substrates
+                self.state.vcuts = vcuts
+                self.state.bites = bites
 
         if export:
             panel.save()
