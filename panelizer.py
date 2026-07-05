@@ -38,6 +38,15 @@ BUILDEXPR = "BUILDEXPR"
 MAX_BOARD_SIZE = 10000*mm
 MIN_SPACING = 0.0
 VC_EXTENT = 3
+MIN_SHAPELY_VERSION = (2, 0, 7)
+
+
+def version_tuple(version):
+    parts = [int(part) for part in re.split(r"\D+", version)[:3] if part]
+    if not parts:
+        return None
+    return tuple(parts)
+
 
 class Tool(Enum):
     END = -1
@@ -984,6 +993,10 @@ class PanelizerUI(Application):
         errors = []
         warnings = []
         conflicts = []
+
+        shapely_version = version_tuple(shapely.__version__)
+        if shapely_version and shapely_version < MIN_SHAPELY_VERSION:
+            warnings.append(f"Shapely {shapely.__version__} is older than {'.'.join(map(str, MIN_SHAPELY_VERSION))}")
 
         for pcb in self.state.pcb:
             if pcb.error:
