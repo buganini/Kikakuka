@@ -160,6 +160,24 @@ def extrapolate(x1, y1, x2, y2, r, d):
     l = n*r + d
     return x1 + dx*l/n, y1 + dy*l/n
 
+
+def is_straight_line(line, tolerance=SHP_EPSILON):
+    coords = list(line.coords)
+    if len(coords) <= 2:
+        return True
+    x1, y1 = coords[0]
+    x2, y2 = coords[-1]
+    dx = x2 - x1
+    dy = y2 - y1
+    length = math.sqrt(dx*dx + dy*dy)
+    if length == 0:
+        return False
+    for x, y in coords[1:-1]:
+        if abs(dx * (y1 - y) - (x1 - x) * dy) / length > tolerance:
+            return False
+    return True
+
+
 class PCBFile:
     def __init__(self, main, boardpath):
         self.main = main
@@ -1665,6 +1683,15 @@ class PanelizerUI(Application):
 
         vcuts = []
         bites = []
+        warned_non_straight_mouse_bite = False
+
+        def add_mouse_bite(cut):
+            nonlocal warned_non_straight_mouse_bite
+            if not warned_non_straight_mouse_bite and not is_straight_line(cut):
+                warnings.append("Mouse bites are created on a non-straight edge")
+                warned_non_straight_mouse_bite = True
+            bites.append(cut)
+
         cut_method = self.state.cut_method
         merge_vcuts = self.state.merge_vcuts
         merge_vcuts_threshold = self.state.merge_vcuts_threshold * self.unit
@@ -1672,7 +1699,8 @@ class PanelizerUI(Application):
         vcuts_tolerance = SHP_EPSILON * 5
 
         if cut_method == "mb":
-            bites.extend(cuts)
+            for cut in cuts:
+                add_mouse_bite(cut)
         elif cut_method == "vc_unsafe":
             vcuts.extend(cuts)
         elif cut_method in ("vc_or_mb", "vc_and_mb", "vc_or_skip"):
@@ -1692,7 +1720,7 @@ class PanelizerUI(Application):
                     do_mb = (not vc_ok or cut_method == "vc_and_mb") and cut_method != "vc_or_skip"
 
                     if do_mb:
-                        bites.append(cut)
+                        add_mouse_bite(cut)
                     if do_vc:
                         cut = LineString([(px, p1[1]), (px, p2[1])])
                         vcuts.append(cut)
@@ -1709,13 +1737,13 @@ class PanelizerUI(Application):
                     do_mb = (not vc_ok or cut_method == "vc_and_mb") and cut_method != "vc_or_skip"
 
                     if do_mb:
-                        bites.append(cut)
+                        add_mouse_bite(cut)
                     if do_vc:
                         cut = LineString([(p1[0], py), (p2[0], py)])
                         vcuts.append(cut)
                 else:
                     if cut_method != "vc_or_skip":
-                        bites.append(cut)
+                        add_mouse_bite(cut)
 
         if export and bites:
             panel.makeMouseBites(bites, diameter=mb_diameter * self.unit, spacing=mb_spacing * self.unit - SHP_EPSILON, offset=mb_offset * self.unit, prolongation=0 * self.unit)
