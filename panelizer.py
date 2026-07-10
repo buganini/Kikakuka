@@ -41,6 +41,13 @@ VC_EXTENT = 3
 MIN_SHAPELY_VERSION = (2, 0, 7)
 
 
+def panelizer_warning_prefix(exc):
+    for frame in reversed(traceback.extract_tb(exc.__traceback__)):
+        if os.path.abspath(frame.filename) == os.path.abspath(__file__):
+            return f"[Panelizer:L{frame.lineno}] "
+    return "[Panelizer] "
+
+
 def version_tuple(version):
     parts = [int(part) for part in re.split(r"\D+", version)[:3] if part]
     if not parts:
@@ -1499,7 +1506,8 @@ class PanelizerUI(Application):
             dbg_polygons.append(t.exterior.coords)
             try:
                 panel.appendSubstrate(t)
-            except:
+            except Exception as e:
+                warnings.append(f"{panelizer_warning_prefix(e)}Failed to append tab substrate: {e}")
                 traceback.print_exc()
 
         # frame boundary
@@ -1516,7 +1524,8 @@ class PanelizerUI(Application):
                 if not out_of_frame.is_empty:
                     conflicts.append(out_of_frame)
                     errors.append("PCB placement exceeds frame boundaries")
-            except:
+            except Exception as e:
+                warnings.append(f"{panelizer_warning_prefix(e)}Failed to check frame boundaries: {e}")
                 traceback.print_exc()
         frames = []
         if frame_top_polygon:
