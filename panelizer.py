@@ -39,6 +39,8 @@ MAX_BOARD_SIZE = 10000*mm
 MIN_SPACING = 0.0
 VC_EXTENT = 3
 MIN_SHAPELY_VERSION = (2, 0, 7)
+OUTLINE_CHAINING_EPSILON_MM = getattr(pcbnew, "DEFAULT_CHAINING_EPSILON_MM", 0.01)
+OUTLINE_CHAINING_EPSILON = round(OUTLINE_CHAINING_EPSILON_MM * pcbnew.PCB_IU_PER_MM)
 
 
 def panelizer_warning_prefix(exc):
@@ -46,6 +48,87 @@ def panelizer_warning_prefix(exc):
         if os.path.abspath(frame.filename) == os.path.abspath(__file__):
             return f"[Panelizer:L{frame.lineno}] "
     return "[Panelizer] "
+
+
+def patched_extractRings(geometryList):
+    """
+    KiCad accepts tiny discontinuities when chaining board outlines. KiKit's
+    default extractRings requires stricter endpoint equality, so use KiCad's
+    chaining epsilon here before KiKit converts the rings to Shapely polygons.
+    """
+    def point_distance_sq(a, b):
+        dx = a[0] - b[0]
+        dy = a[1] - b[1]
+        return dx * dx + dy * dy
+
+    def canonical_point(point, points):
+        point = (point[0], point[1])
+        nearest = None
+        nearest_dist = None
+        max_dist = OUTLINE_CHAINING_EPSILON * OUTLINE_CHAINING_EPSILON
+        for candidate in points:
+            dist = point_distance_sq(point, candidate)
+            if dist <= max_dist and (nearest_dist is None or dist < nearest_dist):
+                nearest = candidate
+                nearest_dist = dist
+        if nearest is not None:
+            return nearest
+        points.append(point)
+        return point
+
+    coincidencePoints = {}
+    canonicalPoints = []
+    invalidGeometry = []
+    for i, geom in enumerate(geometryList):
+        if not substrate.isValidPcbShape(geom):
+            invalidGeometry.append(i)
+            continue
+        start = canonical_point(substrate.getStartPoint(geom), canonicalPoints)
+        coincidencePoints.setdefault(start, substrate.CoincidenceList()).append(i)
+        end = canonical_point(substrate.getEndPoint(geom), canonicalPoints)
+        coincidencePoints.setdefault(end, substrate.CoincidenceList()).append(i)
+
+    for point, items in coincidencePoints.items():
+        l = len(items)
+        if l == 1:
+            raise substrate.PositionError("Discontinuous outline at [{}, {}]. This may have several causes:\n" +
+                                          "    - The outline in really discontinuous. Check the coordinates in your source board.\n" +
+                                          "    - You haven't included all the outlines or in the case of multi-design,\n" +
+                                          "      you have included a part of outline from a neighboring board.",
+                                          point)
+        if l == 2:
+            continue
+        raise substrate.PositionError("Multiple outlines ({}) at [{{}}, {{}}]".format(l), point)
+
+    def findRing(startIdx, unused):
+        unused[startIdx] = False
+        ring = [startIdx]
+        start = canonical_point(substrate.getStartPoint(geometryList[startIdx]), canonicalPoints)
+        end = canonical_point(substrate.getEndPoint(geometryList[startIdx]), canonicalPoints)
+        if start == end:
+            return ring
+        currentPoint = end
+        while True:
+            nextIdx = coincidencePoints[currentPoint].getNeighbor(ring[-1])
+            assert unused[nextIdx] or nextIdx == startIdx
+            nextStart = canonical_point(substrate.getStartPoint(geometryList[nextIdx]), canonicalPoints)
+            nextEnd = canonical_point(substrate.getEndPoint(geometryList[nextIdx]), canonicalPoints)
+            currentPoint = nextEnd if currentPoint == nextStart else nextStart
+            unused[nextIdx] = False
+            if nextIdx == startIdx:
+                return ring
+            ring.append(nextIdx)
+
+    rings = []
+    unused = [True] * len(geometryList)
+    for invalidIdx in invalidGeometry:
+        unused[invalidIdx] = False
+    while any(unused):
+        rings.append(findRing(substrate.getUnused(unused), unused))
+    return rings
+
+
+substrate.extractRings = patched_extractRings
 
 
 def version_tuple(version):
