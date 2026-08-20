@@ -2576,10 +2576,10 @@ class PanelizerUI(Application):
                         .mouseup(self.mouseup)
                         .mousemove(self.mousemove)
                         .wheel(self.wheel)
-                        .layout(width=800)
+                        .layout(weight=1)
                         .style(bgColor=0x000000))
 
-                    with VBox().layout(weight=1):
+                    with VBox().layout(width=0):
                         with HBox():
                             Label("Panel")
                             Button("Load").click(self.load)
