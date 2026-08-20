@@ -1,0 +1,43 @@
+name: Add source with submodules
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release tag and submodules
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          submodules: recursive
+
+      - name: Create archive
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          archive="${REPO}-${TAG}"
+
+          # Remove Git metadata but retain all checked-out files
+          find . -name .git -prune -exec rm -rf {} +
+          tar \
+            --exclude=".github" \
+            --transform="s|^\./|${archive}/|" \
+            -czf "../${archive}.tar.gz" .
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          gh release upload "$TAG" \
+            "../${REPO}-${TAG}.tar.gz" \
+            --clobber
