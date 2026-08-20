@@ -2,7 +2,15 @@ name: Add source with submodules
 
 on:
   release:
-    types: [published]
+    types:
+      - published
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, e.g. v1.2.3"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -11,33 +19,40 @@ jobs:
   archive:
     runs-on: ubuntu-latest
 
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
     steps:
-      - name: Checkout release tag and submodules
+      - name: Verify release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Release tag: $TAG"
+          test -n "$TAG"
+          gh release view "$TAG"
+
+      - name: Checkout release with submodules
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ env.TAG }}
           submodules: recursive
+          path: source
 
       - name: Create archive
         env:
-          TAG: ${{ github.event.release.tag_name }}
           REPO: ${{ github.event.repository.name }}
         run: |
-          archive="${REPO}-${TAG}"
+          safe_tag="${TAG//\//-}"
+          archive="${REPO}-${safe_tag}"
 
-          # Remove Git metadata but retain all checked-out files
-          find . -name .git -prune -exec rm -rf {} +
-          tar \
-            --exclude=".github" \
-            --transform="s|^\./|${archive}/|" \
-            -czf "../${archive}.tar.gz" .
+          find source -name .git -prune -exec rm -rf {} +
+          mv source "$archive"
+          tar -czf "${archive}.tar.gz" "$archive"
 
-      - name: Upload to GitHub Release
+          echo "ARCHIVE=${archive}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Upload archive
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-          REPO: ${{ github.event.repository.name }}
         run: |
-          gh release upload "$TAG" \
-            "../${REPO}-${TAG}.tar.gz" \
-            --clobber
+          gh release upload "$TAG" "$ARCHIVE" --clobber
