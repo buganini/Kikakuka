@@ -29,7 +29,8 @@ jobs:
         run: |
           echo "Release tag: $TAG"
           test -n "$TAG"
-          gh release view "$TAG"
+          gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY"
 
       - name: Checkout release with submodules
         uses: actions/checkout@v4
@@ -55,4 +56,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "$TAG" "$ARCHIVE" --clobber
+          gh release upload "$TAG" "$ARCHIVE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
