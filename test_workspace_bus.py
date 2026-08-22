@@ -80,6 +80,29 @@ class WorkspaceBusResolveSocketTests(unittest.TestCase):
         self.assertEqual(reply["status"], "error")
         self.assertIn("IPC API was not ready after 30s", reply["message"])
 
+    def test_resolve_socket_does_not_reuse_unverified_board_path(self):
+        requested = "/boards/fpc.kicad_pcb"
+        removed = []
+        pidmap = {requested: 111}
+        bus = self._make_bus(pidmap)
+        bus._remove_pid = removed.append
+        bus._get_pidmap = lambda: {}
+
+        with mock.patch("workspace_bus.psutil.pid_exists", return_value=True):
+            with mock.patch.object(
+                bus,
+                "_wait_for_ready_socket",
+                return_value=("/tmp/api.sock", "ready", None, None),
+            ):
+                reply = bus._resolve_socket(
+                    {"action": "reload", "object": "fpc", "filepath": requested},
+                    dict(pidmap),
+                )
+
+        self.assertEqual(reply["status"], "error")
+        self.assertEqual(reply["message"], "file not in workspace")
+        self.assertEqual(removed, [requested])
+
 
 if __name__ == "__main__":
     unittest.main()

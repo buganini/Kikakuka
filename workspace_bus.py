@@ -330,8 +330,17 @@ class WorkspaceBus:
         Returns ``False`` when a mismatch is detected and the pidmap was
         repaired so the caller should retry resolution.
         """
-        if not actual_filepath:
+        if not requested_filepath:
             return True
+
+        if not actual_filepath:
+            _log(
+                "socket/path could not be verified for PID "
+                f"{pid}: requested={requested_filepath}"
+            )
+            if self._remove_pid:
+                self._remove_pid(requested_filepath)
+            return False
 
         requested_norm = _normalize_filepath(requested_filepath)
         actual_norm = _normalize_filepath(actual_filepath)
