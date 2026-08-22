@@ -17,9 +17,15 @@ import time
 import psutil
 
 try:
-    from FreekiCAD.FreekiCAD.kicad_api_retry import is_kicad_retryable_error
+    from FreekiCAD.FreekiCAD.kicad_api_retry import (
+        get_ready_kicad_board,
+        is_kicad_retryable_error,
+    )
 except ImportError:
-    from FreekiCAD.kicad_api_retry import is_kicad_retryable_error
+    from FreekiCAD.kicad_api_retry import (
+        get_ready_kicad_board,
+        is_kicad_retryable_error,
+    )
 
 WORKSPACE_PORT = 19780  # TCP fallback port for Windows
 
@@ -58,7 +64,11 @@ def _socket_board_filepath_state(socket_path, timeout_ms=1000):
 
     try:
         kicad = KiCad(socket_path=f"ipc://{socket_path}", timeout_ms=timeout_ms)
-        board = kicad.get_board()
+        board = get_ready_kicad_board(
+            kicad,
+            max_retries=0,
+            retry_connection_timeout=True,
+        )
         board_name = getattr(board, "name", "") or getattr(
             getattr(board, "document", None), "board_filename", ""
         )
@@ -66,12 +76,14 @@ def _socket_board_filepath_state(socket_path, timeout_ms=1000):
             return "ready", None, None
 
         if os.path.isabs(board_name):
-            return "ready", os.path.abspath(board_name), None
+            actual_filepath = os.path.abspath(board_name)
+            return "ready", actual_filepath, None
 
         project = board.get_project()
         project_path = getattr(project, "path", "")
         if project_path:
-            return "ready", os.path.abspath(os.path.join(project_path, board_name)), None
+            actual_filepath = os.path.abspath(os.path.join(project_path, board_name))
+            return "ready", actual_filepath, None
 
         return "ready", None, None
     except (ConnectionError, ApiError) as e:

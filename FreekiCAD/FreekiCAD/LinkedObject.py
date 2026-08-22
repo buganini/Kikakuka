@@ -33,6 +33,21 @@ def _kipy_retry(func, max_retries=15, delay_s=1.0):
     )
 
 
+def _kipy_ready_board(kicad, max_retries=15, delay_s=1.0):
+    """Return a board proxy after KiCad's board API is ready."""
+    from FreekiCAD.kicad_api_retry import get_ready_kicad_board
+
+    return get_ready_kicad_board(
+        kicad,
+        max_retries=max_retries,
+        delay_s=delay_s,
+        on_retry=lambda attempt, total, exc: FreeCAD.Console.PrintMessage(
+            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+            f"FreekiCAD: KiCad not ready, retrying ({attempt}/{total}): {exc}\n"
+        ),
+    )
+
+
 def _vec(x_nm, y_nm, z=0):
     """Convert KiCad nanometres to FreeCAD mm, flipping Y."""
     return FreeCAD.Vector(x_nm / 1e6, -y_nm / 1e6, z)
@@ -787,7 +802,7 @@ def _get_board_color(board, filepath):
     # 1. Try kipy API
     try:
         from kipy.proto.board.board_types_pb2 import BoardLayer
-        stackup = board.get_stackup()
+        stackup = _kipy_retry(board.get_stackup)
         for layer in stackup.layers:
             if layer.layer == BoardLayer.BL_F_Mask:
                 c = layer.color
@@ -856,7 +871,7 @@ def load_board(filepath, socket_path):
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Connecting to KiCad at {socket_path}\n")
         kicad = KiCad(socket_path=f"ipc://{socket_path}")
-        board = _kipy_retry(kicad.get_board)
+        board = _kipy_ready_board(kicad)
 
         # Load KiCad path variables
         kicad_vars = _load_kicad_env_vars(kicad)
@@ -866,7 +881,7 @@ def load_board(filepath, socket_path):
 
         # --- Board outline ---
         edges = []
-        all_shapes = board.get_shapes()
+        all_shapes = _kipy_retry(board.get_shapes)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Total board shapes: {len(all_shapes)}\n"
         )
@@ -951,7 +966,7 @@ def load_board(filepath, socket_path):
         # Get board thickness from stackup
         thickness = DEFAULT_PCB_THICKNESS
         try:
-            stackup = board.get_stackup()
+            stackup = _kipy_retry(board.get_stackup)
             total_nm = sum(layer.thickness for layer in stackup.layers)
             if total_nm > 0:
                 thickness = total_nm / 1e6
@@ -967,7 +982,7 @@ def load_board(filepath, socket_path):
         if bend_lines:
             try:
                 from kipy.board_types import BoardText as KiPyBoardText
-                all_text = board.get_text()
+                all_text = _kipy_retry(board.get_text)
                 u4_text_count = 0
                 for t in all_text:
                     if not isinstance(t, KiPyBoardText):
@@ -1084,7 +1099,7 @@ def load_board(filepath, socket_path):
 
             # Vias
             try:
-                vias = board.get_vias()
+                vias = _kipy_retry(board.get_vias)
                 for via in vias:
                     vx = via.position.x / 1e6
                     vy = -via.position.y / 1e6
@@ -1101,7 +1116,7 @@ def load_board(filepath, socket_path):
 
             # Through-hole pads
             try:
-                pads = board.get_pads()
+                pads = _kipy_retry(board.get_pads)
                 for pad in pads:
                     pt = str(pad.pad_type) if hasattr(pad, 'pad_type') else ""
                     if 'SMD' in pt.upper():
@@ -1160,7 +1175,7 @@ def load_board(filepath, socket_path):
 
         # --- Footprint metadata (no STEP loading) ---
         footprints_data = []
-        footprints = board.get_footprints()
+        footprints = _kipy_retry(board.get_footprints)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Total footprints: {len(footprints)}\n"
         )
@@ -9195,7 +9210,7 @@ class LinkedObject:
             return
         try:
             kicad = KiCad(socket_path=f"ipc://{socket_path}")
-            _kipy_retry(kicad.get_board)
+            _kipy_ready_board(kicad)
             self._kicad = kicad
             FreeCAD.Console.PrintMessage(
                 "FreekiCAD: KiCad connection ready\n")
@@ -9220,7 +9235,7 @@ class LinkedObject:
             if kicad is None:
                 kicad = KiCad(socket_path=f"ipc://{socket_path}")
                 self._kicad = kicad
-            return _kipy_retry(kicad.get_board)
+            return _kipy_ready_board(kicad)
         except Exception as e:
             self._kicad = None
             import traceback
@@ -9267,7 +9282,7 @@ class LinkedObject:
             commit = board.begin_commit()
 
             # Remove existing Edge.Cuts
-            existing = board.get_shapes()
+            existing = _kipy_retry(board.get_shapes)
             edge_cuts = [s for s in existing
                          if s.layer == BoardLayer.BL_Edge_Cuts]
             if edge_cuts:
@@ -9505,11 +9520,11 @@ class LinkedObject:
             from kipy.geometry import Vector2, Angle
 
             kicad = KiCad(socket_path=f"ipc://{socket_path}")
-            board = _kipy_retry(kicad.get_board)
+            board = _kipy_ready_board(kicad)
 
             # Find the footprint by reference designator
             target_fp = None
-            for fp in board.get_footprints():
+            for fp in _kipy_retry(board.get_footprints):
                 try:
                     ref = fp.reference_field.text.value
                 except Exception:
