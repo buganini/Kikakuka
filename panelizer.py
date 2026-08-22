@@ -661,6 +661,7 @@ class PanelizerUI(Application):
         self.flag_need_update = False
 
         self.state = State()
+        self.state.crosshair = None
         self.state.hide_outside_reference_value = True
 
         self.state.debug = False
@@ -2131,6 +2132,7 @@ class PanelizerUI(Application):
                 self.build()
 
     def mousedown(self, e):
+        self.state.crosshair = None
         self.state.mousepos = e.x, e.y
         self.mousehold = True
         self.mousemoved = 0
@@ -2508,6 +2510,11 @@ class PanelizerUI(Application):
                     ln2 = ln.parallel_offset(self.state.tab_width*self.unit*scale/2, "right")
                     canvas.drawLine(ln1.coords[0][0], ln1.coords[0][1], ln2.coords[0][0], ln2.coords[0][1], color=0xFFFF00)
 
+        if self.state.crosshair:
+            x, y = self.state.crosshair
+            self.drawLine(canvas, x - 15 * mm, y, x + 15 * mm, y, color=0x00FF00)
+            self.drawLine(canvas, x, y - 15 * mm, x, y + 15 * mm, color=0x00FF00)
+
     def netRenamer(self, n, orig):
         try:
             return self.state.netRenamePattern.format(n=n, orig=orig)
@@ -2555,6 +2562,7 @@ class PanelizerUI(Application):
                     self.state.mb_spacing
                     self.state.mousepos
                     self.state.focus_tab
+                    self.state.crosshair
                     (Canvas(self.painter)
                         .dblclick(self.dblclicked)
                         .mousedown(self.mousedown)
@@ -2869,8 +2877,19 @@ class PanelizerUI(Application):
                             errors.extend(pcb.permanent_errors)
                             errors.extend(pcb.errors)
                         for error in errors:
-                            Label(error, selectable=True).style(color=0xFF0000)
+                            (Label(error, selectable=True)
+                                .style(color=0xFF0000)
+                                .click(self.click_message, error))
                         for warning in self.state.warnings:
-                            Label(warning, selectable=True).style(color=0xFFCF55)
+                            (Label(warning, selectable=True)
+                                .style(color=0xFFCF55)
+                                .click(self.click_message, warning))
 
                         Spacer()
+
+    def click_message(self, e, message):
+        m = re.findall(r"(\d+) (\d+)", message)
+        if m:
+            self.state.crosshair = (int(m[0][0]), int(m[0][1]))
+        else:
+            self.state.crosshair = None
