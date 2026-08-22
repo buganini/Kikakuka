@@ -304,6 +304,7 @@ class PanelCell(StateObject):
 
         self.x = 0
         self.y = 0
+        self.tolerance = 1
         self.margin_left = 0
         self.margin_right = 0
         self.margin_top = 0
@@ -427,6 +428,7 @@ class PanelCell(StateObject):
     def clone(self):
         pcb = PanelCell(self.main, self.pcb_file)
         pcb.rotate = self.rotate
+        pcb.tolerance = self.tolerance
         pcb._tabs = [StateDict({**tab}) for tab in self._tabs]
         return pcb
 
@@ -889,6 +891,7 @@ class PanelizerUI(Application):
                 "file": relpath(pcb.file, os.path.dirname(target)),
                 "x": pcb.x,
                 "y": pcb.y,
+                "tolerance": pcb.tolerance,
                 "margin_left": pcb.margin_left,
                 "margin_right": pcb.margin_right,
                 "margin_top": pcb.margin_top,
@@ -1084,6 +1087,7 @@ class PanelizerUI(Application):
                 pcb = self.makePanelCell(file)
                 pcb.x = p["x"]
                 pcb.y = p["y"]
+                pcb.tolerance = p.get("tolerance", pcb.tolerance)
                 pcb.margin_left = p.get("margin_left", 0)
                 pcb.margin_right = p.get("margin_right", 0)
                 pcb.margin_top = p.get("margin_top", 0)
@@ -1168,6 +1172,15 @@ class PanelizerUI(Application):
                 threshold=float(self.state.copperfill_hex_threshold),
             ))
 
+    def inclusion_tolerance(self, pcb):
+        try:
+            value = float(pcb.tolerance)
+            if value < 0:
+                return None
+            return panelize.fromMm(value)
+        except Exception:
+            return None
+
     def build(self, e=None, export=False, generate_holes=False):
         try:
             self.state.netRenamePattern.format(n=0, orig="test")
@@ -1192,9 +1205,18 @@ class PanelizerUI(Application):
         for pcb in self.state.pcb:
             if pcb.error:
                 errors.append(pcb.error)
+            elif self.inclusion_tolerance(pcb) is None:
+                errors.append(f"{pcb.ident}: Invalid inclusion tolerance {repr(pcb.tolerance)}")
 
-        pcbs = [pcb for pcb in self.state.pcb if not pcb.error]
+        pcbs = [
+            pcb for pcb in self.state.pcb
+            if not pcb.error and self.inclusion_tolerance(pcb) is not None
+        ]
         if not pcbs:
+            with self.state:
+                self.state.errors = errors
+                self.state.conflicts = conflicts
+                self.state.warnings = warnings
             return
 
         board_thickness = pcbs[0].board_thickness
@@ -1346,7 +1368,7 @@ class PanelizerUI(Application):
                     file,
                     pcbnew.VECTOR2I(round(self.off_x + pcb.x), round(self.off_y + pcb.y)),
                     origin=panelize.Origin.TopLeft,
-                    tolerance=panelize.fromMm(1),
+                    tolerance=self.inclusion_tolerance(pcb),
                     rotationAngle=pcbnew.EDA_ANGLE(pcb.rotate, pcbnew.DEGREES_T),
                     inheritDrc=False,
                     netRenamer=self.netRenamer if multiple_pcb else None,
@@ -2917,6 +2939,14 @@ class PanelizerUI(Application):
 
                                         with Grid():
                                             r = 0
+
+                                            Label("Source area tolerance").grid(row=r, column=0)
+                                            with HBox().grid(row=r, column=1):
+                                                TextField(self.state.focus("tolerance")).layout(width=32).change(self.build)
+                                                Label("Expand the source area to include items slightly outside the board outline.")
+                                                Spacer()
+                                            r += 1
+
 
                                             Label("Alignment Clearance").grid(row=r, column=0)
                                             with HBox().grid(row=r, column=1):
