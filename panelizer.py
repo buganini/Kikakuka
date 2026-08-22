@@ -743,6 +743,7 @@ class PanelizerUI(Application):
         self.state.frame_tooling_solder_mask_opening_diameter = 1.3
 
         self.state.fiducials = True
+        self.state.fiducials_layer = "Both"
         self.state.fiducials_clearance = 3.35
         self.state.fiducials_diameter = 1.0
         self.state.fiducials_solder_mask_opening_diameter = 2.0
@@ -919,6 +920,7 @@ class PanelizerUI(Application):
             "frame_tooling_diameter": self.state.frame_tooling_diameter,
             "frame_tooling_solder_mask_opening_diameter": self.state.frame_tooling_solder_mask_opening_diameter,
             "fiducials": self.state.fiducials,
+            "fiducials_layer": self.state.fiducials_layer,
             "fiducials_clearance": self.state.fiducials_clearance,
             "fiducials_diameter": self.state.fiducials_diameter,
             "fiducials_solder_mask_opening_diameter": self.state.fiducials_solder_mask_opening_diameter,
@@ -1015,6 +1017,8 @@ class PanelizerUI(Application):
                 self.state.frame_tooling_solder_mask_opening_diameter = data["frame_tooling_solder_mask_opening_diameter"]
             if "fiducials" in data:
                 self.state.fiducials = data["fiducials"]
+            if "fiducials_layer" in data:
+                self.state.fiducials_layer = data["fiducials_layer"]
             if "fiducials_clearance" in data:
                 self.state.fiducials_clearance = data["fiducials_clearance"]
             if "fiducials_diameter" in data:
@@ -1825,14 +1829,20 @@ class PanelizerUI(Application):
                 verticalOffset = (self.state.fiducials_clearance + self.state.fiducials_diameter/2) * self.unit
 
                 for i, pos in enumerate(panel.panelCorners(horizontalOffset, verticalOffset)[:4]):
-                    panel.addFiducial(pos, diameter, solderMaskDiameter)
+                    if self.state.fiducials_layer == "Top" or self.state.fiducials_layer == "Both":
+                        panel.addFiducial(pos, diameter, solderMaskDiameter, bottom=False)
+                    if self.state.fiducials_layer == "Bottom" or self.state.fiducials_layer == "Both":
+                        panel.addFiducial(pos, diameter, solderMaskDiameter, bottom=True)
 
             if self.state.frame_left and self.state.frame_right:
                 horizontalOffset = (self.state.fiducials_clearance + self.state.fiducials_diameter/2) * self.unit
                 verticalOffset = (self.state.frame_tooling_vertical_offset + self.state.frame_tooling_solder_mask_opening_diameter * 4) * self.unit
 
                 for i, pos in enumerate(panel.panelCorners(horizontalOffset, verticalOffset)[:4]):
-                    panel.addFiducial(pos, diameter, solderMaskDiameter)
+                    if self.state.fiducials_layer == "Top" or self.state.fiducials_layer == "Both":
+                        panel.addFiducial(pos, diameter, solderMaskDiameter, bottom=False)
+                    if self.state.fiducials_layer == "Bottom" or self.state.fiducials_layer == "Both":
+                        panel.addFiducial(pos, diameter, solderMaskDiameter, bottom=True)
 
         if not export:
             with self.state:
@@ -2676,6 +2686,11 @@ class PanelizerUI(Application):
                                 TextField(self.state("fiducials_diameter")).change(self.build)
                                 Label("Solder Mask Opening Diameter")
                                 TextField(self.state("fiducials_solder_mask_opening_diameter")).change(self.build)
+                                Label("Layer")
+                                with ComboBox(editable=False, text_model=self.state("fiducials_layer")).click(self.build):
+                                    ComboBoxItem("Top")
+                                    ComboBoxItem("Bottom")
+                                    ComboBoxItem("Both")
 
                         with HBox():
                             Label("PCB Spacing")
