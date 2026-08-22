@@ -2508,21 +2508,6 @@ class PanelizerUI(Application):
                     ln2 = ln.parallel_offset(self.state.tab_width*self.unit*scale/2, "right")
                     canvas.drawLine(ln1.coords[0][0], ln1.coords[0][1], ln2.coords[0][0], ln2.coords[0][1], color=0xFFFF00)
 
-
-        errors = list(self.state.errors)
-        for pcb in pcbs:
-            errors.extend(pcb.permanent_errors)
-            errors.extend(pcb.errors)
-        for i, error in enumerate(errors):
-            canvas.drawText(10, 10+i*15, error, color=0xFF0000)
-        for i, warning in enumerate(self.state.warnings):
-            canvas.drawText(10, 10+(len(errors)+i)*15, warning, color=0xFFCF55)
-
-        if drawCross and self.state.mousepos:
-            x, y = self.state.mousepos[0], self.state.mousepos[1]
-            canvas.drawLine(x-10, y, x+10, y, color=0xFF0000)
-            canvas.drawLine(x, y-10, x, y+10, color=0xFF0000)
-
     def netRenamer(self, n, orig):
         try:
             return self.state.netRenamePattern.format(n=n, orig=orig)
@@ -2560,7 +2545,7 @@ class PanelizerUI(Application):
         title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
-                with HBox():
+                with HBox().layout(weight=1):
                     self.state.scale
                     self.state.pcb
                     self.state.bites
@@ -2876,3 +2861,16 @@ class PanelizerUI(Application):
                             Label(f"Conflicts: {len(self.state.conflicts)}")
                             Spacer()
                             Label(f"Memory: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+
+                with Scroll().layout(height=120):
+                    with VBox():
+                        errors = list(self.state.errors)
+                        for pcb in self.state.pcb:
+                            errors.extend(pcb.permanent_errors)
+                            errors.extend(pcb.errors)
+                        for error in errors:
+                            Label(error, selectable=True).style(color=0xFF0000)
+                        for warning in self.state.warnings:
+                            Label(warning, selectable=True).style(color=0xFFCF55)
+
+                        Spacer()
