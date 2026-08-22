@@ -2786,7 +2786,7 @@ class PanelizerUI(Application):
                                         with Grid():
                                             r = 0
 
-                                            Label("Clearance").grid(row=r, column=0)
+                                            Label("Alignment Clearance").grid(row=r, column=0)
                                             with HBox().grid(row=r, column=1):
                                                 Label("Top")
                                                 TextField(self.state.focus("margin_top")).change(self.build)
