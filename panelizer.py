@@ -7,6 +7,7 @@ from kikit import panelize, substrate
 from kikit.defs import Layer
 from kikit.units import mm, mil
 from kikit.common import *
+from kikit.panel_features.copperFill import SolidCopperFill, HatchedCopperFill, HexCopperFill
 from kikit.substrate import Substrate, NoIntersectionError, TabFilletError, closestIntersectionPoint, biteBoundary
 import numpy as np
 import shapely
@@ -748,6 +749,18 @@ class PanelizerUI(Application):
         self.state.fiducials_diameter = 1.0
         self.state.fiducials_solder_mask_opening_diameter = 2.0
 
+        self.state.copperfill = "None" # None, Solid, Hatched, Hex
+        self.state.copperfill_layer = "Both" # Top, Bottom, Both, All
+        self.state.copperfill_clearance = 1
+        self.state.copperfill_edge_clearance = 1
+        self.state.copperfill_hatched_stroke_width = 1
+        self.state.copperfill_hatched_stroke_spacing = 1
+        self.state.copperfill_hatched_orientation = 45
+        self.state.copperfill_hex_diameter = 7
+        self.state.copperfill_hex_space = 0.5
+        self.state.copperfill_hex_threshold = 0.25
+
+
     def cleanup(self):
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
@@ -924,6 +937,16 @@ class PanelizerUI(Application):
             "fiducials_clearance": self.state.fiducials_clearance,
             "fiducials_diameter": self.state.fiducials_diameter,
             "fiducials_solder_mask_opening_diameter": self.state.fiducials_solder_mask_opening_diameter,
+            "copperfill": self.state.copperfill,
+            "copperfill_layer": self.state.copperfill_layer,
+            "copperfill_clearance": self.state.copperfill_clearance,
+            "copperfill_edge_clearance": self.state.copperfill_edge_clearance,
+            "copperfill_hatched_stroke_width": self.state.copperfill_hatched_stroke_width,
+            "copperfill_hatched_stroke_spacing": self.state.copperfill_hatched_stroke_spacing,
+            "copperfill_hatched_orientation": self.state.copperfill_hatched_orientation,
+            "copperfill_hex_diameter": self.state.copperfill_hex_diameter,
+            "copperfill_hex_space": self.state.copperfill_hex_space,
+            "copperfill_hex_threshold": self.state.copperfill_hex_threshold,
             "pcb": pcbs,
             "hole": [list(transform(h.polygon.exterior, lambda p:p-(self.off_x, self.off_y)).coords) for h in self.state.holes],
         }
@@ -1025,6 +1048,26 @@ class PanelizerUI(Application):
                 self.state.fiducials_diameter = data["fiducials_diameter"]
             if "fiducials_solder_mask_opening_diameter" in data:
                 self.state.fiducials_solder_mask_opening_diameter = data["fiducials_solder_mask_opening_diameter"]
+            if "copperfill" in data:
+                self.state.copperfill = data["copperfill"]
+            if "copperfill_layer" in data:
+                self.state.copperfill_layer = data["copperfill_layer"]
+            if "copperfill_clearance" in data:
+                self.state.copperfill_clearance = data["copperfill_clearance"]
+            if "copperfill_edge_clearance" in data:
+                self.state.copperfill_edge_clearance = data["copperfill_edge_clearance"]
+            if "copperfill_hatched_stroke_width" in data:
+                self.state.copperfill_hatched_stroke_width = data["copperfill_hatched_stroke_width"]
+            if "copperfill_hatched_stroke_spacing" in data:
+                self.state.copperfill_hatched_stroke_spacing = data["copperfill_hatched_stroke_spacing"]
+            if "copperfill_hatched_orientation" in data:
+                self.state.copperfill_hatched_orientation = data["copperfill_hatched_orientation"]
+            if "copperfill_hex_diameter" in data:
+                self.state.copperfill_hex_diameter = data["copperfill_hex_diameter"]
+            if "copperfill_hex_space" in data:
+                self.state.copperfill_hex_space = data["copperfill_hex_space"]
+            if "copperfill_hex_threshold" in data:
+                self.state.copperfill_hex_threshold = data["copperfill_hex_threshold"]
 
             if "hole" in data:
                 holes = []
@@ -1089,6 +1132,41 @@ class PanelizerUI(Application):
 
     def generate_holes(self, e):
         self.build(generate_holes=True)
+
+    def copperfill_layers(self, panel):
+        if self.state.copperfill_layer == "Top":
+            return [Layer.F_Cu]
+        if self.state.copperfill_layer == "Bottom":
+            return [Layer.B_Cu]
+        if self.state.copperfill_layer == "All":
+            enabledLayers = panel.board.GetEnabledLayers()
+            return [layer for layer in Layer.allCu() if enabledLayers.Contains(layer)]
+        return [Layer.F_Cu, Layer.B_Cu]
+
+    def apply_copperfill(self, panel):
+        layers = self.copperfill_layers(panel)
+        kwargs = {
+            "clearance": round(float(self.state.copperfill_clearance) * self.unit),
+            "edgeclearance": round(float(self.state.copperfill_edge_clearance) * self.unit),
+            "layers": layers,
+        }
+
+        if self.state.copperfill == "Solid":
+            panel.apply(SolidCopperFill(**kwargs))
+        elif self.state.copperfill == "Hatched":
+            panel.apply(HatchedCopperFill(
+                **kwargs,
+                strokeWidth=round(float(self.state.copperfill_hatched_stroke_width) * self.unit),
+                strokeSpacing=round(float(self.state.copperfill_hatched_stroke_spacing) * self.unit),
+                orientation=fromDegrees(float(self.state.copperfill_hatched_orientation)),
+            ))
+        elif self.state.copperfill == "Hex":
+            panel.apply(HexCopperFill(
+                **kwargs,
+                diameter=round(float(self.state.copperfill_hex_diameter) * self.unit),
+                space=round(float(self.state.copperfill_hex_space) * self.unit),
+                threshold=float(self.state.copperfill_hex_threshold),
+            ))
 
     def build(self, e=None, export=False, generate_holes=False):
         try:
@@ -1856,6 +1934,9 @@ class PanelizerUI(Application):
                 self.state.boardSubstrate = panel.boardSubstrate.substrates
                 self.state.vcuts = vcuts
                 self.state.bites = bites
+
+        if export and self.state.copperfill != "None":
+            self.apply_copperfill(panel)
 
         if export:
             panel.save()
@@ -2691,6 +2772,42 @@ class PanelizerUI(Application):
                                     ComboBoxItem("Top")
                                     ComboBoxItem("Bottom")
                                     ComboBoxItem("Both")
+
+                            with HBox().id("copperfill"):
+                                Label("Copperfill")
+                                with ComboBox(editable=False, text_model=self.state("copperfill")).click(self.build):
+                                    ComboBoxItem("None")
+                                    ComboBoxItem("Solid")
+                                    ComboBoxItem("Hatched")
+                                    ComboBoxItem("Hex")
+                                Label("Layer")
+                                with ComboBox(editable=False, text_model=self.state("copperfill_layer")).click(self.build):
+                                    ComboBoxItem("Top")
+                                    ComboBoxItem("Bottom")
+                                    ComboBoxItem("Both")
+                                    ComboBoxItem("All")
+                                Label("Clearance")
+                                TextField(self.state("copperfill_clearance")).change(self.build)
+                                Label("Edge Clearance")
+                                TextField(self.state("copperfill_edge_clearance")).change(self.build)
+                            if self.state.copperfill == "Hatched":
+                                with HBox().id("copperfill.hatched"):
+                                    Label("Hatched Copperfill")
+                                    Label("Stroke Width")
+                                    TextField(self.state("copperfill_hatched_stroke_width")).change(self.build)
+                                    Label("Stroke Spacing")
+                                    TextField(self.state("copperfill_hatched_stroke_spacing")).change(self.build)
+                                    Label("Orientation")
+                                    TextField(self.state("copperfill_hatched_orientation")).change(self.build)
+                            if self.state.copperfill == "Hex":
+                                with HBox().id("copperfill.hex"):
+                                    Label("Hex Copperfill")
+                                    Label("Diameter")
+                                    TextField(self.state("copperfill_hex_diameter")).change(self.build)
+                                    Label("Space")
+                                    TextField(self.state("copperfill_hex_space")).change(self.build)
+                                    Label("Threshold")
+                                    TextField(self.state("copperfill_hex_threshold")).change(self.build)
 
                         with HBox():
                             Label("PCB Spacing")
