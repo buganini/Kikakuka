@@ -3209,8 +3209,9 @@ class PanelizerUI(Application):
                         Spacer()
 
     def click_message(self, e, message):
-        m = re.findall(r"(\d+) (\d+)", message)
+        number = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+        m = re.search(rf"({number})\s+({number})", message)
         if m:
-            self.state.crosshair = (int(m[0][0]), int(m[0][1]))
+            self.state.crosshair = (float(m.group(1)), float(m.group(2)))
         else:
             self.state.crosshair = None
