@@ -128,6 +128,46 @@ def panelizer_warning_prefix(exc):
     return "[Panelizer] "
 
 
+def read_constraint_profile(kicad_file):
+    if not kicad_file:
+        return None
+    project_file = os.path.splitext(kicad_file)[0] + ".kicad_pro"
+    try:
+        with open(project_file, encoding="utf-8") as f:
+            project = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    rules = project.get("board", {}).get("design_settings", {}).get("rules")
+    if not isinstance(rules, dict):
+        return None
+
+    return rules
+
+
+def same_constraint_profile(a, b):
+    return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+
+
+def copy_constraint_profile(source_kicad_file, target_kicad_file):
+    rules = read_constraint_profile(source_kicad_file)
+    if rules is None:
+        return False
+
+    target_project_file = os.path.splitext(target_kicad_file)[0] + ".kicad_pro"
+    try:
+        with open(target_project_file, encoding="utf-8") as f:
+            target_project = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    target_project.setdefault("board", {}).setdefault("design_settings", {})["rules"] = rules
+
+    with open(target_project_file, "w", encoding="utf-8") as f:
+        json.dump(target_project, f, indent=2)
+    return True
+
+
 def patched_extractRings(geometryList):
     """
     KiCad accepts tiny discontinuities when chaining board outlines. KiKit's
@@ -260,6 +300,7 @@ class PCBFile:
     def __init__(self, main, boardpath):
         self.main = main
         self.error = None
+        boardpath = os.path.expanduser(boardpath)
 
         if os.path.isfile(boardpath):
             dirpath = os.path.dirname(boardpath)
@@ -269,6 +310,25 @@ class PCBFile:
         boardpath = os.path.realpath(boardpath)
         self.file = boardpath
         self.file_type = None
+        self.outline_file = None
+        self.kicad_file = None
+        self.constraint_profile = None
+        self.board_thickness = 0
+        self.copper_layer_count = 0
+        self.orig = (0, 0)
+        self._shapes = []
+        self.width = 0
+        self.height = 0
+
+        folder = os.path.basename(os.path.dirname(boardpath))
+        name = os.path.splitext(os.path.basename(boardpath))[0]
+        if folder != name:
+            name = os.path.join(folder, name)
+        self.ident = name
+
+        self.avail_options = {}
+        self.avail_flags = []
+        self.errors = []
 
         if boardpath.lower().endswith(".kicad_pcb"):
             self.file_type = "kicad"
@@ -280,9 +340,21 @@ class PCBFile:
             self.kicad_file = os.path.join(self.main.temp_dir, f"{id(self)}_full.kicad_pcb")
             convert_to_kicad(self.file, self.outline_file, outline_only=True)
 
+        self.constraint_profile = read_constraint_profile(self.kicad_file)
+
+        if self.file_type is None:
+            self.error = f"{self.ident}: Unsupported board file"
+            return
+        if not os.path.exists(self.outline_file):
+            self.error = f"{self.ident}: File not found: {self.file}"
+            return
+
         orig_x = None
         orig_y = None
         board = pcbnew.LoadBoard(self.outline_file)
+        if board is None:
+            self.error = f"{self.ident}: Failed to load board"
+            return
         self.board_thickness = board.GetDesignSettings().GetBoardThickness()
         self.copper_layer_count = board.GetCopperLayerCount()
         for draw in board.GetDrawings():
@@ -320,16 +392,6 @@ class PCBFile:
             self._shapes = []
             self.width = 0
             self.height = 0
-
-        folder = os.path.basename(os.path.dirname(boardpath))
-        name = os.path.splitext(os.path.basename(boardpath))[0]
-        if folder != name:
-            name = os.path.join(folder, name)
-        self.ident = name
-
-        self.avail_options = {}
-        self.avail_flags = []
-        self.errors = []
 
         if self.file_type == "kicad":
             for fp in board.GetFootprints():
@@ -414,6 +476,10 @@ class PanelCell(StateObject):
     @property
     def copper_layer_count(self):
         return self.pcb_file.copper_layer_count
+
+    @property
+    def constraint_profile(self):
+        return self.pcb_file.constraint_profile
 
     @property
     def orig(self):
@@ -1308,6 +1374,17 @@ class PanelizerUI(Application):
                 errors.append("Attempting to panelize boards together of mixed layer counts")
                 break
 
+        constraint_profile = pcbs[0].constraint_profile
+        mismatched_constraints = [
+            pcb.ident for pcb in pcbs[1:]
+            if not same_constraint_profile(pcb.constraint_profile, constraint_profile)
+        ]
+        if mismatched_constraints:
+            warnings.append(
+                "Panel constraints are inherited from the first PCB; "
+                f"constraints differ for: {', '.join(mismatched_constraints)}"
+            )
+
         if self.state.spacing < MIN_SPACING:
             self.state.spacing = MIN_SPACING
 
@@ -2039,6 +2116,7 @@ class PanelizerUI(Application):
 
         if export:
             panel.save()
+            copy_constraint_profile(pcbs[0].kicad_file, panel.filename)
 
         gc.collect()
 
