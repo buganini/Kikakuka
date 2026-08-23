@@ -232,7 +232,7 @@ class SchDiffView(PUIView):
         self.state.scale = offx, offy, nscale
 
     def painter(self, canvas):
-        if self.state.scale is None:
+        if self.state.scale is None or (self.canvas_width, self.canvas_height) != (canvas.width, canvas.height):
             self.autoScale(canvas.width, canvas.height)
             return
 
@@ -457,7 +457,7 @@ class PcbDiffView(PUIView):
         self.state.scale = offx, offy, nscale
 
     def painter(self, canvas):
-        if self.state.scale is None:
+        if self.state.scale is None or (self.canvas_width, self.canvas_height) != (canvas.width, canvas.height):
             self.autoScale(canvas.width, canvas.height)
             return
 

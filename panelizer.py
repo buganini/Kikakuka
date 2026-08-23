@@ -822,6 +822,8 @@ class PanelizerUI(Application):
         self.state.pcb = []
         self.pcb_files = {}
         self.state.scale = None
+        self.canvas_width = None
+        self.canvas_height = None
 
         self.state.target_path = ""
         self.state.export_path = ""
@@ -911,6 +913,8 @@ class PanelizerUI(Application):
             shutil.rmtree(self.temp_dir)
 
     def autoScale(self, canvas_width, canvas_height):
+        self.canvas_width, self.canvas_height = canvas_width, canvas_height
+
         x1, y1 = 0, 0
         x2, y2 = self.state.frame_width * self.unit, self.state.frame_height * self.unit
         for pcb in self.state.pcb:
@@ -2631,7 +2635,7 @@ class PanelizerUI(Application):
         return [topLeft, topRight, bottomLeft, bottomRight]
 
     def painter(self, canvas):
-        if self.state.scale is None:
+        if self.state.scale is None or (self.canvas_width, self.canvas_height) != (canvas.width, canvas.height):
             self.autoScale(canvas.width, canvas.height)
             return
 
