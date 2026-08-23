@@ -1,3 +1,10 @@
+# 6.10:
+* Panelizer
+    * Recalculate autoscale when canvas size changes
+    * Update message panel background color
+* Differ
+    * Recalculate autoscale when canvas size changes
+
 # 6.9:
 * Panelizer
     * Copy first PCB constraints to panel
