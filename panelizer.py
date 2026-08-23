@@ -44,6 +44,83 @@ OUTLINE_CHAINING_EPSILON_MM = getattr(pcbnew, "DEFAULT_CHAINING_EPSILON_MM", 0.0
 OUTLINE_CHAINING_EPSILON = round(OUTLINE_CHAINING_EPSILON_MM * pcbnew.PCB_IU_PER_MM)
 
 
+def workaround_panel_save(self, reconstructArcs=False, refillAllZones=False,
+                          edgeWidth=panelize.fromMm(0.1)):
+    panelEdges = self.boardSubstrate.serialize(reconstructArcs)
+    boardsEdges = self._getRefillEdges(reconstructArcs)
+
+    for e in panelEdges:
+        e.SetWidth(edgeWidth)
+    for e in boardsEdges:
+        e.SetWidth(edgeWidth)
+
+    self._validateVCuts()
+    vcuts = self._renderVCutH() + self._renderVCutV()
+    keepouts = []
+    for cut, clearanceArea in vcuts:
+        self.board.Add(cut)
+        if clearanceArea is not None:
+            keepouts.append(self.addKeepout(clearanceArea))
+
+    for edge in boardsEdges:
+        self.board.Add(edge)
+
+    originalZoneNames = {}
+    for i, zone in enumerate(self.zonesToRefill):
+        newName = f"KIKIT_zone_{i}"
+        originalZoneNames[newName] = zone.GetZoneName()
+        zone.SetZoneName(newName)
+
+    # KiCad 10.0.x can crash in SETTINGS_MANAGER::SaveProjectAs() when
+    # BOARD.Save() is used here from Python. The board file itself is written,
+    # but project-settings saving may segfault or bus-error. KiKit immediately
+    # transfers project settings explicitly below, so skip settings only for
+    # this first intermediate save.
+    pcbnew.SaveBoard(self.filename, self.board, True)
+    self.transferProjectSettings()
+
+    for cut, _ in vcuts:
+        self.board.Remove(cut)
+    for keepout in keepouts:
+        self.board.Remove(keepout)
+    for edge in panelEdges:
+        self.board.Remove(edge)
+
+    panelize.reloadProject(self.getProFilepath())
+    fillBoard = pcbnew.LoadBoard(self.filename)
+    fillerTool = pcbnew.ZONE_FILLER(fillBoard)
+    if refillAllZones:
+        fillerTool.Fill(fillBoard.Zones())
+
+    for edge in panelize.collectEdges(fillBoard, Layer.Edge_Cuts):
+        fillBoard.Remove(edge)
+    for edge in panelEdges:
+        fillBoard.Add(edge)
+    if self.vCutSettings.layer == Layer.Edge_Cuts:
+        vcuts = self._renderVCutH() + self._renderVCutV()
+        for cut, _ in vcuts:
+            fillBoard.Add(cut)
+
+    zonesToRefill = pcbnew.ZONES()
+    for zone in fillBoard.Zones():
+        zName = zone.GetZoneName()
+        if zName.startswith("KIKIT_zone_"):
+            zonesToRefill.append(zone)
+            zone.SetZoneName(originalZoneNames[zName])
+    if len(zonesToRefill) > 0:
+        fillerTool.Fill(zonesToRefill)
+
+    fillBoard.Save(self.filename)
+
+    self._adjustPageSize()
+    self.makeLayersVisible()
+    self.transferProjectSettings()
+    self.writeCustomDrcRules()
+
+
+panelize.Panel.save = workaround_panel_save
+
+
 def panelizer_warning_prefix(exc):
     for frame in reversed(traceback.extract_tb(exc.__traceback__)):
         if os.path.abspath(frame.filename) == os.path.abspath(__file__):
