@@ -1,7 +1,7 @@
 KiKit>=1.8.1
 shapely>=2.0.7
 PySide6_Essentials
-QPUIQ>=0.42
+QPUIQ>=0.43
 pypdfium2==5.4.0
 opencv-python
 psutil

@@ -3187,7 +3187,7 @@ class PanelizerUI(Application):
                             Spacer()
                             Label(f"Memory: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
-                with Scroll().layout(height=120):
+                with Scroll().layout(height=120).style(bgColor=0x000000):
                     with VBox():
                         errors = list(self.state.errors)
                         for pcb in self.state.pcb:
