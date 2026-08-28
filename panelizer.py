@@ -951,7 +951,7 @@ class PanelizerUI(Application):
                 p = self.makePanelCell(boardfile)
                 self._addPCB(p)
             except Exception as e:
-                Critical("Error loading PCB: {}".format(e), "Error loading PCB")
+                Critical("Error loading PCB {}: {}".format(boardfile, e), "Error loading PCB")
                 if p in self.state.pcb:
                     self.state.pcb.remove(p)
 
