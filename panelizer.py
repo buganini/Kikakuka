@@ -347,6 +347,8 @@ class PCBFile:
         if folder != name:
             name = os.path.join(folder, name)
         self.ident = name
+        if self.subboard is not None:
+            self.ident = f"{self.ident}[{self.subboard[1]}]"
 
         self.avail_options = {}
         self.avail_flags = []
