@@ -4,6 +4,7 @@ import pcbnew
 from gerber import *
 import kikit
 from kikit import panelize, substrate
+from kikit.panelize import Origin, VECTOR2I
 from kikit.defs import Layer
 from kikit.units import mm, mil
 from kikit.common import *
@@ -120,6 +121,24 @@ def workaround_panel_save(self, reconstructArcs=False, refillAllZones=False,
 
 panelize.Panel.save = workaround_panel_save
 
+
+def patched_getOriginCoord(origin, bBox):
+    """Returns real coordinates (VECTOR2I) of the origin for given bounding box"""
+    if origin is None:
+        return VECTOR2I(0, 0)
+    if origin == Origin.Center:
+        return VECTOR2I(bBox.GetX() + bBox.GetWidth() // 2,
+                        bBox.GetY() + bBox.GetHeight() // 2)
+    if origin == Origin.TopLeft:
+        return VECTOR2I(bBox.GetX(), bBox.GetY())
+    if origin == Origin.TopRight:
+        return VECTOR2I(bBox.GetX() + bBox.GetWidth(), bBox.GetY())
+    if origin == Origin.BottomLeft:
+        return VECTOR2I(bBox.GetX(), bBox.GetY() + bBox.GetHeight())
+    if origin == Origin.BottomRight:
+        return VECTOR2I(bBox.GetX() + bBox.GetWidth(), bBox.GetY() + bBox.GetHeight())
+
+panelize.getOriginCoord = patched_getOriginCoord
 
 def panelizer_warning_prefix(exc):
     for frame in reversed(traceback.extract_tb(exc.__traceback__)):
@@ -297,7 +316,7 @@ def is_straight_line(line, tolerance=SHP_EPSILON):
 
 
 class PCBFile:
-    def __init__(self, main, boardpath):
+    def __init__(self, main, boardpath, subboard=None):
         self.main = main
         self.error = None
         boardpath = os.path.expanduser(boardpath)
@@ -319,6 +338,9 @@ class PCBFile:
         self._shapes = []
         self.width = 0
         self.height = 0
+        self.subboard = subboard
+        self.subboards = 1
+        self.subboards_bbox = []
 
         folder = os.path.basename(os.path.dirname(boardpath))
         name = os.path.splitext(os.path.basename(boardpath))[0]
@@ -368,26 +390,60 @@ class PCBFile:
 
         panel = panelize.Panel(os.path.join(self.main.temp_dir, "temp.kicad_pcb"))
         try:
-            panel.appendBoard(
-                self.outline_file,
-                pcbnew.VECTOR2I(0, 0),
-                origin=panelize.Origin.TopLeft,
-                tolerance=panelize.fromMm(1),
-                rotationAngle=pcbnew.EDA_ANGLE(0, pcbnew.DEGREES_T),
-                inheritDrc=False
-            )
+            if self.subboard is None:
+                panel.appendBoard(
+                    self.outline_file,
+                    pcbnew.VECTOR2I(0, 0),
+                    origin=panelize.Origin.TopLeft,
+                    tolerance=panelize.fromMm(1),
+                    rotationAngle=pcbnew.EDA_ANGLE(0, pcbnew.DEGREES_T),
+                    inheritDrc=False
+                )
+            else:
+                import traceback
+                traceback.print_exc()
+                sourceArea = subboard[0].subboards_bbox[self.subboard[1]]
+                buffered = shpBBoxExpand(sourceArea, 1*mm)
+                panel.appendBoard(
+                    self.outline_file,
+                    pcbnew.VECTOR2I(0, 0),
+                    sourceArea=shpBoxToRect(buffered),
+                    shrink=True,
+                    origin=panelize.Origin.TopLeft,
+                    tolerance=panelize.fromMm(1),
+                    rotationAngle=pcbnew.EDA_ANGLE(0, pcbnew.DEGREES_T),
+                    inheritDrc=False
+                )
             s = panel.substrates[0]
-            bbox = s.bounds()
 
             if isinstance(s.substrates, MultiPolygon):
                 self._shapes = list(s.substrates.geoms)
+                if self.subboard is None:
+                    panel = panelize.Panel(os.path.join(self.main.temp_dir, "temp.kicad_pcb"))
+                    panel.appendBoard(
+                        self.outline_file,
+                        pcbnew.VECTOR2I(0, 0),
+                        origin=None,
+                        tolerance=panelize.fromMm(1),
+                        rotationAngle=pcbnew.EDA_ANGLE(0, pcbnew.DEGREES_T),
+                        inheritDrc=False
+                    )
+                    self.subboards_bbox = [s.bounds for s in panel.substrates[0].substrates.geoms]
+                    self.subboards = len(self.subboards_bbox)
+                else:
+                    self._shapes = [self._shapes[0]]
             elif isinstance(s.substrates, Polygon):
                 self._shapes = [s.substrates]
             else:
                 self._shapes = []
-            self.width = bbox[2] - bbox[0]
-            self.height = bbox[3] - bbox[1]
+
+            if self.subboards == 1:
+                bbox = self._shapes[0].bounds
+                self.width = bbox[2] - bbox[0]
+                self.height = bbox[3] - bbox[1]
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self.error = str(e).replace(self.outline_file, os.path.basename(self.file))
             self._shapes = []
             self.width = 0
@@ -938,22 +994,38 @@ class PanelizerUI(Application):
         offy = (canvas_height - (dh+y1) * scale) / 2
         self.state.scale = (offx, offy, scale)
 
-    def addPCB(self, e):
+    def addKiCad(self, e):
         dir = None
         if self.state.target_path:
             dir = os.path.dirname(self.state.target_path)
         elif self.state.pcb:
             dir = os.path.dirname(self.state.pcb[0].file)
-        boardfile = OpenFile("Open PCB", dir=dir, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
+        boardfile = OpenFile("Open KiCad PCB", dir=dir, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
         if boardfile:
-            p = None
             try:
-                p = self.makePanelCell(boardfile)
-                self._addPCB(p)
-            except Exception as e:
+                self.add(boardfile)
+            except:
                 Critical("Error loading PCB {}: {}".format(boardfile, e), "Error loading PCB")
+
+
+    def addFile(self, boardfile):
+        p = None
+        pcbs = []
+        try:
+            p = self.makePanelCell(boardfile)
+            if p.pcb_file.subboards > 1:
+                for i in range(p.pcb_file.subboards):
+                    sp = self.makePanelCell(boardfile, (p.pcb_file, i))
+                    pcbs.append(sp)
+                    self._addPCB(sp)
+            else:
+                pcbs.append(p)
+                self._addPCB(p)
+        except Exception as e:
+            for p in pcbs:
                 if p in self.state.pcb:
                     self.state.pcb.remove(p)
+            raise e
 
     def addGerberFolder(self, e):
         folder = OpenDirectory("Open Gerber Folder")
@@ -969,18 +1041,22 @@ class PanelizerUI(Application):
         else:
             Critical("Invalid Gerber zip: {}".format(zipfile), "Invalid Gerber zip")
 
-    def getPCBFile(self, path):
+    def getPCBFile(self, path, subboard=None):
         if os.path.isfile(path):
             dirpath = os.path.dirname(path)
             if is_gerber_dir(dirpath):
                 path = dirpath
         path = os.path.realpath(path)
-        if path not in self.pcb_files:
-            self.pcb_files[path] = PCBFile(self, path)
-        return self.pcb_files[path]
+        if subboard is None:
+            key = path
+        else:
+            key = (path, subboard[1])
+        if key not in self.pcb_files:
+            self.pcb_files[key] = PCBFile(self, path, subboard=subboard)
+        return self.pcb_files[key]
 
-    def makePanelCell(self, path):
-        return PanelCell(self, self.getPCBFile(path))
+    def makePanelCell(self, path, subboard=None):
+        return PanelCell(self, self.getPCBFile(path, subboard))
 
     def _addPCB(self, pcb):
         if len(self.state.pcb) > 0:
@@ -1229,9 +1305,14 @@ class PanelizerUI(Application):
             self.state.pcb = []
             for p in data.get("pcb", []):
                 file = p["file"]
+                subboard = p.get("subboard", None)
                 if not os.path.isabs(file):
                     file = os.path.realpath(os.path.join(os.path.dirname(target), file))
-                pcb = self.makePanelCell(file)
+                pcb = self.getPCBFile(file)
+                if subboard is None:
+                    pcb = self.makePanelCell(file)
+                else:
+                    pcb = self.makePanelCell(file, (pcb, subboard))
                 pcb.x = p["x"]
                 pcb.y = p["y"]
                 pcb.tolerance = p.get("tolerance", pcb.tolerance)
@@ -2856,7 +2937,7 @@ class PanelizerUI(Application):
 
                         with HBox():
                             Label("Add")
-                            Button("PCB").click(self.addPCB)
+                            Button("KiCad PCB").click(self.addKiCad)
                             Button("Gerber Folder").click(self.addGerberFolder)
                             Button("Gerber Zip").click(self.addGerberZip)
                             Button("Hole").click(self.addHole)
