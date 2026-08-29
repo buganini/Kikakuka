@@ -1112,6 +1112,7 @@ class PanelizerUI(Application):
         for pcb in self.state.pcb:
             pcbs.append({
                 "file": relpath(pcb.file, os.path.dirname(target)),
+                "subboard": pcb.subboard,
                 "x": pcb.x,
                 "y": pcb.y,
                 "tolerance": pcb.tolerance,
