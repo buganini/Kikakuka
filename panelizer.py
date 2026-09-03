@@ -2928,7 +2928,7 @@ class PanelizerUI(Application):
                         .layout(weight=1)
                         .style(bgColor=0x000000))
 
-                    with VBox().layout(width=0):
+                    with VBox().layout(width=800):
                         with HBox():
                             Label("Panel")
                             Button("Load").click(self.load)
