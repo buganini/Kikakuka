@@ -664,8 +664,9 @@ class WorkspaceUI(PUIView):
                 self.main.pidmap[filepath] = pid
 
     def close(self):
-        self.main.state.workspaces = [f for f in self.main.state.workspaces if f != self.filepath]
-        self.main.commit()
+        if Confirm("Are you sure you want to close this workspace?", "Close workspace"):
+            self.main.state.workspaces = [f for f in self.main.state.workspaces if f != self.filepath]
+            self.main.commit()
 
 class MainUI(Application):
     def __init__(self, filepaths=None):
