@@ -564,7 +564,7 @@ class WorkspaceUI(PUIView):
         dir = None
         if self.state.filepath:
             dir = os.path.dirname(self.state.filepath)
-        filepath = OpenFile("Open Project/Panelization", dir=dir, types=f"KiCad Project/Panelization, FreeCAD File (*.kicad_pro *.kikit_pnl)|*.kicad_pro|*.kikit_pnl|*.FCStd")
+        filepath = OpenFile("Open Project/Panelization", dir=dir, types=f"KiCad Project/Panelization, FreeCAD File, Step File (*.kicad_pro *.kikit_pnl)|*.kicad_pro|*.kikit_pnl|*.FCStd|*.step")
         if filepath:
             self.addFile(filepath)
 
