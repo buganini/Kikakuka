@@ -1,3 +1,11 @@
+# 6.11:
+* Panelizer
+    * Automatically reload modified PCB files and rebuild the panel
+    * Add a button to open the most recently exported board
+    * Load a multiboard file as multiple objects #33
+* Workspace Manager
+    * Support adding .FCStd and .step files
+
 # 6.10:
 * Panelizer
     * Recalculate autoscale when canvas size changes
