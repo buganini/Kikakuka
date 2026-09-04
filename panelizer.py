@@ -644,6 +644,10 @@ class PanelCell(StateObject):
         pcb = PanelCell(self.main, self.pcb_file)
         pcb.rotate = self.rotate
         pcb.tolerance = self.tolerance
+        pcb.margin_left = self.margin_left
+        pcb.margin_right = self.margin_right
+        pcb.margin_top = self.margin_top
+        pcb.margin_bottom = self.margin_bottom
         pcb._tabs = [StateDict({**tab}) for tab in self._tabs]
         return pcb
 
