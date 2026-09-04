@@ -184,6 +184,11 @@ def send_request(action, filepath, object_label="", component=""):
 
     try:
         _send(s, msg)
+        # Resolving a newly launched KiCad instance can legitimately take an
+        # arbitrary amount of time while KiCad is blocked by a modal dialog.
+        # Keep the asynchronous listener alive until the workspace manager
+        # reports readiness or the connection closes.
+        s.settimeout(None)
     except Exception as e:
         _log_error(f"Workspace manager send error: {e}")
         s.close()

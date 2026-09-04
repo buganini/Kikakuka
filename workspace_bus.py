@@ -9,6 +9,7 @@ import json
 import math
 import os
 import platform
+import re
 import socket
 import tempfile
 import threading
@@ -140,6 +141,75 @@ def _kicad_socket_for_pid(pid):
     return None
 
 
+def _kicad_process_pids():
+    """Return live KiCad editor process PIDs, oldest first."""
+    processes = []
+    try:
+        for proc in psutil.process_iter(["pid", "name", "create_time"]):
+            try:
+                name = (proc.info.get("name") or "").lower()
+                if not any(
+                    token in name
+                    for token in ("kicad", "pcbnew", "pcb editor", "eeschema")
+                ):
+                    continue
+                processes.append(
+                    (proc.info["pid"], proc.info.get("create_time") or float("inf"))
+                )
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except (psutil.Error, OSError):
+        return []
+    return [pid for pid, _ in sorted(processes, key=lambda item: item[1])]
+
+
+def _socket_owner_pid(socket_path):
+    """Best-effort lookup of the process owning a Unix-domain socket."""
+    try:
+        for conn in psutil.net_connections(kind="unix"):
+            if conn.pid and conn.laddr == socket_path:
+                return conn.pid
+    except (psutil.AccessDenied, OSError, NotImplementedError):
+        pass
+    return None
+
+
+def _existing_kicad_sockets():
+    """Return ``(socket_path, pid)`` pairs for running KiCad instances."""
+    sock_dir = _kicad_socket_dir()
+    try:
+        names = os.listdir(sock_dir)
+    except OSError:
+        return []
+
+    candidates = []
+    explicit_pids = set()
+    generic_path = None
+    for name in names:
+        match = re.fullmatch(r"api-(\d+)\.sock", name)
+        if match:
+            pid = int(match.group(1))
+            explicit_pids.add(pid)
+            candidates.append((os.path.join(sock_dir, name), pid))
+        elif name == "api.sock":
+            generic_path = os.path.join(sock_dir, name)
+
+    if generic_path:
+        pid = _socket_owner_pid(generic_path)
+        if pid is None:
+            # api.sock belongs to the first KiCad instance.  If the platform
+            # does not expose Unix socket ownership, use the oldest editor
+            # process which has no PID-named socket.
+            pid = next(
+                (p for p in _kicad_process_pids() if p not in explicit_pids),
+                None,
+            )
+        if pid is not None and pid not in explicit_pids:
+            candidates.append((generic_path, pid))
+
+    return candidates
+
+
 def _socket_path(action=None):
     """Return the platform-specific path for the workspace manager socket."""
     if platform.system() == 'Windows':
@@ -195,7 +265,13 @@ class WorkspaceBus:
         self._remove_pid = remove_pid
         self._update_pid = update_pid
         self._opening = set()
+        # Keep the PID returned by an open request until that same instance is
+        # verified as serving the requested board.  A modal dialog can leave
+        # KiCad alive but unable to finish loading; retries must keep waiting
+        # for that process instead of launching another instance.
+        self._pending_open_pids = {}
         self._opening_lock = threading.Lock()
+        self._pidmap_rebuild_done = threading.Event()
         self._running = True
         self._server = None
 
@@ -226,6 +302,10 @@ class WorkspaceBus:
 
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
+        self._rebuild_thread = threading.Thread(
+            target=self._rebuild_pidmap, daemon=True
+        )
+        self._rebuild_thread.start()
 
     def _run(self):
         while self._running:
@@ -262,55 +342,142 @@ class WorkspaceBus:
 
     # -- synchronous file opener ----------------------------------------
 
+    def _rebuild_pidmap(self, interval=1.0):
+        """Recover board-to-PID mappings from KiCad sockets at startup.
+
+        Busy instances remain in the pending list, allowing a user to dismiss
+        a modal dialog at any time without blocking the workspace manager UI.
+        """
+        pending = _existing_kicad_sockets()
+        if pending:
+            _log(f"rebuilding pidmap from {len(pending)} KiCad IPC socket(s)")
+
+        while pending and self._running:
+            retry = []
+            for socket_path, pid in pending:
+                if not psutil.pid_exists(pid):
+                    continue
+
+                state, filepath, error_message = _socket_board_filepath_state(
+                    socket_path
+                )
+                if state == "ready" and filepath:
+                    if self._update_pid:
+                        self._update_pid(filepath, pid)
+                    _log(
+                        f"restored KiCad mapping: {filepath} -> PID {pid} "
+                        f"({socket_path})"
+                    )
+                elif state == "not_ready" or (state == "ready" and not filepath):
+                    retry.append((socket_path, pid))
+                else:
+                    _log(
+                        f"skipping unverified KiCad socket {socket_path}: "
+                        f"{error_message or 'unknown error'}"
+                    )
+
+            pending = retry
+            if pending and self._running:
+                time.sleep(interval)
+
+        self._pidmap_rebuild_done.set()
+
     def _do_open_file(self, filepath):
         """Open KiCad synchronously (blocks the handler thread).
-        Clears the _opening flag when done."""
+        Remember the launched PID for readiness retries."""
         try:
-            self._open_file(filepath)
+            pid = self._open_file(filepath)
+            if pid is not None:
+                with self._opening_lock:
+                    self._pending_open_pids[filepath] = pid
+            return pid
         finally:
             with self._opening_lock:
                 self._opening.discard(filepath)
 
-    def _wait_for_ready_socket(self, pid, timeout=30.0, interval=1.0):
+    def _wait_for_ready_socket(
+        self, pid, timeout=30.0, interval=1.0, expected_filepath=None
+    ):
         """Wait for a KiCad IPC socket to appear and answer API requests.
+
+        When *expected_filepath* is provided, readiness also requires that the
+        instance has finished loading that board.  This prevents the generic
+        ``api.sock`` fallback from making a newly launched, modal-blocked
+        instance appear ready because some other KiCad instance answered.
 
         Returns ``(socket_path, state, filepath, error_message)``.
         """
-        deadline = time.time() + timeout
+        deadline = None if timeout is None else time.time() + timeout
         last_socket_path = None
         last_error = None
         attempt = 0
-        max_attempts = max(1, math.ceil(timeout / interval)) if interval > 0 else 1
+        max_attempts = (
+            max(1, math.ceil(timeout / interval))
+            if timeout is not None and interval > 0
+            else None
+        )
 
-        while time.time() < deadline:
+        while deadline is None or time.time() < deadline:
             attempt += 1
+            if timeout is None and not psutil.pid_exists(pid):
+                _log(f"KiCad PID {pid} exited while waiting for IPC readiness")
+                return None, "exited", None, "KiCad process exited"
+
             socket_path = _kicad_socket_for_pid(pid)
             if socket_path is None:
+                retry_label = (
+                    f"{attempt}/{max_attempts}" if max_attempts else str(attempt)
+                )
                 _log(
                     f"waiting for KiCad IPC socket for PID {pid} "
-                    f"(retry {attempt}/{max_attempts}): socket not found yet"
+                    f"(retry {retry_label}): socket not found yet"
                 )
-                sleep_s = min(interval, max(0.0, deadline - time.time()))
+                sleep_s = interval
+                if deadline is not None:
+                    sleep_s = min(interval, max(0.0, deadline - time.time()))
                 if sleep_s > 0:
                     time.sleep(sleep_s)
                 continue
 
             last_socket_path = socket_path
-            remaining_s = max(0.25, deadline - time.time())
+            remaining_s = (
+                1.0 if deadline is None else max(0.25, deadline - time.time())
+            )
             timeout_ms = max(250, min(1000, int(remaining_s * 1000)))
             state, actual_filepath, error_message = _socket_board_filepath_state(
                 socket_path, timeout_ms=timeout_ms
             )
             if state != "not_ready":
-                return socket_path, state, actual_filepath, error_message
+                filepath_matches = (
+                    not expected_filepath
+                    or (
+                        actual_filepath
+                        and _normalize_filepath(actual_filepath)
+                        == _normalize_filepath(expected_filepath)
+                    )
+                )
+                if filepath_matches:
+                    return socket_path, state, actual_filepath, error_message
+
+                state = "not_ready"
+                error_message = (
+                    "waiting for requested board to load"
+                    if not actual_filepath
+                    else f"socket currently serves {actual_filepath}"
+                )
 
             last_error = error_message
+            retry_label = (
+                f"{attempt}/{max_attempts}" if max_attempts else str(attempt)
+            )
             _log(
                 f"waiting for KiCad IPC API for PID {pid} at {socket_path} "
-                f"(retry {attempt}/{max_attempts}): "
+                f"(retry {retry_label}): "
                 f"{error_message or 'KiCad not ready'}"
             )
-            sleep_s = min(interval, max(0.0, deadline - time.time()))
+            sleep_s = interval
+            if deadline is not None:
+                sleep_s = min(interval, max(0.0, deadline - time.time()))
             if sleep_s > 0:
                 time.sleep(sleep_s)
 
@@ -371,6 +538,28 @@ class WorkspaceBus:
         filepath = msg.get("filepath", "")
         for _ in range(3):
             pid = pidmap.get(filepath)
+            with self._opening_lock:
+                pending_pid = self._pending_open_pids.get(filepath)
+                is_launching = filepath in self._opening
+
+            # _open_file may publish its PID to the workspace before
+            # _do_open_file records it as pending.  Wait for that hand-off so
+            # a concurrent resolver cannot mistake the half-open instance for
+            # an unrelated/stale one and launch again.
+            if is_launching:
+                _log(f"waiting for ongoing open: {filepath}")
+                for _ in range(30):  # up to 15 seconds
+                    time.sleep(0.5)
+                    with self._opening_lock:
+                        if filepath not in self._opening:
+                            break
+                pidmap = self._get_pidmap()
+                pid = pidmap.get(filepath)
+                with self._opening_lock:
+                    pending_pid = self._pending_open_pids.get(filepath)
+
+            if pending_pid is not None:
+                pid = pending_pid
 
             # Discard stale PID if the process is no longer running
             if pid is not None and not psutil.pid_exists(pid):
@@ -379,22 +568,36 @@ class WorkspaceBus:
                 )
                 if self._remove_pid:
                     self._remove_pid(filepath)
+                with self._opening_lock:
+                    if self._pending_open_pids.get(filepath) == pid:
+                        self._pending_open_pids.pop(filepath, None)
                 pid = None
                 pidmap = self._get_pidmap()
 
             if pid is None and self._open_file:
+                rebuild_done = getattr(self, "_pidmap_rebuild_done", None)
+                if rebuild_done is not None and not rebuild_done.is_set():
+                    _log(f"waiting for startup PID rebuild: {filepath}")
+                    while self._running and not rebuild_done.wait(1.0):
+                        pidmap = self._get_pidmap()
+                        pid = pidmap.get(filepath)
+                        if pid is not None:
+                            break
+
+                    if pid is None:
+                        pidmap = self._get_pidmap()
+                        pid = pidmap.get(filepath)
+
+                if pid is not None:
+                    continue
+
                 with self._opening_lock:
                     is_opening = filepath in self._opening
 
                 if is_opening:
-                    # Another thread is already opening this file,
-                    # wait for it to finish
+                    # The launch took longer than the initial wait.  Do not
+                    # issue a duplicate open command.
                     _log(f"waiting for ongoing open: {filepath}")
-                    for _ in range(30):  # up to 15 seconds
-                        time.sleep(0.5)
-                        with self._opening_lock:
-                            if filepath not in self._opening:
-                                break
                 else:
                     # Launch KiCad synchronously
                     _log(f"file not in pidmap, starting KiCad: {filepath}")
@@ -405,6 +608,10 @@ class WorkspaceBus:
                 # Re-check pidmap after launch/wait
                 pidmap = self._get_pidmap()
                 pid = pidmap.get(filepath)
+                with self._opening_lock:
+                    pending_pid = self._pending_open_pids.get(filepath)
+                if pending_pid is not None:
+                    pid = pending_pid
 
             if pid is None:
                 return {
@@ -413,8 +620,14 @@ class WorkspaceBus:
                 }
 
             # PID is known – find a ready IPC socket
+            with self._opening_lock:
+                is_pending_open = self._pending_open_pids.get(filepath) == pid
             socket_path, socket_state, actual_filepath, socket_error = (
-                self._wait_for_ready_socket(pid)
+                self._wait_for_ready_socket(
+                    pid,
+                    timeout=None if is_pending_open else 30.0,
+                    expected_filepath=filepath if is_pending_open else None,
+                )
             )
 
             if socket_path is None:
@@ -437,6 +650,11 @@ class WorkspaceBus:
             if not self._verify_socket_filepath(filepath, pid, actual_filepath):
                 pidmap = self._get_pidmap()
                 continue
+
+            if is_pending_open:
+                with self._opening_lock:
+                    if self._pending_open_pids.get(filepath) == pid:
+                        self._pending_open_pids.pop(filepath, None)
 
             resp = {
                 "action": action,
@@ -493,6 +711,7 @@ class WorkspaceBus:
 
     def shutdown(self):
         self._running = False
+        self._pidmap_rebuild_done.set()
         if self._server:
             self._server.close()
             self._server = None
