@@ -34,6 +34,7 @@ import psutil
 import re
 from buildexpr import buildexpr
 import gc
+from threading import BoundedSemaphore, Event, Lock, Thread, current_thread
 
 BUILDEXPR = "BUILDEXPR"
 
@@ -316,7 +317,7 @@ def is_straight_line(line, tolerance=SHP_EPSILON):
 
 
 class PCBFile:
-    def __init__(self, main, boardpath, subboard=None):
+    def __init__(self, main, boardpath, subboard=None, autoload=True):
         self.main = main
         self.error = None
         boardpath = os.path.expanduser(boardpath)
@@ -328,6 +329,19 @@ class PCBFile:
 
         boardpath = os.path.realpath(boardpath)
         self.file = boardpath
+        self.subboard = subboard
+        self.mtime = self.get_mtime()
+        if autoload:
+            self.load()
+
+    def get_mtime(self):
+        try:
+            return os.path.getmtime(self.file)
+        except OSError:
+            return None
+
+    def load(self):
+        self.error = None
         self.file_type = None
         self.outline_file = None
         self.kicad_file = None
@@ -338,12 +352,11 @@ class PCBFile:
         self._shapes = []
         self.width = 0
         self.height = 0
-        self.subboard = subboard
         self.subboards = 1
         self.subboards_bbox = []
 
-        folder = os.path.basename(os.path.dirname(boardpath))
-        name = os.path.splitext(os.path.basename(boardpath))[0]
+        folder = os.path.basename(os.path.dirname(self.file))
+        name = os.path.splitext(os.path.basename(self.file))[0]
         if folder != name:
             name = os.path.join(folder, name)
         self.ident = name
@@ -354,7 +367,7 @@ class PCBFile:
         self.avail_flags = []
         self.errors = []
 
-        if boardpath.lower().endswith(".kicad_pcb"):
+        if self.file.lower().endswith(".kicad_pcb"):
             self.file_type = "kicad"
             self.outline_file = self.file
             self.kicad_file = self.file
@@ -404,7 +417,7 @@ class PCBFile:
             else:
                 import traceback
                 traceback.print_exc()
-                sourceArea = subboard[0].subboards_bbox[self.subboard[1]]
+                sourceArea = self.subboard[0].subboards_bbox[self.subboard[1]]
                 buffered = shpBBoxExpand(sourceArea, 1*mm)
                 panel.appendBoard(
                     self.outline_file,
@@ -856,6 +869,11 @@ class PanelizerUI(Application):
         super().__init__(icon=resource_path("icon.ico"))
 
         self.temp_dir = tempfile.mkdtemp(prefix="kikakuka_panelizer_")
+        self._background_stop = Event()
+        self._build_request_lock = Lock()
+        self._build_requests = []
+        self._build_semaphore = BoundedSemaphore(1)
+        self._build_semaphore.acquire()
         atexit.register(self.cleanup)
 
         self.unit = mm
@@ -871,6 +889,7 @@ class PanelizerUI(Application):
         self.state.debug = False
         self.state.debug_bbox = True
 
+        self.state.redraw = 0
         self.state.show_conflicts = True
         self.state.show_pcb = True
         self.state.show_hole = True
@@ -913,6 +932,19 @@ class PanelizerUI(Application):
         self.state.edit_polygon = None
 
         self.set_defaults()
+
+        self._build_worker = Thread(
+            target=self.build_worker,
+            name="panelizer-build-worker",
+            daemon=True,
+        )
+        self._build_worker.start()
+        self._pcb_file_watcher = Thread(
+            target=self.watch_pcb_files,
+            name="panelizer-pcb-file-watcher",
+            daemon=True,
+        )
+        self._pcb_file_watcher.start()
 
     def set_defaults(self):
         self.state.netRenamePattern = "B{n}-{orig}"
@@ -967,8 +999,96 @@ class PanelizerUI(Application):
 
 
     def cleanup(self):
+        self._background_stop.set()
+        try:
+            self._build_semaphore.release()
+        except ValueError:
+            pass
+        for thread_name in ("_pcb_file_watcher", "_build_worker"):
+            thread = getattr(self, thread_name, None)
+            if thread is not None and thread is not current_thread():
+                thread.join()
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
+
+    def watch_pcb_files(self):
+        while not self._background_stop.wait(2):
+            changed = []
+            for pcb_file in list(self.pcb_files.values()):
+                mtime = pcb_file.get_mtime()
+                if mtime != pcb_file.mtime:
+                    pcb_file.mtime = mtime
+                    changed.append(pcb_file)
+
+            if not changed:
+                continue
+
+            self.request_build(reload_pcb_files=changed)
+
+    def request_build(self, export=False, generate_holes=False,
+                      reload_pcb_files=None, completion=None, run_build=True):
+        request = {
+            "export": export,
+            "generate_holes": generate_holes,
+            "reload_pcb_files": list(reload_pcb_files or []),
+            "completions": [completion] if completion is not None else [],
+            "run_build": run_build,
+        }
+        with self._build_request_lock:
+            is_preview = run_build and not export and not generate_holes and completion is None
+            if (is_preview and self._build_requests
+                    and self._build_requests[-1]["run_build"]
+                    and not self._build_requests[-1]["export"]
+                    and not self._build_requests[-1]["generate_holes"]
+                    and not self._build_requests[-1]["completions"]):
+                pending = self._build_requests[-1]
+                for pcb_file in request["reload_pcb_files"]:
+                    if pcb_file not in pending["reload_pcb_files"]:
+                        pending["reload_pcb_files"].append(pcb_file)
+            else:
+                self._build_requests.append(request)
+
+            try:
+                self._build_semaphore.release()
+            except ValueError:
+                # A build is already signaled; the request above was merged into it.
+                pass
+
+    def build_worker(self):
+        while True:
+            self._build_semaphore.acquire()
+            while not self._background_stop.is_set():
+                with self._build_request_lock:
+                    request = self._build_requests.pop(0) if self._build_requests else None
+
+                if request is None:
+                    break
+
+                error = None
+                for pcb_file in request["reload_pcb_files"]:
+                    try:
+                        pcb_file.load()
+                    except Exception as e:
+                        if error is None:
+                            error = e
+                        traceback.print_exc()
+                        pcb_file.error = f"{pcb_file.ident}: Failed to reload board: {e}"
+                if request["run_build"]:
+                    try:
+                        self._build(
+                            export=request["export"],
+                            generate_holes=request["generate_holes"],
+                        )
+                    except Exception as e:
+                        if error is None:
+                            error = e
+                        traceback.print_exc()
+                for completion in request["completions"]:
+                    completion["error"] = error
+                    completion["event"].set()
+
+            if self._background_stop.is_set():
+                return
 
     def autoScale(self, canvas_width, canvas_height):
         self.canvas_width, self.canvas_height = canvas_width, canvas_height
@@ -1054,7 +1174,17 @@ class PanelizerUI(Application):
         else:
             key = (path, subboard[1])
         if key not in self.pcb_files:
-            self.pcb_files[key] = PCBFile(self, path, subboard=subboard)
+            pcb_file = PCBFile(self, path, subboard=subboard, autoload=False)
+            completion = {"event": Event(), "error": None}
+            self.request_build(
+                reload_pcb_files=[pcb_file],
+                completion=completion,
+                run_build=False,
+            )
+            completion["event"].wait()
+            if completion["error"] is not None:
+                raise completion["error"]
+            self.pcb_files[key] = pcb_file
         return self.pcb_files[key]
 
     def makePanelCell(self, path, subboard=None):
@@ -1413,6 +1543,32 @@ class PanelizerUI(Application):
             return None
 
     def build(self, e=None, export=False, generate_holes=False):
+        if export is True:
+            export = SaveFile(self.state.export_path, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
+            if not export:
+                return
+
+        if export:
+            if not export.endswith(PCB_SUFFIX):
+                export += PCB_SUFFIX
+            self.state.export_path = export
+
+        completion = None
+        if export:
+            completion = {"event": Event(), "error": None}
+
+        self.request_build(
+            export=export,
+            generate_holes=generate_holes,
+            completion=completion,
+        )
+
+        if completion is not None:
+            completion["event"].wait()
+            if completion["error"] is not None:
+                raise completion["error"]
+
+    def _build(self, export=False, generate_holes=False):
         try:
             self.state.netRenamePattern.format(n=0, orig="test")
         except Exception as e:
@@ -1496,19 +1652,6 @@ class PanelizerUI(Application):
         else:
             self.off_x = pcbs[0].orig[0] - pcbs[0].x
             self.off_y = pcbs[0].orig[1] - pcbs[0].y
-
-        if export is True:
-            export = SaveFile(self.state.export_path, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
-            if export:
-                if not export.endswith(PCB_SUFFIX):
-                    export += PCB_SUFFIX
-                self.state.export_path = export
-            else:
-                return
-        elif export:
-            if not export.endswith(PCB_SUFFIX):
-                export += PCB_SUFFIX
-            self.state.export_path = export
 
         frame_top_polygon = None
         frame_bottom_polygon = None
@@ -2020,7 +2163,7 @@ class PanelizerUI(Application):
             for diff in diffs:
                 self.state.holes.append(Hole(self, diff.exterior.coords))
 
-            self.build()
+            self._build()
             return
 
         if not export or self.state.export_mill_fillets:
@@ -2206,6 +2349,7 @@ class PanelizerUI(Application):
             panel.save()
             copy_constraint_profile(pcbs[0].kicad_file, panel.filename)
 
+        self.state.redraw += 1
         gc.collect()
 
     def addHole(self, e):
@@ -2909,6 +3053,7 @@ class PanelizerUI(Application):
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 with HBox().layout(weight=1):
+                    self.state.redraw
                     self.state.scale
                     self.state.pcb
                     self.state.bites
