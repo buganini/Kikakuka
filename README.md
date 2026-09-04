@@ -27,6 +27,7 @@ It creates a few more dimensions for KiCad:
     * [Automatic](#auto-tab) or [manual](#manual-tab) tab creation
     * Automatic V-cut/mousebites selection
     * Enable [hole](#substrate-hole) creation in panel substrate for extruded parts
+    * Load [KiKit multiboard files](https://yaqwsx.github.io/KiKit/v1.8/multiboard/) as multiple separate boards
     * No coding skills required
 * Build Variants (as a usage of the Panelizer)
     * Single PCB without panelization can be done with frameless setting
