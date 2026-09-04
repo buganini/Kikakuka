@@ -35,6 +35,7 @@ import re
 from buildexpr import buildexpr
 import gc
 from threading import BoundedSemaphore, Event, Lock, Thread, current_thread
+from workspace import bringToFront, posix_open_file, windows_open_file
 
 BUILDEXPR = "BUILDEXPR"
 
@@ -904,6 +905,7 @@ class PanelizerUI(Application):
 
         self.state.target_path = ""
         self.state.export_path = ""
+        self.state.last_exported_path = ""
 
         self.state.focus = None
         self.state.focus_tab = None
@@ -2348,6 +2350,7 @@ class PanelizerUI(Application):
         if export:
             panel.save()
             copy_constraint_profile(pcbs[0].kicad_file, panel.filename)
+            self.state.last_exported_path = panel.filename
 
         self.state.redraw += 1
         gc.collect()
@@ -3048,6 +3051,30 @@ class PanelizerUI(Application):
     def select_cpl(self, e):
         self.state.focus.cpl_file = OpenFile("Select CPL", dir=os.path.dirname(self.state.focus.file), types="CPL (*.csv)|*.csv")
 
+    def open_exported_file(self, e):
+        path = self.state.last_exported_path
+        if path and os.path.isfile(path):
+            Thread(target=self._open_exported_file, args=[path], daemon=True).start()
+        else:
+            Critical("Exported file not found", "Open Exported File")
+
+    def _open_exported_file(self, path):
+        if platform.system() in ["Darwin", "Linux"]:
+            pid = posix_open_file(
+                path,
+                ["kicad", "pcbnew", "eeschema"],
+                "-n",
+            )
+            if pid:
+                bringToFront(pid)
+        elif platform.system() == "Windows":
+            pid = windows_open_file(path, ["kicad", "pcbnew", "eeschema"])
+            if pid:
+                bringToFront(pid)
+        else:
+            import subprocess
+            subprocess.Popen(("xdg-open", path))
+
     def content(self):
         title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
@@ -3081,6 +3108,8 @@ class PanelizerUI(Application):
 
                             Spacer()
 
+                            if self.state.last_exported_path:
+                                Button("Open Exported File").click(self.open_exported_file)
                             Button("Export").click(self.build, export=True)
 
                         with HBox():
