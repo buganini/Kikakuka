@@ -1545,6 +1545,9 @@ class PanelizerUI(Application):
             return None
 
     def build(self, e=None, export=False, generate_holes=False):
+        if export:
+            self.state.last_exported_path = ""
+
         if export is True:
             export = SaveFile(self.state.export_path, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
             if not export:
