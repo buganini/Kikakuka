@@ -140,7 +140,7 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
     * Copy the FreekiCAD folder into the `Mod` folder
     * Install kicad-python into FreeCAD by executing the following command in the Python console
     ```
-    import subprocess, os, sys; subprocess.check_call([os.path.join(os.path.dirname(sys.executable), "python"), "-m", "pip", "install", "kicad-python"])
+    import subprocess, os, sys; subprocess.check_call([os.path.join(os.path.dirname(sys.executable), "python"), "-m", "pip", "install", "kicad-python>=0.8,<0.9"])
     ```
     * Restart FreeCAD
 
