@@ -383,6 +383,16 @@ def _resolve_model_path(filename, board, kicad_vars):
     return None
 
 
+def _footprint_is_dnp(footprint):
+    """Return whether KiCad marks *footprint* as do-not-populate.
+
+    Older kipy versions do not expose this attribute, so retain their
+    previous behaviour and import the model in that case.
+    """
+    attributes = getattr(footprint, 'attributes', None)
+    return bool(getattr(attributes, 'do_not_populate', False))
+
+
 _DEFAULT_COLOR = (0.8, 0.8, 0.8, 0.0)
 
 
@@ -1261,6 +1271,12 @@ def load_board(filepath, socket_path):
                 ref = "?"
 
             try:
+                if _footprint_is_dnp(fp):
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   {ref}: skipped (DNP)\n"
+                    )
+                    continue
+
                 pos = fp.position
                 fp_x = pos.x / 1e6
                 fp_y = -pos.y / 1e6

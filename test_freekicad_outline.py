@@ -46,6 +46,16 @@ class _DroppingOrientationFootprint:
         self.definition.items = ["pad"]
 
 
+class _FootprintAttributes:
+    def __init__(self, do_not_populate):
+        self.do_not_populate = do_not_populate
+
+
+class _AttributedFootprint:
+    def __init__(self, do_not_populate):
+        self.attributes = _FootprintAttributes(do_not_populate)
+
+
 class OutlineWireOrderTests(unittest.TestCase):
     def _import_linked_object(self):
         fake_freecad = types.ModuleType("FreeCAD")
@@ -126,6 +136,17 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(footprint.position, "new-position")
         self.assertEqual(footprint.orientation, "new-orientation")
         self.assertEqual(footprint.definition.items, ["pad", "3d-model"])
+
+    def test_dnp_footprints_are_identified_for_model_import_filtering(self):
+        linked_object = self._import_linked_object()
+
+        self.assertTrue(
+            linked_object._footprint_is_dnp(_AttributedFootprint(True))
+        )
+        self.assertFalse(
+            linked_object._footprint_is_dnp(_AttributedFootprint(False))
+        )
+        self.assertFalse(linked_object._footprint_is_dnp(object()))
 
     def test_component_cache_tracks_step_importer_revision(self):
         linked_object = self._import_linked_object()
