@@ -43,7 +43,7 @@ class ReloadAllLinkedObjectsCommand:
             try:
                 if hasattr(obj, "Proxy") and hasattr(obj.Proxy, "reload"):
                     if hasattr(obj, "FileName") and obj.FileName:
-                        obj.Proxy.reload(obj)
+                        obj.Proxy.reload(obj, force=True)
             except ReferenceError:
                 continue
 
