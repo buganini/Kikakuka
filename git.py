@@ -77,7 +77,10 @@ def log(repo_path, file_path=None):
         if file_path and file_path not in commit.tree:
             continue
         dtg = datetime.fromtimestamp(commit.commit_time).strftime("%Y-%m-%d %H:%M")
-        yield (commit.id, f"{dtg} {commit.message.strip()}")
+        yield (
+            commit.id,
+            f"{commit.short_id} {dtg} {commit.message.strip()}",
+        )
 
 def _extract_tree_recursive(repo, tree, destination_path):
     """
