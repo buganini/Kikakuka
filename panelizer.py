@@ -1132,8 +1132,13 @@ class PanelizerUI(Application):
         if boardfile:
             try:
                 self.add(boardfile)
-            except:
-                Critical("Error loading PCB {}: {}".format(boardfile, e), "Error loading PCB")
+            except Exception:
+                traceback_text = traceback.format_exc()
+                traceback.print_exc()
+                Critical(
+                    f"Error loading PCB {boardfile}:\n\n{traceback_text}",
+                    "Error loading PCB",
+                )
 
 
     def addFile(self, boardfile):
