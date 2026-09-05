@@ -46,6 +46,9 @@ pyinstaller_args.extend(["--collect-all=pypdfium2_raw", "--collect-all=pypdfium2
 # fix for pygit2
 pyinstaller_args.extend(["--collect-all=pygit2"])
 
+# Preserve distribution metadata used by the workspace title.
+pyinstaller_args.extend(["--copy-metadata=kicad-python"])
+
 print(pyinstaller_args)
 
 PyInstaller.__main__.run([

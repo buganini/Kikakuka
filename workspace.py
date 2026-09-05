@@ -8,10 +8,16 @@ import re
 import subprocess
 import platform
 import psutil
+from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
 from common import *
 
 FILE_ORDER = [PNL_SUFFIX, ".kicad_pro"]
+
+try:
+    KIPY_VERSION = package_version("kicad-python")
+except PackageNotFoundError:
+    KIPY_VERSION = "unknown"
 
 try:
     base_path = sys._MEIPASS
@@ -763,7 +769,10 @@ class MainUI(Application):
         f.close()
 
     def content(self):
-        title = f"Kikakuka v{VERSION} Workspace (PUI {PUI.__version__} {PUI_BACKEND})"
+        title = (
+            f"Kikakuka v{VERSION} Workspace "
+            f"(PUI {PUI.__version__} {PUI_BACKEND}, kipy {KIPY_VERSION})"
+        )
         with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 if not self.state.workspaces:

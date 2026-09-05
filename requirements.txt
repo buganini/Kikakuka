@@ -8,4 +8,4 @@ psutil
 pywin32; platform_system == "Windows"
 pygit2
 parsimonious
-kicad-python
+kicad-python>=0.8,<0.9
