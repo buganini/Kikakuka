@@ -14,7 +14,7 @@ import cv2
 import tempfile
 import atexit
 import shutil
-import git
+import githelper
 import pcbnew
 
 if platform.system() == "Darwin":
@@ -992,18 +992,18 @@ class DifferUI(Application):
                 file_b = self.state.file_b
 
                 if file_a and self.state.logs_a is None:
-                    self.repo_a = git.repo(file_a)
+                    self.repo_a = githelper.repo(file_a)
                     if self.repo_a:
                         self.state.commit_a = ""
-                        self.state.logs_a = [(hex, msg) for hex,msg in git.log(self.repo_a)]
+                        self.state.logs_a = [(hex, msg) for hex,msg in githelper.log(self.repo_a)]
                     else:
                         self.state.logs_a = False
 
                 if file_b and self.state.logs_b is None:
-                    self.repo_b = git.repo(file_b)
+                    self.repo_b = githelper.repo(file_b)
                     if self.repo_b:
                         self.state.commit_b = ""
-                        self.state.logs_b = [(hex, msg) for hex,msg in git.log(self.repo_b)]
+                        self.state.logs_b = [(hex, msg) for hex,msg in githelper.log(self.repo_b)]
                     else:
                         self.state.logs_b = False
 
@@ -1023,7 +1023,7 @@ class DifferUI(Application):
                     repo_workdir = os.path.join(path_a, "workdir")
                     if not os.path.exists(path_a):
                         dir = os.path.dirname(file_a)
-                        git.checkout(self.repo_a, self.state.commit_a, repo_workdir)
+                        githelper.checkout(self.repo_a, self.state.commit_a, repo_workdir)
                     file_a = os.path.relpath(file_a, self.repo_a).replace("\\", "/")
                     file_a = os.path.join(repo_workdir, file_a)
                 else:
@@ -1051,7 +1051,7 @@ class DifferUI(Application):
                     repo_workdir = os.path.join(path_b, "workdir")
                     if not os.path.exists(path_b):
                         dir = os.path.dirname(file_b)
-                        git.checkout(self.repo_b, self.state.commit_b, repo_workdir)
+                        githelper.checkout(self.repo_b, self.state.commit_b, repo_workdir)
                     file_b = os.path.relpath(file_b, self.repo_b).replace("\\", "/")
                     file_b = os.path.join(repo_workdir, file_b)
                 else:
