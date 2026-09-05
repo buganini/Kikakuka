@@ -1806,7 +1806,7 @@ class PanelizerUI(Application):
                                     fp.SetDNP(True)
 
                         for k,v in fp.GetFieldsText().items():
-                            if "#" in k:
+                            if "#" in k and v:
                                 tks = k.split("#")
                                 field = tks[0]
                                 matched = True
