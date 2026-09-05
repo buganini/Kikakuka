@@ -718,7 +718,7 @@ class DifferUI(Application):
                             with ComboBox(text_model=self.state("commit_a")).layout(weight=1).change(lambda e: self.select_commit_a()):
                                 ComboBoxItem("WORKING", "")
                                 for hex, msg in self.state.logs_a:
-                                    ComboBoxItem(msg.split("\n")[0].rstrip()[:50], hex)
+                                    ComboBoxItem(msg.split("\n")[0].rstrip()[:250], hex)
                         else:
                             Label("N/A").layout(weight=1)
 
@@ -730,7 +730,7 @@ class DifferUI(Application):
                             with ComboBox(text_model=self.state("commit_b")).layout(weight=1).change(lambda e: self.select_commit_b()):
                                 ComboBoxItem("WORKING", "")
                                 for hex, msg in self.state.logs_b:
-                                    ComboBoxItem(msg.split("\n")[0].rstrip()[:50], hex)
+                                    ComboBoxItem(msg.split("\n")[0].rstrip()[:250], hex)
                         else:
                             Label("N/A").layout(weight=1)
 

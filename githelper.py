@@ -1,6 +1,5 @@
 import pygit2
 import os
-from datetime import datetime
 
 def repo(file_path):
     """
@@ -76,10 +75,9 @@ def log(repo_path, file_path=None):
             continue
         if file_path and file_path not in commit.tree:
             continue
-        dtg = datetime.fromtimestamp(commit.commit_time).strftime("%Y-%m-%d %H:%M")
         yield (
             commit.id,
-            f"{commit.short_id} {dtg} {commit.message.strip()}",
+            f"{commit.short_id} {commit.message.strip()}",
         )
 
 def _extract_tree_recursive(repo, tree, destination_path):
