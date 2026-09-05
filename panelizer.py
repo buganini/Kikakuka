@@ -1131,7 +1131,7 @@ class PanelizerUI(Application):
         boardfile = OpenFile("Open KiCad PCB", dir=dir, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
         if boardfile:
             try:
-                self.add(boardfile)
+                self.addFile(boardfile)
             except Exception:
                 traceback_text = traceback.format_exc()
                 traceback.print_exc()
