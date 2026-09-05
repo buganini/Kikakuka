@@ -3,8 +3,22 @@
     * Automatically reload modified PCB files and rebuild the panel
     * Add a button to open the most recently exported board
     * Load a multiboard file as multiple objects #33
+    * Preserve alignment clearance when cloning panel cells
+    * Fix saving panel files
+    * Show the complete traceback when loading a PCB fails
 * Workspace Manager
     * Support adding .FCStd and .step files
+    * Reuse a pending KiCad instance while waiting for its IPC API instead of opening duplicate instances
+    * Rebuild the filepath-to-PID map from existing KiCad IPC sockets at startup
+    * Display the kipy version in the window title
+* Differ
+    * Show short commit hashes in revision history
+* FreekiCAD
+    * Add and pin kicad-python to the 0.8 release series
+    * Support circular Edge.Cuts outlines containing cutouts
+    * Import STEP assemblies in merged mode independently of FreeCAD's global import preferences
+    * Preserve footprint 3D models when synchronizing component placement to KiCad
+    * Prevent board reloads from triggering component move synchronization
 
 # 6.10:
 * Panelizer
