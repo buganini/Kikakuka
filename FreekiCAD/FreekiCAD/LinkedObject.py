@@ -180,6 +180,42 @@ def _polyline_to_edges(polyline):
     return result
 
 
+def _outline_wire_order(wires):
+    """Return wire indices ordered from largest enclosed area to smallest.
+
+    ``Part::FaceMakerBullseye`` treats the first wire as the outer boundary,
+    while KiCad and ``Part.sortEdges`` do not guarantee outer-first ordering.
+    """
+    def enclosed_area(index):
+        try:
+            return abs(Part.Face(wires[index]).Area)
+        except Exception:
+            return -1.0
+
+    return sorted(range(len(wires)), key=enclosed_area, reverse=True)
+
+
+def _board_circle_radius_mm(circle):
+    """Return a kipy BoardCircle radius in millimetres.
+
+    Current kipy exposes ``radius()`` and ``radius_point``; older wrappers may
+    expose only the defining point.  Board geometry values are nanometres.
+    """
+    radius = getattr(circle, 'radius', None)
+    if callable(radius):
+        return float(radius()) / 1e6
+    if radius is not None:
+        return float(radius) / 1e6
+
+    radius_point = getattr(circle, 'radius_point', None)
+    if radius_point is None:
+        # Compatibility with early/alternate wrappers.
+        radius_point = getattr(circle, 'end')
+    dx = radius_point.x - circle.center.x
+    dy = radius_point.y - circle.center.y
+    return math.hypot(dx, dy) / 1e6
+
+
 def _kicad_config_bases():
     """Return platform-specific KiCad configuration base directories."""
     bases = []
@@ -904,9 +940,7 @@ def load_board(filepath, socket_path):
                     edges.append(Part.Arc(p1, pm, p2).toShape())
                 elif isinstance(concrete, BoardCircle):
                     center = _vec(concrete.center.x, concrete.center.y)
-                    dx = concrete.end.x - concrete.center.x
-                    dy = concrete.end.y - concrete.center.y
-                    radius = math.hypot(dx, dy) / 1e6
+                    radius = _board_circle_radius_mm(concrete)
                     edges.append(Part.makeCircle(radius, center))
                 elif isinstance(concrete, BoardRectangle):
                     p1 = _vec(concrete.top_left.x, concrete.top_left.y)
@@ -1054,7 +1088,6 @@ def load_board(filepath, socket_path):
                 f" group(s): "
                 + ", ".join(f"{len(g)} edges" for g in sorted_groups)
                 + "\n")
-            outline_edges = sorted_groups[0]
             wires = []
             for g in sorted_groups:
                 w = Part.Wire(g)
@@ -1075,11 +1108,24 @@ def load_board(filepath, socket_path):
                                 verts[-1].Point, verts[0].Point)
                             w = Part.Wire(list(w.Edges) + [closing])
                 wires.append(w)
+
+            # Edge.Cuts shapes can be returned hole-first (for example, a
+            # rectangular cutout declared before the circular board outline).
+            # FaceMakerBullseye expects its outer boundary first.
+            wire_order = _outline_wire_order(wires)
+            wires = [wires[i] for i in wire_order]
+            sorted_groups = [sorted_groups[i] for i in wire_order]
+            outline_edges = sorted_groups[0]
             for wi, w in enumerate(wires):
+                try:
+                    enclosed_area = abs(Part.Face(w).Area)
+                except Exception:
+                    enclosed_area = -1.0
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: wire {wi}: closed={w.isClosed()}"
                     f" edges={len(w.Edges)}"
-                    f" verts={len(w.Vertexes)}\n")
+                    f" verts={len(w.Vertexes)}"
+                    f" area={enclosed_area:.4f}\n")
             if len(wires) > 1:
                 face = Part.Face(wires, "Part::FaceMakerBullseye")
                 FreeCAD.Console.PrintMessage(
