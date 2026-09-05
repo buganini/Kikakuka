@@ -1,4 +1,5 @@
 import importlib
+import json
 import sys
 import types
 import unittest
@@ -22,7 +23,42 @@ class _CurrentKipyCircle:
         return 20_000_000
 
 
+class _DroppingDefinition:
+    def __init__(self):
+        self.items = ["pad", "3d-model"]
+
+
+class _DroppingOrientationFootprint:
+    """Mimics kicad-python 0.8 dropping models in its angle setter."""
+
+    def __init__(self):
+        self.definition = _DroppingDefinition()
+        self.position = None
+        self._orientation = None
+
+    @property
+    def orientation(self):
+        return self._orientation
+
+    @orientation.setter
+    def orientation(self, value):
+        self._orientation = value
+        self.definition.items = ["pad"]
+
+
 class OutlineWireOrderTests(unittest.TestCase):
+    def _import_linked_object(self):
+        fake_freecad = types.ModuleType("FreeCAD")
+        fake_part = types.ModuleType("Part")
+        module_name = "FreekiCAD.FreekiCAD.LinkedObject"
+        self.addCleanup(sys.modules.pop, module_name, None)
+        with mock.patch.dict(
+            sys.modules,
+            {"FreeCAD": fake_freecad, "Part": fake_part},
+        ):
+            sys.modules.pop(module_name, None)
+            return importlib.import_module(module_name)
+
     def test_largest_profile_is_selected_before_hole(self):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_part = types.ModuleType("Part")
@@ -62,6 +98,53 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(
             linked_object._board_circle_radius_mm(_CurrentKipyCircle()),
             20.0,
+        )
+
+    def test_step_import_does_not_use_global_freecad_preferences(self):
+        linked_object = self._import_linked_object()
+        import_gui = mock.Mock()
+
+        linked_object._insert_step_merged(
+            import_gui, "/models/module.step", "temporary"
+        )
+
+        import_gui.insert.assert_called_once_with(
+            name="/models/module.step",
+            docName="temporary",
+            merge=True,
+            useLinkGroup=False,
+        )
+
+    def test_footprint_pose_preserves_3d_model_definition_items(self):
+        linked_object = self._import_linked_object()
+        footprint = _DroppingOrientationFootprint()
+
+        linked_object._set_footprint_pose_preserving_definition(
+            footprint, "new-position", "new-orientation"
+        )
+
+        self.assertEqual(footprint.position, "new-position")
+        self.assertEqual(footprint.orientation, "new-orientation")
+        self.assertEqual(footprint.definition.items, ["pad", "3d-model"])
+
+    def test_component_cache_tracks_step_importer_revision(self):
+        linked_object = self._import_linked_object()
+        value = linked_object._component_transform_cache_value(
+            {
+                "is_back": False,
+                "models": [{
+                    "path": "/tmp/model.step",
+                    "offset": (0, 0, 0),
+                    "rotation": (0, 0, 0),
+                    "scale": (1, 1, 1),
+                }],
+            },
+            thickness=1.6,
+        )
+
+        self.assertEqual(
+            json.loads(value)["step_importer_revision"],
+            linked_object.STEP_IMPORTER_REVISION,
         )
 
 

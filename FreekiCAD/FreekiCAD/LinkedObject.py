@@ -10,6 +10,7 @@ import Part
 DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
 DEBUG_BENDING_BFS = True
+STEP_IMPORTER_REVISION = 1
 
 
 def _log_bending_bfs(message):
@@ -491,6 +492,16 @@ def _obj_colors(obj):
     return _read_face_colors(vobj, n)
 
 
+def _insert_step_merged(import_gui, step_path, document_name):
+    """Import STEP independently of the user's global FreeCAD preferences."""
+    import_gui.insert(
+        name=step_path,
+        docName=document_name,
+        merge=True,
+        useLinkGroup=False,
+    )
+
+
 def _load_step(step_path, doc, cache=None):
     """Load a STEP file and return ``[(shape, colors)]`` or ``[]``.
 
@@ -511,7 +522,7 @@ def _load_step(step_path, doc, cache=None):
         from PySide import QtCore
         tmp_doc = FreeCAD.newDocument("__FreekiCAD_tmp__")
         try:
-            ImportGui.insert(step_path, tmp_doc.Name)
+            _insert_step_merged(ImportGui, step_path, tmp_doc.Name)
             tmp_doc.recompute()
             # Flush pending events so ViewObjects get their
             # DiffuseColor populated from the STEP colour data.
@@ -687,6 +698,7 @@ def _component_transform_cache_value(fp_info, thickness):
         })
     return json.dumps(
         {
+            'step_importer_revision': STEP_IMPORTER_REVISION,
             'is_back': is_back,
             'fp_z': float(fp_z),
             'models': models,
@@ -709,6 +721,22 @@ def _ensure_component_transform_cache_property(comp_obj):
             "FreekiCAD_ModelTransformCache", "Hidden")
     except Exception:
         pass
+
+
+def _set_footprint_pose_preserving_definition(
+        footprint, position, orientation):
+    """Set a kipy footprint pose without dropping non-geometric items.
+
+    kicad-python 0.8's FootprintInstance.orientation setter replaces
+    ``definition.items`` with only the item types it rotates. In particular,
+    Footprint3DModel entries are omitted. The retained wrapper objects are
+    modified in place, so restoring the original list preserves both those
+    edits and every item the setter otherwise drops.
+    """
+    definition_items = list(footprint.definition.items)
+    footprint.position = position
+    footprint.orientation = orientation
+    footprint.definition.items = definition_items
 
 
 # Default solder mask color when stackup has no color set.
@@ -9518,6 +9546,7 @@ class LinkedObject:
         import time as _time
         _t0_reload = _time.time()
         outline_name = obj.Name + "_Outline"
+        self._suspend_component_move_sync(obj)
         if _sketch_observer is not None:
             _sketch_observer.suppress(outline_name)
         try:
@@ -9541,6 +9570,7 @@ class LinkedObject:
             if _sketch_observer is not None:
                 _sketch_observer.unsuppress(outline_name)
             self._reloading = False
+            self._resume_component_move_sync()
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: [profile] TOTAL _handle_reload_response: "
                 f"{_time.time() - _t0_reload:.3f}s\n")
@@ -9591,8 +9621,11 @@ class LinkedObject:
             new_angle = move['angle']
 
             commit = board.begin_commit()
-            target_fp.position = Vector2.from_xy_mm(new_x, new_y)
-            target_fp.orientation = Angle.from_degrees(new_angle)
+            _set_footprint_pose_preserving_definition(
+                target_fp,
+                Vector2.from_xy_mm(new_x, new_y),
+                Angle.from_degrees(new_angle),
+            )
             board.update_items([target_fp])
             board.push_commit(commit,
                               f"Move {component} from FreeCAD")
