@@ -483,7 +483,7 @@ class PCBFile:
                             self.errors.append(f"{self.ident}: Invalid buildexpr {repr(expr)}")
 
                 for k,v in fp.GetFieldsText().items():
-                    if "#" in k:
+                    if "#" in k and v:
                         try:
                             tags = [t.strip() for t in k.split("#")[1:]]
                             for f in tags:
