@@ -464,6 +464,7 @@ class PCBFile:
             self._shapes = []
             self.width = 0
             self.height = 0
+            raise e
 
         if self.file_type == "kicad":
             for fp in board.GetFootprints():
