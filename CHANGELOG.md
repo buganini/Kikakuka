@@ -6,6 +6,7 @@
     * Preserve alignment clearance when cloning panel cells
     * Fix saving panel files
     * Show the complete traceback when loading a PCB fails
+    * Ignore empty build variant fields when collecting and applying build settings
 * Workspace Manager
     * Support adding .FCStd and .step files
     * Reuse a pending KiCad instance while waiting for its IPC API instead of opening duplicate instances
@@ -13,12 +14,15 @@
     * Display the kipy version in the window title
 * Differ
     * Show short commit hashes in revision history
+    * Hide commit timestamps and show longer commit subjects in revision history
 * FreekiCAD
     * Add and pin kicad-python to the 0.8 release series
     * Support circular Edge.Cuts outlines containing cutouts
     * Import STEP assemblies in merged mode independently of FreeCAD's global import preferences
     * Preserve footprint 3D models when synchronizing component placement to KiCad
     * Prevent board reloads from triggering component move synchronization
+    * Skip 3D models for footprints marked DNP
+    * Make Reload All reload linked boards even when file timestamps are unchanged
 
 # 6.10:
 * Panelizer
