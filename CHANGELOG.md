@@ -1,4 +1,4 @@
-# 6.11:
+# 6.12:
 * Panelizer
     * Automatically reload modified PCB files and rebuild the panel
     * Add a button to open the most recently exported board
