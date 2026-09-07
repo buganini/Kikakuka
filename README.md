@@ -20,18 +20,19 @@ It creates a few more dimensions for KiCad:
     * [Schematic diff viewer](#schematics-differ)
     * [PCB diff viewer](#pcb-differ)
     * Git support
-* (Not just a) Panelizer
-    * Interactive arrangement with real-time preview
-    * Freeform placement not limited to M×N grid configurations
-    * Support for multiple different PCBs in a single panel
-    * [Automatic](#auto-tab) or [manual](#manual-tab) tab creation
-    * Automatic V-cut/mousebites selection
-    * Enable [hole](#substrate-hole) creation in panel substrate for extruded parts
-    * Load [KiKit multiboard files](https://yaqwsx.github.io/KiKit/v1.8/multiboard/) as multiple separate boards
-    * No coding skills required
-* Build Variants (as a usage of the Panelizer)
-    * Single PCB without panelization can be done with frameless setting
-    * Each PCB can have its own flag settings
+* Fabrication Planner
+    * Panelizer
+        * Interactive arrangement with real-time preview
+        * Freeform placement not limited to M×N grid configurations
+        * Support for multiple different PCBs in a single panel
+        * [Automatic](#auto-tab) or [manual](#manual-tab) tab creation
+        * Automatic V-cut/mousebites selection
+        * Enable [hole](#substrate-hole) creation in panel substrate for extruded parts
+        * Load [KiKit multiboard files](https://yaqwsx.github.io/KiKit/v1.8/multiboard/) as multiple separate boards
+        * No coding skills required
+    * Build Variants
+        * Single PCB without panelization can be done with frameless setting
+        * Each PCB can have its own flag settings
 * Gerber handling
     * In panelizer context
     * Or direct conversion to .kicad_pcb
@@ -48,6 +49,8 @@ It creates a few more dimensions for KiCad:
     * A sketch is provided for real-time board outline editing in FreeCAD
     * Components moved in FreeCAD are synced to KiCad in real time
     * Auto or manual in-place PCB reloading
+    * Flex PCB bending driven by bend lines and parameters defined in KiCad
+    * Automatic PCB assembly using matching `CouplerFixed` and `CouplerMoving` footprints, with visible coupler plane markers
     * `kicad-python` is used and the workspace manager handles multiple KiCad instances & API sockets
 
 # Workspace Manager
