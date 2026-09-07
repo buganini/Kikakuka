@@ -167,6 +167,15 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * After loading the board in FreeCAD, each bend line appears as a child object with `Angle`, `Radius`, and `Active` properties.
         * The linked PCB object also has an `EnableBending` property to toggle the deformation on or off.
         * If no `User.4` text is provided, the bend line still loads and can be configured directly in FreeCAD.
+    * Automatic PCB Assembly
+        * Place a `CouplerFixed` footprint on the stationary PCB and a `CouplerMoving` footprint on the PCB to be moved. Couplers are matched by their KiCad reference.
+        * On reload, a linked PCB with `SnapToCoupler` enabled (the default) is moved as a whole so that its moving coupler plane meets the matching fixed coupler plane face-to-face. Each coupler is also shown as a visible child object in FreeCAD.
+        * The bundled footprints are [`CouplerFixed`](resources/kikakuka.pretty/CouplerFixed.kicad_mod) and [`CouplerMoving`](resources/kikakuka.pretty/CouplerMoving.kicad_mod) in `resources/kikakuka.pretty`.
+        * See [`samples/assembly.FCStd`](samples/assembly.FCStd) for an assembled example using [`assembly-power.kicad_pcb`](samples/assembly-power.kicad_pcb), [`assembly-mcu.kicad_pcb`](samples/assembly-mcu.kicad_pcb), [`assembly-led.kicad_pcb`](samples/assembly-led.kicad_pcb), and [`assembly-mezzanine.kicad_pcb`](samples/assembly-mezzanine.kicad_pcb).
+        * The coupler plane is defined by the footprint position, side, rotation, and these custom footprint properties:
+            * `Z` moves the plane origin along the footprint's local Z axis. It defaults to `0 mm`; values without a unit are millimetres, and `mm` and `in` are supported. The origin starts at the PCB surface, including the board thickness on F.Cu. The local Z direction is reversed on B.Cu.
+            * `T` tilts the plane around the footprint's local X axis. It is specified in degrees and defaults to `0`.
+        * `Z` and `T` are independent: `T` rotates the plane around its Z-offset origin and does not change that origin's position. The footprint's normal KiCad rotation supplies the rotation around its local Z axis.
 
 ## Bending Samples
 Manual bending checks are currently done with these sample boards:
