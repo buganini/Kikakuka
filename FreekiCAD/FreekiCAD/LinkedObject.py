@@ -2785,7 +2785,7 @@ class LinkedObject:
             return False
 
     def _snap_couplers_after_reload(self, obj):
-        """Snap moving couplers after either side of a pair is reloaded."""
+        """Snap couplers in dependency order after either side is reloaded."""
         doc = getattr(obj, 'Document', None)
         if doc is None:
             return
@@ -2800,10 +2800,18 @@ class LinkedObject:
         for fixed_obj in linked:
             for pose in self._coupler_poses(fixed_obj, COUPLER_FIXED):
                 ref = pose.get('ref')
-                if ref and ref not in fixed_by_ref:
-                    fixed_by_ref[ref] = (fixed_obj, pose)
+                if not ref:
+                    continue
+                if ref in fixed_by_ref:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: Duplicate CouplerFixed reference "
+                        f"'{ref}'; using '{fixed_by_ref[ref][0].Label}'\n")
+                    continue
+                fixed_by_ref[ref] = (fixed_obj, pose)
 
-        # Reloading a fixed board also refreshes every dependent moving board.
+        # Each moving object has one parent: the first of its moving couplers
+        # that matches a fixed coupler on another object.
+        assignments = {}
         for moving_obj in linked:
             if not getattr(moving_obj, 'SnapToCoupler', True):
                 continue
@@ -2812,9 +2820,43 @@ class LinkedObject:
                 match = fixed_by_ref.get(moving_pose.get('ref'))
                 if match is None or match[0] is moving_obj:
                     continue
-                self._snap_moving_object(
+                assignments[moving_obj.Name] = (
                     moving_obj, moving_pose, match[0], match[1])
                 break
+
+        # A fixed coupler may itself belong to a moving object.  Start with
+        # objects whose fixed parent is a root, then release their dependants
+        # only after the parent's placement has been updated successfully.
+        dependants = {}
+        ready = []
+        for moving_name, assignment in assignments.items():
+            fixed_name = assignment[2].Name
+            dependants.setdefault(fixed_name, []).append(moving_name)
+            if fixed_name not in assignments:
+                ready.append(moving_name)
+
+        completed = set()
+        failed = set()
+        while ready:
+            moving_name = ready.pop(0)
+            if moving_name in completed or moving_name in failed:
+                continue
+            moving_obj, moving_pose, fixed_obj, fixed_pose = \
+                assignments[moving_name]
+            if not self._snap_moving_object(
+                    moving_obj, moving_pose, fixed_obj, fixed_pose):
+                failed.add(moving_name)
+                continue
+            completed.add(moving_name)
+            ready.extend(dependants.get(moving_name, []))
+
+        unresolved = [
+            assignments[name][0].Label for name in assignments
+            if name not in completed and name not in failed]
+        if unresolved:
+            FreeCAD.Console.PrintWarning(
+                "FreekiCAD: Coupler dependency cycle or blocked chain: "
+                + ", ".join(unresolved) + "\n")
 
     def _schedule_rebend(self, obj):
         """Schedule a deferred rebend, coalescing changes from multiple

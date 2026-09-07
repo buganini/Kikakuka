@@ -380,6 +380,74 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertAlmostEqual(
             (moving_world.angle - fixed_world.angle) % 360, 180)
 
+    def test_coupler_chain_snaps_parent_before_child(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy.Type = "LinkedObject"
+        proxy._snap_moving_object = mock.Mock(return_value=True)
+
+        root = types.SimpleNamespace(
+            Name="Root", Label="root", Proxy=proxy, SnapToCoupler=True,
+            CouplerPoses=json.dumps([
+                {"ref": "root-parent", "type": "CouplerFixed"},
+            ]))
+        parent = types.SimpleNamespace(
+            Name="Parent", Label="parent", Proxy=proxy, SnapToCoupler=True,
+            CouplerPoses=json.dumps([
+                {"ref": "root-parent", "type": "CouplerMoving"},
+                {"ref": "parent-child", "type": "CouplerFixed"},
+            ]))
+        child = types.SimpleNamespace(
+            Name="Child", Label="child", Proxy=proxy, SnapToCoupler=True,
+            CouplerPoses=json.dumps([
+                {"ref": "parent-child", "type": "CouplerMoving"},
+            ]))
+        document = types.SimpleNamespace(Objects=[child, parent, root])
+        for board in document.Objects:
+            board.Document = document
+
+        proxy._snap_couplers_after_reload(root)
+
+        self.assertEqual(
+            [call.args[0].Name
+             for call in proxy._snap_moving_object.call_args_list],
+            ["Parent", "Child"],
+        )
+
+    def test_coupler_dependency_cycle_is_not_applied(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy.Type = "LinkedObject"
+        proxy._snap_moving_object = mock.Mock(return_value=True)
+
+        board_a = types.SimpleNamespace(
+            Name="BoardA", Label="board A", Proxy=proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([
+                {"ref": "a", "type": "CouplerFixed"},
+                {"ref": "b", "type": "CouplerMoving"},
+            ]))
+        board_b = types.SimpleNamespace(
+            Name="BoardB", Label="board B", Proxy=proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([
+                {"ref": "b", "type": "CouplerFixed"},
+                {"ref": "a", "type": "CouplerMoving"},
+            ]))
+        document = types.SimpleNamespace(Objects=[board_a, board_b])
+        board_a.Document = document
+        board_b.Document = document
+
+        proxy._snap_couplers_after_reload(board_a)
+
+        proxy._snap_moving_object.assert_not_called()
+        warning = linked_object.FreeCAD.Console.PrintWarning.call_args.args[0]
+        self.assertIn("dependency cycle", warning)
+        self.assertIn("board A", warning)
+        self.assertIn("board B", warning)
+
     def test_coupler_mating_rotates_around_local_y(self):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Vector = _Vector2D
