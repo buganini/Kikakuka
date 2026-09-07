@@ -23,10 +23,10 @@ class CSVLoader():
 
     def rows(self):
         return self.csv_reader
-    
+
     def close(self):
         self.csv_file.close()
-    
+
 class XLSXLoader():
     def __init__(self, filename, sheet):
         if sheet is None:
@@ -39,7 +39,7 @@ class XLSXLoader():
     def rows(self):
         for row in self.sheet.rows:
             yield [type_mapper(cell.value) for cell in row]
-    
+
     def close(self):
         self.wb.close()
 
