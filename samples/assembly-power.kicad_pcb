@@ -964,7 +964,7 @@
 	(footprint "Kikakuka:CouplerFixed"
 		(layer "F.Cu")
 		(uuid "d9b41bd0-4072-4648-ae8d-3b216a36b3c1")
-		(at 135.34 76.5 90)
+		(at 135.82 76.5 90)
 		(property "Reference" "led"
 			(at 0 0 90)
 			(unlocked yes)
@@ -1016,7 +1016,7 @@
 				)
 			)
 		)
-		(property "Z" "2.7"
+		(property "Z" "3"
 			(at 0 0 153)
 			(unlocked yes)
 			(layer "F.Fab")
