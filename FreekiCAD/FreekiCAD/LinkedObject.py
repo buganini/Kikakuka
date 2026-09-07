@@ -1,5 +1,6 @@
 import os
 import math
+import json
 import re
 import time
 import FreeCAD
@@ -11,6 +12,10 @@ DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
 DEBUG_BENDING_BFS = True
 STEP_IMPORTER_REVISION = 1
+
+COUPLER_MOVING = "CouplerMoving"
+COUPLER_FIXED = "CouplerFixed"
+_COUPLER_TYPES = {COUPLER_MOVING, COUPLER_FIXED}
 
 
 def _log_bending_bfs(message):
@@ -52,6 +57,86 @@ def _kipy_ready_board(kicad, max_retries=15, delay_s=1.0):
 def _vec(x_nm, y_nm, z=0):
     """Convert KiCad nanometres to FreeCAD mm, flipping Y."""
     return FreeCAD.Vector(x_nm / 1e6, -y_nm / 1e6, z)
+
+
+def _footprint_coupler_type(footprint):
+    """Return the custom coupler footprint type, or None.
+
+    Prefer the library entry name so changing a footprint's Value field does
+    not disable snapping.  The Value fallback also supports older KiCad API
+    responses that do not expose the library identifier.
+    """
+    try:
+        name = footprint.definition.id.name
+        if name in _COUPLER_TYPES:
+            return name
+    except Exception:
+        pass
+    try:
+        name = footprint.value_field.text.value
+        if name in _COUPLER_TYPES:
+            return name
+    except Exception:
+        pass
+    return None
+
+
+def _coupler_rotation_degrees(footprint):
+    """Return the KiCad footprint yaw used by FreeCAD board geometry."""
+    try:
+        return float(footprint.orientation.degrees)
+    except Exception:
+        return 0.0
+
+
+def _footprint_field_value(footprint, field_name, default=None):
+    """Read a named custom footprint field from the KiCad API wrapper."""
+    try:
+        fields = footprint.texts_and_fields
+    except Exception:
+        try:
+            fields = footprint.definition.texts
+        except Exception:
+            return default
+    for field in fields:
+        try:
+            if field.name == field_name:
+                return field.text.text.value
+        except Exception:
+            try:
+                if field.name == field_name:
+                    return field.text.value
+            except Exception:
+                continue
+    return default
+
+
+def _parse_coupler_z(value):
+    """Parse the coupler-plane Z displacement in millimetres."""
+    if value is None:
+        return 0.0
+    match = re.fullmatch(
+        r'\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:\s*(mm|in))?\s*',
+        str(value), re.IGNORECASE)
+    if match is None:
+        raise ValueError(
+            f"invalid Z value {value!r}; expected mm or in")
+    result = float(match.group(1))
+    if (match.group(2) or '').lower() == 'in':
+        result *= 25.4
+    return result
+
+
+def _parse_coupler_t(value):
+    """Parse the coupler-plane tilt around footprint-local X in degrees."""
+    if value is None:
+        return 0.0
+    match = re.fullmatch(
+        r'\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:\s*(?:deg|°))?\s*',
+        str(value), re.IGNORECASE)
+    if match is None:
+        raise ValueError(f"invalid T value {value!r}; expected degrees")
+    return float(match.group(1))
 
 
 def _signed_line_side_2d(point, seg_p0, seg_p1):
@@ -926,11 +1011,9 @@ def load_board(filepath, socket_path):
     """Connect to a running KiCad instance via kipy and build the board
     solid + footprint metadata.
     Returns (board_shape, footprints_data, color, outline_edges, thickness,
-    bend_lines) where footprints_data is a list of dicts with ref/position/
-    models info, color is (r,g,b) or None, outline_edges is a list of sorted
-    Part edges, thickness is the board thickness in mm, and bend_lines is a
-    list of dicts with uuid/start/end for each valid line on the User.4
-    layer."""
+    bend_lines, board_face, couplers_data) where footprints_data is a list of
+    dicts with ref/position/models info, and couplers_data contains the custom
+    CouplerMoving/CouplerFixed poses."""
     try:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Loading board {filepath}\n")
@@ -1259,6 +1342,7 @@ def load_board(filepath, socket_path):
 
         # --- Footprint metadata (no STEP loading) ---
         footprints_data = []
+        couplers_data = []
         footprints = _kipy_retry(board.get_footprints)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Total footprints: {len(footprints)}\n"
@@ -1269,6 +1353,34 @@ def load_board(filepath, socket_path):
                 ref = fp.reference_field.text.value if fp.reference_field else "?"
             except Exception:
                 ref = "?"
+
+            coupler_type = _footprint_coupler_type(fp)
+            if coupler_type is not None:
+                try:
+                    coupler_pos = fp.position
+                    coupler_rotation = _coupler_rotation_degrees(fp)
+                    couplers_data.append({
+                        'ref': ref,
+                        'type': coupler_type,
+                        'x': coupler_pos.x / 1e6,
+                        'y': -coupler_pos.y / 1e6,
+                        'board_z': 0.0 if fp.layer == BoardLayer.BL_B_Cu
+                        else thickness,
+                        'is_back': fp.layer == BoardLayer.BL_B_Cu,
+                        'z': _parse_coupler_z(
+                            _footprint_field_value(fp, 'Z', 0)),
+                        'tilt': _parse_coupler_t(
+                            _footprint_field_value(fp, 'T', 0)),
+                        'rotation': coupler_rotation,
+                    })
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   {ref}: found {coupler_type} "
+                        f"surfaceZ={couplers_data[-1]['board_z']:.4g}mm "
+                        f"Z={couplers_data[-1]['z']:.4g}mm "
+                        f"T={couplers_data[-1]['tilt']:.4g}deg\n")
+                except Exception as ex:
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD:   {ref}: invalid coupler pose: {ex}\n")
 
             try:
                 if _footprint_is_dnp(fp):
@@ -1433,7 +1545,7 @@ def load_board(filepath, socket_path):
                               if k not in skip]
 
         return (board_solid, footprints_data, board_color, outline_edges,
-                thickness, bend_lines, board_face)
+                thickness, bend_lines, board_face, couplers_data)
 
     except Exception as e:
         import traceback
@@ -1861,6 +1973,11 @@ class LinkedObject:
         obj.AutoReload = True
         obj.Label2 = "AutoReload=On"
         obj.addProperty(
+            "App::PropertyBool", "SnapToCoupler", "LinkedFile",
+            "Align CouplerMoving to a same-reference CouplerFixed on reload"
+        )
+        obj.SnapToCoupler = True
+        obj.addProperty(
             "App::PropertyBool", "EnableBending", "LinkedFile",
             "Enable flex PCB bending deformation"
         )
@@ -1891,6 +2008,11 @@ class LinkedObject:
             "Stored mtime of the linked .kicad_pcb file"
         )
         obj.setPropertyStatus("FileMtime", "Hidden")
+        obj.addProperty(
+            "App::PropertyString", "CouplerPoses", "LinkedFile",
+            "JSON: CouplerMoving/CouplerFixed poses from the linked board"
+        )
+        obj.setPropertyStatus("CouplerPoses", "Hidden")
         obj.Proxy = self
         self.Type = "LinkedObject"
         self._board_color = None
@@ -1991,7 +2113,9 @@ class LinkedObject:
         existing_components = {}
         existing_bends = {}
         for child in list(obj.Group):
-            if child.Name.endswith("_Outline") or child.Name.endswith("_Board"):
+            if child.Name.endswith("_Outline") \
+                    or child.Name.endswith("_Board") \
+                    or hasattr(child, 'CouplerType'):
                 try:
                     doc.removeObject(child.Name)
                 except (ReferenceError, Exception) as e:
@@ -2035,7 +2159,7 @@ class LinkedObject:
 
         _t_load = _time.time()
         board_solid, footprints_data, board_color, outline_edges, \
-            thickness, bend_lines, board_face = \
+            thickness, bend_lines, board_face, couplers_data = \
             load_board(obj.FileName, socket_path)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] load_board: "
@@ -2057,7 +2181,7 @@ class LinkedObject:
                                    board_color, outline_edges, thickness,
                                    bend_lines, existing_components,
                                    existing_bends,
-                                   board_face)
+                                   board_face, couplers_data)
         finally:
             if _mw is not None:
                 _mw.setUpdatesEnabled(True)
@@ -2070,11 +2194,14 @@ class LinkedObject:
                           board_color, outline_edges, thickness,
                           bend_lines, existing_components,
                           existing_bends,
-                          board_face=None):
+                          board_face=None, couplers_data=None):
         import json
         import time as _time
         _t0_body = _time.time()
         doc = obj.Document
+
+        if hasattr(obj, 'CouplerPoses'):
+            obj.CouplerPoses = json.dumps(couplers_data or [])
 
         self._board_color = board_color
         self._outline_edges = outline_edges or []
@@ -2158,6 +2285,9 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] board+outline+bends setup: "
             f"{_time.time() - _t0_body:.3f}s\n")
+
+        self._build_coupler_children(obj, couplers_data or [])
+
         # Load component 3D models on demand, reusing where possible
         _t_comps = _time.time()
         if existing_components is None:
@@ -2378,7 +2508,9 @@ class LinkedObject:
             if getattr(getattr(c, 'Proxy', None),
                        'Type', None) == 'BendLine':
                 return (2, c.Label)
-            return (3, c.Label)
+            if hasattr(c, 'CouplerType'):
+                return (3, c.Label)
+            return (4, c.Label)
         obj.Group = sorted(obj.Group, key=_child_sort_key)
 
         # Store unbent placements for bend lines and components.
@@ -2421,6 +2553,8 @@ class LinkedObject:
         timer = getattr(self, '_rebend_timer', None)
         if timer is not None:
             timer.stop()
+
+        self._snap_couplers_after_reload(obj)
 
     def _update_reused_component(self, comp_obj, kc, thickness, fp_info):
         """Update placement and KiCad coords for a reused component
@@ -2481,6 +2615,169 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD:   {comp_obj.Label}: updated placement "
             f"(Δx={dx:.3f}, Δy={dy:.3f}, Δangle={da:.1f}°)\n")
+
+    @staticmethod
+    def _coupler_poses(obj, coupler_type=None):
+        try:
+            poses = json.loads(getattr(obj, 'CouplerPoses', '') or '[]')
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(poses, list):
+            return []
+        return [p for p in poses
+                if isinstance(p, dict)
+                and (coupler_type is None or p.get('type') == coupler_type)]
+
+    def _build_coupler_children(self, obj, couplers):
+        """Create visible child markers for the board's coupler planes."""
+        doc = obj.Document
+        for index, pose in enumerate(couplers):
+            coupler_type = pose.get('type', '')
+            ref = pose.get('ref', '?')
+            z = float(pose.get('z', 0))
+
+            marker = doc.addObject(
+                "Part::Feature",
+                f"{obj.Name}_Coupler_{coupler_type}_{ref}_{index}")
+            marker.Label = f"{coupler_type} {ref}"
+            obj.addObject(marker)
+
+            marker.addProperty(
+                "App::PropertyString", "CouplerType", "Coupler",
+                "CouplerFixed or CouplerMoving")
+            marker.addProperty(
+                "App::PropertyString", "Reference", "Coupler",
+                "KiCad reference used to match the coupler")
+            marker.addProperty(
+                "App::PropertyDistance", "Z", "Coupler",
+                "Coupler-plane displacement")
+            marker.addProperty(
+                "App::PropertyAngle", "T", "Coupler",
+                "Coupler-plane tilt around footprint-local X")
+            marker.CouplerType = coupler_type
+            marker.Reference = str(ref)
+            marker.Z = z
+            marker.T = float(pose.get('tilt', 0))
+            for prop in ('CouplerType', 'Reference', 'Z', 'T'):
+                try:
+                    marker.setPropertyStatus(prop, "ReadOnly")
+                except Exception:
+                    pass
+
+            # Match the directional triangle used by the KiCad footprints.
+            # The B.Cu frame supplies the required left/right mirroring while
+            # preserving the triangle's up/down direction after alignment.
+            # Its local Y coordinates must also follow the KiCad-to-FreeCAD
+            # Y-axis inversion used for every board coordinate.
+            points = [
+                FreeCAD.Vector(-1, 1, 0),
+                FreeCAD.Vector(1, 1, 0),
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(-1, 1, 0),
+            ]
+            wire = Part.makePolygon(points)
+            shapes = [Part.Face(wire)]
+            marker.Shape = shapes[0] if len(shapes) == 1 \
+                else Part.makeCompound(shapes)
+            marker.Placement = self._coupler_placement(pose)
+
+            try:
+                marker.ViewObject.Visibility = True
+                marker.ViewObject.LineWidth = 4.0
+                marker.ViewObject.Transparency = 35
+                if coupler_type == COUPLER_FIXED:
+                    marker.ViewObject.LineColor = (1.0, 0.4, 0.1)
+                    marker.ViewObject.ShapeColor = (1.0, 0.4, 0.1)
+                else:
+                    marker.ViewObject.LineColor = (0.1, 0.8, 1.0)
+                    marker.ViewObject.ShapeColor = (0.1, 0.8, 1.0)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _coupler_placement(pose):
+        # ``angle`` is accepted for compatibility with CouplerPoses saved by
+        # older FreekiCAD versions.  Reloading the board stores ``rotation``.
+        rotation = pose.get('rotation', pose.get('angle', 0))
+        placement = FreeCAD.Placement(
+            FreeCAD.Vector(float(pose['x']), float(pose['y']),
+                           float(pose.get('board_z', 0))),
+            FreeCAD.Rotation(
+                FreeCAD.Vector(0, 0, 1), float(rotation)))
+        if pose.get('is_back', False):
+            back_side = FreeCAD.Placement(
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Rotation(FreeCAD.Vector(1, 0, 0), 180))
+            placement = placement.multiply(back_side)
+        z_offset = FreeCAD.Placement(
+            FreeCAD.Vector(0, 0, float(pose.get('z', 0))),
+            FreeCAD.Rotation())
+        placement = placement.multiply(z_offset)
+        tilt = FreeCAD.Placement(
+            FreeCAD.Vector(0, 0, 0),
+            FreeCAD.Rotation(
+                FreeCAD.Vector(1, 0, 0), float(pose.get('tilt', 0))))
+        return placement.multiply(tilt)
+
+    @staticmethod
+    def _coupler_mating_placement():
+        """Flip a coupler frame face-to-face without reversing its Y axis."""
+        return FreeCAD.Placement(
+            FreeCAD.Vector(0, 0, 0),
+            FreeCAD.Rotation(FreeCAD.Vector(0, 1, 0), 180))
+
+    def _snap_moving_object(self, moving_obj, moving_pose,
+                            fixed_obj, fixed_pose):
+        """Rigidly align one moving coupler to a fixed one, face-to-face."""
+        try:
+            moving_local = self._coupler_placement(moving_pose)
+            fixed_local = self._coupler_placement(fixed_pose)
+            target_world = fixed_obj.Placement.multiply(
+                fixed_local).multiply(self._coupler_mating_placement())
+            moving_obj.Placement = target_world.multiply(
+                moving_local.inverse())
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Snapped '{moving_obj.Label}' coupler "
+                f"'{moving_pose.get('ref', '?')}' to "
+                f"'{fixed_obj.Label}' face-to-face\n")
+            return True
+        except Exception as ex:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Could not snap '{moving_obj.Label}' to "
+                f"'{fixed_obj.Label}': {ex}\n")
+            return False
+
+    def _snap_couplers_after_reload(self, obj):
+        """Snap moving couplers after either side of a pair is reloaded."""
+        doc = getattr(obj, 'Document', None)
+        if doc is None:
+            return
+
+        linked = []
+        for candidate in getattr(doc, 'Objects', []):
+            proxy = getattr(candidate, 'Proxy', None)
+            if proxy and getattr(proxy, 'Type', None) == 'LinkedObject':
+                linked.append(candidate)
+
+        fixed_by_ref = {}
+        for fixed_obj in linked:
+            for pose in self._coupler_poses(fixed_obj, COUPLER_FIXED):
+                ref = pose.get('ref')
+                if ref and ref not in fixed_by_ref:
+                    fixed_by_ref[ref] = (fixed_obj, pose)
+
+        # Reloading a fixed board also refreshes every dependent moving board.
+        for moving_obj in linked:
+            if not getattr(moving_obj, 'SnapToCoupler', True):
+                continue
+            for moving_pose in self._coupler_poses(
+                    moving_obj, COUPLER_MOVING):
+                match = fixed_by_ref.get(moving_pose.get('ref'))
+                if match is None or match[0] is moving_obj:
+                    continue
+                self._snap_moving_object(
+                    moving_obj, moving_pose, match[0], match[1])
+                break
 
     def _schedule_rebend(self, obj):
         """Schedule a deferred rebend, coalescing changes from multiple
@@ -9702,13 +9999,23 @@ class LinkedObject:
     # Anything in this group not listed here is obsolete and removed
     # on load by _ensure_properties().
     _KNOWN_PROPERTIES = {
-        "FileName", "AutoReload", "EnableBending",
+        "FileName", "AutoReload", "SnapToCoupler", "EnableBending",
         "BuildDebugObjects", "DebugBoard", "WedgeMode",
-        "ComponentMtimes", "FileMtime",
+        "ComponentMtimes", "FileMtime", "CouplerPoses",
     }
 
     def _ensure_properties(self, obj):
         """Add missing properties and remove obsolete ones (migration)."""
+        if not hasattr(obj, 'SnapToCoupler'):
+            obj.addProperty(
+                "App::PropertyBool", "SnapToCoupler", "LinkedFile",
+                "Align CouplerMoving to a same-reference CouplerFixed on reload")
+            obj.SnapToCoupler = True
+        if not hasattr(obj, 'CouplerPoses'):
+            obj.addProperty(
+                "App::PropertyString", "CouplerPoses", "LinkedFile",
+                "JSON: CouplerMoving/CouplerFixed poses from the linked board")
+            obj.setPropertyStatus("CouplerPoses", "Hidden")
         if not hasattr(obj, 'ComponentMtimes'):
             obj.addProperty(
                 "App::PropertyString", "ComponentMtimes", "LinkedFile",

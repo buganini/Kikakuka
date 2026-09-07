@@ -1,5 +1,6 @@
 import importlib
 import json
+import math
 import sys
 import types
 import unittest
@@ -54,6 +55,75 @@ class _FootprintAttributes:
 class _AttributedFootprint:
     def __init__(self, do_not_populate):
         self.attributes = _FootprintAttributes(do_not_populate)
+
+
+class _LibraryId:
+    def __init__(self, name):
+        self.name = name
+
+
+class _Definition:
+    def __init__(self, name):
+        self.id = _LibraryId(name)
+
+
+class _NamedFootprint:
+    def __init__(self, library_name, value_name="ignored"):
+        self.definition = _Definition(library_name)
+        self.value_field = types.SimpleNamespace(
+            text=types.SimpleNamespace(value=value_name))
+
+
+class _Angle:
+    def __init__(self, degrees):
+        self.degrees = degrees
+
+
+class _CustomField:
+    def __init__(self, name, value):
+        self.name = name
+        self.text = types.SimpleNamespace(
+            text=types.SimpleNamespace(value=value))
+
+
+class _Vector2D:
+    def __init__(self, x=0, y=0, z=0):
+        self.x = x
+        self.y = y
+        self.z = z
+
+
+class _Rotation2D:
+    def __init__(self, axis=None, angle=0):
+        self.axis = axis
+        self.angle = float(angle)
+
+
+class _Placement2D:
+    def __init__(self, vector=None, rotation=None):
+        self.Base = vector or _Vector2D()
+        self.angle = rotation.angle if rotation else 0.0
+        self.axis = rotation.axis if rotation else None
+
+    def multiply(self, other):
+        radians = math.radians(self.angle)
+        x = (self.Base.x + math.cos(radians) * other.Base.x
+             - math.sin(radians) * other.Base.y)
+        y = (self.Base.y + math.sin(radians) * other.Base.x
+             + math.cos(radians) * other.Base.y)
+        return _Placement2D(
+            _Vector2D(x, y, self.Base.z + other.Base.z),
+            _Rotation2D(None, self.angle + other.angle))
+
+    def inverse(self):
+        radians = math.radians(-self.angle)
+        x = -(math.cos(radians) * self.Base.x
+              - math.sin(radians) * self.Base.y)
+        y = -(math.sin(radians) * self.Base.x
+              + math.cos(radians) * self.Base.y)
+        return _Placement2D(
+            _Vector2D(x, y, -self.Base.z),
+            _Rotation2D(None, -self.angle))
 
 
 class OutlineWireOrderTests(unittest.TestCase):
@@ -167,6 +237,184 @@ class OutlineWireOrderTests(unittest.TestCase):
             json.loads(value)["step_importer_revision"],
             linked_object.STEP_IMPORTER_REVISION,
         )
+
+    def test_coupler_type_prefers_library_entry_name(self):
+        linked_object = self._import_linked_object()
+
+        self.assertEqual(
+            linked_object._footprint_coupler_type(
+                _NamedFootprint("CouplerMoving", "renamed value")),
+            "CouplerMoving",
+        )
+        self.assertIsNone(
+            linked_object._footprint_coupler_type(
+                _NamedFootprint("ordinary", "ordinary")))
+
+    def test_coupler_rotation_matches_existing_board_geometry_convention(self):
+        linked_object = self._import_linked_object()
+        footprint = _NamedFootprint("CouplerMoving")
+        footprint.orientation = _Angle(27)
+
+        self.assertEqual(
+            linked_object._coupler_rotation_degrees(footprint), 27)
+
+    def test_coupler_z_reads_custom_field_in_millimetres(self):
+        linked_object = self._import_linked_object()
+        footprint = _NamedFootprint("CouplerMoving")
+        footprint.texts_and_fields = [_CustomField("Z", "2.4 mm")]
+
+        value = linked_object._footprint_field_value(footprint, "Z")
+
+        self.assertEqual(linked_object._parse_coupler_z(value), 2.4)
+        self.assertEqual(linked_object._parse_coupler_z("2.4"), 2.4)
+        self.assertEqual(linked_object._parse_coupler_z("1 in"), 25.4)
+
+    def test_coupler_t_reads_custom_field_in_degrees(self):
+        linked_object = self._import_linked_object()
+        footprint = _NamedFootprint("CouplerMoving")
+        footprint.texts_and_fields = [_CustomField("T", "-12.5 deg")]
+
+        value = linked_object._footprint_field_value(footprint, "T")
+
+        self.assertEqual(linked_object._parse_coupler_t(value), -12.5)
+
+    def test_stored_coupler_poses_are_loaded_from_json(self):
+        linked_object = self._import_linked_object()
+        obj = types.SimpleNamespace(CouplerPoses=json.dumps([
+            {"ref": "mcu", "type": "CouplerFixed", "z": 2.4},
+            {"ref": "other", "type": "CouplerMoving", "z": 0},
+        ]))
+
+        poses = linked_object.LinkedObject._coupler_poses(
+            obj, linked_object.COUPLER_FIXED)
+
+        self.assertEqual(poses, [
+            {"ref": "mcu", "type": "CouplerFixed", "z": 2.4},
+        ])
+
+    def test_coupler_snap_makes_planes_coincide_face_to_face(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        moving = types.SimpleNamespace(
+            Label="moving",
+            Placement=_Placement2D(
+                _Vector2D(100, -20, 3), _Rotation2D(None, 25)))
+        fixed = types.SimpleNamespace(
+            Label="fixed",
+            Placement=_Placement2D(
+                _Vector2D(10, 20, 3), _Rotation2D(None, 30)))
+        moving_pose = {
+            "ref": "J1", "type": "CouplerMoving",
+            "x": -2, "y": 7, "board_z": 1.6,
+            "z": 2.4, "rotation": -40, "is_back": True,
+        }
+        fixed_pose = {
+            "ref": "J1", "type": "CouplerFixed",
+            "x": 4, "y": 5, "board_z": 1.2,
+            "z": 2.4, "rotation": 15,
+        }
+
+        self.assertTrue(proxy._snap_moving_object(
+            moving, moving_pose, fixed, fixed_pose))
+
+        moving_world = moving.Placement.multiply(
+            proxy._coupler_placement(moving_pose))
+        fixed_world = fixed.Placement.multiply(
+            proxy._coupler_placement(fixed_pose))
+        self.assertAlmostEqual(moving_world.Base.x, fixed_world.Base.x)
+        self.assertAlmostEqual(moving_world.Base.y, fixed_world.Base.y)
+        self.assertAlmostEqual(moving_world.Base.z, fixed_world.Base.z)
+        self.assertAlmostEqual(
+            (moving_world.angle - fixed_world.angle) % 360, 180)
+
+    def test_coupler_mating_rotates_around_local_y(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+
+        mating = linked_object.LinkedObject._coupler_mating_placement()
+
+        self.assertEqual(
+            (mating.axis.x, mating.axis.y, mating.axis.z), (0, 1, 0))
+        self.assertEqual(mating.angle, 180)
+
+    def test_coupler_t_uses_positive_footprint_x_direction(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+
+        placement = linked_object.LinkedObject._coupler_placement({
+            "x": 0, "y": 0, "rotation": 30, "tilt": 10,
+        })
+
+        self.assertEqual(placement.angle, 40)
+
+    def test_back_coupler_flips_the_footprint_frame(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+
+        placement = linked_object.LinkedObject._coupler_placement({
+            "x": 0, "y": 0, "rotation": 30, "tilt": 10,
+            "is_back": True,
+        })
+
+        self.assertEqual(placement.angle, 220)
+
+    def test_couplers_are_created_as_visible_group_children(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+        linked_object.Part.makePolygon = lambda points: ("polygon", points)
+        linked_object.Part.Face = lambda wire: ("face", wire)
+        linked_object.Part.makeLine = lambda start, end: ("line", start, end)
+        linked_object.Part.makeCompound = lambda shapes: ("compound", shapes)
+
+        class Marker:
+            def __init__(self, name):
+                self.Name = name
+                self.Label = name
+                self.ViewObject = types.SimpleNamespace()
+
+            def addProperty(self, _property_type, name, _group, _description):
+                setattr(self, name, None)
+
+            def setPropertyStatus(self, _name, _status):
+                pass
+
+        class Document:
+            def addObject(self, _type_name, name):
+                return Marker(name)
+
+        children = []
+        obj = types.SimpleNamespace(
+            Name="Board", Document=Document(), addObject=children.append)
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+
+        proxy._build_coupler_children(obj, [{
+            "ref": "mcu", "type": "CouplerFixed",
+            "x": 10, "y": 20, "board_z": 1.6,
+            "z": 4.5, "rotation": 30, "tilt": 10,
+        }])
+
+        self.assertEqual(len(children), 1)
+        self.assertEqual(children[0].Label, "CouplerFixed mcu")
+        self.assertEqual(children[0].Z, 4.5)
+        self.assertEqual(children[0].Placement.Base.z, 6.1)
+        self.assertTrue(children[0].ViewObject.Visibility)
+        self.assertEqual(children[0].Shape[0], "face")
+        polygon_points = children[0].Shape[1][1]
+        self.assertEqual(polygon_points[0].y, 1)
+        self.assertEqual(polygon_points[2].y, 0)
 
 
 if __name__ == "__main__":
