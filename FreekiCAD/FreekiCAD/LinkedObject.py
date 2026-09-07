@@ -2719,7 +2719,7 @@ class LinkedObject:
             marker.Placement = self._coupler_placement(pose)
 
             try:
-                marker.ViewObject.Visibility = True
+                marker.ViewObject.Visibility = False
                 marker.ViewObject.LineWidth = 4.0
                 marker.ViewObject.Transparency = 35
                 if coupler_type == COUPLER_FIXED:

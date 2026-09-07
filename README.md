@@ -50,7 +50,7 @@ It creates a few more dimensions for KiCad:
     * Components moved in FreeCAD are synced to KiCad in real time
     * Auto or manual in-place PCB reloading
     * Flex PCB bending driven by bend lines and parameters defined in KiCad
-    * Automatic PCB assembly using matching `CouplerFixed` and `CouplerMoving` footprints, with visible coupler plane markers
+    * Automatic PCB assembly using matching `CouplerFixed` and `CouplerMoving` footprints, with coupler plane markers for inspection
     * `kicad-python` is used and the workspace manager handles multiple KiCad instances & API sockets
 
 # Workspace Manager
@@ -169,9 +169,9 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * If no `User.4` text is provided, the bend line still loads and can be configured directly in FreeCAD.
     * Automatic PCB Assembly
         * Place a `CouplerFixed` footprint on the stationary PCB and a `CouplerMoving` footprint on the PCB to be moved. Couplers are matched by their KiCad reference.
-        * On reload, a linked PCB with `SnapToCoupler` enabled (the default) is moved as a whole so that its moving coupler plane meets the matching fixed coupler plane face-to-face. Each coupler is also shown as a visible child object in FreeCAD.
+        * On reload, a linked PCB with `SnapToCoupler` enabled (the default) is moved as a whole so that its moving coupler plane meets the matching fixed coupler plane face-to-face. Each coupler is also available as a child object in FreeCAD; its plane marker is hidden by default and can be shown for inspection.
         * The bundled footprints are [`CouplerFixed`](resources/kikakuka.pretty/CouplerFixed.kicad_mod) and [`CouplerMoving`](resources/kikakuka.pretty/CouplerMoving.kicad_mod) in `resources/kikakuka.pretty`.
-        * See [`samples/assembly.FCStd`](samples/assembly.FCStd) for an assembled example using [`assembly-power.kicad_pcb`](samples/assembly-power.kicad_pcb), [`assembly-mcu.kicad_pcb`](samples/assembly-mcu.kicad_pcb), [`assembly-led.kicad_pcb`](samples/assembly-led.kicad_pcb), and [`assembly-mezzanine.kicad_pcb`](samples/assembly-mezzanine.kicad_pcb).
+        * Assembly example boards: [`assembly-power.kicad_pcb`](samples/assembly-power.kicad_pcb), [`assembly-mcu.kicad_pcb`](samples/assembly-mcu.kicad_pcb), [`assembly-led.kicad_pcb`](samples/assembly-led.kicad_pcb), and [`assembly-mezzanine.kicad_pcb`](samples/assembly-mezzanine.kicad_pcb).
         * The coupler plane is defined by the footprint position, side, rotation, and these custom footprint properties:
             * `Z` moves the plane origin along the footprint's local Z axis. It defaults to `0 mm`; values without a unit are millimetres, and `mm` and `in` are supported. The origin starts at the PCB surface, including the board thickness on F.Cu. The local Z direction is reversed on B.Cu.
             * `T` tilts the plane around the footprint's local X axis. It is specified in degrees and defaults to `0`.
