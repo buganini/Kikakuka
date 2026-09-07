@@ -139,6 +139,54 @@ class OutlineWireOrderTests(unittest.TestCase):
             sys.modules.pop(module_name, None)
             return importlib.import_module(module_name)
 
+    def test_linked_filename_resolves_relative_to_saved_fcstd(self):
+        linked_object = self._import_linked_object()
+        obj = types.SimpleNamespace(
+            FileName="boards/power.kicad_pcb",
+            Document=types.SimpleNamespace(FileName="/project/assembly.FCStd"),
+        )
+
+        self.assertEqual(
+            linked_object._resolved_linked_filename(obj),
+            "/project/boards/power.kicad_pcb",
+        )
+
+    def test_linked_filename_becomes_relative_for_document_descendant(self):
+        linked_object = self._import_linked_object()
+        obj = types.SimpleNamespace(
+            FileName="/project/boards/power.kicad_pcb",
+            Document=types.SimpleNamespace(FileName="/project/assembly.FCStd"),
+        )
+
+        self.assertEqual(
+            linked_object._portable_linked_filename(obj, obj.FileName),
+            "boards/power.kicad_pcb",
+        )
+
+    def test_linked_filename_stays_absolute_outside_document_directory(self):
+        linked_object = self._import_linked_object()
+        obj = types.SimpleNamespace(
+            FileName="/boards/power.kicad_pcb",
+            Document=types.SimpleNamespace(FileName="/project/assembly.FCStd"),
+        )
+
+        self.assertEqual(
+            linked_object._portable_linked_filename(obj, obj.FileName),
+            "/boards/power.kicad_pcb",
+        )
+
+    def test_unsaved_document_does_not_make_linked_filename_relative(self):
+        linked_object = self._import_linked_object()
+        obj = types.SimpleNamespace(
+            FileName="/project/boards/power.kicad_pcb",
+            Document=types.SimpleNamespace(FileName=""),
+        )
+
+        self.assertEqual(
+            linked_object._portable_linked_filename(obj, obj.FileName),
+            "/project/boards/power.kicad_pcb",
+        )
+
     def test_largest_profile_is_selected_before_hole(self):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_part = types.ModuleType("Part")

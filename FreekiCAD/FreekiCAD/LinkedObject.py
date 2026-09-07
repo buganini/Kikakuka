@@ -59,6 +59,41 @@ def _vec(x_nm, y_nm, z=0):
     return FreeCAD.Vector(x_nm / 1e6, -y_nm / 1e6, z)
 
 
+def _resolved_linked_filename(obj):
+    """Return FileName as an absolute path."""
+    filename = str(getattr(obj, 'FileName', '') or '')
+    if not filename:
+        return ''
+    filename = os.path.expanduser(filename)
+    if os.path.isabs(filename):
+        return os.path.normpath(filename)
+
+    document = getattr(obj, 'Document', None)
+    document_filename = str(getattr(document, 'FileName', '') or '')
+    if document_filename:
+        document_dir = os.path.dirname(os.path.abspath(document_filename))
+        return os.path.normpath(os.path.join(document_dir, filename))
+    return os.path.abspath(filename)
+
+
+def _portable_linked_filename(obj, resolved_filename):
+    """Use a document-relative path when it cannot escape via ``..``."""
+    document = getattr(obj, 'Document', None)
+    document_filename = str(getattr(document, 'FileName', '') or '')
+    if not document_filename or not resolved_filename:
+        return resolved_filename
+
+    document_dir = os.path.dirname(os.path.abspath(document_filename))
+    target = os.path.abspath(resolved_filename)
+    try:
+        if os.path.commonpath((document_dir, target)) != document_dir:
+            return target
+    except ValueError:
+        # Different drives on Windows cannot share a relative path.
+        return target
+    return os.path.relpath(target, document_dir)
+
+
 def _footprint_coupler_type(footprint):
     """Return the custom coupler footprint type, or None.
 
@@ -1863,7 +1898,7 @@ class _OutlineSketchObserver:
             new_kicad_angle = float(obj.Rotation) + delta_yaw
 
             from FreekiCAD.workspace_bus import send_request
-            send_request("move-component", parent.FileName,
+            send_request("move-component", _resolved_linked_filename(parent),
                          object_label=parent.Label, component=ref)
             # Stash computed coordinates on the proxy for the response
             # handler to use.
@@ -2034,6 +2069,8 @@ class LinkedObject:
         if prop not in ("FileName",):
             return
         if prop == "FileName":
+            if getattr(self, '_updating_filename', False):
+                return
             # Skip during document restore — shapes are already saved
             if obj.Document.Restoring:
                 return
@@ -2160,7 +2197,7 @@ class LinkedObject:
         _t_load = _time.time()
         board_solid, footprints_data, board_color, outline_edges, \
             thickness, bend_lines, board_face, couplers_data = \
-            load_board(obj.FileName, socket_path)
+            load_board(_resolved_linked_filename(obj), socket_path)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] load_board: "
             f"{_time.time() - _t_load:.3f}s\n")
@@ -2209,7 +2246,7 @@ class LinkedObject:
 
         # Record file modification time
         try:
-            mt = os.path.getmtime(obj.FileName)
+            mt = os.path.getmtime(_resolved_linked_filename(obj))
             if hasattr(obj, 'FileMtime'):
                 obj.FileMtime = str(mt)
         except OSError:
@@ -9578,7 +9615,7 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Outline sketch opened for '{obj.Name}'\n")
         from FreekiCAD.workspace_bus import send_request
-        send_request("open-sketch", obj.FileName,
+        send_request("open-sketch", _resolved_linked_filename(obj),
                      object_label=obj.Label)
 
     def _handle_open_sketch_response(self, obj, socket_path):
@@ -9815,7 +9852,7 @@ class LinkedObject:
         if not obj.FileName:
             return False
         try:
-            mtime = os.path.getmtime(obj.FileName)
+            mtime = os.path.getmtime(_resolved_linked_filename(obj))
         except OSError:
             return False
         stored = ""
@@ -9852,12 +9889,14 @@ class LinkedObject:
         self._reloading = True
         self._ensure_properties(obj)
         from FreekiCAD.workspace_bus import send_request
-        send_request("reload", obj.FileName, object_label=obj.Label)
+        send_request("reload", _resolved_linked_filename(obj),
+                     object_label=obj.Label)
 
     def _handle_reload_response(self, obj, socket_path):
         """Called when the workspace bus responds to a reload request."""
         import time as _time
         _t0_reload = _time.time()
+        resolved_filename = _resolved_linked_filename(obj)
         outline_name = obj.Name + "_Outline"
         self._suspend_component_move_sync(obj)
         if _sketch_observer is not None:
@@ -9877,6 +9916,14 @@ class LinkedObject:
             self._do_execute(obj, socket_path,
                              existing_components=existing_comps,
                              existing_bends=existing_bends)
+            portable_filename = _portable_linked_filename(
+                obj, resolved_filename)
+            if portable_filename != obj.FileName:
+                self._updating_filename = True
+                try:
+                    obj.FileName = portable_filename
+                finally:
+                    self._updating_filename = False
         finally:
             self._in_execute = False
             self._suppress_execute = False
@@ -9951,7 +9998,7 @@ class LinkedObject:
             # Update stored mtime so auto-reload doesn't trigger a
             # redundant full reload after we just pushed this change.
             try:
-                mt = os.path.getmtime(obj.FileName)
+                mt = os.path.getmtime(_resolved_linked_filename(obj))
                 if hasattr(obj, 'FileMtime'):
                     obj.FileMtime = str(mt)
             except OSError:
