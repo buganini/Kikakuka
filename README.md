@@ -8,7 +8,7 @@ It creates a few more dimensions for KiCad:
 * Revisions
 * Build Variants
 * Panelization
-* FreeCAD integration
+* FreeCAD integration for PCB Bending & Assembly
 
 # Features
 * Workspace Manager
