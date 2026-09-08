@@ -66,6 +66,8 @@ The `.kkkk` file saves workspace information in JSON format.
 * A diff sample of [cynthion-hardware](https://github.com/greatscottgadgets/cynthion-hardware)
 
 # Build Variants
+Example: [`samples/build_variant.kikit_pnl`](samples/build_variant.kikit_pnl) and [`samples/build_variant.kicad_pcb`](samples/build_variant.kicad_pcb).
+
 Set `BUILDEXPR` in footprints' properties. This can be done quickly with `Symbol Fields Table` using the current sheet only scope. Remember to sync them to PCB afterward.
 
 ![BUILDEXPR-Prop](screenshots/buildexpr-prop.png)
@@ -187,6 +189,14 @@ Manual bending checks are currently done with these sample boards:
 ![FreekiCAD-FPC](screenshots/freekicad_fpc.png)
 
 For the implementation details of the bending pipeline, see [`FreekiCAD/ARCHITECTURE.md`](FreekiCAD/ARCHITECTURE.md).
+
+# Kikakuka Footprints
+Kikakuka includes a KiCad footprint library in [`resources/kikakuka.pretty`](resources/kikakuka.pretty). Add that directory to KiCad's footprint library table (for example, as `kikakuka`) before placing these footprints:
+
+* [`Variable`](resources/kikakuka.pretty/Variable.kicad_mod) displays its `Value` on the board. Use build-variant fields such as `Value#Flag` or `Value#Option=Choice` to show a value selected by the active build flags or options.
+* [`StringTemplate`](resources/kikakuka.pretty/StringTemplate.kicad_mod) formats its `Value` during export. Braced placeholders such as `{Revision}` are replaced with matching footprint properties or build options after build-variant fields have been applied.
+* [`CouplerFixed`](resources/kikakuka.pretty/CouplerFixed.kicad_mod) and [`CouplerMoving`](resources/kikakuka.pretty/CouplerMoving.kicad_mod) define matching planes for [coupler-based PCB alignment](#freecad-integration). Give a pair the same reference; use the `Z` and `Tilt` properties when the mating plane is offset or tilted from the PCB surface.
+* [`Footprint`](resources/kikakuka.pretty/Footprint.kicad_mod) is an internal, graphics-free placeholder used when Kikakuka converts an attached BOM/CPL into reference-only footprints. It normally does not need to be placed manually.
 
 # Run from source (Linux/macOS)
 Make sure your python can import `pcbnew`
