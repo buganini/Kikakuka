@@ -5,6 +5,11 @@
         * Separate KiCad copper collection from FreeCAD geometry construction for unit testing
         * Control outer and inner copper independently with `ImportOuterCopper` and `ImportInnerCopper`, both off by default
         * Split copper into bend pieces face-by-face instead of applying one boolean to an entire layer compound
+    * Optionally import translucent `F.Mask` and `B.Mask` display layers with KiCad-computed pad/via openings
+        * Use the configured dielectric color for the translucent board body, falling back to white
+        * Preserve the original board color and opacity when `ImportSolderMask` is disabled
+        * Filter pads and vias by their declared mask layers to prevent opposite-side openings from mixing
+        * Deform solder mask with the same rigid-piece and curved-wedge mapping as copper
     * Add automatic PCB-to-PCB alignment using matching `CouplerFixed` and `CouplerMoving` footprints
         * Support coupler Z offsets and tilt angles
         * Expose couplers as child objects with plane markers hidden by default

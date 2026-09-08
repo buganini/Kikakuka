@@ -1049,11 +1049,12 @@ def _get_board_color(board, filepath):
 
 
 def load_board(filepath, socket_path, import_outer_copper=False,
-               import_inner_copper=False):
+               import_inner_copper=False, import_solder_mask=False):
     """Connect to a running KiCad instance via kipy and build the board
     solid + footprint metadata.
     Returns (board_shape, footprints_data, color, outline_edges, thickness,
-    bend_lines, board_face, couplers_data, copper_layers) where
+    bend_lines, board_face, couplers_data, copper_layers, mask_layers,
+    body_transparency) where
     footprints_data is a list of dicts with ref/position/models info,
     couplers_data contains the custom CouplerMoving/CouplerFixed poses, and
     copper_layers contains one display shape per imported stackup layer."""
@@ -1591,19 +1592,18 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                 bend_lines = [bl for k, bl in enumerate(bend_lines)
                               if k not in skip]
 
+        def _surface_warning(message):
+            FreeCAD.Console.PrintWarning(f"FreekiCAD: {message}\n")
+
         copper_layers = []
         if ((import_outer_copper or import_inner_copper)
                 and stackup is not None):
             try:
                 from .Copper import build_copper_layers
 
-                def _copper_warning(message):
-                    FreeCAD.Console.PrintWarning(
-                        f"FreekiCAD: {message}\n")
-
                 copper_layers = build_copper_layers(
                     board, stackup, BoardLayer,
-                    board_shapes=all_shapes, warn=_copper_warning,
+                    board_shapes=all_shapes, warn=_surface_warning,
                     include_outer=import_outer_copper,
                     include_inner=import_inner_copper)
                 for layer in copper_layers:
@@ -1623,9 +1623,39 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                 FreeCAD.Console.PrintWarning(
                     f"FreekiCAD: {traceback.format_exc()}\n")
 
+        mask_layers = []
+        body_transparency = 0
+        if import_solder_mask and stackup is not None and board_face is not None:
+            try:
+                from .Mask import (
+                    DEFAULT_SUBSTRATE_TRANSPARENCY,
+                    build_solder_mask_layers,
+                    substrate_color,
+                )
+                board_color = substrate_color(stackup)
+                body_transparency = DEFAULT_SUBSTRATE_TRANSPARENCY
+                mask_layers = build_solder_mask_layers(
+                    board, stackup, BoardLayer, board_face,
+                    board_shapes=all_shapes, warn=_surface_warning)
+                for layer in mask_layers:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: Solder mask {layer['name']}: "
+                        f"pads={layer.get('pad_count', 0)}, "
+                        f"vias={layer.get('via_count', 0)}, "
+                        f"openings={layer['opening_count']}, "
+                        f"faces={layer['face_count']}, "
+                        f"area={layer['area']:.3f}mm^2, "
+                        f"z={layer['z']:.3f}mm\n")
+            except Exception as ex:
+                import traceback
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: Could not build solder mask: {ex}\n")
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: {traceback.format_exc()}\n")
+
         return (board_solid, footprints_data, board_color, outline_edges,
                 thickness, bend_lines, board_face, couplers_data,
-                copper_layers)
+                copper_layers, mask_layers, body_transparency)
 
     except Exception as e:
         import traceback
@@ -2073,6 +2103,11 @@ class LinkedObject:
         )
         obj.ImportInnerCopper = False
         obj.addProperty(
+            "App::PropertyBool", "ImportSolderMask", "LinkedFile",
+            "Import F.Mask and B.Mask as translucent display layers"
+        )
+        obj.ImportSolderMask = False
+        obj.addProperty(
             "App::PropertyBool", "BuildDebugObjects", "LinkedFile",
             "Build debug arrows and cut lines"
         )
@@ -2115,7 +2150,8 @@ class LinkedObject:
             if not obj.Document.Restoring:
                 self._schedule_rebend(obj)
             return
-        if prop in ("ImportOuterCopper", "ImportInnerCopper"):
+        if prop in ("ImportOuterCopper", "ImportInnerCopper",
+                    "ImportSolderMask"):
             if not obj.Document.Restoring and hasattr(obj, 'FileMtime'):
                 obj.FileMtime = ""
             return
@@ -2212,6 +2248,7 @@ class LinkedObject:
             if child.Name.endswith("_Outline") \
                     or child.Name.endswith("_Board") \
                     or hasattr(child, 'CopperLayer') \
+                    or hasattr(child, 'MaskLayer') \
                     or hasattr(child, 'CouplerType'):
                 try:
                     doc.removeObject(child.Name)
@@ -2257,12 +2294,14 @@ class LinkedObject:
         _t_load = _time.time()
         board_solid, footprints_data, board_color, outline_edges, \
             thickness, bend_lines, board_face, couplers_data, \
-            copper_layers = load_board(
+            copper_layers, mask_layers, body_transparency = load_board(
                 _resolved_linked_filename(obj), socket_path,
                 import_outer_copper=getattr(
                     obj, 'ImportOuterCopper', False),
                 import_inner_copper=getattr(
-                    obj, 'ImportInnerCopper', False))
+                    obj, 'ImportInnerCopper', False),
+                import_solder_mask=getattr(
+                    obj, 'ImportSolderMask', False))
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] load_board: "
             f"{_time.time() - _t_load:.3f}s\n")
@@ -2283,7 +2322,8 @@ class LinkedObject:
                                    board_color, outline_edges, thickness,
                                    bend_lines, existing_components,
                                    existing_bends,
-                                   board_face, couplers_data, copper_layers)
+                                   board_face, couplers_data, copper_layers,
+                                   mask_layers, body_transparency)
         finally:
             if _mw is not None:
                 _mw.setUpdatesEnabled(True)
@@ -2297,7 +2337,8 @@ class LinkedObject:
                           bend_lines, existing_components,
                           existing_bends,
                           board_face=None, couplers_data=None,
-                          copper_layers=None):
+                          copper_layers=None, mask_layers=None,
+                          body_transparency=0):
         import json
         import time as _time
         _t0_body = _time.time()
@@ -2334,8 +2375,11 @@ class LinkedObject:
             if board_color:
                 try:
                     board_obj.ViewObject.ShapeColor = board_color
+                    board_obj.ViewObject.Transparency = int(
+                        body_transparency or 0)
                     FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: Applied board color {board_color}\n"
+                        f"FreekiCAD: Applied board color {board_color}, "
+                        f"transparency={int(body_transparency or 0)}\n"
                     )
                 except Exception:
                     pass
@@ -2369,6 +2413,36 @@ class LinkedObject:
             except Exception:
                 pass
             obj.addObject(copper_obj)
+
+        # Solder mask is also zero-thickness display geometry.  It sits one
+        # additional display gap outside copper and does not affect stackup Z.
+        self._unbent_mask_shapes = {}
+        for layer_data in mask_layers or []:
+            safe_name = layer_data['name'].replace('.', '_')
+            mask_obj = doc.addObject(
+                "Part::Feature", obj.Name + "_Mask_" + safe_name)
+            mask_obj.Label = layer_data['name']
+            mask_obj.addProperty(
+                "App::PropertyString", "MaskLayer", "KiCad",
+                "KiCad solder-mask layer name")
+            mask_obj.MaskLayer = layer_data['name']
+            mask_obj.setPropertyStatus("MaskLayer", "ReadOnly")
+            mask_obj.addProperty(
+                "App::PropertyLength", "MaskThickness", "KiCad",
+                "Physical mask thickness from the KiCad stackup")
+            mask_obj.MaskThickness = layer_data['thickness']
+            mask_obj.setPropertyStatus("MaskThickness", "ReadOnly")
+            mask_obj.Shape = layer_data['shape']
+            self._unbent_mask_shapes[mask_obj.Name] = \
+                layer_data['shape'].copy()
+            try:
+                from .Mask import DEFAULT_MASK_TRANSPARENCY
+                mask_obj.ViewObject.ShapeColor = layer_data['color']
+                mask_obj.ViewObject.LineColor = layer_data['color']
+                mask_obj.ViewObject.Transparency = DEFAULT_MASK_TRANSPARENCY
+            except Exception:
+                pass
+            obj.addObject(mask_obj)
 
         # Add / update bend line children
         if existing_bends is None:
@@ -2647,12 +2721,14 @@ class LinkedObject:
                     match = re.match(r'In(\d+)\.Cu$', layer_name)
                     layer_order = int(match.group(1)) if match else 999
                 return (2, layer_order)
+            if hasattr(c, 'MaskLayer'):
+                return (3, 0 if str(c.MaskLayer) == 'F.Mask' else 1)
             if getattr(getattr(c, 'Proxy', None),
                        'Type', None) == 'BendLine':
-                return (3, c.Label)
-            if hasattr(c, 'CouplerType'):
                 return (4, c.Label)
-            return (5, c.Label)
+            if hasattr(c, 'CouplerType'):
+                return (5, c.Label)
+            return (6, c.Label)
         obj.Group = sorted(obj.Group, key=_child_sort_key)
 
         # Store unbent placements for bend lines and components.
@@ -3052,10 +3128,13 @@ class LinkedObject:
             if board_obj and hasattr(self, '_unbent_board_shape'):
                 board_obj.Shape = self._unbent_board_shape.copy()
             for child in obj.Group:
-                copper_shape = getattr(
+                display_shape = getattr(
                     self, '_unbent_copper_shapes', {}).get(child.Name)
-                if copper_shape is not None:
-                    child.Shape = copper_shape.copy()
+                if display_shape is None:
+                    display_shape = getattr(
+                        self, '_unbent_mask_shapes', {}).get(child.Name)
+                if display_shape is not None:
+                    child.Shape = display_shape.copy()
 
             # Restore unbent placements for bend lines and components.
             if not hasattr(self, '_unbent_placements'):
@@ -8535,14 +8614,23 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Correction + assembly: "
             f"{_time.time() - _t_loft:.3f}s\n")
-        # Deform copper with the same piece topology as the board.  Rigid
-        # regions use piece_plc.  Copper inside a wedge is rebuilt from bent
-        # boundary curves using the exact mapping used by the board wedge.
-        copper_objects = [
-            child for child in obj.Group if hasattr(child, 'CopperLayer')]
-        for copper_obj in copper_objects:
-            source = getattr(self, '_unbent_copper_shapes', {}).get(
-                copper_obj.Name)
+        # Deform copper and solder mask with the same piece topology as the
+        # board.  Rigid regions use piece_plc.  Display faces inside a wedge
+        # are rebuilt from bent boundary curves using the board mapping.
+        surface_objects = [
+            child for child in obj.Group
+            if hasattr(child, 'CopperLayer') or hasattr(child, 'MaskLayer')]
+        for surface_obj in surface_objects:
+            is_copper = hasattr(surface_obj, 'CopperLayer')
+            layer_name = str(
+                surface_obj.CopperLayer if is_copper
+                else surface_obj.MaskLayer)
+            source_shapes = getattr(
+                self,
+                '_unbent_copper_shapes' if is_copper
+                else '_unbent_mask_shapes',
+                {})
+            source = source_shapes.get(surface_obj.Name)
             if source is None:
                 continue
             try:
@@ -8637,16 +8725,16 @@ class LinkedObject:
                     except Exception as ex:
                         FreeCAD.Console.PrintWarning(
                             f"FreekiCAD: Could not bend "
-                            f"{copper_obj.CopperLayer} face "
+                            f"{layer_name} face "
                             f"{source_face_index} on wedge p{pi}: {ex}\n")
             if fragments:
-                copper_obj.Shape = Part.makeCompound(fragments)
+                surface_obj.Shape = Part.makeCompound(fragments)
             FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Bent copper layer {copper_obj.CopperLayer}: "
+                f"FreekiCAD: Bent display layer {layer_name}: "
                 f"source_faces={len(source_faces)}, "
                 f"fragments={len(fragments)}, "
-                f"faces={len(getattr(copper_obj.Shape, 'Faces', []))}, "
-                f"area={float(getattr(copper_obj.Shape, 'Area', 0.0)):.3f}"
+                f"faces={len(getattr(surface_obj.Shape, 'Faces', []))}, "
+                f"area={float(getattr(surface_obj.Shape, 'Area', 0.0)):.3f}"
                 f"mm^2\n")
 
         # Update board shape with all pieces (including bent wedges)
@@ -10373,7 +10461,7 @@ class LinkedObject:
     # on load by _ensure_properties().
     _KNOWN_PROPERTIES = {
         "FileName", "AutoReload", "SnapToCoupler", "EnableBending",
-        "ImportOuterCopper", "ImportInnerCopper",
+        "ImportOuterCopper", "ImportInnerCopper", "ImportSolderMask",
         "BuildDebugObjects", "DebugBoard", "WedgeMode",
         "ComponentMtimes", "FileMtime", "CouplerPoses",
     }
@@ -10390,6 +10478,11 @@ class LinkedObject:
                 "App::PropertyBool", "ImportInnerCopper", "LinkedFile",
                 "Import enabled inner copper layers")
             obj.ImportInnerCopper = False
+        if not hasattr(obj, 'ImportSolderMask'):
+            obj.addProperty(
+                "App::PropertyBool", "ImportSolderMask", "LinkedFile",
+                "Import F.Mask and B.Mask as translucent display layers")
+            obj.ImportSolderMask = False
         if not hasattr(obj, 'SnapToCoupler'):
             obj.addProperty(
                 "App::PropertyBool", "SnapToCoupler", "LinkedFile",

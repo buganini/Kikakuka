@@ -31,6 +31,21 @@ around a common center of curvature while retaining its stackup Z, outer-side
 copper follows a longer radius and inner-side copper follows a shorter radius.
 This visualizes extension/compression but is not a material or FEA simulation.
 
+## Solder Mask Layers
+
+`Mask.py` asks KiCad for the final pad/via polygons on `F.Mask` and `B.Mask`,
+adds mask-layer graphical openings, and subtracts those openings from the board
+face. Pads and vias are filtered by `padstack.layers` before each polygon query
+so items from the opposite technical layer cannot be mixed into the result.
+The resulting translucent faces sit 20 um outside the corresponding
+outer-copper display faces. They are zero-thickness display geometry; physical
+mask thickness is retained only in each child's `MaskThickness` property.
+
+When `ImportSolderMask` is enabled, the board body becomes translucent and uses
+the first configured dielectric stackup color, falling back to translucent
+white. When it is disabled, the legacy opaque body color is left unchanged.
+Mask faces use the same rigid-piece and wedge mapping as copper during bending.
+
 ---
 
 ## Constants

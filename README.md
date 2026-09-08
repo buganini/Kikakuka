@@ -165,7 +165,10 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * `ImportOuterCopper` independently controls `F.Cu` and `B.Cu`; `ImportInnerCopper` controls `In*.Cu`. Both default to off.
         * Inner layers use their physical stackup Z and are normally hidden by the board body; hide the board or make it transparent to inspect them.
         * Copper is display geometry and does not add to component Z. The board thickness already includes the complete KiCad stackup.
-        * Solder mask remains the board body's stackup color; mask openings are not yet imported as separate geometry.
+    * Inspect Solder Mask
+        * `ImportSolderMask` imports translucent `F.Mask` and `B.Mask` child objects, with pad/via openings computed by KiCad plus explicit mask-layer graphics. It defaults to off.
+        * With mask import enabled, the board body uses the first configured dielectric stackup color or translucent white when no color is available. With it disabled, the original opaque board color is preserved.
+        * Mask and copper are zero-thickness display geometry. Copper is placed 20 um outside the board and mask another 20 um outside copper; their physical thicknesses remain metadata only.
     * [Coupler-Based PCB Alignment](#coupler-based-pcb-alignment)
         * Place a `CouplerFixed` footprint on the reference PCB and a `CouplerMoving` footprint on the PCB to be aligned. Couplers are matched by their KiCad reference.
         * On reload, a linked PCB with `SnapToCoupler` enabled (the default) is moved as a whole so that its moving coupler plane meets the matching fixed coupler plane face-to-face. Alignment uses each plane's position after flex-PCB bending. Each coupler is also available as a child object in FreeCAD; its plane marker is hidden by default and can be shown for inspection.
@@ -184,7 +187,7 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
             * `s` is bend spanning in mm and is used to derive `r` when `r` is omitted, using the board thickness from stackup.
         * After loading the board in FreeCAD, each bend line appears as a child object with `Angle`, `Radius`, and `Active` properties.
         * The linked PCB object also has an `EnableBending` property to toggle the deformation on or off.
-        * Imported copper is cut with the same board pieces. Rigid copper follows each piece, while copper in a bend band is rebuilt with the wedge's curved point mapping.
+        * Imported copper and solder mask are cut with the same board pieces. Rigid display faces follow each piece, while faces in a bend band are rebuilt with the wedge's curved point mapping.
         * If no `User.4` text is provided, the bend line still loads and can be configured directly in FreeCAD.
 
 ## Coupler-Based PCB Alignment

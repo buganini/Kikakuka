@@ -170,6 +170,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertFalse(hasattr(obj, "ImportCopper"))
         self.assertIs(obj.ImportOuterCopper, False)
         self.assertIs(obj.ImportInnerCopper, False)
+        self.assertIs(obj.ImportSolderMask, False)
 
     def test_linked_filename_becomes_relative_for_document_descendant(self):
         linked_object = self._import_linked_object()
