@@ -174,8 +174,8 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * Alignment example boards: [`assembly-power.kicad_pcb`](samples/assembly-power.kicad_pcb), [`assembly-mcu.kicad_pcb`](samples/assembly-mcu.kicad_pcb), [`assembly-led.kicad_pcb`](samples/assembly-led.kicad_pcb), and [`assembly-mezzanine.kicad_pcb`](samples/assembly-mezzanine.kicad_pcb).
         * The coupler plane is defined by the footprint position, side, rotation, and these custom footprint properties:
             * `Z` moves the plane origin along the footprint's local Z axis. It defaults to `0 mm`; values without a unit are millimetres, and `mm` and `in` are supported. The origin starts at the PCB surface, including the board thickness on F.Cu. The local Z direction is reversed on B.Cu.
-            * `T` tilts the plane around the footprint's local X axis. It is specified in degrees and defaults to `0`.
-        * `Z` and `T` are independent: `T` rotates the plane around its Z-offset origin and does not change that origin's position. The footprint's normal KiCad rotation supplies the rotation around its local Z axis.
+            * `Tilt` tilts the plane around the footprint's local X axis. It is specified in degrees and defaults to `0`.
+        * `Z` and `Tilt` are independent: `Tilt` rotates the plane around its Z-offset origin and does not change that origin's position. The footprint's normal KiCad rotation supplies the rotation around its local Z axis.
 
 ## Bending Samples
 Manual bending checks are currently done with these sample boards:

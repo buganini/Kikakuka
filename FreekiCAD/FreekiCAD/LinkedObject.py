@@ -162,7 +162,7 @@ def _parse_coupler_z(value):
     return result
 
 
-def _parse_coupler_t(value):
+def _parse_coupler_tilt(value):
     """Parse the coupler-plane tilt around footprint-local X in degrees."""
     if value is None:
         return 0.0
@@ -170,7 +170,7 @@ def _parse_coupler_t(value):
         r'\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:\s*(?:deg|°))?\s*',
         str(value), re.IGNORECASE)
     if match is None:
-        raise ValueError(f"invalid T value {value!r}; expected degrees")
+        raise ValueError(f"invalid Tilt value {value!r}; expected degrees")
     return float(match.group(1))
 
 
@@ -1404,15 +1404,15 @@ def load_board(filepath, socket_path):
                         'is_back': fp.layer == BoardLayer.BL_B_Cu,
                         'z': _parse_coupler_z(
                             _footprint_field_value(fp, 'Z', 0)),
-                        'tilt': _parse_coupler_t(
-                            _footprint_field_value(fp, 'T', 0)),
+                        'tilt': _parse_coupler_tilt(
+                            _footprint_field_value(fp, 'Tilt', 0)),
                         'rotation': coupler_rotation,
                     })
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD:   {ref}: found {coupler_type} "
                         f"surfaceZ={couplers_data[-1]['board_z']:.4g}mm "
                         f"Z={couplers_data[-1]['z']:.4g}mm "
-                        f"T={couplers_data[-1]['tilt']:.4g}deg\n")
+                        f"Tilt={couplers_data[-1]['tilt']:.4g}deg\n")
                 except Exception as ex:
                     FreeCAD.Console.PrintWarning(
                         f"FreekiCAD:   {ref}: invalid coupler pose: {ex}\n")
@@ -2689,13 +2689,13 @@ class LinkedObject:
                 "App::PropertyDistance", "Z", "Coupler",
                 "Coupler-plane displacement")
             marker.addProperty(
-                "App::PropertyAngle", "T", "Coupler",
+                "App::PropertyAngle", "Tilt", "Coupler",
                 "Coupler-plane tilt around footprint-local X")
             marker.CouplerType = coupler_type
             marker.Reference = str(ref)
             marker.Z = z
-            marker.T = float(pose.get('tilt', 0))
-            for prop in ('CouplerType', 'Reference', 'Z', 'T'):
+            marker.Tilt = float(pose.get('tilt', 0))
+            for prop in ('CouplerType', 'Reference', 'Z', 'Tilt'):
                 try:
                     marker.setPropertyStatus(prop, "ReadOnly")
                 except Exception:

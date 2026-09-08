@@ -452,7 +452,7 @@
 				(justify mirror)
 			)
 		)
-		(property "T" "0"
+		(property "Tilt" "0"
 			(at 0 0 0)
 			(unlocked yes)
 			(layer "B.Fab")

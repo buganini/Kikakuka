@@ -317,14 +317,14 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(linked_object._parse_coupler_z("2.4"), 2.4)
         self.assertEqual(linked_object._parse_coupler_z("1 in"), 25.4)
 
-    def test_coupler_t_reads_custom_field_in_degrees(self):
+    def test_coupler_tilt_reads_custom_field_in_degrees(self):
         linked_object = self._import_linked_object()
         footprint = _NamedFootprint("CouplerMoving")
-        footprint.texts_and_fields = [_CustomField("T", "-12.5 deg")]
+        footprint.texts_and_fields = [_CustomField("Tilt", "-12.5 deg")]
 
-        value = linked_object._footprint_field_value(footprint, "T")
+        value = linked_object._footprint_field_value(footprint, "Tilt")
 
-        self.assertEqual(linked_object._parse_coupler_t(value), -12.5)
+        self.assertEqual(linked_object._parse_coupler_tilt(value), -12.5)
 
     def test_stored_coupler_poses_are_loaded_from_json(self):
         linked_object = self._import_linked_object()
@@ -525,6 +525,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(len(children), 1)
         self.assertEqual(children[0].Label, "CouplerFixed mcu")
         self.assertEqual(children[0].Z, 4.5)
+        self.assertEqual(children[0].Tilt, 10)
         self.assertEqual(children[0].Placement.Base.z, 6.1)
         self.assertFalse(children[0].ViewObject.Visibility)
         self.assertEqual(children[0].Shape[0], "face")
