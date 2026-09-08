@@ -151,6 +151,26 @@ class OutlineWireOrderTests(unittest.TestCase):
             "/project/boards/power.kicad_pcb",
         )
 
+    def test_new_linked_object_does_not_import_copper_by_default(self):
+        linked_object = self._import_linked_object()
+
+        class FakeObject:
+            def addExtension(self, _extension):
+                pass
+
+            def addProperty(self, _kind, name, _group, _description):
+                setattr(self, name, None)
+
+            def setPropertyStatus(self, _name, _status):
+                pass
+
+        obj = FakeObject()
+        linked_object.LinkedObject(obj)
+
+        self.assertFalse(hasattr(obj, "ImportCopper"))
+        self.assertIs(obj.ImportOuterCopper, False)
+        self.assertIs(obj.ImportInnerCopper, False)
+
     def test_linked_filename_becomes_relative_for_document_descendant(self):
         linked_object = self._import_linked_object()
         obj = types.SimpleNamespace(

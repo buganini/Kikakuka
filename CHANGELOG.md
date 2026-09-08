@@ -1,5 +1,10 @@
 # Next:
 * FreekiCAD
+    * Import all enabled outer and inner copper layers and deform them with flex PCB bends
+        * Preserve exact oval and rounded-rectangle outlines without internal primitive edges
+        * Separate KiCad copper collection from FreeCAD geometry construction for unit testing
+        * Control outer and inner copper independently with `ImportOuterCopper` and `ImportInnerCopper`, both off by default
+        * Split copper into bend pieces face-by-face instead of applying one boolean to an entire layer compound
     * Add automatic PCB-to-PCB alignment using matching `CouplerFixed` and `CouplerMoving` footprints
         * Support coupler Z offsets and tilt angles
         * Expose couplers as child objects with plane markers hidden by default

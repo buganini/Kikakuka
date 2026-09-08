@@ -12,6 +12,25 @@ The bending pipeline transforms a flat PCB board into a 3D folded shape by:
 
 Entry point: `__apply_bends_impl()` in `LinkedObject.py`.
 
+## Copper Layers
+
+`Copper.py` imports every enabled copper layer in the KiCad stackup. Tracks,
+arc tracks, filled zone polygons, pads, vias, and graphical copper shapes are
+combined into one planar display shape per layer. `F.Cu` and `B.Cu` are offset
+20 um outside the board solely to avoid display z-fighting; inner layers remain
+at their physical stackup Z. Copper is zero-thickness display geometry, while
+the physical stackup copper thickness is retained in each child's
+`CopperThickness` property. It therefore never changes component or coupler Z.
+
+During bending, each copper layer is intersected with the same flat board
+pieces used by the substrate. Rigid fragments receive the corresponding
+`piece_plc`. Wedge fragments are transformed into the wedge's pre-bend frame,
+rebuilt using the same `_bend_wedge_point()` mapping, and then receive all
+remaining post-bend transforms. Because the point mapping rotates each layer
+around a common center of curvature while retaining its stackup Z, outer-side
+copper follows a longer radius and inner-side copper follows a shorter radius.
+This visualizes extension/compression but is not a material or FEA simulation.
+
 ---
 
 ## Constants

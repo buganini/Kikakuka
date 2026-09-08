@@ -13,6 +13,7 @@ GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
 BEND_ANNOTATION_POSITION_TOLERANCE = 0.1  # mm
 DEBUG_BENDING_BFS = True
 STEP_IMPORTER_REVISION = 1
+COPPER_STRAIN_WARNING = 0.05
 
 COUPLER_MOVING = "CouplerMoving"
 COUPLER_FIXED = "CouplerFixed"
@@ -1047,13 +1048,15 @@ def _get_board_color(board, filepath):
         return _DEFAULT_SOLDER_MASK_COLOR
 
 
-def load_board(filepath, socket_path):
+def load_board(filepath, socket_path, import_outer_copper=False,
+               import_inner_copper=False):
     """Connect to a running KiCad instance via kipy and build the board
     solid + footprint metadata.
     Returns (board_shape, footprints_data, color, outline_edges, thickness,
-    bend_lines, board_face, couplers_data) where footprints_data is a list of
-    dicts with ref/position/models info, and couplers_data contains the custom
-    CouplerMoving/CouplerFixed poses."""
+    bend_lines, board_face, couplers_data, copper_layers) where
+    footprints_data is a list of dicts with ref/position/models info,
+    couplers_data contains the custom CouplerMoving/CouplerFixed poses, and
+    copper_layers contains one display shape per imported stackup layer."""
     try:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Loading board {filepath}\n")
@@ -1160,6 +1163,7 @@ def load_board(filepath, socket_path):
 
         # Get board thickness from stackup
         thickness = DEFAULT_PCB_THICKNESS
+        stackup = None
         try:
             stackup = _kipy_retry(board.get_stackup)
             total_nm = sum(layer.thickness for layer in stackup.layers)
@@ -1587,8 +1591,41 @@ def load_board(filepath, socket_path):
                 bend_lines = [bl for k, bl in enumerate(bend_lines)
                               if k not in skip]
 
+        copper_layers = []
+        if ((import_outer_copper or import_inner_copper)
+                and stackup is not None):
+            try:
+                from .Copper import build_copper_layers
+
+                def _copper_warning(message):
+                    FreeCAD.Console.PrintWarning(
+                        f"FreekiCAD: {message}\n")
+
+                copper_layers = build_copper_layers(
+                    board, stackup, BoardLayer,
+                    board_shapes=all_shapes, warn=_copper_warning,
+                    include_outer=import_outer_copper,
+                    include_inner=import_inner_copper)
+                for layer in copper_layers:
+                    item_summary = ", ".join(
+                        f"{kind}={count}" for kind, count in sorted(
+                            layer.get('item_counts', {}).items()))
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: Copper layer {layer['name']}: "
+                        f"items={layer['item_count']} ({item_summary}), "
+                        f"faces={layer.get('face_count', 0)}, "
+                        f"area={layer.get('area', 0.0):.3f}mm^2, "
+                        f"z={layer.get('z', 0.0):.3f}mm\n")
+            except Exception as ex:
+                import traceback
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: Could not build copper layers: {ex}\n")
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: {traceback.format_exc()}\n")
+
         return (board_solid, footprints_data, board_color, outline_edges,
-                thickness, bend_lines, board_face, couplers_data)
+                thickness, bend_lines, board_face, couplers_data,
+                copper_layers)
 
     except Exception as e:
         import traceback
@@ -2026,6 +2063,16 @@ class LinkedObject:
         )
         obj.EnableBending = True
         obj.addProperty(
+            "App::PropertyBool", "ImportOuterCopper", "LinkedFile",
+            "Import enabled F.Cu and B.Cu layers"
+        )
+        obj.ImportOuterCopper = False
+        obj.addProperty(
+            "App::PropertyBool", "ImportInnerCopper", "LinkedFile",
+            "Import enabled inner copper layers"
+        )
+        obj.ImportInnerCopper = False
+        obj.addProperty(
             "App::PropertyBool", "BuildDebugObjects", "LinkedFile",
             "Build debug arrows and cut lines"
         )
@@ -2067,6 +2114,10 @@ class LinkedObject:
                     "WedgeMode"):
             if not obj.Document.Restoring:
                 self._schedule_rebend(obj)
+            return
+        if prop in ("ImportOuterCopper", "ImportInnerCopper"):
+            if not obj.Document.Restoring and hasattr(obj, 'FileMtime'):
+                obj.FileMtime = ""
             return
         if prop == "AutoReload":
             try:
@@ -2160,6 +2211,7 @@ class LinkedObject:
         for child in list(obj.Group):
             if child.Name.endswith("_Outline") \
                     or child.Name.endswith("_Board") \
+                    or hasattr(child, 'CopperLayer') \
                     or hasattr(child, 'CouplerType'):
                 try:
                     doc.removeObject(child.Name)
@@ -2204,8 +2256,13 @@ class LinkedObject:
 
         _t_load = _time.time()
         board_solid, footprints_data, board_color, outline_edges, \
-            thickness, bend_lines, board_face, couplers_data = \
-            load_board(_resolved_linked_filename(obj), socket_path)
+            thickness, bend_lines, board_face, couplers_data, \
+            copper_layers = load_board(
+                _resolved_linked_filename(obj), socket_path,
+                import_outer_copper=getattr(
+                    obj, 'ImportOuterCopper', False),
+                import_inner_copper=getattr(
+                    obj, 'ImportInnerCopper', False))
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] load_board: "
             f"{_time.time() - _t_load:.3f}s\n")
@@ -2226,7 +2283,7 @@ class LinkedObject:
                                    board_color, outline_edges, thickness,
                                    bend_lines, existing_components,
                                    existing_bends,
-                                   board_face, couplers_data)
+                                   board_face, couplers_data, copper_layers)
         finally:
             if _mw is not None:
                 _mw.setUpdatesEnabled(True)
@@ -2239,7 +2296,8 @@ class LinkedObject:
                           board_color, outline_edges, thickness,
                           bend_lines, existing_components,
                           existing_bends,
-                          board_face=None, couplers_data=None):
+                          board_face=None, couplers_data=None,
+                          copper_layers=None):
         import json
         import time as _time
         _t0_body = _time.time()
@@ -2282,6 +2340,35 @@ class LinkedObject:
                 except Exception:
                     pass
             obj.addObject(board_obj)
+
+        # Copper is display geometry only.  Its Z does not participate in
+        # component/coupler placement because stackup thickness already does.
+        self._unbent_copper_shapes = {}
+        for layer_data in copper_layers or []:
+            safe_name = layer_data['name'].replace('.', '_')
+            copper_obj = doc.addObject(
+                "Part::Feature", obj.Name + "_Copper_" + safe_name)
+            copper_obj.Label = layer_data['name']
+            copper_obj.addProperty(
+                "App::PropertyString", "CopperLayer", "KiCad",
+                "KiCad copper layer name")
+            copper_obj.CopperLayer = layer_data['name']
+            copper_obj.setPropertyStatus("CopperLayer", "ReadOnly")
+            copper_obj.addProperty(
+                "App::PropertyLength", "CopperThickness", "KiCad",
+                "Physical copper thickness from the KiCad stackup")
+            copper_obj.CopperThickness = layer_data['thickness']
+            copper_obj.setPropertyStatus("CopperThickness", "ReadOnly")
+            copper_obj.Shape = layer_data['shape']
+            self._unbent_copper_shapes[copper_obj.Name] = \
+                layer_data['shape'].copy()
+            try:
+                from .Copper import COPPER_COLOR
+                copper_obj.ViewObject.ShapeColor = COPPER_COLOR
+                copper_obj.ViewObject.LineColor = COPPER_COLOR
+            except Exception:
+                pass
+            obj.addObject(copper_obj)
 
         # Add / update bend line children
         if existing_bends is None:
@@ -2544,18 +2631,28 @@ class LinkedObject:
 
         self._board_thickness = thickness
 
-        # Sort children: sketch, board, bend lines, components
+        # Sort children: sketch, board, copper, bend lines, components
         def _child_sort_key(c):
             if c.Name.endswith("_Outline"):
                 return (0, c.Label)
             if c.Name.endswith("_Board"):
                 return (1, c.Label)
+            if hasattr(c, 'CopperLayer'):
+                layer_name = str(c.CopperLayer)
+                if layer_name == 'F.Cu':
+                    layer_order = 0
+                elif layer_name == 'B.Cu':
+                    layer_order = 1000
+                else:
+                    match = re.match(r'In(\d+)\.Cu$', layer_name)
+                    layer_order = int(match.group(1)) if match else 999
+                return (2, layer_order)
             if getattr(getattr(c, 'Proxy', None),
                        'Type', None) == 'BendLine':
-                return (2, c.Label)
-            if hasattr(c, 'CouplerType'):
                 return (3, c.Label)
-            return (4, c.Label)
+            if hasattr(c, 'CouplerType'):
+                return (4, c.Label)
+            return (5, c.Label)
         obj.Group = sorted(obj.Group, key=_child_sort_key)
 
         # Store unbent placements for bend lines and components.
@@ -2954,6 +3051,11 @@ class LinkedObject:
             _t_restore = _time.time()
             if board_obj and hasattr(self, '_unbent_board_shape'):
                 board_obj.Shape = self._unbent_board_shape.copy()
+            for child in obj.Group:
+                copper_shape = getattr(
+                    self, '_unbent_copper_shapes', {}).get(child.Name)
+                if copper_shape is not None:
+                    child.Shape = copper_shape.copy()
 
             # Restore unbent placements for bend lines and components.
             if not hasattr(self, '_unbent_placements'):
@@ -3071,9 +3173,22 @@ class LinkedObject:
                 r_eff = radius + half_t
                 insets.append(r_eff * abs_a / 2.0)
 
+        has_copper = any(hasattr(child, 'CopperLayer') for child in obj.Group)
         for bi, ins in enumerate(insets):
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: bend {bi} inset={ins:.4f}mm\n")
+            radius = bend_info[bi][6]
+            neutral_radius = radius + half_t
+            if has_copper and neutral_radius > 1e-9:
+                surface_strain = half_t / neutral_radius
+                message = (
+                    f"FreekiCAD: bend {bi} outer-copper strain estimate="
+                    f"{surface_strain * 100:.2f}% "
+                    f"(neutral radius={neutral_radius:.4f}mm)\n")
+                if surface_strain > COPPER_STRAIN_WARNING:
+                    FreeCAD.Console.PrintWarning(message)
+                else:
+                    FreeCAD.Console.PrintMessage(message)
 
         bend_span_shapes = []
         overlap_area_tol = max(
@@ -4621,6 +4736,7 @@ class LinkedObject:
 
         micro_pivots = {}  # mi → saved pivot data for wedge loft
         wedge_pre_shapes = {}  # pi → shape copy before this bend's rotation
+        wedge_pre_plc = {}  # pi → piece placement before its own bend
         wedge_post_mi_plc = {}  # wpi → piece_plc[wpi] after own mi rotation
         mi_wedge_processed = set()  # track first occurrence per mi
         # Build processing schedule: iterate chain positions,
@@ -4704,6 +4820,7 @@ class LinkedObject:
                     if strip_to_mi.get(wpi) == mi:
                         wedge_pre_shapes[wpi] = \
                             piece_shapes[wpi].copy()
+                        wedge_pre_plc[wpi] = piece_plc[wpi].copy()
 
             _log_bending_bfs(
                 f"FreekiCAD: micro {mi}:"
@@ -7490,6 +7607,8 @@ class LinkedObject:
                     f"{attempt_msg}\n")
             return tri_faces
 
+        copper_wedge_contexts = {}
+        wedge_output_placements = {}
         for pi in sorted(strip_to_bend):
             _t_loft_one = _time.time()
             bi = strip_to_bend[pi]
@@ -7986,6 +8105,7 @@ class LinkedObject:
             if loft is not None:
                     loft_pre_cm = _shape_center(loft)
                     remaining_plc = None
+                    applied_plc = FreeCAD.Placement()
                     remaining_axis = FreeCAD.Vector() if wedge_diag else None
                     target_cm_pre = FreeCAD.Vector(target_cm)
                     target_near_ref = FreeCAD.Vector(near_ref)
@@ -8236,6 +8356,11 @@ class LinkedObject:
                                 f" |delta_far_flat|={_vec_length(delta_anchor_far_flat):.6f}"
                                 f" no_post_mi_plc=Y"
                                 f"\n")
+                    # Copper must use the placement actually selected above.
+                    # In translation-only cases this can intentionally be a
+                    # fraction of the theoretical remaining placement.
+                    copper_wedge_contexts[pi] = wedge_ctx
+                    wedge_output_placements[pi] = applied_plc.copy()
                     piece_shapes[pi] = loft
                     if wedge_diag:
                         cm = _shape_center(loft)
@@ -8410,6 +8535,120 @@ class LinkedObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Correction + assembly: "
             f"{_time.time() - _t_loft:.3f}s\n")
+        # Deform copper with the same piece topology as the board.  Rigid
+        # regions use piece_plc.  Copper inside a wedge is rebuilt from bent
+        # boundary curves using the exact mapping used by the board wedge.
+        copper_objects = [
+            child for child in obj.Group if hasattr(child, 'CopperLayer')]
+        for copper_obj in copper_objects:
+            source = getattr(self, '_unbent_copper_shapes', {}).get(
+                copper_obj.Name)
+            if source is None:
+                continue
+            try:
+                source_z = float(source.BoundBox.ZMin)
+            except Exception:
+                source_z = half_t
+            fragments = []
+            source_faces = list(getattr(source, 'Faces', []))
+            for source_face_index, original_face in enumerate(source_faces):
+                source_at_midplane = original_face.copy()
+                source_at_midplane.translate(
+                    FreeCAD.Vector(0, 0, half_t - source_z))
+                for pi, flat_piece in enumerate(pieces):
+                    try:
+                        copper_bb = source_at_midplane.BoundBox
+                        piece_bb = flat_piece.BoundBox
+                        if (copper_bb.XMax < piece_bb.XMin
+                                or copper_bb.XMin > piece_bb.XMax
+                                or copper_bb.YMax < piece_bb.YMin
+                                or copper_bb.YMin > piece_bb.YMax):
+                            continue
+                        fragment = source_at_midplane.common(flat_piece)
+                        if fragment.isNull():
+                            continue
+                        fragment.translate(
+                            FreeCAD.Vector(0, 0, source_z - half_t))
+                    except Exception:
+                        continue
+
+                    wedge_ctx = copper_wedge_contexts.get(pi)
+                    if wedge_ctx is None:
+                        try:
+                            fragment.transformShape(piece_plc[pi].toMatrix())
+                            fragments.append(fragment)
+                        except Exception:
+                            pass
+                        continue
+
+                    try:
+                        pre_plc = wedge_pre_plc.get(pi)
+                        if pre_plc is not None:
+                            fragment.transformShape(pre_plc.toMatrix())
+                        bent_faces = []
+                        for source_face in getattr(fragment, 'Faces', []):
+                            bent_wires = []
+                            for source_wire in source_face.Wires:
+                                pairs = _build_bent_wedge_edges(
+                                    list(source_wire.Edges), wedge_ctx)
+                                edges = [
+                                    edge for _source_edge, edge in pairs
+                                    if edge is not None]
+                                if not edges:
+                                    continue
+                                wire = Part.Wire(edges)
+                                if not wire.isClosed():
+                                    try:
+                                        wire.fixWire(
+                                            None, GEOMETRY_TOLERANCE)
+                                    except Exception:
+                                        pass
+                                if wire.isClosed():
+                                    bent_wires.append(wire)
+                            if not bent_wires:
+                                continue
+                            try:
+                                if len(bent_wires) == 1:
+                                    bent_faces.append(
+                                        Part.Face(bent_wires[0]))
+                                else:
+                                    bent_faces.append(Part.Face(
+                                        bent_wires,
+                                        "Part::FaceMakerBullseye"))
+                            except Exception:
+                                # A copper face crossing the curved band is
+                                # non-planar. Tessellate its flat face, then
+                                # bend each triangle with the board mapping.
+                                patches = \
+                                    _build_bent_source_face_triangle_patches(
+                                        source_face, wedge_ctx)
+                                if patches:
+                                    bent_faces.extend(patches)
+                                else:
+                                    bent_faces.extend(bent_wires)
+                        if not bent_faces:
+                            continue
+                        bent_fragment = Part.makeCompound(bent_faces)
+                        output_plc = wedge_output_placements.get(pi)
+                        if output_plc is not None:
+                            bent_fragment.transformShape(
+                                output_plc.toMatrix())
+                        fragments.append(bent_fragment)
+                    except Exception as ex:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD: Could not bend "
+                            f"{copper_obj.CopperLayer} face "
+                            f"{source_face_index} on wedge p{pi}: {ex}\n")
+            if fragments:
+                copper_obj.Shape = Part.makeCompound(fragments)
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Bent copper layer {copper_obj.CopperLayer}: "
+                f"source_faces={len(source_faces)}, "
+                f"fragments={len(fragments)}, "
+                f"faces={len(getattr(copper_obj.Shape, 'Faces', []))}, "
+                f"area={float(getattr(copper_obj.Shape, 'Area', 0.0)):.3f}"
+                f"mm^2\n")
+
         # Update board shape with all pieces (including bent wedges)
         _t_final = _time.time()
 
@@ -10134,12 +10373,23 @@ class LinkedObject:
     # on load by _ensure_properties().
     _KNOWN_PROPERTIES = {
         "FileName", "AutoReload", "SnapToCoupler", "EnableBending",
+        "ImportOuterCopper", "ImportInnerCopper",
         "BuildDebugObjects", "DebugBoard", "WedgeMode",
         "ComponentMtimes", "FileMtime", "CouplerPoses",
     }
 
     def _ensure_properties(self, obj):
         """Add missing properties and remove obsolete ones (migration)."""
+        if not hasattr(obj, 'ImportOuterCopper'):
+            obj.addProperty(
+                "App::PropertyBool", "ImportOuterCopper", "LinkedFile",
+                "Import enabled F.Cu and B.Cu layers")
+            obj.ImportOuterCopper = False
+        if not hasattr(obj, 'ImportInnerCopper'):
+            obj.addProperty(
+                "App::PropertyBool", "ImportInnerCopper", "LinkedFile",
+                "Import enabled inner copper layers")
+            obj.ImportInnerCopper = False
         if not hasattr(obj, 'SnapToCoupler'):
             obj.addProperty(
                 "App::PropertyBool", "SnapToCoupler", "LinkedFile",
