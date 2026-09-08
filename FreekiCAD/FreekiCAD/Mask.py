@@ -13,8 +13,10 @@ MASK_DISPLAY_GAP_MM = 0.020
 DEFAULT_MASK_THICKNESS_MM = 0.010
 DEFAULT_MASK_COLOR = (0.08, 0.20, 0.14)
 DEFAULT_SUBSTRATE_COLOR = (0.92, 0.92, 0.92)
-DEFAULT_SUBSTRATE_TRANSPARENCY = 70
-DEFAULT_MASK_TRANSPARENCY = 40
+DEFAULT_SUBSTRATE_OPACITY = 0.90
+DEFAULT_MASK_OPACITY = 0.83
+DEFAULT_SUBSTRATE_TRANSPARENCY = 10
+DEFAULT_MASK_TRANSPARENCY = 17
 
 
 @dataclass(frozen=True)
@@ -24,9 +26,10 @@ class MaskLayerInfo:
     z: float
     thickness: float
     color: tuple
+    transparency: int
 
 
-def _color_tuple(color, fallback=None):
+def _color_rgba(color, fallback=None):
     try:
         channels = tuple(float(value) for value in (
             color.red, color.green, color.blue, color.alpha))
@@ -40,18 +43,52 @@ def _color_tuple(color, fallback=None):
     if all(abs(value - sentinel) <= 1e-9
            for value, sentinel in zip(channels, unset_gray)):
         return fallback
-    return channels[:3]
+    return channels
+
+
+def _color_tuple(color, fallback=None):
+    rgba_fallback = None if fallback is None else tuple(fallback) + (1.0,)
+    rgba = _color_rgba(color, rgba_fallback)
+    return None if rgba is None else rgba[:3]
+
+
+def _transparency(opacity):
+    return int(round((1.0 - min(1.0, max(0.0, opacity))) * 100.0))
+
+
+def substrate_appearance(stackup):
+    """Return dielectric appearance using KiCad's 3D body-color mixing."""
+    body_rgba = None
+    for entry in stackup.layers:
+        if getattr(entry, "dielectric", None) is None:
+            continue
+        layer_rgba = _color_rgba(getattr(entry, "color", None))
+        if layer_rgba is None:
+            continue
+        if body_rgba is None:
+            body_rgba = layer_rgba
+        else:
+            layer_alpha = layer_rgba[3]
+            body_rgba = (
+                layer_rgba[0] * layer_alpha
+                + body_rgba[0] * (1.0 - layer_alpha),
+                layer_rgba[1] * layer_alpha
+                + body_rgba[1] * (1.0 - layer_alpha),
+                layer_rgba[2] * layer_alpha
+                + body_rgba[2] * (1.0 - layer_alpha),
+                body_rgba[3],
+            )
+        body_alpha = (body_rgba[3]
+                      + (1.0 - body_rgba[3]) * layer_rgba[3] / 2.0)
+        body_rgba = body_rgba[:3] + (body_alpha,)
+    if body_rgba is not None:
+        return body_rgba[:3], _transparency(body_rgba[3])
+    return DEFAULT_SUBSTRATE_COLOR, DEFAULT_SUBSTRATE_TRANSPARENCY
 
 
 def substrate_color(stackup):
     """Return the first configured dielectric color, or translucent white."""
-    for entry in stackup.layers:
-        if getattr(entry, "dielectric", None) is None:
-            continue
-        color = _color_tuple(getattr(entry, "color", None))
-        if color is not None:
-            return color
-    return DEFAULT_SUBSTRATE_COLOR
+    return substrate_appearance(stackup)[0]
 
 
 def mask_stackup_layers(stackup, board_layer):
@@ -67,8 +104,9 @@ def mask_stackup_layers(stackup, board_layer):
             continue
         thickness = (max(0, getattr(entry, "thickness", 0)) / NM_PER_MM
                      or DEFAULT_MASK_THICKNESS_MM)
-        color = _color_tuple(
-            getattr(entry, "color", None), DEFAULT_MASK_COLOR)
+        rgba = _color_rgba(
+            getattr(entry, "color", None),
+            DEFAULT_MASK_COLOR + (DEFAULT_MASK_OPACITY,))
         is_front = name == "BL_F_Mask"
         result.append(MaskLayerInfo(
             layer=entry.layer,
@@ -76,7 +114,8 @@ def mask_stackup_layers(stackup, board_layer):
             z=(total_mm + 2 * MASK_DISPLAY_GAP_MM
                if is_front else -2 * MASK_DISPLAY_GAP_MM),
             thickness=thickness,
-            color=color,
+            color=rgba[:3],
+            transparency=_transparency(rgba[3]),
         ))
     return result
 
@@ -171,6 +210,7 @@ def build_solder_mask_layers(board, stackup, board_layer, board_face,
             "z": info.z,
             "thickness": info.thickness,
             "color": info.color,
+            "transparency": info.transparency,
             "pad_count": len(layer_pads),
             "via_count": len(layer_vias),
             "opening_count": len(openings),

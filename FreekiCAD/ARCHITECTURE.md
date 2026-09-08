@@ -42,9 +42,12 @@ outer-copper display faces. They are zero-thickness display geometry; physical
 mask thickness is retained only in each child's `MaskThickness` property.
 
 When `ImportSolderMask` is enabled, the board body becomes translucent and uses
-the first configured dielectric stackup color, falling back to translucent
-white. When it is disabled, the legacy opaque body color is left unchanged.
-Mask faces use the same rigid-piece and wedge mapping as copper during bending.
+KiCad's sequential RGB/alpha mixing across configured dielectric stackup
+colors, falling back to translucent white. Mask opacity follows its KiCad
+stackup color; fallbacks use KiCad's default 0.90 board-body and 0.83
+solder-mask alpha. When mask import is disabled, the legacy opaque body color
+is left unchanged. Mask faces use the same rigid-piece and wedge mapping as
+copper during bending.
 
 ---
 

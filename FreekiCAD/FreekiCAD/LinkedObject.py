@@ -1628,12 +1628,11 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         if import_solder_mask and stackup is not None and board_face is not None:
             try:
                 from .Mask import (
-                    DEFAULT_SUBSTRATE_TRANSPARENCY,
                     build_solder_mask_layers,
-                    substrate_color,
+                    substrate_appearance,
                 )
-                board_color = substrate_color(stackup)
-                body_transparency = DEFAULT_SUBSTRATE_TRANSPARENCY
+                board_color, body_transparency = \
+                    substrate_appearance(stackup)
                 mask_layers = build_solder_mask_layers(
                     board, stackup, BoardLayer, board_face,
                     board_shapes=all_shapes, warn=_surface_warning)
@@ -2436,10 +2435,10 @@ class LinkedObject:
             self._unbent_mask_shapes[mask_obj.Name] = \
                 layer_data['shape'].copy()
             try:
-                from .Mask import DEFAULT_MASK_TRANSPARENCY
                 mask_obj.ViewObject.ShapeColor = layer_data['color']
                 mask_obj.ViewObject.LineColor = layer_data['color']
-                mask_obj.ViewObject.Transparency = DEFAULT_MASK_TRANSPARENCY
+                mask_obj.ViewObject.Transparency = \
+                    int(layer_data['transparency'])
             except Exception:
                 pass
             obj.addObject(mask_obj)

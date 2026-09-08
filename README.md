@@ -168,7 +168,7 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * Copper is display geometry and does not add to component Z. The board thickness already includes the complete KiCad stackup.
     * Inspect Solder Mask
         * `ImportSolderMask` imports translucent `F.Mask` and `B.Mask` child objects, with pad/via openings computed by KiCad plus explicit mask-layer graphics. It defaults to off.
-        * With mask import enabled, the board body uses the first configured dielectric stackup color or translucent white when no color is available. With it disabled, the original opaque board color is preserved.
+        * With mask import enabled, the board body uses the first configured dielectric stackup color and KiCad opacity, or white with KiCad's default board-body opacity when no color is available. Mask opacity likewise follows its KiCad stackup color. With mask import disabled, the original opaque board color is preserved.
         * Mask and copper are zero-thickness display geometry. Copper is placed 20 um outside the board and mask another 20 um outside copper; their physical thicknesses remain metadata only.
     * [Coupler-Based PCB Alignment](#coupler-based-pcb-alignment)
         * Place a `CouplerFixed` footprint on the reference PCB and a `CouplerMoving` footprint on the PCB to be aligned. Couplers are matched by their KiCad reference.
