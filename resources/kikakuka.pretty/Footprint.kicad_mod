@@ -55,5 +55,25 @@
 		)
 	)
 	(attr smd)
+	(fp_line
+		(start -0.4 0)
+		(end 0.4 0)
+		(stroke
+			(width 0.15)
+			(type default)
+		)
+		(layer "Cmts.User")
+		(uuid "42d6f34d-bf42-4dd0-93ae-b9f70e7d248a")
+	)
+	(fp_line
+		(start 0 -0.4)
+		(end 0 0.4)
+		(stroke
+			(width 0.15)
+			(type default)
+		)
+		(layer "Cmts.User")
+		(uuid "a0b566ce-6720-470c-99de-33165b9ae75f")
+	)
 	(embedded_fonts no)
 )
