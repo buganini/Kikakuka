@@ -205,6 +205,9 @@ Manual bending checks are currently done with these sample boards:
 
 For the implementation details of the bending pipeline, see [`FreekiCAD/ARCHITECTURE.md`](FreekiCAD/ARCHITECTURE.md).
 
+### Bending + Assembly
+![FreekiCAD-Bending-Assembly](screenshots/freekicad_bending_assembly.png)
+
 # Kikakuka Footprints
 Kikakuka includes a KiCad footprint library in [`resources/kikakuka.pretty`](resources/kikakuka.pretty). Add that directory to KiCad's footprint library table (for example, as `kikakuka`) before placing these footprints:
 
