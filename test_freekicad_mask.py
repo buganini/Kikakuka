@@ -79,7 +79,7 @@ class MaskTests(unittest.TestCase):
         self.assertEqual(color, (205 / 255, 130 / 255, 0))
         # KiCad boosts the accumulated body alpha after adding each
         # dielectric: 0.68 + (1 - 0.68) * 0.68 / 2 = 0.7888.
-        self.assertEqual(transparency, 21)
+        self.assertEqual(transparency, 45)
 
     def test_substrate_combines_dielectrics_like_kicad(self):
         mask = self._import_mask()
@@ -91,7 +91,7 @@ class MaskTests(unittest.TestCase):
         color, transparency = mask.substrate_appearance(stackup)
 
         self.assertEqual(color, (0.5, 0.0, 0.5))
-        self.assertEqual(transparency, 28)
+        self.assertEqual(transparency, 50)
 
     def test_substrate_fallback_uses_kicad_board_body_opacity(self):
         mask = self._import_mask()
@@ -99,7 +99,7 @@ class MaskTests(unittest.TestCase):
 
         _color, transparency = mask.substrate_appearance(stackup)
 
-        self.assertEqual(transparency, 10)
+        self.assertEqual(transparency, 37)
 
     def test_mask_layers_are_twenty_um_outside_copper_display(self):
         mask = self._import_mask()
@@ -119,7 +119,7 @@ class MaskTests(unittest.TestCase):
         self.assertAlmostEqual(layers[1].z, -0.040)
         self.assertAlmostEqual(layers[0].thickness, 0.010)
         self.assertEqual(layers[0].color, (0, 128 / 255, 0))
-        self.assertEqual(layers[0].transparency, 0)
+        self.assertEqual(layers[0].transparency, 30)
 
     def test_opening_reader_uses_kicad_final_layer_polygons(self):
         mask = self._import_mask()

@@ -7,7 +7,7 @@
         * Split copper into bend pieces face-by-face instead of applying one boolean to an entire layer compound
     * Optionally import translucent `F.Mask` and `B.Mask` display layers with KiCad-computed pad/via openings
         * Use the configured dielectric color for the translucent board body, falling back to white
-        * Follow KiCad stackup alpha and default body/mask opacity
+        * Follow KiCad stackup alpha and default body/mask opacity, scaled to 70% for FreeCAD display
         * Preserve the original board color and opacity when `ImportSolderMask` is disabled
         * Filter pads and vias by their declared mask layers to prevent opposite-side openings from mixing
         * Deform solder mask with the same rigid-piece and curved-wedge mapping as copper

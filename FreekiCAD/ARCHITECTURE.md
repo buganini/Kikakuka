@@ -45,9 +45,10 @@ When `ImportSolderMask` is enabled, the board body becomes translucent and uses
 KiCad's sequential RGB/alpha mixing across configured dielectric stackup
 colors, falling back to translucent white. Mask opacity follows its KiCad
 stackup color; fallbacks use KiCad's default 0.90 board-body and 0.83
-solder-mask alpha. When mask import is disabled, the legacy opaque body color
-is left unchanged. Mask faces use the same rigid-piece and wedge mapping as
-copper during bending.
+solder-mask alpha. Both final display opacities are scaled by 0.70 before
+conversion to FreeCAD transparency. When mask import is disabled, the legacy
+opaque body color is left unchanged. Mask faces use the same rigid-piece and
+wedge mapping as copper during bending.
 
 ---
 

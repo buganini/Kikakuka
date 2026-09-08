@@ -15,8 +15,9 @@ DEFAULT_MASK_COLOR = (0.08, 0.20, 0.14)
 DEFAULT_SUBSTRATE_COLOR = (0.92, 0.92, 0.92)
 DEFAULT_SUBSTRATE_OPACITY = 0.90
 DEFAULT_MASK_OPACITY = 0.83
-DEFAULT_SUBSTRATE_TRANSPARENCY = 10
-DEFAULT_MASK_TRANSPARENCY = 17
+DISPLAY_OPACITY_SCALE = 0.70
+DEFAULT_SUBSTRATE_TRANSPARENCY = 37
+DEFAULT_MASK_TRANSPARENCY = 42
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,9 @@ def _color_tuple(color, fallback=None):
 
 
 def _transparency(opacity):
-    return int(round((1.0 - min(1.0, max(0.0, opacity))) * 100.0))
+    scaled_opacity = opacity * DISPLAY_OPACITY_SCALE
+    return int(round(
+        (1.0 - min(1.0, max(0.0, scaled_opacity))) * 100.0))
 
 
 def substrate_appearance(stackup):
