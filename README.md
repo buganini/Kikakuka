@@ -172,6 +172,7 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
     * [Flex PCB Bending](#flexible-pcb-bending)
         * Draw bend lines as line segments on KiCad's `User.4` layer.
         * Add bend parameters as `User.4` text near a bend line endpoint, for example `a=-70 r=0.5` or `a=-70 s=0.61`.
+            * The text anchor must be within `0.1 mm` of a bend line endpoint.
             * `a` is bend angle in degrees.
             * `r` is bend radius in mm.
             * `s` is bend spanning in mm and is used to derive `r` when `r` is omitted, using the board thickness from stackup.

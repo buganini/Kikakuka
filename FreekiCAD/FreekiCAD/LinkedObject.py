@@ -10,6 +10,7 @@ import Part
 
 DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
+BEND_ANNOTATION_POSITION_TOLERANCE = 0.1  # mm
 DEBUG_BENDING_BFS = True
 STEP_IMPORTER_REVISION = 1
 
@@ -1206,7 +1207,9 @@ def load_board(filepath, socket_path):
                         f"FreekiCAD:   nearest bend ep "
                         f"({best_ep.x:.3f},{best_ep.y:.3f}) "
                         f"d={best_dist:.3f}mm\n")
-                    if best_bl is not None and best_dist < GEOMETRY_TOLERANCE:
+                    if (best_bl is not None
+                            and best_dist
+                            < BEND_ANNOTATION_POSITION_TOLERANCE):
                         best_bl['angle'] = angle
                         best_bl['radius'] = radius
                         msg = (
@@ -1222,7 +1225,8 @@ def load_board(filepath, socket_path):
                     else:
                         FreeCAD.Console.PrintWarning(
                             f"FreekiCAD:   not matched "
-                            f"(d={best_dist:.6f}mm > 0.001mm)\n")
+                            f"(d={best_dist:.6f}mm >= "
+                            f"{BEND_ANNOTATION_POSITION_TOLERANCE:g}mm)\n")
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: User.4 text items: "
                     f"{u4_text_count}\n")
