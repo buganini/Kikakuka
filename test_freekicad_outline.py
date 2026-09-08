@@ -286,6 +286,58 @@ class OutlineWireOrderTests(unittest.TestCase):
             linked_object.STEP_IMPORTER_REVISION,
         )
 
+    def test_board_color_keeps_normalized_kipy_channels(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
+        board_layer_module = types.ModuleType(
+            "kipy.proto.board.board_types_pb2")
+        board_layer_module.BoardLayer = types.SimpleNamespace(BL_F_Mask=42)
+        layer = types.SimpleNamespace(
+            layer=42,
+            color=types.SimpleNamespace(
+                red=0.761, green=0.765, blue=0.0, alpha=1.0))
+        board = types.SimpleNamespace(
+            get_stackup=lambda: types.SimpleNamespace(layers=[layer]))
+
+        with mock.patch.dict(sys.modules, {
+                "kipy.proto.board.board_types_pb2": board_layer_module}), \
+                mock.patch.object(
+                    linked_object, "_kipy_retry",
+                    side_effect=lambda func: func()), \
+                mock.patch.object(
+                    linked_object, "_get_board_color_from_file") as fallback:
+            color = linked_object._get_board_color(
+                board, "samples/fpc.kicad_pcb")
+
+        self.assertEqual(color, (0.761, 0.765, 0.0))
+        fallback.assert_not_called()
+
+    def test_board_color_normalizes_legacy_byte_channels(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
+        board_layer_module = types.ModuleType(
+            "kipy.proto.board.board_types_pb2")
+        board_layer_module.BoardLayer = types.SimpleNamespace(BL_F_Mask=42)
+        layer = types.SimpleNamespace(
+            layer=42,
+            color=types.SimpleNamespace(
+                red=194, green=195, blue=0, alpha=255))
+        board = types.SimpleNamespace(
+            get_stackup=lambda: types.SimpleNamespace(layers=[layer]))
+
+        with mock.patch.dict(sys.modules, {
+                "kipy.proto.board.board_types_pb2": board_layer_module}), \
+                mock.patch.object(
+                    linked_object, "_kipy_retry",
+                    side_effect=lambda func: func()):
+            color = linked_object._get_board_color(board, None)
+
+        self.assertAlmostEqual(color[0], 194 / 255.0)
+        self.assertAlmostEqual(color[1], 195 / 255.0)
+        self.assertEqual(color[2], 0.0)
+
     def test_coupler_type_prefers_library_entry_name(self):
         linked_object = self._import_linked_object()
 

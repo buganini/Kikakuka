@@ -6,6 +6,7 @@
         * Resolve coupler alignment dependencies across multiple linked boards
         * Add multi-board assembly samples and coupler documentation
     * Support relative paths for linked PCB files
+    * Fix solder-mask colors read from the KiCad API
 * Panelizer / Build Variants
     * Add `Variable` footprints for displaying build-dependent values
     * Add `StringTemplate` footprints for formatting values from footprint properties and build options

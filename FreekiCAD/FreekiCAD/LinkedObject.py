@@ -1005,10 +1005,24 @@ def _get_board_color(board, filepath):
                     f"FreekiCAD: Stackup F.Mask color from API: "
                     f"r={c.red} g={c.green} b={c.blue} a={c.alpha}\n"
                 )
-                # Normalize – if values look like 0‑255 range, scale down
-                color = c.red, c.green, c.blue, c.alpha
-                if all([x==0 for x in color]):
-                    color = None
+                # kipy uses normalized 0‑1 channels.  Keep compatibility
+                # with older API values represented in the 0‑255 range.
+                api_color = tuple(float(x) for x in (
+                    c.red, c.green, c.blue, c.alpha))
+                if any(x > 1.0 for x in api_color):
+                    api_color = tuple(x / 255.0 for x in api_color)
+                unset_gray = (128 / 255.0, 128 / 255.0,
+                              128 / 255.0, 1.0)
+                is_unset = (all(x == 0 for x in api_color)
+                            or all(math.isclose(x, sentinel, abs_tol=1e-9)
+                                   for x, sentinel
+                                   in zip(api_color, unset_gray)))
+                if not is_unset:
+                    color = api_color[:3]
+                else:
+                    FreeCAD.Console.PrintMessage(
+                        "FreekiCAD: Stackup F.Mask color is unset; "
+                        "trying file/default color\n")
                 break
     except Exception as ex:
         FreeCAD.Console.PrintWarning(
@@ -1018,21 +1032,11 @@ def _get_board_color(board, filepath):
     # 2. Fallback: parse the .kicad_pcb file directly
     if color is None and filepath:
         color = _get_board_color_from_file(filepath)
-        if color:
-            color = [x*255 for x in color]
-            if len(color) == 3:
-                color.append(255)
-
-    if color and (all([x==0 for x in color]) or color == [0x80, 0x80, 0x80, 0xFF]):
-        FreeCAD.Console.PrintMessage(
-            "FreekiCAD: Stackup F.Mask color from API is transparent black, use default color"
-        )
-        color = None
 
     if color:
-        ret = tuple([x/255.0 for x in color[:3]])
+        ret = tuple(color[:3])
         FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: Use color {ret}"
+            f"FreekiCAD: Use color {ret}\n"
         )
         return ret
     else:
