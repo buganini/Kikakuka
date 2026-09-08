@@ -91,7 +91,6 @@
 		)
 		(capping no)
 		(filling no)
-		(zone_defaults)
 		(pcbplotparams
 			(layerselection 0x00000000_00000000_55555555_5755f5ff)
 			(plot_on_all_layers_selection 0x00000000_00000000_00000000_00000000)
@@ -356,12 +355,12 @@
 	(footprint "Kikakuka:CouplerFixed"
 		(layer "F.Cu")
 		(uuid "64731423-3202-48fe-8fd7-bd9e6e60c7a0")
-		(at 91.1 97.33 -90)
+		(at 90.54 97.33 -90)
 		(property "Reference" "conn"
 			(at 0 0 270)
 			(unlocked yes)
 			(layer "Dwgs.User")
-			(uuid "ea47e95f-0892-491f-8a03-eeed4c86f043")
+			(uuid "68ffa58e-e387-469b-adda-db448319c6d2")
 			(effects
 				(font
 					(size 1 1)
@@ -374,7 +373,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "da2c012d-6ab1-48ae-b518-844e26e4a7ed")
+			(uuid "789ad8ea-052a-4a33-bb55-79056ddc40ad")
 			(effects
 				(font
 					(size 1 1)
@@ -387,7 +386,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "af4f0078-9fed-4b7a-87ff-0b9fdc33703a")
+			(uuid "6d68dfc1-5d94-488b-a893-b51370e4e658")
 			(effects
 				(font
 					(size 1 1)
@@ -400,7 +399,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "5d0f98be-ec7f-4187-8a7a-149217d53c4b")
+			(uuid "1b30d859-936e-49de-bb84-491a32e29a9f")
 			(effects
 				(font
 					(size 1 1)
@@ -1560,14 +1559,14 @@
 	(footprint "Connector_PinHeader_1.00mm:PinHeader_1x02_P1.00mm_Horizontal"
 		(layer "F.Cu")
 		(uuid "d7b4cfc6-39ec-4aab-b9f5-46ef6d774bee")
-		(at 92.35 97.33 180)
+		(at 91.79 97.33 180)
 		(descr "Through hole angled pin header, 1x02, 1.00mm pitch, 2.0mm pin length, single row")
 		(tags "Through hole angled pin header THT 1x02 1.00mm single row")
 		(property "Reference" "J2"
 			(at 1.375 -1.5 0)
 			(layer "F.SilkS")
 			(hide yes)
-			(uuid "0090e6a9-f83e-4905-bd29-fff435dc2bf3")
+			(uuid "9f2970c7-bcb1-47ce-b604-7d0476989f88")
 			(effects
 				(font
 					(size 1 1)
@@ -1579,7 +1578,7 @@
 			(at 1.375 2.5 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "bbb90d77-4599-4786-8c8c-21f5973706ee")
+			(uuid "3c36abab-37ab-4bc7-b816-a80d9da43812")
 			(effects
 				(font
 					(size 1 1)
@@ -1591,7 +1590,7 @@
 			(at 0 0 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "15fe3095-5ce5-490f-b516-f5dde09789cb")
+			(uuid "725ecc04-8385-4017-97e8-fd6d786259e2")
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -1603,7 +1602,7 @@
 			(at 0 0 0)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "3f90469e-3d54-4578-bb6d-06c1d31d0ce4")
+			(uuid "b2eb198a-cde0-4dce-a0e0-19b5dddbbf60")
 			(effects
 				(font
 					(size 1.27 1.27)

@@ -393,12 +393,12 @@
 	(footprint "Kikakuka:CouplerMoving"
 		(layer "F.Cu")
 		(uuid "e4e0a36f-86e1-40fa-860c-3cff2238fb71")
-		(at 98.64 85.53 180)
+		(at 98.64 85.52 180)
 		(property "Reference" "conn"
 			(at 0 0 180)
 			(unlocked yes)
 			(layer "Dwgs.User")
-			(uuid "5ba0cd63-8a04-4197-8215-f7eee28d56df")
+			(uuid "52212300-423d-4ce4-a626-0b2fea5d4b94")
 			(effects
 				(font
 					(size 1 1)
@@ -411,7 +411,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "11d81d22-af43-4db9-aa44-6cc48eb0ded2")
+			(uuid "53335b31-2b73-42c8-ab9a-68cf4449cd9d")
 			(effects
 				(font
 					(size 1 1)
@@ -424,7 +424,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "dc453062-95ca-4f77-8114-7283450faef6")
+			(uuid "3bf3b3f1-ed02-4295-b3c7-145d15914f04")
 			(effects
 				(font
 					(size 1 1)
@@ -437,7 +437,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "2275f14c-5b42-443e-8cd1-9716c6c441d1")
+			(uuid "93cf2b60-3b4f-4b65-9002-91129f34e9da")
 			(effects
 				(font
 					(size 1 1)
