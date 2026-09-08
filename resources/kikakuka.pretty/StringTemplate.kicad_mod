@@ -56,5 +56,25 @@
 	)
 	(attr smd)
 	(duplicate_pad_numbers_are_jumpers no)
+	(fp_line
+		(start -0.4 0)
+		(end 0.4 0)
+		(stroke
+			(width 0.15)
+			(type default)
+		)
+		(layer "Cmts.User")
+		(uuid "1a7efaaa-e339-4841-9833-09d053902f20")
+	)
+	(fp_line
+		(start 0 -0.4)
+		(end 0 0.4)
+		(stroke
+			(width 0.15)
+			(type default)
+		)
+		(layer "Cmts.User")
+		(uuid "ba8389c9-8a8a-4928-846d-1d8ee9c21d48")
+	)
 	(embedded_fonts no)
 )

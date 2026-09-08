@@ -392,7 +392,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "c24fe758-5ac9-4792-b1bf-4e2d68364d63")
+			(uuid "f72dcb4d-e95b-4c7e-a08a-7f565ec6da0f")
 			(effects
 				(font
 					(size 1 1)
@@ -405,7 +405,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "f3e5e098-ee6e-42c4-9531-7236b83692e6")
+			(uuid "acc65cac-8655-49c1-82ec-9b2bbf0d743c")
 			(effects
 				(font
 					(size 1 1)
@@ -415,6 +415,26 @@
 		)
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
+		(fp_line
+			(start -0.4 0)
+			(end 0.4 0)
+			(stroke
+				(width 0.15)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "a1f3f0c5-c2bc-4048-aed3-db5d5fc7f2fa")
+		)
+		(fp_line
+			(start 0 -0.4)
+			(end 0 0.4)
+			(stroke
+				(width 0.15)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "a081666d-a2c9-4b19-a176-dd340ad9b380")
+		)
 		(embedded_fonts no)
 	)
 	(footprint "Kikakuka:Variable"
@@ -477,7 +497,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "c13b9d4b-71d1-4d98-bf57-dc049def4cbc")
+			(uuid "0bff8fee-b8ff-4de7-9201-9f0aa94f4e39")
 			(effects
 				(font
 					(size 1 1)
@@ -490,7 +510,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "a4db45ca-83f4-42a0-9bfe-847bb3658b64")
+			(uuid "5df28c64-4ed0-4781-950b-b20d9bb23338")
 			(effects
 				(font
 					(size 1 1)
@@ -500,6 +520,26 @@
 		)
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
+		(fp_line
+			(start -0.4 0)
+			(end 0.4 0)
+			(stroke
+				(width 0.15)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "88d17c6c-4c5e-443f-bd3b-197c0e3964d5")
+		)
+		(fp_line
+			(start 0 -0.4)
+			(end 0 0.4)
+			(stroke
+				(width 0.15)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "50b520da-7b57-49a8-9687-aae174363876")
+		)
 		(embedded_fonts no)
 	)
 	(footprint "PCM_Resistor_SMD_AKL:R_0402_1005Metric"
