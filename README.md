@@ -34,7 +34,7 @@ It creates a few more dimensions for KiCad:
         * Single PCB without panelization can be done with frameless setting
         * Each PCB can have its own flag settings
 * Gerber handling
-    * In panelizer context
+    * Available in the panelizer
     * Or direct conversion to .kicad_pcb
     * Compared with KiCad output
         * Better restoration of oval drill holes
@@ -45,12 +45,12 @@ It creates a few more dimensions for KiCad:
 * FreeCAD Integration (only tested on macOS/Windows)
     * Requires FreeCAD 1.0 or later
     * `FreekiCAD` supports loading multiple .kicad_pcb files into a FreeCAD document
-    * Designed to work with the `Manipulator` workbench and FreeCAD's new built-in transform tool; alternatively, use the automatic PCB-to-PCB alignment described below.
+    * Designed to work with the `Manipulator` workbench and FreeCAD's new built-in transform tool; alternatively, use the automatic coupler-based PCB alignment described below.
     * A sketch is provided for real-time board outline editing in FreeCAD
     * Components moved in FreeCAD are synced to KiCad in real time
     * Auto or manual in-place PCB reloading
-    * Flex PCB bending driven by bend lines and parameters defined in KiCad
-    * Automatic PCB-to-PCB alignment using matching `CouplerFixed` and `CouplerMoving` footprints, with coupler plane markers for inspection
+    * [Flex PCB bending](#flexible-pcb-bending) driven by bend lines and parameters defined in KiCad
+    * [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment) using matching `CouplerFixed` and `CouplerMoving` footprints, with coupler plane markers for inspection
     * `kicad-python` is used and the workspace manager handles multiple KiCad instances & API sockets
 
 # Workspace Manager
@@ -160,16 +160,7 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
     * Edit Board Shape
         * Expand the object's children.
         * Open the sketch with the `_Outline` suffix.
-    * Flex PCB Bending
-        * Draw bend lines as line segments on KiCad's `User.4` layer.
-        * Add bend parameters as `User.4` text near a bend line endpoint, for example `a=-70 r=0.5` or `a=-70 s=0.61`.
-            * `a` is bend angle in degrees.
-            * `r` is bend radius in mm.
-            * `s` is bend spanning in mm and is used to derive `r` when `r` is omitted, using the board thickness from stackup.
-        * After loading the board in FreeCAD, each bend line appears as a child object with `Angle`, `Radius`, and `Active` properties.
-        * The linked PCB object also has an `EnableBending` property to toggle the deformation on or off.
-        * If no `User.4` text is provided, the bend line still loads and can be configured directly in FreeCAD.
-    * Coupler-Based PCB Alignment
+    * [Coupler-Based PCB Alignment](#coupler-based-pcb-alignment)
         * Place a `CouplerFixed` footprint on the reference PCB and a `CouplerMoving` footprint on the PCB to be aligned. Couplers are matched by their KiCad reference.
         * On reload, a linked PCB with `SnapToCoupler` enabled (the default) is moved as a whole so that its moving coupler plane meets the matching fixed coupler plane face-to-face. Each coupler is also available as a child object in FreeCAD; its plane marker is hidden by default and can be shown for inspection.
         * The bundled footprints are [`CouplerFixed`](resources/kikakuka.pretty/CouplerFixed.kicad_mod) and [`CouplerMoving`](resources/kikakuka.pretty/CouplerMoving.kicad_mod) in `resources/kikakuka.pretty`.
@@ -178,6 +169,15 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
             * `Z` moves the plane origin along the footprint's local Z axis. It defaults to `0 mm`; values without a unit are millimetres, and `mm` and `in` are supported. The origin starts at the PCB surface, including the board thickness on F.Cu. The local Z direction is reversed on B.Cu.
             * `Tilt` tilts the plane around the footprint's local X axis. It is specified in degrees and defaults to `0`.
         * `Z` and `Tilt` are independent: `Tilt` rotates the plane around its Z-offset origin and does not change that origin's position. The footprint's normal KiCad rotation supplies the rotation around its local Z axis.
+    * [Flex PCB Bending](#flexible-pcb-bending)
+        * Draw bend lines as line segments on KiCad's `User.4` layer.
+        * Add bend parameters as `User.4` text near a bend line endpoint, for example `a=-70 r=0.5` or `a=-70 s=0.61`.
+            * `a` is bend angle in degrees.
+            * `r` is bend radius in mm.
+            * `s` is bend spanning in mm and is used to derive `r` when `r` is omitted, using the board thickness from stackup.
+        * After loading the board in FreeCAD, each bend line appears as a child object with `Angle`, `Radius`, and `Active` properties.
+        * The linked PCB object also has an `EnableBending` property to toggle the deformation on or off.
+        * If no `User.4` text is provided, the bend line still loads and can be configured directly in FreeCAD.
 
 ## Coupler-Based PCB Alignment
 
@@ -193,7 +193,7 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
 
 Coupler plane markers are available as child objects in FreeCAD and are hidden by default.
 
-## Bending Samples
+## Flexible PCB Bending
 Manual bending checks are currently done with these sample boards:
 
 * [`samples/fpc.kicad_pcb`](samples/fpc.kicad_pcb)
