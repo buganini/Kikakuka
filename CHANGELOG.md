@@ -1,3 +1,17 @@
+# Next:
+* FreekiCAD
+    * Add automatic PCB-to-PCB alignment using matching `CouplerFixed` and `CouplerMoving` footprints
+        * Support coupler Z offsets and tilt angles
+        * Expose couplers as child objects with plane markers hidden by default
+        * Resolve coupler alignment dependencies across multiple linked boards
+        * Add multi-board assembly samples and coupler documentation
+    * Support relative paths for linked PCB files
+* Panelizer / Build Variants
+    * Add `Variable` footprints for displaying build-dependent values
+    * Add `StringTemplate` footprints for formatting values from footprint properties and build options
+* Footprints
+    * Add editor selection handles to `Variable`, `StringTemplate`, and reference-only placeholder footprints
+
 # 6.12:
 * Panelizer
     * Automatically reload modified PCB files and rebuild the panel
