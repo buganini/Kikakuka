@@ -162,7 +162,7 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * Open the sketch with the `_Outline` suffix.
     * [Coupler-Based PCB Alignment](#coupler-based-pcb-alignment)
         * Place a `CouplerFixed` footprint on the reference PCB and a `CouplerMoving` footprint on the PCB to be aligned. Couplers are matched by their KiCad reference.
-        * On reload, a linked PCB with `SnapToCoupler` enabled (the default) is moved as a whole so that its moving coupler plane meets the matching fixed coupler plane face-to-face. Each coupler is also available as a child object in FreeCAD; its plane marker is hidden by default and can be shown for inspection.
+        * On reload, a linked PCB with `SnapToCoupler` enabled (the default) is moved as a whole so that its moving coupler plane meets the matching fixed coupler plane face-to-face. Alignment uses each plane's position after flex-PCB bending. Each coupler is also available as a child object in FreeCAD; its plane marker is hidden by default and can be shown for inspection.
         * The bundled footprints are [`CouplerFixed`](resources/kikakuka.pretty/CouplerFixed.kicad_mod) and [`CouplerMoving`](resources/kikakuka.pretty/CouplerMoving.kicad_mod) in `resources/kikakuka.pretty`.
         * Alignment example boards: [`assembly-power.kicad_pcb`](samples/assembly-power.kicad_pcb), [`assembly-mcu.kicad_pcb`](samples/assembly-mcu.kicad_pcb), [`assembly-led.kicad_pcb`](samples/assembly-led.kicad_pcb), and [`assembly-mezzanine.kicad_pcb`](samples/assembly-mezzanine.kicad_pcb).
         * The coupler plane is defined by the footprint position, side, rotation, and these custom footprint properties:

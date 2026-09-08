@@ -2564,7 +2564,7 @@ class LinkedObject:
             if getattr(getattr(c, 'Proxy', None),
                        'Type', None) == 'BendLine':
                 self._unbent_placements[c.Name] = c.Placement.copy()
-            elif hasattr(c, 'X'):
+            elif hasattr(c, 'X') or hasattr(c, 'CouplerType'):
                 init_p = getattr(c, 'FreekiCAD_InitPlacement', None)
                 if init_p is not None:
                     self._unbent_placements[c.Name] = init_p.copy()
@@ -2725,6 +2725,15 @@ class LinkedObject:
             marker.Shape = shapes[0] if len(shapes) == 1 \
                 else Part.makeCompound(shapes)
             marker.Placement = self._coupler_placement(pose)
+            marker.addProperty(
+                "App::PropertyPlacement", "FreekiCAD_InitPlacement",
+                "Coupler", "Unbent coupler placement")
+            marker.FreekiCAD_InitPlacement = marker.Placement
+            try:
+                marker.setPropertyStatus(
+                    "FreekiCAD_InitPlacement", "Hidden")
+            except Exception:
+                pass
 
             try:
                 marker.ViewObject.Visibility = False
@@ -2764,6 +2773,22 @@ class LinkedObject:
                 FreeCAD.Vector(1, 0, 0), float(pose.get('tilt', 0))))
         return placement.multiply(tilt)
 
+    def _coupler_local_placement(self, obj, pose):
+        """Return a coupler's current board-local placement.
+
+        Coupler child markers are carried by the bending pipeline, so their
+        placements include every bend affecting the part of the PCB on which
+        they sit.  Fall back to the serialized flat pose for older documents
+        that do not have marker children yet.
+        """
+        coupler_type = pose.get('type', '')
+        reference = str(pose.get('ref', ''))
+        for child in getattr(obj, 'Group', []):
+            if (getattr(child, 'CouplerType', None) == coupler_type
+                    and str(getattr(child, 'Reference', '')) == reference):
+                return child.Placement
+        return self._coupler_placement(pose)
+
     @staticmethod
     def _coupler_mating_placement():
         """Flip a coupler frame face-to-face without reversing its Y axis."""
@@ -2775,8 +2800,10 @@ class LinkedObject:
                             fixed_obj, fixed_pose):
         """Rigidly align one moving coupler to a fixed one, face-to-face."""
         try:
-            moving_local = self._coupler_placement(moving_pose)
-            fixed_local = self._coupler_placement(fixed_pose)
+            moving_local = self._coupler_local_placement(
+                moving_obj, moving_pose)
+            fixed_local = self._coupler_local_placement(
+                fixed_obj, fixed_pose)
             target_world = fixed_obj.Placement.multiply(
                 fixed_local).multiply(self._coupler_mating_placement())
             moving_obj.Placement = target_world.multiply(
@@ -2936,7 +2963,7 @@ class LinkedObject:
                                'Type', None) == 'BendLine':
                         self._unbent_placements[c.Name] = \
                             c.Placement.copy()
-                    elif hasattr(c, 'X'):
+                    elif hasattr(c, 'X') or hasattr(c, 'CouplerType'):
                         init_p = getattr(
                             c, 'FreekiCAD_InitPlacement', None)
                         if init_p is not None:
@@ -2971,6 +2998,7 @@ class LinkedObject:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: [profile] TOTAL _rebend: "
                 f"{_time.time() - _t0_rebend:.3f}s\n")
+        self._snap_couplers_after_reload(obj)
 
     def _apply_bends(self, obj, board_obj, bend_children, thickness,
                      enable_bending=True):
@@ -4165,13 +4193,22 @@ class LinkedObject:
             if not promoted:
                 continue
 
-        # Map components to pieces using flat (X, Y) in 2D
+        # Map components and coupler markers to pieces using their flat
+        # board-local (X, Y) positions.  Coupler marker placements are later
+        # consumed directly by snapping, so they must receive the same bend
+        # transforms as components on the corresponding board piece.
         comp_piece_idx = {}  # child.Name → pi
         for child in obj.Group:
-            if not hasattr(child, 'X'):
+            if hasattr(child, 'X'):
+                child_x = float(child.X)
+                child_y = float(child.Y)
+            elif hasattr(child, 'CouplerType'):
+                child_x = child.Placement.Base.x
+                child_y = child.Placement.Base.y
+            else:
                 continue
             pt = FreeCAD.Vector(
-                float(child.X), float(child.Y), half_t)
+                child_x, child_y, half_t)
             for pi, piece in enumerate(pieces):
                 if piece.isInside(pt, 0.5, True):
                     comp_piece_idx[child.Name] = pi

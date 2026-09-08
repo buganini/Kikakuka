@@ -4,6 +4,7 @@
         * Support coupler Z offsets and tilt angles
         * Expose couplers as child objects with plane markers hidden by default
         * Resolve coupler alignment dependencies across multiple linked boards
+        * Align couplers using their post-bending positions
         * Add multi-board assembly samples and coupler documentation
     * Support relative paths for linked PCB files
     * Fix solder-mask colors read from the KiCad API

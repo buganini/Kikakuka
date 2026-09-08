@@ -432,6 +432,53 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertAlmostEqual(
             (moving_world.angle - fixed_world.angle) % 360, 180)
 
+    def test_coupler_snap_uses_bent_marker_placements(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+
+        moving_marker = types.SimpleNamespace(
+            CouplerType="CouplerMoving", Reference="J1",
+            Placement=_Placement2D(
+                _Vector2D(8, 9, 4), _Rotation2D(None, 70)))
+        fixed_marker = types.SimpleNamespace(
+            CouplerType="CouplerFixed", Reference="J1",
+            Placement=_Placement2D(
+                _Vector2D(-3, 6, 5), _Rotation2D(None, -20)))
+        moving = types.SimpleNamespace(
+            Label="moving", Group=[moving_marker],
+            Placement=_Placement2D())
+        fixed = types.SimpleNamespace(
+            Label="fixed", Group=[fixed_marker],
+            Placement=_Placement2D(
+                _Vector2D(40, 30, 2), _Rotation2D(None, 15)))
+
+        # These serialized poses deliberately differ from the marker
+        # placements, which represent their positions after bending.
+        moving_pose = {
+            "ref": "J1", "type": "CouplerMoving",
+            "x": 100, "y": 100, "rotation": 0,
+        }
+        fixed_pose = {
+            "ref": "J1", "type": "CouplerFixed",
+            "x": -100, "y": -100, "rotation": 0,
+        }
+
+        self.assertTrue(proxy._snap_moving_object(
+            moving, moving_pose, fixed, fixed_pose))
+
+        moving_world = moving.Placement.multiply(moving_marker.Placement)
+        fixed_world = fixed.Placement.multiply(fixed_marker.Placement)
+        self.assertAlmostEqual(moving_world.Base.x, fixed_world.Base.x)
+        self.assertAlmostEqual(moving_world.Base.y, fixed_world.Base.y)
+        self.assertAlmostEqual(moving_world.Base.z, fixed_world.Base.z)
+        self.assertAlmostEqual(
+            (moving_world.angle - fixed_world.angle) % 360, 180)
+
     def test_coupler_chain_snaps_parent_before_child(self):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Console = types.SimpleNamespace(
@@ -579,6 +626,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(children[0].Z, 4.5)
         self.assertEqual(children[0].Tilt, 10)
         self.assertEqual(children[0].Placement.Base.z, 6.1)
+        self.assertIs(
+            children[0].FreekiCAD_InitPlacement, children[0].Placement)
         self.assertFalse(children[0].ViewObject.Visibility)
         self.assertEqual(children[0].Shape[0], "face")
         polygon_points = children[0].Shape[1][1]
