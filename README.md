@@ -49,6 +49,7 @@ It creates a few more dimensions for KiCad:
     * A sketch is provided for real-time board outline editing in FreeCAD
     * Components moved in FreeCAD are synced to KiCad in real time
     * Auto or manual in-place PCB reloading
+    * Optional copper and solder-mask import, with outer copper, inner copper, and mask controlled independently
     * [Flex PCB bending](#flexible-pcb-bending) driven by bend lines and parameters defined in KiCad
     * [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment) using matching `CouplerFixed` and `CouplerMoving` footprints, with coupler plane markers for inspection
     * `kicad-python` is used and the workspace manager handles multiple KiCad instances & API sockets
