@@ -1806,23 +1806,33 @@ class PanelizerUI(Application):
                                     # print("SET DNP", i, fp.GetReference(), expr, pcb.build_flags, place)
                                     fp.SetDNP(True)
 
-                        for k,v in fp.GetFieldsText().items():
-                            if "#" in k and v:
-                                tks = k.split("#")
+                        for field_spec, field_value in fp.GetFieldsText().items():
+                            if "#" in field_spec and field_value:
+                                tks = field_spec.split("#")
                                 field = tks[0]
                                 matched = True
-                                for v in [t.strip() for t in tks[1:]]:
-                                    if "=" in v:
-                                        k, v = v.split("=")
-                                        if pcb.build_options.get(k) != v:
+                                for condition in [t.strip() for t in tks[1:]]:
+                                    if "=" in condition:
+                                        option, expected = condition.split("=", 1)
+                                        if pcb.build_options.get(option) != expected:
                                             matched = False
                                             break
                                     else:
-                                        if v not in pcb.build_flags:
+                                        if condition not in pcb.build_flags:
                                             matched = False
                                             break
                                 if matched:
-                                    fp.SetField(field, v)
+                                    field_exists = fp.HasField(field)
+                                    fp.SetField(field, field_value)
+                                    if not field_exists:
+                                        text = get_footprint_field(fp, field)
+                                        if text:
+                                            text.SetVisible(False)
+
+                        if fp.GetFPIDAsString().rsplit(":", 1)[-1] == "StringTemplate":
+                            properties = fp.GetFieldsText()
+                            template_args = {**properties, **pcb.build_options}
+                            fp.SetValue(properties["Value"].format(**template_args))
 
                     # Cannot loop inside panel, do incremental update to map footprint to the pccb
                     # Preserve silkscreen text regardless of reference renaming
