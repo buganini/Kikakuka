@@ -35,7 +35,7 @@ if platform.system()=="Darwin":
 else:
     pyinstaller_args.extend(["-i", 'resources/icon.ico'])
 
-# kikit's footprint for mousebites driils
+# KiKit's footprint library, primarily for mouse bites and fiducials
 pyinstaller_args.extend(["--add-data", f"{os.path.join(kikit_base, 'resources', 'kikit.pretty')}:kikit.pretty"])
 
 pyinstaller_args.extend(["--add-data", f"{os.path.join(PKG_BASE, 'resources', 'kikakuka.pretty')}:kikakuka.pretty"])
