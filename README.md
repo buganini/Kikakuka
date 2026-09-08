@@ -179,6 +179,20 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
             * `Tilt` tilts the plane around the footprint's local X axis. It is specified in degrees and defaults to `0`.
         * `Z` and `Tilt` are independent: `Tilt` rotates the plane around its Z-offset origin and does not change that origin's position. The footprint's normal KiCad rotation supplies the rotation around its local Z axis.
 
+## Coupler-Based PCB Alignment
+
+### Coupler Pair
+
+![FreekiCAD-Coupler](screenshots/freekicad_coupler.png)
+![FreekiCAD-Coupler-Assembly](screenshots/freekicad_coupler_assembly.png)
+
+### Changing Z and Tilt
+
+![FreekiCAD-Coupler-Z-Tilt](screenshots/freekicad_coupler_z_tilt.png)
+![FreekiCAD-Coupler-Z-Tilt-Assembly](screenshots/freekicad_coupler_z_tilt_assembly.png)
+
+Coupler plane markers are available as child objects in FreeCAD and are hidden by default.
+
 ## Bending Samples
 Manual bending checks are currently done with these sample boards:
 
