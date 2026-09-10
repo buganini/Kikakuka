@@ -17,7 +17,8 @@ COPPER_STRAIN_WARNING = 0.05
 
 COUPLER_MOVING = "CouplerMoving"
 COUPLER_FIXED = "CouplerFixed"
-_COUPLER_TYPES = {COUPLER_MOVING, COUPLER_FIXED}
+COUPLER_ORIGIN = "CouplerOrigin"
+_COUPLER_TYPES = {COUPLER_MOVING, COUPLER_FIXED, COUPLER_ORIGIN}
 
 
 def _log_bending_bfs(message):
@@ -2015,11 +2016,6 @@ def _handle_bus_response(reply):
     socket_path = reply.get("socket")
     component = reply.get("component", "")
 
-    if not socket_path:
-        FreeCAD.Console.PrintWarning(
-            f"FreekiCAD: Bus response has no socket: {reply}\n")
-        return
-
     obj = _find_obj_by_label(obj_label)
     if obj is None:
         FreeCAD.Console.PrintWarning(
@@ -2027,6 +2023,17 @@ def _handle_bus_response(reply):
         return
 
     proxy = obj.Proxy
+
+    if reply.get("status") == "error":
+        if action == "reload":
+            proxy._handle_reload_error(
+                obj, reply.get("message", "unknown workspace error"))
+        return
+
+    if not socket_path:
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD: Bus response has no socket: {reply}\n")
+        return
 
     if action == "reload":
         proxy._handle_reload_response(obj, socket_path)
@@ -2083,7 +2090,7 @@ class LinkedObject:
         obj.Label2 = "AutoReload=On"
         obj.addProperty(
             "App::PropertyBool", "SnapToCoupler", "LinkedFile",
-            "Align CouplerMoving to a same-reference CouplerFixed on reload"
+            "Enable CouplerMoving or CouplerOrigin positioning"
         )
         obj.SnapToCoupler = True
         obj.addProperty(
@@ -2134,7 +2141,7 @@ class LinkedObject:
         obj.setPropertyStatus("FileMtime", "Hidden")
         obj.addProperty(
             "App::PropertyString", "CouplerPoses", "LinkedFile",
-            "JSON: CouplerMoving/CouplerFixed poses from the linked board"
+            "JSON: coupler poses from the linked board"
         )
         obj.setPropertyStatus("CouplerPoses", "Hidden")
         obj.Proxy = self
@@ -2771,8 +2778,6 @@ class LinkedObject:
         if timer is not None:
             timer.stop()
 
-        self._snap_couplers_after_reload(obj)
-
     def _update_reused_component(self, comp_obj, kc, thickness, fp_info):
         """Update placement and KiCad coords for a reused component
         whose 3D model hasn't changed but whose KiCad position may have.
@@ -2861,7 +2866,7 @@ class LinkedObject:
 
             marker.addProperty(
                 "App::PropertyString", "CouplerType", "Coupler",
-                "CouplerFixed or CouplerMoving")
+                "CouplerFixed, CouplerMoving, or CouplerOrigin")
             marker.addProperty(
                 "App::PropertyString", "Reference", "Coupler",
                 "KiCad reference used to match the coupler")
@@ -2961,6 +2966,41 @@ class LinkedObject:
                 return child.Placement
         return self._coupler_placement(pose)
 
+    def _coupler_actual_world_placement(self, obj, pose):
+        """Return FreeCAD's actual global marker pose for diagnostics."""
+        coupler_type = pose.get('type', '')
+        reference = str(pose.get('ref', ''))
+        for child in getattr(obj, 'Group', []):
+            if (getattr(child, 'CouplerType', None) == coupler_type
+                    and str(getattr(child, 'Reference', '')) == reference):
+                if hasattr(child, 'getGlobalPlacement'):
+                    return child.getGlobalPlacement()
+                return obj.Placement.multiply(child.Placement)
+        return obj.Placement.multiply(self._coupler_placement(pose))
+
+    def _log_coupler_alignment(self, moving_obj, moving_pose,
+                               target_world):
+        """Log actual post-snap residual without affecting positioning."""
+        try:
+            actual = self._coupler_actual_world_placement(
+                moving_obj, moving_pose)
+            residual = target_world.inverse().multiply(actual)
+            pos_error = residual.Base.Length
+            rot_error = math.degrees(residual.Rotation.Angle)
+            mb = actual.Base
+            tb = target_world.Base
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Coupler alignment check "
+                f"'{moving_obj.Label}/{moving_pose.get('ref', '?')}': "
+                f"position_error={pos_error:.6f}mm "
+                f"rotation_error={rot_error:.6f}deg "
+                f"actual=({mb.x:.6f},{mb.y:.6f},{mb.z:.6f}) "
+                f"target=({tb.x:.6f},{tb.y:.6f},{tb.z:.6f})\n")
+        except Exception as ex:
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Coupler alignment check unavailable for "
+                f"'{moving_obj.Label}': {ex}\n")
+
     @staticmethod
     def _coupler_mating_placement():
         """Flip a coupler frame face-to-face without reversing its Y axis."""
@@ -2980,6 +3020,8 @@ class LinkedObject:
                 fixed_local).multiply(self._coupler_mating_placement())
             moving_obj.Placement = target_world.multiply(
                 moving_local.inverse())
+            self._log_coupler_alignment(
+                moving_obj, moving_pose, target_world)
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Snapped '{moving_obj.Label}' coupler "
                 f"'{moving_pose.get('ref', '?')}' to "
@@ -2991,17 +3033,55 @@ class LinkedObject:
                 f"'{fixed_obj.Label}': {ex}\n")
             return False
 
-    def _snap_couplers_after_reload(self, obj):
-        """Snap couplers in dependency order after either side is reloaded."""
-        doc = getattr(obj, 'Document', None)
+    def _snap_origin_object(self, moving_obj, origin_pose):
+        """Mate an origin coupler with a virtual fixed coupler at world zero."""
+        try:
+            moving_local = self._coupler_local_placement(
+                moving_obj, origin_pose)
+            target_world = self._coupler_mating_placement()
+            moving_obj.Placement = target_world.multiply(
+                moving_local.inverse())
+            self._log_coupler_alignment(
+                moving_obj, origin_pose, target_world)
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Snapped '{moving_obj.Label}' CouplerOrigin "
+                "to world origin face-to-face\n")
+            return True
+        except Exception as ex:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Could not snap '{moving_obj.Label}' to "
+                f"world origin: {ex}\n")
+            return False
+
+    def _reposition_all_coupled_objects(self, doc):
+        """Recompute every coupler-based placement in dependency order.
+
+        Positioning is intentionally a document-level step, separate from
+        loading or bending one board.  Each completed reload runs a full pass;
+        if another board is still loading, its eventual completion simply
+        runs another full pass with its newly refreshed data.
+        """
         if doc is None:
-            return
+            return False
 
         linked = []
+        unavailable_labels = []
         for candidate in getattr(doc, 'Objects', []):
             proxy = getattr(candidate, 'Proxy', None)
             if proxy and getattr(proxy, 'Type', None) == 'LinkedObject':
+                # A pending reload request still has a complete previous
+                # geometry and may be repositioned immediately when another
+                # board changes.  Exclude it only during the short interval
+                # in which its children and poses are actually being rebuilt.
+                if getattr(proxy, '_in_execute', False):
+                    unavailable_labels.append(candidate.Label)
+                    continue
                 linked.append(candidate)
+        if unavailable_labels:
+            FreeCAD.Console.PrintMessage(
+                "FreekiCAD: Skipping coupler positioning for actively "
+                "rebuilding object(s): "
+                + ", ".join(unavailable_labels) + "\n")
 
         fixed_by_ref = {}
         for fixed_obj in linked:
@@ -3016,19 +3096,26 @@ class LinkedObject:
                     continue
                 fixed_by_ref[ref] = (fixed_obj, pose)
 
-        # A moving object may have only one CouplerMoving footprint.  Multiple
-        # candidates make its placement ambiguous, so do not choose one.
+        # A moving object may have exactly one positioning source.  An origin
+        # coupler mates with a virtual fixed coupler at world (0, 0, 0).
         assignments = {}
         for moving_obj in linked:
-            if not getattr(moving_obj, 'SnapToCoupler', True):
-                continue
             moving_poses = self._coupler_poses(
                 moving_obj, COUPLER_MOVING)
-            if len(moving_poses) > 1:
+            origin_poses = self._coupler_poses(
+                moving_obj, COUPLER_ORIGIN)
+            if len(moving_poses) + len(origin_poses) > 1:
                 FreeCAD.Console.PrintError(
                     f"FreekiCAD: '{moving_obj.Label}' has "
-                    f"{len(moving_poses)} CouplerMoving footprints; "
+                    f"{len(moving_poses)} CouplerMoving and "
+                    f"{len(origin_poses)} CouplerOrigin footprints; "
                     "skipping coupler positioning for this object\n")
+                continue
+            if not getattr(moving_obj, 'SnapToCoupler', True):
+                continue
+            if origin_poses:
+                assignments[moving_obj.Name] = (
+                    moving_obj, origin_poses[0], None, None)
                 continue
             for moving_pose in moving_poses:
                 match = fixed_by_ref.get(moving_pose.get('ref'))
@@ -3044,7 +3131,10 @@ class LinkedObject:
         dependants = {}
         ready = []
         for moving_name, assignment in assignments.items():
-            fixed_name = assignment[2].Name
+            fixed_name = getattr(assignment[2], 'Name', None)
+            if fixed_name is None:
+                ready.append(moving_name)
+                continue
             dependants.setdefault(fixed_name, []).append(moving_name)
             if fixed_name not in assignments:
                 ready.append(moving_name)
@@ -3057,8 +3147,13 @@ class LinkedObject:
                 continue
             moving_obj, moving_pose, fixed_obj, fixed_pose = \
                 assignments[moving_name]
-            if not self._snap_moving_object(
-                    moving_obj, moving_pose, fixed_obj, fixed_pose):
+            if fixed_obj is None:
+                snapped = self._snap_origin_object(
+                    moving_obj, moving_pose)
+            else:
+                snapped = self._snap_moving_object(
+                    moving_obj, moving_pose, fixed_obj, fixed_pose)
+            if not snapped:
                 failed.add(moving_name)
                 continue
             completed.add(moving_name)
@@ -3071,6 +3166,7 @@ class LinkedObject:
             FreeCAD.Console.PrintWarning(
                 "FreekiCAD: Coupler dependency cycle or blocked chain: "
                 + ", ".join(unresolved) + "\n")
+        return True
 
     def _schedule_rebend(self, obj):
         """Schedule a deferred rebend, coalescing changes from multiple
@@ -3185,7 +3281,7 @@ class LinkedObject:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: [profile] TOTAL _rebend: "
                 f"{_time.time() - _t0_rebend:.3f}s\n")
-        self._snap_couplers_after_reload(obj)
+        self._reposition_all_coupled_objects(obj.Document)
 
     def _apply_bends(self, obj, board_obj, bend_children, thickness,
                      enable_bending=True):
@@ -4409,10 +4505,29 @@ class LinkedObject:
                 continue
             pt = FreeCAD.Vector(
                 child_x, child_y, half_t)
-            for pi, piece in enumerate(pieces):
-                if piece.isInside(pt, 0.5, True):
-                    comp_piece_idx[child.Name] = pi
+            matches = []
+            matched_tolerance = None
+            for tolerance in (0.01, 0.1, 0.5):
+                matches = [
+                    pi for pi, piece in enumerate(pieces)
+                    if piece.isInside(pt, tolerance, True)]
+                if matches:
+                    matched_tolerance = tolerance
                     break
+            matched_piece = matches[0] if matches else None
+            if matched_piece is not None:
+                comp_piece_idx[child.Name] = matched_piece
+            if hasattr(child, 'CouplerType'):
+                piece_text = (str(matched_piece)
+                              if matched_piece is not None else "NONE")
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: Coupler bend-piece mapping "
+                    f"'{obj.Label}/{child.Reference}' "
+                    f"type={child.CouplerType} "
+                    f"xy=({child_x:.6f},{child_y:.6f}) "
+                    f"tolerance={matched_tolerance}mm "
+                    f"candidates={matches} "
+                    f"piece={piece_text}\n")
 
         # Map bend lines to pieces.
         # For each bend line, find its own micro-bend(s) and
@@ -10301,12 +10416,16 @@ class LinkedObject:
         when the response arrives via _handle_reload_response."""
         if getattr(self, '_reloading', False):
             return
+        retry_after = getattr(self, '_reload_retry_after', 0.0)
+        if not force and time.monotonic() < retry_after:
+            return
         if not force and not self._check_file_changed(obj):
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Skipping reload of '{obj.Name}' "
                 "(file unchanged)\n")
             return
         self._reloading = True
+        self._reload_failed = False
         self._ensure_properties(obj)
         from FreekiCAD.workspace_bus import send_request
         send_request("reload", _resolved_linked_filename(obj),
@@ -10350,10 +10469,27 @@ class LinkedObject:
             if _sketch_observer is not None:
                 _sketch_observer.unsuppress(outline_name)
             self._reloading = False
+            self._reload_failed = False
+            self._reload_failure_count = 0
+            self._reload_retry_after = 0.0
             self._resume_component_move_sync()
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: [profile] TOTAL _handle_reload_response: "
                 f"{_time.time() - _t0_reload:.3f}s\n")
+        self._reposition_all_coupled_objects(obj.Document)
+
+    def _handle_reload_error(self, obj, message):
+        """Release a failed asynchronous reload so AutoReload can retry."""
+        self._reloading = False
+        self._reload_failed = True
+        failure_count = getattr(self, '_reload_failure_count', 0) + 1
+        self._reload_failure_count = failure_count
+        retry_delay = min(60, 5 * (2 ** min(failure_count - 1, 4)))
+        self._reload_retry_after = time.monotonic() + retry_delay
+        FreeCAD.Console.PrintError(
+            f"FreekiCAD: Reload of '{obj.Label}' failed: {message}; "
+            f"automatic reload will retry in {retry_delay}s\n")
+        self._reposition_all_coupled_objects(obj.Document)
 
     def _handle_move_component_response(self, obj, socket_path, component):
         """Called when the workspace bus responds to a move-component request.
@@ -10492,12 +10628,12 @@ class LinkedObject:
         if not hasattr(obj, 'SnapToCoupler'):
             obj.addProperty(
                 "App::PropertyBool", "SnapToCoupler", "LinkedFile",
-                "Align CouplerMoving to a same-reference CouplerFixed on reload")
+                "Enable CouplerMoving or CouplerOrigin positioning")
             obj.SnapToCoupler = True
         if not hasattr(obj, 'CouplerPoses'):
             obj.addProperty(
                 "App::PropertyString", "CouplerPoses", "LinkedFile",
-                "JSON: CouplerMoving/CouplerFixed poses from the linked board")
+                "JSON: coupler poses from the linked board")
             obj.setPropertyStatus("CouplerPoses", "Hidden")
         if not hasattr(obj, 'ComponentMtimes'):
             obj.addProperty(
@@ -10547,6 +10683,10 @@ class LinkedObjectViewProvider:
 
     def attach(self, vobj):
         self.Object = vobj.Object
+        # Restoring an FCStd does not necessarily reload its unchanged PCB,
+        # but its saved CouplerPoses still need a document-level positioning
+        # pass after every linked object has finished restoring.
+        self._initial_positioning_pending = True
         _ensure_sketch_observer()
         from PySide import QtCore
         self._auto_reload_timer = QtCore.QTimer()
@@ -10570,10 +10710,16 @@ class LinkedObjectViewProvider:
             return
         stored = getattr(obj, "FileMtime", "") if hasattr(obj, "FileMtime") else ""
         first_load = not stored
-        if not first_load and not getattr(obj, "AutoReload", False):
-            return
-        if obj.Proxy._check_file_changed(obj):
+        should_reload = first_load or getattr(obj, "AutoReload", False)
+        if should_reload and obj.Proxy._check_file_changed(obj):
+            # Reload completion performs the document-level positioning pass
+            # with fresh poses, so do not position from the stored poses first.
+            self._initial_positioning_pending = False
             obj.Proxy.reload(obj)
+            return
+        if getattr(self, "_initial_positioning_pending", False):
+            self._initial_positioning_pending = False
+            obj.Proxy._reposition_all_coupled_objects(obj.Document)
 
     def getIcon(self):
         return ":/icons/Tree_Part.svg"

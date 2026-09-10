@@ -7,7 +7,7 @@
 		(at 0 0 0)
 		(unlocked yes)
 		(layer "Dwgs.User")
-		(uuid "96ae648f-cba7-4033-8b1d-1d4590020c3f")
+		(uuid "cbb10650-abde-41e2-a0fb-ec3c7440f2af")
 		(effects
 			(font
 				(size 1 1)
@@ -20,7 +20,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "4cdcfbc5-f0f0-40df-b3f8-e2b1ee1eea09")
+		(uuid "2c4c6fd5-a47e-4ece-b09f-ba89aead9962")
 		(effects
 			(font
 				(size 1 1)
@@ -33,7 +33,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "5afae50a-67fb-4fed-a221-ba67cd41a051")
+		(uuid "e1dde339-1346-48f9-bcae-cd4b1115978b")
 		(effects
 			(font
 				(size 1 1)
@@ -46,7 +46,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "e369a7b7-d820-48cd-8743-d684f1f48b4d")
+		(uuid "e20b7467-3233-45de-9e8e-2e84e7c79794")
 		(effects
 			(font
 				(size 1 1)
@@ -59,7 +59,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "756642cf-b084-4f50-a004-f5621e9322af")
+		(uuid "cebcf133-cd3b-4760-9910-1effe4a5f419")
 		(effects
 			(font
 				(size 1 1)
@@ -72,7 +72,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "da6f28a8-cb04-4325-a17b-ea93e7b55204")
+		(uuid "d735a7ab-b324-4957-82c9-68895722d5d6")
 		(effects
 			(font
 				(size 1 1)
@@ -90,7 +90,37 @@
 			(type default)
 		)
 		(layer "Cmts.User")
-		(uuid "581607ab-aba8-455a-a2f2-f97c111bd0f8")
+		(uuid "7a01ca30-2c63-4224-b99c-f5bcdf7cad8c")
+	)
+	(fp_line
+		(start -0.25 -0.75)
+		(end 0 -0.5)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "Cmts.User")
+		(uuid "cf828647-5d83-42d3-81ff-3321905ec559")
+	)
+	(fp_line
+		(start 0 -1)
+		(end 0 -0.5)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "Cmts.User")
+		(uuid "41c6930a-a159-4480-b8c7-006eb821b1d6")
+	)
+	(fp_line
+		(start 0 -0.5)
+		(end -0.25 -0.75)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "Cmts.User")
+		(uuid "64af3f99-8ff9-4816-84eb-efa6fd2c1583")
 	)
 	(fp_line
 		(start 0 0)
@@ -100,7 +130,17 @@
 			(type default)
 		)
 		(layer "Cmts.User")
-		(uuid "f835f36d-bba6-44c6-becb-4ac855b45a2b")
+		(uuid "80a615e9-0eef-4f0d-a4e1-6d38d74f21c0")
+	)
+	(fp_line
+		(start 0.25 -0.75)
+		(end 0 -0.5)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "Cmts.User")
+		(uuid "6cebedc7-974e-4c4a-8776-a38d87d77bff")
 	)
 	(fp_line
 		(start 1 -1)
@@ -110,7 +150,7 @@
 			(type default)
 		)
 		(layer "Cmts.User")
-		(uuid "091ebb26-5e51-4615-b840-6f130ab9d344")
+		(uuid "8c58b79a-b1ab-45ba-98db-3e1e9367d028")
 	)
 	(embedded_fonts no)
 )

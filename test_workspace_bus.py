@@ -37,10 +37,65 @@ class WorkspaceBusResolveSocketTests(unittest.TestCase):
         bus._opening = set()
         bus._pending_open_pids = {}
         bus._opening_lock = threading.Lock()
+        bus._launch_lock = threading.Lock()
         bus._pidmap_rebuild_done = threading.Event()
         bus._pidmap_rebuild_done.set()
         bus._running = True
         return bus
+
+    def test_opening_different_files_serializes_kicad_launches(self):
+        bus = self._make_bus({})
+        first_started = threading.Event()
+        second_attempted = threading.Event()
+        release_first = threading.Event()
+        opened = []
+
+        def open_file(filepath):
+            opened.append(filepath)
+            if filepath.endswith("fpc.kicad_pcb"):
+                first_started.set()
+                release_first.wait(1.0)
+                return 111
+            return 222
+
+        bus._open_file = open_file
+        bus._opening.update({
+            "/boards/fpc.kicad_pcb",
+            "/boards/fpc2.kicad_pcb",
+        })
+
+        first = threading.Thread(
+            target=bus._do_open_file, args=("/boards/fpc.kicad_pcb",)
+        )
+
+        def open_second():
+            second_attempted.set()
+            bus._do_open_file("/boards/fpc2.kicad_pcb")
+
+        second = threading.Thread(target=open_second)
+        first.start()
+        self.assertTrue(first_started.wait(1.0))
+        second.start()
+        self.assertTrue(second_attempted.wait(1.0))
+
+        self.assertEqual(opened, ["/boards/fpc.kicad_pcb"])
+        release_first.set()
+        first.join(1.0)
+        second.join(1.0)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual(
+            opened,
+            ["/boards/fpc.kicad_pcb", "/boards/fpc2.kicad_pcb"],
+        )
+        self.assertEqual(
+            bus._pending_open_pids,
+            {
+                "/boards/fpc.kicad_pcb": 111,
+                "/boards/fpc2.kicad_pcb": 222,
+            },
+        )
 
     def test_existing_kicad_sockets_maps_pid_named_and_generic_sockets(self):
         with mock.patch(

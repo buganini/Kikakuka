@@ -51,7 +51,7 @@ It creates a few more dimensions for KiCad:
     * Auto or manual in-place PCB reloading
     * Optional copper and solder-mask import, with outer copper, inner copper, and mask controlled independently
     * [Flex PCB bending](#flexible-pcb-bending) driven by bend lines and parameters defined in KiCad
-    * [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment) using matching `CouplerFixed` and `CouplerMoving` footprints, with coupler plane markers for inspection
+    * [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment) using matching `CouplerFixed` and `CouplerMoving` footprints or a `CouplerOrigin`, with coupler plane markers for inspection
     * `kicad-python` is used and the workspace manager handles multiple KiCad instances & API sockets
 
 # Workspace Manager
@@ -172,8 +172,9 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * Mask and copper are zero-thickness display geometry. Copper is placed 20 um outside the board and mask another 20 um outside copper; their physical thicknesses remain metadata only.
     * [Coupler-Based PCB Alignment](#coupler-based-pcb-alignment)
         * Place a `CouplerFixed` footprint on the reference PCB and a `CouplerMoving` footprint on the PCB to be aligned. Couplers are matched by their KiCad reference.
-        * On reload, a linked PCB with `SnapToCoupler` enabled (the default) is moved as a whole so that its moving coupler plane meets the matching fixed coupler plane face-to-face. Alignment uses each plane's position after flex-PCB bending. Each coupler is also available as a child object in FreeCAD; its plane marker is hidden by default and can be shown for inspection.
-        * The bundled footprints are [`CouplerFixed`](resources/kikakuka.pretty/CouplerFixed.kicad_mod) and [`CouplerMoving`](resources/kikakuka.pretty/CouplerMoving.kicad_mod) in `resources/kikakuka.pretty`.
+        * Alternatively, place one `CouplerOrigin` on a PCB to align it with a virtual `CouplerFixed` at world `(0, 0, 0)` with zero rotation and tilt. A PCB may contain only one positioning source: one `CouplerMoving` or one `CouplerOrigin`.
+        * After any linked PCB reloads, positioning is recalculated for every linked PCB in dependency order. A concurrently reloading PCB is skipped until its fresh poses and bent markers are available; its completion triggers another full pass. A PCB with `SnapToCoupler` enabled (the default) is moved as a whole so that its moving coupler plane meets the matching fixed coupler plane face-to-face; disabling it excludes that PCB from automatic positioning. Alignment uses each plane's position after flex-PCB bending. Each coupler is also available as a child object in FreeCAD; its plane marker is hidden by default and can be shown for inspection.
+        * The bundled footprints are [`CouplerFixed`](resources/kikakuka.pretty/CouplerFixed.kicad_mod), [`CouplerMoving`](resources/kikakuka.pretty/CouplerMoving.kicad_mod), and [`CouplerOrigin`](resources/kikakuka.pretty/CouplerOrigin.kicad_mod) in `resources/kikakuka.pretty`.
         * Alignment example boards: [`assembly-power.kicad_pcb`](samples/assembly-power.kicad_pcb), [`assembly-mcu.kicad_pcb`](samples/assembly-mcu.kicad_pcb), [`assembly-led.kicad_pcb`](samples/assembly-led.kicad_pcb), and [`assembly-mezzanine.kicad_pcb`](samples/assembly-mezzanine.kicad_pcb).
         * The coupler plane is defined by the footprint position, side, rotation, and these custom footprint properties:
             * `Z` moves the plane origin along the footprint's local Z axis. It defaults to `0 mm`; values without a unit are millimetres, and `mm` and `in` are supported. The origin starts at the PCB surface, including the board thickness on F.Cu. The local Z direction is reversed on B.Cu.
@@ -224,7 +225,7 @@ Kikakuka includes a KiCad footprint library in [`resources/kikakuka.pretty`](res
 
 * [`Variable`](resources/kikakuka.pretty/Variable.kicad_mod) displays its `Value` on the board. Use build-variant fields such as `Value#Flag` or `Value#Option=Choice` to show a value selected by the active build flags or options.
 * [`StringTemplate`](resources/kikakuka.pretty/StringTemplate.kicad_mod) formats its `Value` during export. Braced placeholders such as `{Revision}` are replaced with matching footprint properties or build options after build-variant fields have been applied.
-* [`CouplerFixed`](resources/kikakuka.pretty/CouplerFixed.kicad_mod) and [`CouplerMoving`](resources/kikakuka.pretty/CouplerMoving.kicad_mod) define matching planes for [coupler-based PCB alignment](#freecad-integration). Give a pair the same reference; use the `Z` and `Tilt` properties when the mating plane is offset or tilted from the PCB surface.
+* [`CouplerFixed`](resources/kikakuka.pretty/CouplerFixed.kicad_mod) and [`CouplerMoving`](resources/kikakuka.pretty/CouplerMoving.kicad_mod) define matching planes for [coupler-based PCB alignment](#freecad-integration). Give a pair the same reference. [`CouplerOrigin`](resources/kikakuka.pretty/CouplerOrigin.kicad_mod) instead aligns its PCB with the world origin. Use the `Z` and `Tilt` properties when the plane is offset or tilted from the PCB surface.
 * [`Footprint`](resources/kikakuka.pretty/Footprint.kicad_mod) is an internal, graphics-free placeholder used when Kikakuka converts an attached BOM/CPL into reference-only footprints. It normally does not need to be placed manually.
 
 # Run from source (Linux/macOS)

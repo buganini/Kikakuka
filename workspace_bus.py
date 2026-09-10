@@ -271,6 +271,12 @@ class WorkspaceBus:
         # for that process instead of launching another instance.
         self._pending_open_pids = {}
         self._opening_lock = threading.Lock()
+        # macOS process discovery compares the process list before and after
+        # ``open -n``.  Concurrent launches can therefore both claim the same
+        # new KiCad process, and KiCad itself may also fail to create the
+        # second IPC socket while two editors initialise at once.  Serialize
+        # only this launch/discovery window; normal resolves remain parallel.
+        self._launch_lock = threading.Lock()
         self._pidmap_rebuild_done = threading.Event()
         self._running = True
         self._server = None
@@ -386,7 +392,8 @@ class WorkspaceBus:
         """Open KiCad synchronously (blocks the handler thread).
         Remember the launched PID for readiness retries."""
         try:
-            pid = self._open_file(filepath)
+            with self._launch_lock:
+                pid = self._open_file(filepath)
             if pid is not None:
                 with self._opening_lock:
                     self._pending_open_pids[filepath] = pid

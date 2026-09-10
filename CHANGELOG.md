@@ -16,6 +16,13 @@
         * Expose couplers as child objects with plane markers hidden by default
         * Resolve coupler alignment dependencies across multiple linked boards
         * Align couplers using their post-bending positions
+        * Align a board to the world origin with a `CouplerOrigin` footprint
+        * Recalculate all coupled-board placements after every board reload
+        * Reposition boards that are waiting for reload responses using their last complete coupler data
+        * Restore coupler-based placements when opening an unchanged saved FreeCAD document
+        * Use FreeCAD global placements when aligning couplers in transformed groups
+        * Recover timed-out workspace reloads instead of leaving boards permanently pending
+        * Back off repeated failed reloads to prevent concurrent KiCad API retry storms
         * Add multi-board assembly samples and coupler documentation
     * Support relative paths for linked PCB files
     * Fix solder-mask colors read from the KiCad API

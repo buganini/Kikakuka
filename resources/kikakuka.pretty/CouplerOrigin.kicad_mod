@@ -1,4 +1,4 @@
-(footprint "CouplerFixed"
+(footprint "CouplerOrigin"
 	(version 20260206)
 	(generator "pcbnew")
 	(generator_version "10.0")
@@ -7,7 +7,8 @@
 		(at 0 0 0)
 		(unlocked yes)
 		(layer "Dwgs.User")
-		(uuid "19a7a199-3656-4f92-8738-dc49b56da4dc")
+		(hide yes)
+		(uuid "052b7c0b-c1f2-4648-849c-8551a1736214")
 		(effects
 			(font
 				(size 1 1)
@@ -15,12 +16,12 @@
 			)
 		)
 	)
-	(property "Value" "CouplerFixed"
+	(property "Value" "CouplerOrigin"
 		(at 0 1 0)
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "dd6d49f3-9ee3-480d-a0ac-2fa4eed53d46")
+		(uuid "b2730c4d-0fe9-4ae1-aaad-559ec88f3e69")
 		(effects
 			(font
 				(size 1 1)
@@ -33,7 +34,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "7f60a6d0-b1f0-41dd-a941-fcf3f72148f0")
+		(uuid "657c8e1b-0158-41b1-9467-d3c33a81830a")
 		(effects
 			(font
 				(size 1 1)
@@ -46,7 +47,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "8c184411-7f8b-4544-886a-873da93c2631")
+		(uuid "62755d93-904e-4d68-a58f-ee10d0b069f2")
 		(effects
 			(font
 				(size 1 1)
@@ -59,7 +60,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "415875f9-79ca-4c58-9762-ca2a72217b8a")
+		(uuid "4d3a785c-396e-4eff-87af-c7db96b7e771")
 		(effects
 			(font
 				(size 1 1)
@@ -72,7 +73,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "ce28678b-6bb4-44b5-97aa-7456343d1389")
+		(uuid "f4970a45-93ee-43db-b753-c683b446bf94")
 		(effects
 			(font
 				(size 1 1)
@@ -90,27 +91,7 @@
 			(type default)
 		)
 		(layer "Cmts.User")
-		(uuid "88be8087-685c-4d9d-8de0-c884297c6e6d")
-	)
-	(fp_line
-		(start -0.25 -0.25)
-		(end 0.25 -0.25)
-		(stroke
-			(width 0.1)
-			(type default)
-		)
-		(layer "Cmts.User")
-		(uuid "520bad0e-b803-4d8f-8d10-f79d45d6b22b")
-	)
-	(fp_line
-		(start 0 -0.5)
-		(end 0 0)
-		(stroke
-			(width 0.1)
-			(type default)
-		)
-		(layer "Cmts.User")
-		(uuid "fcd6536f-63c2-453f-8e99-ca33818f8983")
+		(uuid "73ec7a9b-c900-4630-81dd-eb2b7f792157")
 	)
 	(fp_line
 		(start 0 0)
@@ -120,7 +101,7 @@
 			(type default)
 		)
 		(layer "Cmts.User")
-		(uuid "d7bdec26-b38d-4b48-a15b-0c59dab8de7d")
+		(uuid "a23e9c68-0f3e-4549-b4d7-7150136a6a04")
 	)
 	(fp_line
 		(start 1 -1)
@@ -130,7 +111,18 @@
 			(type default)
 		)
 		(layer "Cmts.User")
-		(uuid "5a6330ef-921b-447d-915a-51998a8fea04")
+		(uuid "46453489-15f8-4b9f-b1a2-3ba7a85cdf84")
+	)
+	(fp_circle
+		(center 0 -0.5)
+		(end 0 -0.75)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(fill no)
+		(layer "Cmts.User")
+		(uuid "f6932333-90a2-468b-bd32-aca1310d7b35")
 	)
 	(embedded_fonts no)
 )

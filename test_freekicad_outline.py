@@ -367,6 +367,11 @@ class OutlineWireOrderTests(unittest.TestCase):
                 _NamedFootprint("CouplerMoving", "renamed value")),
             "CouplerMoving",
         )
+        self.assertEqual(
+            linked_object._footprint_coupler_type(
+                _NamedFootprint("CouplerOrigin", "renamed value")),
+            "CouplerOrigin",
+        )
         self.assertIsNone(
             linked_object._footprint_coupler_type(
                 _NamedFootprint("ordinary", "ordinary")))
@@ -528,13 +533,288 @@ class OutlineWireOrderTests(unittest.TestCase):
         for board in document.Objects:
             board.Document = document
 
-        proxy._snap_couplers_after_reload(root)
+        proxy._reposition_all_coupled_objects(document)
 
         self.assertEqual(
             [call.args[0].Name
              for call in proxy._snap_moving_object.call_args_list],
             ["Parent", "Child"],
         )
+
+    def test_fixed_and_moving_pair_still_snaps_through_dependency_builder(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
+            PrintError=mock.Mock())
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy.Type = "LinkedObject"
+        fixed_pose = {
+            "ref": "pair", "type": "CouplerFixed",
+            "x": 4, "y": 5, "rotation": 15,
+        }
+        moving_pose = {
+            "ref": "pair", "type": "CouplerMoving",
+            "x": 10, "y": 20, "rotation": 30,
+        }
+        fixed = types.SimpleNamespace(
+            Name="Fixed", Label="fixed", Proxy=proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([fixed_pose]),
+            Placement=_Placement2D(
+                _Vector2D(100, 200, 0), _Rotation2D(None, 45)),
+            Group=[])
+        moving = types.SimpleNamespace(
+            Name="Moving", Label="moving", Proxy=proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([moving_pose]),
+            Placement=_Placement2D(), Group=[])
+        document = types.SimpleNamespace(Objects=[moving, fixed])
+        moving.Document = document
+        fixed.Document = document
+
+        proxy._reposition_all_coupled_objects(document)
+
+        moving_world = moving.Placement.multiply(
+            proxy._coupler_placement(moving_pose))
+        fixed_world = fixed.Placement.multiply(
+            proxy._coupler_placement(fixed_pose))
+        self.assertAlmostEqual(moving_world.Base.x, fixed_world.Base.x)
+        self.assertAlmostEqual(moving_world.Base.y, fixed_world.Base.y)
+        self.assertAlmostEqual(moving_world.Base.z, fixed_world.Base.z)
+        self.assertAlmostEqual(
+            (moving_world.angle - fixed_world.angle) % 360, 180)
+
+    def test_reposition_all_respects_snap_to_coupler_option(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
+            PrintError=mock.Mock())
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy.Type = "LinkedObject"
+        proxy._snap_moving_object = mock.Mock(return_value=True)
+
+        fixed = types.SimpleNamespace(
+            Name="Fixed", Label="fixed", Proxy=proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([
+                {"ref": "pair", "type": "CouplerFixed"},
+            ]))
+        disabled = types.SimpleNamespace(
+            Name="Disabled", Label="disabled", Proxy=proxy,
+            SnapToCoupler=False, CouplerPoses=json.dumps([
+                {"ref": "pair", "type": "CouplerMoving"},
+            ]))
+        document = types.SimpleNamespace(Objects=[fixed, disabled])
+        fixed.Document = document
+        disabled.Document = document
+
+        proxy._reposition_all_coupled_objects(document)
+
+        proxy._snap_moving_object.assert_not_called()
+
+    def test_successful_reload_repositions_entire_document_after_cleanup(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
+            PrintError=mock.Mock())
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy.Type = "LinkedObject"
+        proxy._reloading = True
+        proxy._remove_board_children = mock.Mock(return_value=({}, {}))
+        proxy._do_execute = mock.Mock()
+        proxy._suspend_component_move_sync = mock.Mock()
+        proxy._resume_component_move_sync = mock.Mock()
+        document = types.SimpleNamespace(
+            FileName="/project/assembly.FCStd")
+        obj = types.SimpleNamespace(
+            Name="Board", Label="board", Proxy=proxy,
+            FileName="/project/board.kicad_pcb", FileMtime="123",
+            Document=document)
+
+        def assert_reload_is_finished(actual_document):
+            self.assertIs(actual_document, document)
+            self.assertFalse(proxy._reloading)
+
+        proxy._reposition_all_coupled_objects = mock.Mock(
+            side_effect=assert_reload_is_finished)
+
+        proxy._handle_reload_response(obj, "/tmp/kicad.sock")
+
+        proxy._reposition_all_coupled_objects.assert_called_once_with(document)
+
+    def test_reposition_skips_only_board_actively_rebuilding(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
+            PrintError=mock.Mock())
+        fixed_proxy = linked_object.LinkedObject.__new__(
+            linked_object.LinkedObject)
+        fixed_proxy.Type = "LinkedObject"
+        fixed_proxy._reloading = False
+        fixed_proxy._snap_moving_object = mock.Mock(return_value=True)
+        fixed_proxy._snap_origin_object = mock.Mock(return_value=True)
+        moving_proxy = linked_object.LinkedObject.__new__(
+            linked_object.LinkedObject)
+        moving_proxy.Type = "LinkedObject"
+        moving_proxy._reloading = True
+        moving_proxy._in_execute = True
+        moving_proxy._snap_moving_object = mock.Mock(return_value=True)
+
+        fixed = types.SimpleNamespace(
+            Name="Fixed", Label="fixed", Proxy=fixed_proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([
+                {"ref": "pair", "type": "CouplerFixed"},
+                {"ref": "origin", "type": "CouplerOrigin"},
+            ]))
+        moving = types.SimpleNamespace(
+            Name="Moving", Label="moving", Proxy=moving_proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([
+                {"ref": "pair", "type": "CouplerMoving"},
+            ]))
+        document = types.SimpleNamespace(Objects=[fixed, moving])
+        fixed.Document = document
+        moving.Document = document
+
+        fixed_proxy._reposition_all_coupled_objects(document)
+
+        fixed_proxy._snap_origin_object.assert_called_once()
+        fixed_proxy._snap_moving_object.assert_not_called()
+        message = linked_object.FreeCAD.Console.PrintMessage.call_args_list[0]
+        self.assertIn("actively rebuilding", message.args[0])
+        self.assertIn("moving", message.args[0])
+
+        # Waiting for a response leaves the previous board data intact, so it
+        # must follow a changed root even though _reloading remains true.
+        moving_proxy._in_execute = False
+        moving_proxy._snap_origin_object = mock.Mock(return_value=True)
+        moving_proxy._reposition_all_coupled_objects(document)
+
+        moving_proxy._snap_origin_object.assert_called_once()
+        moving_proxy._snap_moving_object.assert_called_once()
+
+    def test_reload_error_releases_request_and_excludes_stale_board(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
+            PrintError=mock.Mock())
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy.Type = "LinkedObject"
+        proxy._reloading = True
+        proxy._reposition_all_coupled_objects = mock.Mock()
+        document = types.SimpleNamespace()
+        board = types.SimpleNamespace(
+            Label="board", Proxy=proxy, Document=document)
+
+        proxy._handle_reload_error(board, "timed out")
+
+        self.assertFalse(proxy._reloading)
+        self.assertTrue(proxy._reload_failed)
+        self.assertEqual(proxy._reload_failure_count, 1)
+        self.assertGreater(proxy._reload_retry_after, 0)
+        proxy._reposition_all_coupled_objects.assert_called_once_with(document)
+        error = linked_object.FreeCAD.Console.PrintError.call_args.args[0]
+        self.assertIn("board", error)
+        self.assertIn("timed out", error)
+        self.assertIn("retry in 5s", error)
+
+    def test_automatic_reload_obeys_failure_backoff(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy._reloading = False
+        proxy._reload_retry_after = 200.0
+        proxy._check_file_changed = mock.Mock(return_value=True)
+        obj = types.SimpleNamespace(Name="Board")
+
+        with mock.patch.object(linked_object.time, "monotonic", return_value=100.0):
+            proxy.reload(obj)
+
+        proxy._check_file_changed.assert_not_called()
+
+    def test_manual_reload_bypasses_failure_backoff(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy._reloading = False
+        proxy._reload_retry_after = 200.0
+        proxy._ensure_properties = mock.Mock()
+        obj = types.SimpleNamespace(
+            Name="Board", Label="board", FileName="/boards/board.kicad_pcb",
+            Document=types.SimpleNamespace(FileName=""))
+        send_request = mock.Mock()
+
+        with mock.patch.object(linked_object.time, "monotonic", return_value=100.0), \
+                mock.patch.dict(sys.modules, {
+                    "FreekiCAD.workspace_bus": types.SimpleNamespace(
+                        send_request=send_request),
+                }):
+            proxy.reload(obj, force=True)
+
+        self.assertTrue(proxy._reloading)
+        send_request.assert_called_once()
+
+    def test_restored_linked_object_positions_from_saved_coupler_poses(self):
+        linked_object = self._import_linked_object()
+        document = types.SimpleNamespace(Restoring=False)
+        proxy = types.SimpleNamespace(
+            _check_file_changed=mock.Mock(return_value=False),
+            _reposition_all_coupled_objects=mock.Mock(),
+            reload=mock.Mock(),
+        )
+        obj = types.SimpleNamespace(
+            Document=document, FileName="/boards/origin.kicad_pcb",
+            FileMtime="unchanged", AutoReload=True, Proxy=proxy)
+        vobj = types.SimpleNamespace(Object=obj)
+        view_proxy = linked_object.LinkedObjectViewProvider.__new__(
+            linked_object.LinkedObjectViewProvider)
+        view_proxy._initial_positioning_pending = True
+
+        view_proxy._auto_reload(vobj)
+        view_proxy._auto_reload(vobj)
+
+        proxy.reload.assert_not_called()
+        proxy._reposition_all_coupled_objects.assert_called_once_with(document)
+        self.assertFalse(view_proxy._initial_positioning_pending)
+
+    def test_changed_restored_board_waits_for_reload_before_positioning(self):
+        linked_object = self._import_linked_object()
+        document = types.SimpleNamespace(Restoring=False)
+        proxy = types.SimpleNamespace(
+            _check_file_changed=mock.Mock(return_value=True),
+            _reposition_all_coupled_objects=mock.Mock(),
+            reload=mock.Mock(),
+        )
+        obj = types.SimpleNamespace(
+            Document=document, FileName="/boards/origin.kicad_pcb",
+            FileMtime="old", AutoReload=True, Proxy=proxy)
+        view_proxy = linked_object.LinkedObjectViewProvider.__new__(
+            linked_object.LinkedObjectViewProvider)
+        view_proxy._initial_positioning_pending = True
+
+        view_proxy._auto_reload(types.SimpleNamespace(Object=obj))
+
+        proxy.reload.assert_called_once_with(obj)
+        proxy._reposition_all_coupled_objects.assert_not_called()
+        self.assertFalse(view_proxy._initial_positioning_pending)
+
+    def test_restored_board_positions_when_auto_reload_is_disabled(self):
+        linked_object = self._import_linked_object()
+        document = types.SimpleNamespace(Restoring=False)
+        proxy = types.SimpleNamespace(
+            _check_file_changed=mock.Mock(),
+            _reposition_all_coupled_objects=mock.Mock(),
+            reload=mock.Mock(),
+        )
+        obj = types.SimpleNamespace(
+            Document=document, FileName="/boards/origin.kicad_pcb",
+            FileMtime="saved", AutoReload=False, Proxy=proxy)
+        view_proxy = linked_object.LinkedObjectViewProvider.__new__(
+            linked_object.LinkedObjectViewProvider)
+        view_proxy._initial_positioning_pending = True
+
+        view_proxy._auto_reload(types.SimpleNamespace(Object=obj))
+
+        proxy._check_file_changed.assert_not_called()
+        proxy.reload.assert_not_called()
+        proxy._reposition_all_coupled_objects.assert_called_once_with(document)
 
     def test_coupler_dependency_cycle_is_not_applied(self):
         linked_object = self._import_linked_object()
@@ -560,7 +840,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         board_a.Document = document
         board_b.Document = document
 
-        proxy._snap_couplers_after_reload(board_a)
+        proxy._reposition_all_coupled_objects(document)
 
         proxy._snap_moving_object.assert_not_called()
         warning = linked_object.FreeCAD.Console.PrintWarning.call_args.args[0]
@@ -593,12 +873,71 @@ class OutlineWireOrderTests(unittest.TestCase):
         fixed.Document = document
         ambiguous.Document = document
 
-        proxy._snap_couplers_after_reload(ambiguous)
+        proxy._reposition_all_coupled_objects(document)
 
         proxy._snap_moving_object.assert_not_called()
         error = linked_object.FreeCAD.Console.PrintError.call_args.args[0]
         self.assertIn("ambiguous board", error)
-        self.assertIn("2 CouplerMoving", error)
+        self.assertIn("2 CouplerMoving and 0 CouplerOrigin", error)
+        self.assertIn("skipping", error)
+
+    def test_origin_coupler_snaps_to_virtual_fixed_coupler_at_world_origin(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
+            PrintError=mock.Mock())
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy.Type = "LinkedObject"
+        origin_pose = {
+            "ref": "origin", "type": "CouplerOrigin",
+            "x": 10, "y": 20, "rotation": 30,
+        }
+        board = types.SimpleNamespace(
+            Name="Board", Label="origin board", Proxy=proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([origin_pose]),
+            Placement=_Placement2D(
+                _Vector2D(50, 60, 0), _Rotation2D(None, 45)),
+            Group=[])
+        document = types.SimpleNamespace(Objects=[board])
+        board.Document = document
+
+        proxy._reposition_all_coupled_objects(document)
+
+        origin_world = board.Placement.multiply(
+            proxy._coupler_placement(origin_pose))
+        self.assertAlmostEqual(origin_world.Base.x, 0)
+        self.assertAlmostEqual(origin_world.Base.y, 0)
+        self.assertAlmostEqual(origin_world.Base.z, 0)
+        self.assertAlmostEqual(origin_world.angle % 360, 180)
+        message = linked_object.FreeCAD.Console.PrintMessage.call_args.args[0]
+        self.assertIn("world origin", message)
+
+    def test_origin_and_moving_couplers_report_error_and_skip_positioning(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
+            PrintError=mock.Mock())
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy.Type = "LinkedObject"
+        proxy._snap_moving_object = mock.Mock(return_value=True)
+
+        board = types.SimpleNamespace(
+            Name="Board", Label="conflicting board", Proxy=proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([
+                {"ref": "moving", "type": "CouplerMoving"},
+                {"ref": "origin", "type": "CouplerOrigin"},
+            ]))
+        document = types.SimpleNamespace(Objects=[board])
+        board.Document = document
+
+        proxy._reposition_all_coupled_objects(document)
+
+        proxy._snap_moving_object.assert_not_called()
+        error = linked_object.FreeCAD.Console.PrintError.call_args.args[0]
+        self.assertIn("1 CouplerMoving and 1 CouplerOrigin", error)
         self.assertIn("skipping", error)
 
     def test_coupler_mating_rotates_around_local_y(self):

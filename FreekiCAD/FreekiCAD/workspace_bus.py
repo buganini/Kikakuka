@@ -132,28 +132,43 @@ def _recv(s):
     return json.loads(resp_data.decode('utf-8'))
 
 
-def _listener_thread(s):
+def _dispatch_reply(reply):
+    """Deliver a workspace reply on the Qt main thread."""
+    with _response_handler_lock:
+        handler = _response_handler
+    if handler is not None:
+        if _dispatcher is not None:
+            _dispatcher.dispatch.emit(lambda: handler(reply))
+        else:
+            handler(reply)
+
+
+def _dispatch_request_error(request, message):
+    _dispatch_reply({
+        "status": "error",
+        "action": request.get("action"),
+        "object": request.get("object", ""),
+        "component": request.get("component", ""),
+        "message": message,
+    })
+
+
+def _listener_thread(s, request):
     """Background thread: read response from server, dispatch to handler."""
     try:
         reply = _recv(s)
         if reply is None:
-            return
+            raise ConnectionError("workspace manager closed the connection")
         _log_message(f"RESP {reply}")
         status = reply.get("status")
         if status == "error":
             _log_error(
                 f"Workspace manager error: {reply.get('message', 'unknown error')}"
             )
-            return
-        with _response_handler_lock:
-            handler = _response_handler
-        if handler is not None:
-            if _dispatcher is not None:
-                _dispatcher.dispatch.emit(lambda: handler(reply))
-            else:
-                handler(reply)
+        _dispatch_reply(reply)
     except Exception as e:
         _log_error(f"Workspace bus listener error: {e}")
+        _dispatch_request_error(request, str(e))
     finally:
         s.close()
 
@@ -176,26 +191,24 @@ def send_request(action, filepath, object_label="", component=""):
     _log_message(f"REQ  {msg}")
     s = _connect(action=action)
     if s is None:
-        _log_error(
-            "Could not connect to Kikakuka workspace manager. "
-            "Start the workspace manager first."
-        )
+        message = ("Could not connect to Kikakuka workspace manager. "
+                   "Start the workspace manager first.")
+        _log_error(message)
+        _dispatch_request_error(msg, message)
         return
 
     try:
         _send(s, msg)
-        # Resolving a newly launched KiCad instance can legitimately take an
-        # arbitrary amount of time while KiCad is blocked by a modal dialog.
-        # Keep the asynchronous listener alive until the workspace manager
-        # reports readiness or the connection closes.
-        s.settimeout(None)
+        s.settimeout(RECV_TIMEOUT)
     except Exception as e:
         _log_error(f"Workspace manager send error: {e}")
         s.close()
+        _dispatch_request_error(msg, str(e))
         return
 
     # Hand off the socket to a listener thread for the response
-    threading.Thread(target=_listener_thread, args=(s,), daemon=True).start()
+    threading.Thread(
+        target=_listener_thread, args=(s, msg), daemon=True).start()
 
 
 def report_error(socket_path, error):
