@@ -1,6 +1,13 @@
 import os
 import FreeCAD
 import FreeCADGui
+import FreekiCAD as FreekiCADPackage
+
+
+WORKBENCH_DIR = os.path.dirname(os.path.dirname(
+    os.path.abspath(FreekiCADPackage.__file__)))
+WORKBENCH_ICON = os.path.join(
+    WORKBENCH_DIR, "Resources", "icons", "FreekiCAD.png")
 
 
 class CreateLinkedObjectCommand:
@@ -62,6 +69,7 @@ class FreekiCADWorkbench(FreeCADGui.Workbench):
         pass
 
 
+FreekiCADWorkbench.Icon = WORKBENCH_ICON
 FreeCADGui.addWorkbench(FreekiCADWorkbench)
 FreeCADGui.addCommand("CreateLinkedObject", CreateLinkedObjectCommand())
 FreeCADGui.addCommand("ReloadAllLinkedObjects", ReloadAllLinkedObjectsCommand())
