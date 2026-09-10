@@ -568,6 +568,39 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertIn("board A", warning)
         self.assertIn("board B", warning)
 
+    def test_multiple_moving_couplers_report_error_and_skip_positioning(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
+            PrintError=mock.Mock())
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy.Type = "LinkedObject"
+        proxy._snap_moving_object = mock.Mock(return_value=True)
+
+        fixed = types.SimpleNamespace(
+            Name="Fixed", Label="fixed", Proxy=proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([
+                {"ref": "first", "type": "CouplerFixed"},
+                {"ref": "second", "type": "CouplerFixed"},
+            ]))
+        ambiguous = types.SimpleNamespace(
+            Name="Ambiguous", Label="ambiguous board", Proxy=proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([
+                {"ref": "first", "type": "CouplerMoving"},
+                {"ref": "second", "type": "CouplerMoving"},
+            ]))
+        document = types.SimpleNamespace(Objects=[fixed, ambiguous])
+        fixed.Document = document
+        ambiguous.Document = document
+
+        proxy._snap_couplers_after_reload(ambiguous)
+
+        proxy._snap_moving_object.assert_not_called()
+        error = linked_object.FreeCAD.Console.PrintError.call_args.args[0]
+        self.assertIn("ambiguous board", error)
+        self.assertIn("2 CouplerMoving", error)
+        self.assertIn("skipping", error)
+
     def test_coupler_mating_rotates_around_local_y(self):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Vector = _Vector2D

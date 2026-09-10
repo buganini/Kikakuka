@@ -3016,14 +3016,21 @@ class LinkedObject:
                     continue
                 fixed_by_ref[ref] = (fixed_obj, pose)
 
-        # Each moving object has one parent: the first of its moving couplers
-        # that matches a fixed coupler on another object.
+        # A moving object may have only one CouplerMoving footprint.  Multiple
+        # candidates make its placement ambiguous, so do not choose one.
         assignments = {}
         for moving_obj in linked:
             if not getattr(moving_obj, 'SnapToCoupler', True):
                 continue
-            for moving_pose in self._coupler_poses(
-                    moving_obj, COUPLER_MOVING):
+            moving_poses = self._coupler_poses(
+                moving_obj, COUPLER_MOVING)
+            if len(moving_poses) > 1:
+                FreeCAD.Console.PrintError(
+                    f"FreekiCAD: '{moving_obj.Label}' has "
+                    f"{len(moving_poses)} CouplerMoving footprints; "
+                    "skipping coupler positioning for this object\n")
+                continue
+            for moving_pose in moving_poses:
                 match = fixed_by_ref.get(moving_pose.get('ref'))
                 if match is None or match[0] is moving_obj:
                     continue
