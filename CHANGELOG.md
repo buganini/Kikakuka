@@ -1,37 +1,22 @@
 # Next:
 * FreekiCAD
-    * Import all enabled outer and inner copper layers and deform them with flex PCB bends
-        * Preserve exact oval and rounded-rectangle outlines without internal primitive edges
-        * Separate KiCad copper collection from FreeCAD geometry construction for unit testing
-        * Control outer and inner copper independently with `ImportOuterCopper` and `ImportInnerCopper`, both off by default
-        * Split copper into bend pieces face-by-face instead of applying one boolean to an entire layer compound
-    * Optionally import translucent `F.Mask` and `B.Mask` display layers with KiCad-computed pad/via openings
-        * Use the configured dielectric color for the translucent board body, falling back to white
-        * Follow KiCad stackup alpha and default body/mask opacity, scaled to 70% for FreeCAD display
-        * Preserve the original board color and opacity when `ImportSolderMask` is disabled
-        * Filter pads and vias by their declared mask layers to prevent opposite-side openings from mixing
-        * Deform solder mask with the same rigid-piece and curved-wedge mapping as copper
-    * Add automatic PCB-to-PCB alignment using matching `CouplerFixed` and `CouplerMoving` footprints
-        * Support coupler Z offsets and tilt angles
-        * Expose couplers as child objects with plane markers hidden by default
-        * Resolve coupler alignment dependencies across multiple linked boards
-        * Align couplers using their post-bending positions
-        * Align a board to the world origin with a `CouplerOrigin` footprint
-        * Recalculate all coupled-board placements after every board reload
-        * Reposition boards that are waiting for reload responses using their last complete coupler data
-        * Restore coupler-based placements when opening an unchanged saved FreeCAD document
-        * Use FreeCAD global placements when aligning couplers in transformed groups
-        * Recover timed-out workspace reloads instead of leaving boards permanently pending
-        * Back off repeated failed reloads to prevent concurrent KiCad API retry storms
-        * Add multi-board assembly samples and coupler documentation
+    * Optionally import outer and inner copper layers and solder mask, including deformation with flex PCB bends
+    * Add automatic linked-board alignment using matching `CouplerFixed` and `CouplerMoving` footprints or a `CouplerOrigin`
+        * Support Z offsets, tilt angles, post-bending coupler positions, multi-board dependencies, and transformed FreeCAD groups
+        * Recalculate coupled-board placements after reload and restore them when opening saved FreeCAD documents
+        * Reject boards with multiple or conflicting positioning couplers
     * Support relative paths for linked PCB files
-    * Fix solder-mask colors read from the KiCad API
-    * Match bend annotations within 0.1 mm of bend-line endpoints
+    * Recover failed or timed-out workspace reloads without leaving linked boards permanently pending
+    * Fix board and solder-mask color and opacity handling
+    * Improve bend annotation matching near bend-line endpoints
+* Workspace Manager
+    * Serialize simultaneous KiCad editor launches to avoid PID and IPC socket conflicts
 * Panelizer / Build Variants
     * Add `Variable` footprints for displaying build-dependent values
     * Add `StringTemplate` footprints for formatting values from footprint properties and build options
 * Footprints
     * Add editor selection handles to `Variable`, `StringTemplate`, and reference-only placeholder footprints
+* Add multi-board assembly samples and FreekiCAD documentation
 
 # 6.12:
 * Panelizer
