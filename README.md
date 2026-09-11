@@ -45,7 +45,7 @@ It creates a few more dimensions for KiCad:
 * FreeCAD Integration (only tested on macOS/Windows)
     * Requires FreeCAD 1.0 or later
     * `FreekiCAD` supports loading multiple .kicad_pcb files into a FreeCAD document
-    * Designed to work with the `Manipulator` workbench and FreeCAD's new built-in transform tool; alternatively, use the automatic coupler-based PCB alignment described below.
+    * Designed to work with the `Assembly` and `Manipulator` workbenches, as well as FreeCAD's built-in transform tool; alternatively, use the automatic coupler-based PCB alignment described below.
     * A sketch is provided for real-time board outline editing in FreeCAD
     * Components moved in FreeCAD are synced to KiCad in real time
     * Auto or manual in-place PCB reloading
