@@ -44,13 +44,13 @@ class Document:
         self.recompute_count += 1
 
 
-class LinkedObjectStub:
+class PcbObjectStub:
     def __init__(self, document, filename=""):
         self.Document = document
         self.Name = "Board001"
         self.Label = "控制板"
         self.FileName = filename
-        self.Proxy = types.SimpleNamespace(Type="LinkedObject")
+        self.Proxy = types.SimpleNamespace(Type="PcbObject")
         self.Placement = Placement(Vector(1, 2, 3), Rotation(Vector(0, 1, 0), 45))
         self.AutoReload = False
         self.SnapToCoupler = True
@@ -62,6 +62,17 @@ class LinkedObjectStub:
         self.DebugBoard = False
         self.WedgeMode = "Wireframe"
         self.CouplerPoses = "[]"
+
+
+class StepObjectStub:
+    def __init__(self, document, filename=""):
+        self.Document = document
+        self.Name = "StepObject"
+        self.Label = "Enclosure"
+        self.FileName = filename
+        self.Proxy = types.SimpleNamespace(Type="StepObject")
+        self.Placement = Placement(Vector(7, 8, 9), Rotation(Vector(1, 0, 0), 30))
+        self.AutoReload = False
 
 
 def load_assembly_module(fake_freecad):
@@ -99,7 +110,7 @@ class AssemblyTests(unittest.TestCase):
             board_path = os.path.join(board_dir, "main.kicad_pcb")
             manifest_path = os.path.join(assembly_dir, "main.kkkk_asm")
             document = Document("Assembly", os.path.join(root, "source.FCStd"))
-            obj = LinkedObjectStub(document, board_path)
+            obj = PcbObjectStub(document, board_path)
 
             self.assembly.export([obj], manifest_path)
 
@@ -107,6 +118,7 @@ class AssemblyTests(unittest.TestCase):
                 data = json.load(stream)
             self.assertEqual(set(data), {"objects"})
             saved = data["objects"][0]
+            self.assertEqual(saved["type"], "PcbObject")
             self.assertEqual(saved["file"], os.path.join("..", "boards", "main.kicad_pcb"))
             self.assertNotIn("name", saved)
             self.assertNotIn("label", saved)
@@ -121,12 +133,12 @@ class AssemblyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             manifest_path = os.path.join(root, "main.kkkk_asm")
             document = Document("Assembly")
-            fixed = LinkedObjectStub(document, os.path.join(root, "fixed.kicad_pcb"))
+            fixed = PcbObjectStub(document, os.path.join(root, "fixed.kicad_pcb"))
             fixed.Name = "Fixed"
             fixed.CouplerPoses = json.dumps(
                 [{"type": "CouplerFixed", "ref": "J1"}]
             )
-            moving = LinkedObjectStub(document, os.path.join(root, "moving.kicad_pcb"))
+            moving = PcbObjectStub(document, os.path.join(root, "moving.kicad_pcb"))
             moving.Name = "Moving"
             moving.CouplerPoses = json.dumps(
                 [{"type": "CouplerMoving", "ref": "J1"}]
@@ -143,7 +155,7 @@ class AssemblyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             manifest_path = os.path.join(root, "main.kkkk_asm")
             document = Document("Assembly")
-            moving = LinkedObjectStub(document, os.path.join(root, "moving.kicad_pcb"))
+            moving = PcbObjectStub(document, os.path.join(root, "moving.kicad_pcb"))
             moving.CouplerPoses = json.dumps(
                 [{"type": "CouplerMoving", "ref": "J1"}]
             )
@@ -153,6 +165,26 @@ class AssemblyTests(unittest.TestCase):
             with open(manifest_path, encoding="utf-8") as stream:
                 saved = json.load(stream)["objects"][0]
             self.assertIn("placement", saved)
+
+    def test_export_saves_step_path_autoreload_and_placement(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "assembly", "main.kkkk_asm")
+            os.makedirs(os.path.dirname(manifest_path))
+            document = Document("Assembly")
+            step = StepObjectStub(
+                document, os.path.join(root, "models", "enclosure.step")
+            )
+
+            self.assembly.export([step], manifest_path)
+
+            with open(manifest_path, encoding="utf-8") as stream:
+                saved = json.load(stream)["objects"][0]
+            self.assertEqual(saved["type"], "StepObject")
+            self.assertEqual(
+                saved["file"], os.path.join("..", "models", "enclosure.step")
+            )
+            self.assertEqual(saved["settings"], {"AutoReload": False})
+            self.assertEqual(saved["placement"]["base"], [7.0, 8.0, 9.0])
 
     def test_insert_resolves_relative_path_and_restores_values(self):
         with tempfile.TemporaryDirectory() as root:
@@ -184,15 +216,15 @@ class AssemblyTests(unittest.TestCase):
 
             document = Document("Target")
             self.documents[document.Name] = document
-            created = LinkedObjectStub(document)
-            linked_module = types.ModuleType("FreekiCAD.LinkedObject")
-            linked_module.create_linked_object = mock.Mock(return_value=created)
+            created = PcbObjectStub(document)
+            pcb_module = types.ModuleType("FreekiCAD.PcbObject")
+            pcb_module.create_pcb_object = mock.Mock(return_value=created)
 
-            with mock.patch.dict(sys.modules, {"FreekiCAD.LinkedObject": linked_module}):
+            with mock.patch.dict(sys.modules, {"FreekiCAD.PcbObject": pcb_module}):
                 result = self.assembly.insert(manifest_path, document.Name)
 
             self.assertEqual(result, [created])
-            linked_module.create_linked_object.assert_called_once_with(
+            pcb_module.create_pcb_object.assert_called_once_with(
                 document=document
             )
             self.assertEqual(
@@ -205,6 +237,41 @@ class AssemblyTests(unittest.TestCase):
             self.assertEqual(created.Placement.Base.x, 4)
             self.assertAlmostEqual(created.Placement.Rotation.Angle, math.pi / 2)
             self.assertEqual(document.recompute_count, 1)
+
+    def test_insert_creates_step_object_and_restores_placement(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "main.kkkk_asm")
+            with open(manifest_path, "w", encoding="utf-8") as stream:
+                json.dump({"objects": [{
+                    "type": "StepObject",
+                    "file": "enclosure.step",
+                    "settings": {"AutoReload": False},
+                    "placement": {
+                        "base": [10, 20, 30],
+                        "rotation": {
+                            "axis": [0, 1, 0],
+                            "angle_degrees": 60,
+                        },
+                    },
+                }]}, stream)
+
+            document = Document("Target")
+            self.documents[document.Name] = document
+            created = StepObjectStub(document)
+            step_module = types.ModuleType("FreekiCAD.StepObject")
+            step_module.create_step_object = mock.Mock(return_value=created)
+
+            with mock.patch.dict(sys.modules, {"FreekiCAD.StepObject": step_module}):
+                result = self.assembly.insert(manifest_path, document.Name)
+
+            self.assertEqual(result, [created])
+            step_module.create_step_object.assert_called_once_with(
+                document=document
+            )
+            self.assertEqual(created.FileName, os.path.join(root, "enclosure.step"))
+            self.assertFalse(created.AutoReload)
+            self.assertEqual(created.Placement.Base.x, 10)
+            self.assertAlmostEqual(created.Placement.Rotation.Angle, math.pi / 3)
 
     def test_rejects_non_object_manifest(self):
         with tempfile.NamedTemporaryFile("w", suffix=".kkkk_asm") as stream:

@@ -10,7 +10,7 @@ The bending pipeline transforms a flat PCB board into a 3D folded shape by:
 5. Building wedge geometry
 6. Applying correction translations, visual bend-line offsets, and final assembly/debug output
 
-Entry point: `__apply_bends_impl()` in `LinkedObject.py`.
+Entry point: `__apply_bends_impl()` in `PcbObject.py`.
 
 ## Copper Layers
 

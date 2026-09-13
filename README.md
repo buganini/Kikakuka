@@ -156,11 +156,15 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
     * Add PCB
         * Switch to the `FreekiCAD` workbench.
         * Menubar -> FreekiCAD -> Add KiCad PCB
+        * The linked board is represented by a reloadable `PcbObject`.
+    * Add STEP
+        * Menubar -> FreekiCAD -> Add STEP
+        * The linked STEP object preserves its Placement when its source file is manually or automatically reloaded.
     * Reload PCB
         * Right-click on the board object -> Reload KiCad PCB
     * Save or load an assembly manifest
         * Use FreeCAD's standard Import/Export commands and select `FreekiCAD Assembly (*.kkkk_asm)`.
-        * The JSON stores each linked PCB path, editable FreekiCAD settings, and its placement. Paths are relative to the manifest whenever the platform permits it; FreeCAD regenerates object names and labels during import.
+        * The JSON stores each linked PCB or STEP path, editable FreekiCAD settings, and its placement. Paths are relative to the manifest whenever the platform permits it; FreeCAD regenerates object names and labels during import.
         * Placement is omitted for a `CouplerMoving` board when the same export contains its matching `CouplerFixed` board; coupler alignment recalculates that placement after import.
     * Edit Board Shape
         * Expand the object's children.

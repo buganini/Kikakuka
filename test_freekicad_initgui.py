@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 
-class ReloadAllLinkedObjectsCommandTests(unittest.TestCase):
+class ReloadAllObjectsCommandTests(unittest.TestCase):
     def test_reload_all_forces_reload_even_when_file_mtime_is_unchanged(self):
         linked = types.SimpleNamespace(
             FileName="/boards/main.kicad_pcb",
@@ -28,9 +28,13 @@ class ReloadAllLinkedObjectsCommandTests(unittest.TestCase):
         ):
             sys.modules.pop(module_name, None)
             init_gui = importlib.import_module(module_name)
-            init_gui.ReloadAllLinkedObjectsCommand().Activated()
+            init_gui.ReloadAllObjectsCommand().Activated()
 
         linked.Proxy.reload.assert_called_once_with(linked, force=True)
+        fake_freecad_gui.addCommand.assert_any_call(
+            "CreateStepObject", mock.ANY)
+        fake_freecad_gui.addCommand.assert_any_call(
+            "CreatePcbObject", mock.ANY)
 
 
 if __name__ == "__main__":

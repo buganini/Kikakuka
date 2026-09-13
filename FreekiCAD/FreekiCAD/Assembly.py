@@ -1,8 +1,8 @@
 """Import and export FreekiCAD assembly manifests.
 
-``.kkkk_asm`` files are deliberately plain JSON.  They reference
-KiCad boards instead of embedding generated FreeCAD geometry, which keeps the
-files small and lets LinkedObject rebuild each board through its normal path.
+``.kkkk_asm`` files are deliberately plain JSON.  They reference KiCad boards
+and STEP models instead of embedding generated FreeCAD geometry, which keeps
+the files small and lets each linked object rebuild through its normal path.
 """
 
 import builtins
@@ -15,7 +15,7 @@ import FreeCAD
 
 # Runtime/cache properties are intentionally omitted.  They are regenerated
 # when a linked PCB is loaded.
-LINKED_OBJECT_SETTINGS = (
+PCB_OBJECT_SETTINGS = (
     "AutoReload",
     "SnapToCoupler",
     "EnableBending",
@@ -35,7 +35,7 @@ def _component(value, lower_name, upper_name):
 
 
 def _resolved_object_path(obj):
-    """Resolve a LinkedObject path using its FreeCAD document as the base."""
+    """Resolve a linked path using its FreeCAD document as the base."""
     path = os.path.expanduser(str(getattr(obj, "FileName", "") or ""))
     if not path:
         return ""
@@ -108,9 +108,14 @@ def _placement_from_json(data):
     )
 
 
-def _is_linked_object(obj):
+def _object_type(obj):
     proxy = getattr(obj, "Proxy", None)
-    return getattr(proxy, "Type", None) == "LinkedObject"
+    object_type = getattr(proxy, "Type", None)
+    return "PcbObject" if object_type == "LinkedObject" else object_type
+
+
+def _is_supported_object(obj):
+    return _object_type(obj) in ("PcbObject", "StepObject")
 
 
 def _coupler_poses(obj, coupler_type):
@@ -149,41 +154,46 @@ def _uses_moving_coupler(obj, assembly_objects):
 
 
 def _object_to_json(obj, filename, assembly_objects):
+    object_type = _object_type(obj)
     source_path = _resolved_object_path(obj)
     if not source_path:
         raise ValueError(
-            "cannot export LinkedObject {!r} without a FileName".format(
+            "cannot export {} {!r} without a FileName".format(
+                object_type,
                 getattr(obj, "Label", getattr(obj, "Name", ""))
             )
         )
     settings = {}
-    for name in LINKED_OBJECT_SETTINGS:
+    setting_names = (PCB_OBJECT_SETTINGS if object_type == "PcbObject"
+                     else ("AutoReload",))
+    for name in setting_names:
         if not hasattr(obj, name):
             continue
         value = getattr(obj, name)
         settings[name] = str(value) if name == "WedgeMode" else bool(value)
     data = {
-        "type": "LinkedObject",
+        "type": object_type,
         "file": _stored_path(source_path, filename),
         "settings": settings,
     }
     # CouplerMoving placement is derived state.  Omitting it avoids briefly
     # restoring a stale transform before the linked boards finish loading.
-    if not _uses_moving_coupler(obj, assembly_objects):
+    if (object_type == "StepObject"
+            or not _uses_moving_coupler(obj, assembly_objects)):
         data["placement"] = _placement_to_json(obj.Placement)
     return data
 
 
 def export(export_list, filename):
-    """Write selected FreekiCAD LinkedObjects to a ``.kkkk_asm`` file."""
-    linked_objects = [obj for obj in export_list if _is_linked_object(obj)]
-    if not linked_objects:
-        raise ValueError("select at least one FreekiCAD LinkedObject to export")
+    """Write selected FreekiCAD linked objects to a ``.kkkk_asm`` file."""
+    objects = [obj for obj in export_list if _is_supported_object(obj)]
+    if not objects:
+        raise ValueError("select at least one FreekiCAD linked object to export")
 
     data = {
         "objects": [
-            _object_to_json(obj, filename, linked_objects)
-            for obj in linked_objects
+            _object_to_json(obj, filename, objects)
+            for obj in objects
         ],
     }
     with builtins.open(filename, "w", encoding="utf-8", newline="\n") as stream:
@@ -205,26 +215,34 @@ def insert(filename, document_name):
     """Insert all objects from a manifest into an existing document."""
     data = _read(filename)
     document = FreeCAD.getDocument(document_name)
-    from FreekiCAD.LinkedObject import create_linked_object
-
     imported = []
     for index, item in enumerate(data["objects"]):
-        if not isinstance(item, dict) or item.get("type") != "LinkedObject":
+        if not isinstance(item, dict) or item.get("type") not in (
+                "PcbObject", "LinkedObject", "StepObject"):
             raise ValueError("object {} has an unsupported type".format(index))
         source = item.get("file")
         if not isinstance(source, str) or not source:
             raise ValueError("object {} has no file path".format(index))
 
-        obj = create_linked_object(document=document)
+        if item["type"] in ("PcbObject", "LinkedObject"):
+            from FreekiCAD.PcbObject import create_pcb_object
+
+            obj = create_pcb_object(document=document)
+            setting_names = PCB_OBJECT_SETTINGS
+        else:
+            from FreekiCAD.StepObject import create_step_object
+
+            obj = create_step_object(document=document)
+            setting_names = ("AutoReload",)
         settings = item.get("settings", {})
         if not isinstance(settings, dict):
             raise ValueError("object {} settings must be an object".format(index))
-        for name in LINKED_OBJECT_SETTINGS:
+        for name in setting_names:
             if name in settings and hasattr(obj, name):
                 setattr(obj, name, settings[name])
         if "placement" in item:
             obj.Placement = _placement_from_json(item["placement"])
-        # Set the filename last so LinkedObject sees all restored settings when
+        # Set the filename last so PcbObject sees all restored settings when
         # its normal first-load callback runs.
         obj.FileName = _loaded_path(source, filename)
         imported.append(obj)

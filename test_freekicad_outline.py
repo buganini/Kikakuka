@@ -130,7 +130,7 @@ class OutlineWireOrderTests(unittest.TestCase):
     def _import_linked_object(self):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_part = types.ModuleType("Part")
-        module_name = "FreekiCAD.FreekiCAD.LinkedObject"
+        module_name = "FreekiCAD.FreekiCAD.PcbObject"
         self.addCleanup(sys.modules.pop, module_name, None)
         with mock.patch.dict(
             sys.modules,
@@ -165,7 +165,7 @@ class OutlineWireOrderTests(unittest.TestCase):
                 pass
 
         obj = FakeObject()
-        linked_object.LinkedObject(obj)
+        linked_object.PcbObject(obj)
 
         self.assertFalse(hasattr(obj, "ImportCopper"))
         self.assertIs(obj.ImportOuterCopper, False)
@@ -213,7 +213,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         fake_part = types.ModuleType("Part")
         fake_part.Face = _FakeFace
 
-        module_name = "FreekiCAD.FreekiCAD.LinkedObject"
+        module_name = "FreekiCAD.FreekiCAD.PcbObject"
         self.addCleanup(sys.modules.pop, module_name, None)
         with mock.patch.dict(
             sys.modules,
@@ -234,7 +234,7 @@ class OutlineWireOrderTests(unittest.TestCase):
     def test_board_circle_uses_radius_method_without_end_attribute(self):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_part = types.ModuleType("Part")
-        module_name = "FreekiCAD.FreekiCAD.LinkedObject"
+        module_name = "FreekiCAD.FreekiCAD.PcbObject"
         self.addCleanup(sys.modules.pop, module_name, None)
 
         with mock.patch.dict(
@@ -448,7 +448,7 @@ class OutlineWireOrderTests(unittest.TestCase):
             {"ref": "other", "type": "CouplerMoving", "z": 0},
         ]))
 
-        poses = linked_object.LinkedObject._coupler_poses(
+        poses = linked_object.PcbObject._coupler_poses(
             obj, linked_object.COUPLER_FIXED)
 
         self.assertEqual(poses, [
@@ -487,7 +487,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
     def test_changed_live_couplers_are_applied(self):
         linked_object = self._import_linked_object()
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         proxy._coupler_poll_in_flight = True
         proxy._coupler_monitor_generation = 7
         proxy._coupler_poll_retry_after = 0.0
@@ -509,7 +509,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
     def test_stale_live_coupler_result_is_ignored_after_reload(self):
         linked_object = self._import_linked_object()
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         proxy._coupler_poll_in_flight = True
         proxy._coupler_monitor_generation = 8
         proxy._coupler_poll_retry_after = 0.0
@@ -518,6 +518,24 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         proxy._finish_coupler_poll(obj, 7, [], None)
 
+        proxy._apply_live_coupler_poses.assert_not_called()
+
+    def test_live_coupler_result_for_deleted_object_is_ignored(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy._coupler_poll_in_flight = True
+        proxy._coupler_monitor_generation = 7
+        proxy._coupler_poll_retry_after = 0.0
+        proxy._apply_live_coupler_poses = mock.Mock()
+
+        class DeletedObject:
+            @property
+            def Name(self):
+                raise ReferenceError("deleted object")
+
+        proxy._finish_coupler_poll(DeletedObject(), 7, [], None)
+
+        self.assertFalse(proxy._coupler_poll_in_flight)
         proxy._apply_live_coupler_poses.assert_not_called()
 
     def test_applying_live_coupler_updates_marker_and_repositions(self):
@@ -545,7 +563,7 @@ class OutlineWireOrderTests(unittest.TestCase):
             Label="board", CouplerPoses="[]", Group=[marker],
             Document=document)
         placement = object()
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         proxy._coupler_placement = mock.Mock(return_value=placement)
         proxy._reposition_all_coupled_objects = mock.Mock()
         pose = {
@@ -579,7 +597,7 @@ class OutlineWireOrderTests(unittest.TestCase):
                 "ref": "pair", "type": "CouplerFixed", "x": 1,
                 "y": 2, "board_z": 1.6, "rotation": 27,
             }]), Document=document)
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         proxy._schedule_coupler_update = mock.Mock()
         proxy._reposition_all_coupled_objects = mock.Mock()
 
@@ -616,7 +634,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object._kipy_retry = lambda func: func()
         vector2 = types.SimpleNamespace(
             from_xy_mm=mock.Mock(return_value=(12.5, -7.25)))
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         proxy._coupler_updates_in_flight = {"pair": {
             "ref": "pair", "type": "CouplerFixed",
             "x": 12.5, "y": 7.25, "z": 2.4, "tilt": -12.5,
@@ -644,7 +662,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
     def test_coupler_update_response_does_not_write_on_main_thread(self):
         linked_object = self._import_linked_object()
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         update = {"ref": "pair", "type": "CouplerFixed"}
         proxy._coupler_updates_in_flight = {"pair": update}
         proxy._pending_coupler_updates = {}
@@ -676,7 +694,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Placement = _Placement2D
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         moving = types.SimpleNamespace(
             Label="moving",
             Placement=_Placement2D(
@@ -716,7 +734,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Placement = _Placement2D
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
 
         moving_marker = types.SimpleNamespace(
             CouplerType="CouplerMoving", Reference="J1",
@@ -760,8 +778,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
-        proxy.Type = "LinkedObject"
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy.Type = "PcbObject"
         proxy._snap_moving_object = mock.Mock(return_value=True)
 
         root = types.SimpleNamespace(
@@ -800,8 +818,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
             PrintError=mock.Mock())
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
-        proxy.Type = "LinkedObject"
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy.Type = "PcbObject"
         fixed_pose = {
             "ref": "pair", "type": "CouplerFixed",
             "x": 4, "y": 5, "rotation": 15,
@@ -841,8 +859,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
             PrintError=mock.Mock())
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
-        proxy.Type = "LinkedObject"
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy.Type = "PcbObject"
         proxy._snap_moving_object = mock.Mock(return_value=True)
 
         fixed = types.SimpleNamespace(
@@ -868,8 +886,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
             PrintError=mock.Mock())
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
-        proxy.Type = "LinkedObject"
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy.Type = "PcbObject"
         proxy._reloading = True
         proxy._remove_board_children = mock.Mock(return_value=({}, {}))
         proxy._do_execute = mock.Mock()
@@ -898,15 +916,15 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
             PrintError=mock.Mock())
-        fixed_proxy = linked_object.LinkedObject.__new__(
-            linked_object.LinkedObject)
-        fixed_proxy.Type = "LinkedObject"
+        fixed_proxy = linked_object.PcbObject.__new__(
+            linked_object.PcbObject)
+        fixed_proxy.Type = "PcbObject"
         fixed_proxy._reloading = False
         fixed_proxy._snap_moving_object = mock.Mock(return_value=True)
         fixed_proxy._snap_origin_object = mock.Mock(return_value=True)
-        moving_proxy = linked_object.LinkedObject.__new__(
-            linked_object.LinkedObject)
-        moving_proxy.Type = "LinkedObject"
+        moving_proxy = linked_object.PcbObject.__new__(
+            linked_object.PcbObject)
+        moving_proxy.Type = "PcbObject"
         moving_proxy._reloading = True
         moving_proxy._in_execute = True
         moving_proxy._snap_moving_object = mock.Mock(return_value=True)
@@ -948,8 +966,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
             PrintError=mock.Mock())
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
-        proxy.Type = "LinkedObject"
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy.Type = "PcbObject"
         proxy._reloading = True
         proxy._reposition_all_coupled_objects = mock.Mock()
         document = types.SimpleNamespace()
@@ -970,7 +988,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
     def test_automatic_reload_obeys_failure_backoff(self):
         linked_object = self._import_linked_object()
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         proxy._reloading = False
         proxy._reload_retry_after = 200.0
         proxy._check_file_changed = mock.Mock(return_value=True)
@@ -983,7 +1001,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
     def test_manual_reload_bypasses_failure_backoff(self):
         linked_object = self._import_linked_object()
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         proxy._reloading = False
         proxy._reload_retry_after = 200.0
         proxy._ensure_properties = mock.Mock()
@@ -1014,8 +1032,8 @@ class OutlineWireOrderTests(unittest.TestCase):
             Document=document, FileName="/boards/origin.kicad_pcb",
             FileMtime="unchanged", AutoReload=True, Proxy=proxy)
         vobj = types.SimpleNamespace(Object=obj)
-        view_proxy = linked_object.LinkedObjectViewProvider.__new__(
-            linked_object.LinkedObjectViewProvider)
+        view_proxy = linked_object.PcbObjectViewProvider.__new__(
+            linked_object.PcbObjectViewProvider)
         view_proxy._initial_positioning_pending = True
 
         view_proxy._auto_reload(vobj)
@@ -1036,8 +1054,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         obj = types.SimpleNamespace(
             Document=document, FileName="/boards/origin.kicad_pcb",
             FileMtime="old", AutoReload=True, Proxy=proxy)
-        view_proxy = linked_object.LinkedObjectViewProvider.__new__(
-            linked_object.LinkedObjectViewProvider)
+        view_proxy = linked_object.PcbObjectViewProvider.__new__(
+            linked_object.PcbObjectViewProvider)
         view_proxy._initial_positioning_pending = True
 
         view_proxy._auto_reload(types.SimpleNamespace(Object=obj))
@@ -1057,8 +1075,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         obj = types.SimpleNamespace(
             Document=document, FileName="/boards/origin.kicad_pcb",
             FileMtime="saved", AutoReload=False, Proxy=proxy)
-        view_proxy = linked_object.LinkedObjectViewProvider.__new__(
-            linked_object.LinkedObjectViewProvider)
+        view_proxy = linked_object.PcbObjectViewProvider.__new__(
+            linked_object.PcbObjectViewProvider)
         view_proxy._initial_positioning_pending = True
 
         view_proxy._auto_reload(types.SimpleNamespace(Object=obj))
@@ -1071,8 +1089,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
-        proxy.Type = "LinkedObject"
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy.Type = "PcbObject"
         proxy._snap_moving_object = mock.Mock(return_value=True)
 
         board_a = types.SimpleNamespace(
@@ -1104,8 +1122,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
             PrintError=mock.Mock())
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
-        proxy.Type = "LinkedObject"
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy.Type = "PcbObject"
         proxy._snap_moving_object = mock.Mock(return_value=True)
 
         fixed = types.SimpleNamespace(
@@ -1140,8 +1158,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
             PrintError=mock.Mock())
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
-        proxy.Type = "LinkedObject"
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy.Type = "PcbObject"
         origin_pose = {
             "ref": "origin", "type": "CouplerOrigin",
             "x": 10, "y": 20, "rotation": 30,
@@ -1171,8 +1189,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
             PrintError=mock.Mock())
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
-        proxy.Type = "LinkedObject"
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy.Type = "PcbObject"
         proxy._snap_moving_object = mock.Mock(return_value=True)
 
         board = types.SimpleNamespace(
@@ -1197,7 +1215,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Rotation = _Rotation2D
         linked_object.FreeCAD.Placement = _Placement2D
 
-        mating = linked_object.LinkedObject._coupler_mating_placement()
+        mating = linked_object.PcbObject._coupler_mating_placement()
 
         self.assertEqual(
             (mating.axis.x, mating.axis.y, mating.axis.z), (0, 1, 0))
@@ -1209,7 +1227,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Rotation = _Rotation2D
         linked_object.FreeCAD.Placement = _Placement2D
 
-        placement = linked_object.LinkedObject._coupler_placement({
+        placement = linked_object.PcbObject._coupler_placement({
             "x": 0, "y": 0, "rotation": 30, "tilt": 10,
         })
 
@@ -1221,7 +1239,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object.FreeCAD.Rotation = _Rotation2D
         linked_object.FreeCAD.Placement = _Placement2D
 
-        placement = linked_object.LinkedObject._coupler_placement({
+        placement = linked_object.PcbObject._coupler_placement({
             "x": 0, "y": 0, "rotation": 30, "tilt": 10,
             "is_back": True,
         })
@@ -1257,7 +1275,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         children = []
         obj = types.SimpleNamespace(
             Name="Board", Document=Document(), addObject=children.append)
-        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
 
         proxy._build_coupler_children(obj, [{
             "ref": "mcu", "type": "CouplerFixed",

@@ -11,8 +11,8 @@ WORKBENCH_ICON = os.path.join(
     WORKBENCH_DIR, "Resources", "icons", "FreekiCAD.png")
 
 
-class CreateLinkedObjectCommand:
-    """Command to create a new LinkedObject."""
+class CreatePcbObjectCommand:
+    """Command to create a new PcbObject."""
 
     def GetResources(self):
         return {
@@ -25,21 +25,47 @@ class CreateLinkedObjectCommand:
 
     def Activated(self):
         from PySide import QtGui
-        from FreekiCAD.LinkedObject import create_linked_object
+        from FreekiCAD.PcbObject import create_pcb_object
         filepath, _ = QtGui.QFileDialog.getOpenFileName(
             None, "Select file to link", "", "KiCad PCB (*.kicad_pcb)"
         )
         if filepath:
-            create_linked_object(filepath)
+            create_pcb_object(filepath)
 
 
-class ReloadAllLinkedObjectsCommand:
-    """Command to reload all LinkedObjects in the document."""
+class CreateStepObjectCommand:
+    """Command to create a reloadable STEP object."""
+
+    def GetResources(self):
+        return {
+            "MenuText": "Add STEP",
+            "ToolTip": "Add a reloadable linked STEP object",
+        }
+
+    def IsActive(self):
+        return FreeCAD.ActiveDocument is not None
+
+    def Activated(self):
+        from PySide import QtGui
+        from FreekiCAD.StepObject import create_step_object
+
+        filepath, _ = QtGui.QFileDialog.getOpenFileName(
+            None,
+            "Select STEP file to link",
+            "",
+            "STEP (*.step *.stp *.STEP *.STP)",
+        )
+        if filepath:
+            create_step_object(filepath)
+
+
+class ReloadAllObjectsCommand:
+    """Command to reload all linked objects in the document."""
 
     def GetResources(self):
         return {
             "MenuText": "Reload All",
-            "ToolTip": "Reload all linked KiCad PCB objects",
+            "ToolTip": "Reload all linked KiCad PCB and STEP objects",
         }
 
     def IsActive(self):
@@ -61,7 +87,10 @@ class FreekiCADWorkbench(FreeCADGui.Workbench):
     ToolTip = "Addon for linking external files to objects"
 
     def Initialize(self):
-        self.appendMenu("FreekiCAD", ["CreateLinkedObject", "ReloadAllLinkedObjects"])
+        self.appendMenu(
+            "FreekiCAD",
+            ["CreatePcbObject", "CreateStepObject", "ReloadAllObjects"],
+        )
 
     def Activated(self):
         pass
@@ -72,5 +101,6 @@ class FreekiCADWorkbench(FreeCADGui.Workbench):
 
 FreekiCADWorkbench.Icon = WORKBENCH_ICON
 FreeCADGui.addWorkbench(FreekiCADWorkbench)
-FreeCADGui.addCommand("CreateLinkedObject", CreateLinkedObjectCommand())
-FreeCADGui.addCommand("ReloadAllLinkedObjects", ReloadAllLinkedObjectsCommand())
+FreeCADGui.addCommand("CreatePcbObject", CreatePcbObjectCommand())
+FreeCADGui.addCommand("CreateStepObject", CreateStepObjectCommand())
+FreeCADGui.addCommand("ReloadAllObjects", ReloadAllObjectsCommand())
