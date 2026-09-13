@@ -1,7 +1,7 @@
 {
   "objects": [
     {
-      "type": "LinkedObject",
+      "type": "PcbObject",
       "file": "fpc2.kicad_pcb",
       "settings": {
         "AutoReload": true,
@@ -10,13 +10,14 @@
         "ImportOuterCopper": true,
         "ImportInnerCopper": true,
         "ImportSolderMask": true,
+        "ImportSilkscreen": false,
         "BuildDebugObjects": false,
         "DebugBoard": false,
         "WedgeMode": "Smooth"
       }
     },
     {
-      "type": "LinkedObject",
+      "type": "PcbObject",
       "file": "fpc.kicad_pcb",
       "settings": {
         "AutoReload": true,
@@ -25,6 +26,7 @@
         "ImportOuterCopper": true,
         "ImportInnerCopper": true,
         "ImportSolderMask": true,
+        "ImportSilkscreen": false,
         "BuildDebugObjects": false,
         "DebugBoard": false,
         "WedgeMode": "Smooth"
