@@ -34,14 +34,13 @@ It creates a few more dimensions for KiCad:
         * Single PCB without panelization can be done with frameless setting
         * Each PCB can have its own flag settings
 * Gerber handling
-    * Available in the panelizer
+    * Available in the fabrication planner (panelizer)
     * Or direct conversion to .kicad_pcb
     * Compared with KiCad output
         * Better restoration of oval drill holes
         * Allow attaching BOM/CPL (converted to reference-only footprints)
 * CLI
-    * Convert saved .kkkk_pnl to kicad files in one command
-    * Same usage for panelizer & build variants
+    * Convert saved fabrication plan (.kikit_pnl) to kicad files in one command
 * FreeCAD Integration (only tested on macOS/Windows)
     * Requires FreeCAD 1.0 or later
     * `FreekiCAD` supports loading multiple .kicad_pcb files into a FreeCAD document
@@ -98,8 +97,8 @@ Single PCB without panelization can be done with frameless setting
 ![Variants-FieldValue](screenshots/variants-fieldvalue.png)
 `Field#Opt=A`, `Field#Opt=B` will be displayed as dropdown options.
 
-# Panelizer
-The `.kikit_pnl` file saves panelization settings in JSON format, with PCB paths stored relative to the file's location.
+# Fabrication Plan
+The `.kikit_pnl` file saves panelization and build-variants settings in JSON format, with PCB paths stored relative to the file's location.
 
 ## Global Alignment
 ![Global Alignment](screenshots/global_alignment.gif)

@@ -1240,7 +1240,7 @@ class PanelizerUI(Application):
 
     def save(self, e, target=None):
         if target is None:
-            target = SaveFile(self.state.target_path, types="KiKit Panelization (*.kikit_pnl)|*.kikit_pnl")
+            target = SaveFile(self.state.target_path, types="Kikakuka FabPlan (*.kikit_pnl)|*.kikit_pnl")
         if not target:
             return
 
@@ -1332,7 +1332,7 @@ class PanelizerUI(Application):
         self.set_defaults()
 
         if target is None:
-            target = OpenFile("Load Panelization", types="KiKit Panelization (*.kikit_pnl)|*.kikit_pnl")
+            target = OpenFile("Load FabPlan", types="Kikakuka FabPlan (*.kikit_pnl)|*.kikit_pnl")
         if target:
             target = os.path.realpath(target)
             self.state.target_path = target
@@ -3102,7 +3102,7 @@ class PanelizerUI(Application):
             subprocess.Popen(("xdg-open", path))
 
     def content(self):
-        title = f"Kikakuka v{VERSION} Panelizer (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
+        title = f"Kikakuka v{VERSION} Fabrication Planner (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 with HBox().layout(weight=1):

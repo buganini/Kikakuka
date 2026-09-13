@@ -406,8 +406,8 @@ class WorkspaceUI(PUIView):
     def content(self):
         with VBox():
             with HBox():
-                Button("Import Project/Panelization").click(lambda e: self.addFileDialog())
-                Button("New Panelization").click(lambda e: self.newPanelization())
+                Button("Import Project/FabPlan").click(lambda e: self.addFileDialog())
+                Button("New FabPlan").click(lambda e: self.newPanelization())
                 Button("Differ").click(lambda e: self.openDiffer())
                 Spacer()
                 Button("Close").click(lambda e: self.close())
@@ -570,7 +570,7 @@ class WorkspaceUI(PUIView):
         dir = None
         if self.state.filepath:
             dir = os.path.dirname(self.state.filepath)
-        filepath = OpenFile("Open Project/Panelization", dir=dir, types=f"KiCad Project/Panelization, FreeCAD File, Step File (*.kicad_pro *.kikit_pnl)|*.kicad_pro|*.kikit_pnl|*.FCStd|*.step")
+        filepath = OpenFile("Open Project/FabPlan", dir=dir, types=f"KiCad Project/FabPlan, FreeCAD File, Step File (*.kicad_pro *.kikit_pnl *.FCStd *.step)|*.kicad_pro|*.kikit_pnl|*.FCStd|*.step")
         if filepath:
             self.addFile(filepath)
 
@@ -599,7 +599,7 @@ class WorkspaceUI(PUIView):
     def newPanelization(self):
         if self.state.filepath:
             dir = os.path.dirname(self.state.filepath)
-        filepath = SaveFile("New Panelization", dir=dir, types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
+        filepath = SaveFile("New FabPlan", dir=dir, types=f"Kikakuka FabPlan (*.kikit_pnl)|*.kikit_pnl")
         if filepath:
             if not filepath.endswith(".kikit_pnl"):
                 filepath = filepath + ".kikit_pnl"
@@ -782,7 +782,7 @@ class MainUI(Application):
                         Button("Open").click(lambda e: self.openWorkspace())
                         Spacer()
                     with HBox():
-                        Label("Panelization")
+                        Label("FabPlan")
                         Button("New").click(lambda e: self.newPanelization())
                         Button("Open").click(lambda e: self.openPanelizationAndClose())
                         Spacer()
@@ -798,8 +798,8 @@ class MainUI(Application):
                     Button("New Workspace").click(lambda e: self.newWorkspace())
                     Button("Open Workspace").click(lambda e: self.openWorkspace())
                     Spacer()
-                    Button("New Panelization").click(lambda e: self.newPanelization())
-                    Button("Open Panelization").click(lambda e: self.openPanelizationAndClose())
+                    Button("New FabPlan").click(lambda e: self.newPanelization())
+                    Button("Open FabPlan").click(lambda e: self.openPanelizationAndClose())
 
                 with Tabs():
                     for workspace in self.state.workspaces:
@@ -826,14 +826,14 @@ class MainUI(Application):
 
 
     def newPanelization(self):
-        filepath = SaveFile("New Panelization", types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
+        filepath = SaveFile("New FabPlan", types=f"Kikakuka FabPlan (*.kikit_pnl)|*.kikit_pnl")
         if filepath:
             if not filepath.endswith(".kikit_pnl"):
                 filepath = filepath + ".kikit_pnl"
             self.openPanelizer(filepath)
 
     def openPanelizationAndClose(self):
-        filepath = OpenFile("Open Panelization", types=f"KiCad Panelization (*.kikit_pnl)|*.kikit_pnl")
+        filepath = OpenFile("Open FabPlan", types=f"Kikakuka FabPlan (*.kikit_pnl)|*.kikit_pnl")
         if filepath:
             self.openPanelizer(filepath)
             self.quit()
