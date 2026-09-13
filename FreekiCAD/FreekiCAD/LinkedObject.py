@@ -20,6 +20,9 @@ COUPLER_FIXED = "CouplerFixed"
 COUPLER_ORIGIN = "CouplerOrigin"
 _COUPLER_TYPES = {COUPLER_MOVING, COUPLER_FIXED, COUPLER_ORIGIN}
 COUPLER_MONITOR_INTERVAL_MS = 1000
+# Master switch for coupler synchronization in both directions.
+# Local FreeCAD marker editing and coupled-board positioning remain active.
+COUPLER_KICAD_SYNC_ENABLED = True
 
 
 def _log_bending_bfs(message):
@@ -3081,18 +3084,19 @@ class LinkedObject:
             except Exception:
                 self._unbent_placements[marker.Name] = placement
 
-        update = {
-            'ref': reference,
-            'type': coupler_type,
-            'x': pose['x'],
-            'y': pose['y'],
-            'z': pose['z'],
-            'tilt': pose['tilt'],
-        }
-        self._pending_coupler_updates[reference] = update
-        self._coupler_monitor_generation += 1
-        self._coupler_poll_retry_after = time.monotonic() + 1.0
-        self._schedule_coupler_update(obj, reference)
+        if COUPLER_KICAD_SYNC_ENABLED:
+            update = {
+                'ref': reference,
+                'type': coupler_type,
+                'x': pose['x'],
+                'y': pose['y'],
+                'z': pose['z'],
+                'tilt': pose['tilt'],
+            }
+            self._pending_coupler_updates[reference] = update
+            self._coupler_monitor_generation += 1
+            self._coupler_poll_retry_after = time.monotonic() + 1.0
+            self._schedule_coupler_update(obj, reference)
 
         if hasattr(self, '_unbent_board_shape'):
             self._schedule_rebend(obj)
@@ -3224,6 +3228,8 @@ class LinkedObject:
 
     def _request_coupler_poll(self, obj):
         """Read persisted couplers from KiCad without blocking FreeCAD UI."""
+        if not COUPLER_KICAD_SYNC_ENABLED:
+            return
         self._ensure_coupler_monitor_state()
         if (self._coupler_poll_in_flight
                 or self._coupler_socket_pending
