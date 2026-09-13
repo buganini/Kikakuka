@@ -18,11 +18,11 @@ if inputs:
         print("  # Start with PCB files")
         print(f"  {sys.argv[0]} a.kicad_pcb b.kicad_pcb...")
         print()
-        print("  # Load file (.kkkk or .kikit_pnl)")
-        print(f"  {sys.argv[0]} a.kikit_pnl")
+        print("  # Load file (.kkkk, .kkkk_fab, or legacy .kikit_pnl)")
+        print(f"  {sys.argv[0]} a.kkkk_fab")
         print()
         print("  # Headless export for panelization or build variants")
-        print(f"  {sys.argv[0]} a.kikit_pnl out.kicad_pcb")
+        print(f"  {sys.argv[0]} a.kkkk_fab out.kicad_pcb")
         print()
         print("  # Differ")
         print(f"  {sys.argv[0]} --differ a.kicad_sch b.kicad_sch")
@@ -43,7 +43,7 @@ if inputs:
     elif all([input.endswith(WORKSPACE_SUFFIX) for input in inputs]):
         ui = MainUI(inputs)
         ui.run()
-    elif inputs[0].endswith(PNL_SUFFIX):
+    elif inputs[0].lower().endswith(PNL_SUFFIXES):
         ui = PanelizerUI()
         ui.load(None, inputs[0])
         if len(inputs) > 1:

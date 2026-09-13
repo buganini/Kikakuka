@@ -12,7 +12,7 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
 from common import *
 
-FILE_ORDER = [PNL_SUFFIX, ".kicad_pro"]
+FILE_ORDER = [*PNL_SUFFIXES, ".kicad_pro"]
 
 try:
     KIPY_VERSION = package_version("kicad-python")
@@ -242,7 +242,7 @@ def populateProject(project, root, types=None):
     project["files"] = []
     project["parent"] = None
     project["project_path"] = project["path"]
-    if project["path"].endswith(".kikit_pnl"):
+    if project["path"].lower().endswith(PNL_SUFFIXES):
         return
     if project["path"].endswith(".kicad_pro"):
         for ext in types:
@@ -570,7 +570,7 @@ class WorkspaceUI(PUIView):
         dir = None
         if self.state.filepath:
             dir = os.path.dirname(self.state.filepath)
-        filepath = OpenFile("Open Project/FabPlan", dir=dir, types=f"KiCad Project/FabPlan, FreeCAD File, Step File (*.kicad_pro *.kikit_pnl *.FCStd *.step)|*.kicad_pro|*.kikit_pnl|*.FCStd|*.step")
+        filepath = OpenFile("Open Project/FabPlan", dir=dir, types=f"KiCad Project/FabPlan, FreeCAD File, Step File (*.kicad_pro *.kkkk_fab *.kikit_pnl *.FCStd *.step)|*.kicad_pro;*.kkkk_fab;*.kikit_pnl;*.FCStd;*.step")
         if filepath:
             self.addFile(filepath)
 
@@ -599,10 +599,10 @@ class WorkspaceUI(PUIView):
     def newPanelization(self):
         if self.state.filepath:
             dir = os.path.dirname(self.state.filepath)
-        filepath = SaveFile("New FabPlan", dir=dir, types=f"Kikakuka FabPlan (*.kikit_pnl)|*.kikit_pnl")
+        filepath = SaveFile("New FabPlan", dir=dir, types=f"Kikakuka FabPlan (*.kkkk_fab)|*.kkkk_fab")
         if filepath:
-            if not filepath.endswith(".kikit_pnl"):
-                filepath = filepath + ".kikit_pnl"
+            if not filepath.endswith(".kkkk_fab"):
+                filepath = filepath + ".kkkk_fab"
             if self.state.filepath:
                 self.state.workspace["projects"].append({
                     "path": filepath,
@@ -615,7 +615,7 @@ class WorkspaceUI(PUIView):
             self.openPanelizer(filepath)
 
     def openFile(self, path, bring_to_front=False):
-        if path.lower().endswith(PNL_SUFFIX):
+        if path.lower().endswith(PNL_SUFFIXES):
             self.openPanelizer(path)
             return
         if path.lower().endswith(STEP_SUFFIX):
@@ -826,14 +826,14 @@ class MainUI(Application):
 
 
     def newPanelization(self):
-        filepath = SaveFile("New FabPlan", types=f"Kikakuka FabPlan (*.kikit_pnl)|*.kikit_pnl")
+        filepath = SaveFile("New FabPlan", types=f"Kikakuka FabPlan (*.kkkk_fab)|*.kkkk_fab")
         if filepath:
-            if not filepath.endswith(".kikit_pnl"):
-                filepath = filepath + ".kikit_pnl"
+            if not filepath.endswith(".kkkk_fab"):
+                filepath = filepath + ".kkkk_fab"
             self.openPanelizer(filepath)
 
     def openPanelizationAndClose(self):
-        filepath = OpenFile("Open FabPlan", types=f"Kikakuka FabPlan (*.kikit_pnl)|*.kikit_pnl")
+        filepath = OpenFile("Open FabPlan", types=f"Kikakuka FabPlan (*.kkkk_fab *.kikit_pnl)|*.kkkk_fab;*.kikit_pnl")
         if filepath:
             self.openPanelizer(filepath)
             self.quit()

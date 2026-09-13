@@ -1240,12 +1240,14 @@ class PanelizerUI(Application):
 
     def save(self, e, target=None):
         if target is None:
-            target = SaveFile(self.state.target_path, types="Kikakuka FabPlan (*.kikit_pnl)|*.kikit_pnl")
+            target = SaveFile(self.state.target_path, types="Kikakuka FabPlan (*.kkkk_fab)|*.kkkk_fab")
         if not target:
             return
 
-        suffix = ".kikit_pnl"
-        if not target.endswith(suffix):
+        suffix = PNL_SUFFIX
+        if target.lower().endswith(LEGACY_PNL_SUFFIX):
+            target = target[:-len(LEGACY_PNL_SUFFIX)] + suffix
+        elif not target.lower().endswith(suffix):
             target += suffix
 
         target = os.path.realpath(target)
@@ -1332,7 +1334,7 @@ class PanelizerUI(Application):
         self.set_defaults()
 
         if target is None:
-            target = OpenFile("Load FabPlan", types="Kikakuka FabPlan (*.kikit_pnl)|*.kikit_pnl")
+            target = OpenFile("Load FabPlan", types="Kikakuka FabPlan (*.kkkk_fab *.kikit_pnl)|*.kkkk_fab;*.kikit_pnl")
         if target:
             target = os.path.realpath(target)
             self.state.target_path = target

@@ -6,7 +6,9 @@ import sexpr
 VERSION = "6.12"
 
 WORKSPACE_SUFFIX = ".kkkk"
-PNL_SUFFIX = ".kikit_pnl"
+PNL_SUFFIX = ".kkkk_fab"
+LEGACY_PNL_SUFFIX = ".kikit_pnl"
+PNL_SUFFIXES = (PNL_SUFFIX, LEGACY_PNL_SUFFIX)
 PCB_SUFFIX = ".kicad_pcb"
 SCH_SUFFIX = ".kicad_sch"
 STEP_SUFFIX = ".step"
@@ -45,7 +47,7 @@ def findFiles(workspace, root, types=None):
         project["files"] = []
         project["parent"] = None
         project["project_path"] = project["path"]
-        if project["path"].endswith(".kikit_pnl"):
+        if project["path"].lower().endswith(PNL_SUFFIXES):
             continue
         if project["path"].endswith(".kicad_pro"):
             for ext in types:

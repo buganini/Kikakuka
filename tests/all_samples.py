@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 
-PANEL_SUFFIXES = (".kikit_pnl", ".kiki_pnl")
+PANEL_SUFFIXES = (".kkkk_fab", ".kikit_pnl", ".kiki_pnl")
 GERBER_SAMPLE_DIR = Path("samples/gerber/export")
 DEFAULT_EXCLUDE_DIRS = {
     ".git",

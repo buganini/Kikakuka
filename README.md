@@ -40,7 +40,7 @@ It creates a few more dimensions for KiCad:
         * Better restoration of oval drill holes
         * Allow attaching BOM/CPL (converted to reference-only footprints)
 * CLI
-    * Convert saved fabrication plan (.kikit_pnl) to kicad files in one command
+    * Convert saved fabrication plans (`.kkkk_fab`, or legacy `.kikit_pnl`) to KiCad files in one command
 * FreeCAD Integration (only tested on macOS/Windows)
     * Requires FreeCAD 1.0 or later
     * `FreekiCAD` supports loading multiple .kicad_pcb files into a FreeCAD document
@@ -66,7 +66,7 @@ The `.kkkk` file saves workspace information in JSON format.
 * A diff sample of [cynthion-hardware](https://github.com/greatscottgadgets/cynthion-hardware)
 
 # Build Variants
-Example: [`samples/build_variant.kikit_pnl`](samples/build_variant.kikit_pnl) and [`samples/build_variant.kicad_pcb`](samples/build_variant.kicad_pcb).
+Example: [`samples/build_variant.kkkk_fab`](samples/build_variant.kkkk_fab) and [`samples/build_variant.kicad_pcb`](samples/build_variant.kicad_pcb).
 
 Set `BUILDEXPR` in footprints' properties. This can be done quickly with `Symbol Fields Table` using the current sheet only scope. Remember to sync them to PCB afterward.
 
@@ -98,7 +98,7 @@ Single PCB without panelization can be done with frameless setting
 `Field#Opt=A`, `Field#Opt=B` will be displayed as dropdown options.
 
 # Fabrication Plan
-The `.kikit_pnl` file saves panelization and build-variants settings in JSON format, with PCB paths stored relative to the file's location.
+The `.kkkk_fab` file saves panelization and build-variants settings in JSON format, with PCB paths stored relative to the file's location. Legacy `.kikit_pnl` files can still be opened or added; newly saved fabrication plans use `.kkkk_fab`.
 
 ## Global Alignment
 ![Global Alignment](screenshots/global_alignment.gif)
@@ -281,11 +281,11 @@ git submodule update --init --recursive
 # Start with PCB files
 ./env/bin/python3 kikakuka.py a.kicad_pcb b.kicad_pcb...
 
-# Load file (.kkkk or .kikit_pnl)
-./env/bin/python3 kikakuka.py a.kikit_pnl
+# Load file (.kkkk, .kkkk_fab, or legacy .kikit_pnl)
+./env/bin/python3 kikakuka.py a.kkkk_fab
 
 # Headless export for panelization or build variants
-./env/bin/python3 kikakuka.py a.kikit_pnl out.kicad_pcb
+./env/bin/python3 kikakuka.py a.kkkk_fab out.kicad_pcb
 
 # Differ
 ./env/bin/python3 kikakuka.py --differ a.kicad_sch b.kicad_sch

@@ -674,7 +674,7 @@ class DifferUI(Application):
                                 Label("File A")
                                 with ComboBox(text_model=self.state("file_a")).layout(weight=1).change(lambda e: self.change_file_a()):
                                     for project in self.workspace["projects"]:
-                                        if project["path"].lower().endswith(PNL_SUFFIX):
+                                        if project["path"].lower().endswith(PNL_SUFFIXES):
                                             continue
                                         for file in project["files"]:
                                             folder_name = os.path.basename(os.path.dirname(file["path"]))
@@ -686,7 +686,7 @@ class DifferUI(Application):
                                 Label("File B")
                                 with ComboBox(text_model=self.state("file_b")).layout(weight=1).change(lambda e: self.change_file_b()):
                                     for project in self.workspace["projects"]:
-                                        if project["path"].lower().endswith(PNL_SUFFIX):
+                                        if project["path"].lower().endswith(PNL_SUFFIXES):
                                             continue
                                         for file in project["files"]:
                                             folder_name = os.path.basename(os.path.dirname(file["path"]))
