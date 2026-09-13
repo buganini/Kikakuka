@@ -53,6 +53,21 @@ conversion to FreeCAD transparency. When mask import is disabled, the legacy
 opaque body color is left unchanged. Mask faces use the same rigid-piece and
 wedge mapping as copper during bending.
 
+## Silkscreen Layers
+
+`Silkscreen.py` imports board- and footprint-level `F.SilkS`/`B.SilkS`
+graphics and asks KiCad to convert visible text and fields to polygonal shapes.
+The result is one planar, zero-thickness display object per non-empty side;
+there is no 3D extrusion or boolean union. Physical silkscreen thickness and
+stackup color are retained as metadata and appearance.
+
+Silkscreen is the outermost display plane. Each enabled outer level reserves
+20 um inside the finished thickness: silkscreen stays at `0/T`, mask moves to
+`0.02/T-0.02`, copper to `0.04/T-0.04`, and the central board body begins and
+ends another 0.02 mm inward when all three are enabled. Component and coupler
+Z continue to use the unchanged finished thickness. Silkscreen faces follow
+the same rigid-piece and wedge mapping as copper and mask during bending.
+
 ---
 
 ## Constants

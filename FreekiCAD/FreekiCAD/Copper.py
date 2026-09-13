@@ -180,6 +180,23 @@ def _arc_stroke(start, mid, end, width):
     return Part.makeCompound([shape for shape in strokes if shape is not None])
 
 
+def _bezier_stroke(start, control1, control2, end, width, segments=24):
+    """Approximate a cubic Bezier as filled-width display strokes."""
+    points = []
+    for index in range(segments + 1):
+        t = index / segments
+        u = 1.0 - t
+        points.append(FreeCAD.Vector(
+            u ** 3 * start.x + 3 * u * u * t * control1.x
+            + 3 * u * t * t * control2.x + t ** 3 * end.x,
+            u ** 3 * start.y + 3 * u * u * t * control1.y
+            + 3 * u * t * t * control2.y + t ** 3 * end.y,
+            0,
+        ))
+    strokes = [_capsule(a, b, width) for a, b in zip(points, points[1:])]
+    return Part.makeCompound([shape for shape in strokes if shape is not None])
+
+
 def _polyline_edges(polyline):
     nodes = list(polyline.nodes)
     result = []
@@ -401,19 +418,19 @@ def board_graphic_shape(graphic):
         / NM_PER_MM,
         0.001,
     )
-    if kind == "BoardSegment":
+    if kind in ("BoardSegment", "Segment"):
         return _capsule(_v(graphic.start), _v(graphic.end), width)
-    if kind == "BoardArc":
+    if kind in ("BoardArc", "Arc"):
         return _arc_stroke(_v(graphic.start), _v(graphic.mid),
                            _v(graphic.end), width)
-    if kind == "BoardCircle":
+    if kind in ("BoardCircle", "Circle"):
         radius = float(graphic.radius()) / NM_PER_MM
         if getattr(graphic.attributes.fill, "filled", False):
             return _circle_face(radius, _v(graphic.center))
         outer = _circle_face(radius + width / 2.0, _v(graphic.center))
         inner = _circle_face(max(0, radius - width / 2.0), _v(graphic.center))
         return outer.cut(inner) if inner is not None else outer
-    if kind == "BoardRectangle":
+    if kind in ("BoardRectangle", "Rectangle"):
         p0, p1 = _v(graphic.top_left), _v(graphic.bottom_right)
         if getattr(graphic.attributes.fill, "filled", False):
             face = _rect_face(abs(p1.x - p0.x), abs(p1.y - p0.y))
@@ -428,7 +445,7 @@ def board_graphic_shape(graphic):
         strokes = [_capsule(corners[i], corners[(i + 1) % 4], width)
                    for i in range(4)]
         return Part.makeCompound(strokes)
-    if kind == "BoardPolygon":
+    if kind in ("BoardPolygon", "Polygon"):
         if getattr(graphic.attributes.fill, "filled", False):
             faces = [polygon_with_holes_face(p) for p in graphic.polygons]
             return Part.makeCompound(
@@ -441,6 +458,10 @@ def board_graphic_shape(graphic):
                     strokes.extend(_capsule(a, b, width)
                                    for a, b in zip(points, points[1:]))
         return Part.makeCompound(strokes) if strokes else None
+    if kind in ("BoardBezier", "Bezier"):
+        return _bezier_stroke(
+            _v(graphic.start), _v(graphic.control1),
+            _v(graphic.control2), _v(graphic.end), width)
     return None
 
 

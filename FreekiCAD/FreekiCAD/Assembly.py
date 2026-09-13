@@ -22,6 +22,7 @@ PCB_OBJECT_SETTINGS = (
     "ImportOuterCopper",
     "ImportInnerCopper",
     "ImportSolderMask",
+    "ImportSilkscreen",
     "BuildDebugObjects",
     "DebugBoard",
     "WedgeMode",

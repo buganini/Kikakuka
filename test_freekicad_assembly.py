@@ -58,6 +58,7 @@ class PcbObjectStub:
         self.ImportOuterCopper = True
         self.ImportInnerCopper = True
         self.ImportSolderMask = True
+        self.ImportSilkscreen = True
         self.BuildDebugObjects = True
         self.DebugBoard = False
         self.WedgeMode = "Wireframe"
@@ -124,6 +125,7 @@ class AssemblyTests(unittest.TestCase):
             self.assertNotIn("label", saved)
             self.assertEqual(saved["settings"]["WedgeMode"], "Wireframe")
             self.assertFalse(saved["settings"]["EnableBending"])
+            self.assertTrue(saved["settings"]["ImportSilkscreen"])
             self.assertEqual(saved["placement"]["base"], [1.0, 2.0, 3.0])
             self.assertAlmostEqual(
                 saved["placement"]["rotation"]["angle_degrees"], 45.0

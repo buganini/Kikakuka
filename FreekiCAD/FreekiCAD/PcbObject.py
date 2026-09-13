@@ -27,10 +27,12 @@ COUPLER_KICAD_SYNC_ENABLED = True
 
 
 def _body_display_bounds(finished_thickness, import_outer_copper=False,
-                         import_solder_mask=False, display_gap=0.020):
+                         import_solder_mask=False, import_silkscreen=False,
+                         display_gap=0.020):
     """Allocate 2D surface-layer separation inside finished thickness."""
     level_count = int(bool(import_outer_copper)) \
-        + int(bool(import_solder_mask))
+        + int(bool(import_solder_mask)) \
+        + int(bool(import_silkscreen))
     inset = max(0.0, float(display_gap)) * level_count
     bottom = inset
     top = float(finished_thickness) - inset
@@ -1159,12 +1161,13 @@ def _get_board_color(board, filepath):
 
 
 def load_board(filepath, socket_path, import_outer_copper=False,
-               import_inner_copper=False, import_solder_mask=False):
+               import_inner_copper=False, import_solder_mask=False,
+               import_silkscreen=False):
     """Connect to a running KiCad instance via kipy and build the board
     solid + footprint metadata.
     Returns (board_shape, footprints_data, color, outline_edges, thickness,
     bend_lines, board_face, couplers_data, copper_layers, mask_layers,
-    body_transparency) where
+    silkscreen_layers, body_transparency) where
     footprints_data is a list of dicts with ref/position/models info,
     couplers_data contains the custom CouplerMoving/CouplerFixed poses, and
     copper_layers contains one display shape per imported stackup layer."""
@@ -1295,6 +1298,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                 thickness,
                 import_outer_copper=import_outer_copper,
                 import_solder_mask=import_solder_mask,
+                import_silkscreen=import_silkscreen,
                 display_gap=COPPER_DISPLAY_OFFSET_MM)
             if body_bottom_z > 0.0:
                 FreeCAD.Console.PrintMessage(
@@ -1722,8 +1726,9 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                     board_shapes=all_shapes, warn=_surface_warning,
                     include_outer=import_outer_copper,
                     include_inner=import_inner_copper,
-                    outer_inset=(COPPER_DISPLAY_OFFSET_MM
-                                 if import_solder_mask else 0.0),
+                    outer_inset=COPPER_DISPLAY_OFFSET_MM * (
+                        int(bool(import_solder_mask))
+                        + int(bool(import_silkscreen))),
                     total_thickness=thickness)
                 for layer in copper_layers:
                     item_summary = ", ".join(
@@ -1755,7 +1760,9 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                 mask_layers = build_solder_mask_layers(
                     board, stackup, BoardLayer, board_face,
                     board_shapes=all_shapes, warn=_surface_warning,
-                    total_thickness=thickness)
+                    total_thickness=thickness,
+                    outer_inset=(COPPER_DISPLAY_OFFSET_MM
+                                 if import_silkscreen else 0.0))
                 for layer in mask_layers:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD: Solder mask {layer['name']}: "
@@ -1772,9 +1779,35 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                 FreeCAD.Console.PrintWarning(
                     f"FreekiCAD: {traceback.format_exc()}\n")
 
+        silkscreen_layers = []
+        if import_silkscreen and stackup is not None:
+            try:
+                from .Silkscreen import build_silkscreen_layers
+
+                silkscreen_layers = build_silkscreen_layers(
+                    kicad, board, stackup, BoardLayer,
+                    board_shapes=all_shapes, footprints=footprints,
+                    warn=_surface_warning,
+                    total_thickness=thickness)
+                for layer in silkscreen_layers:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD: Silkscreen {layer['name']}: "
+                        f"graphics={layer.get('graphic_count', 0)}, "
+                        f"text={layer.get('text_count', 0)}, "
+                        f"faces={layer.get('face_count', 0)}, "
+                        f"area={layer.get('area', 0.0):.3f}mm^2, "
+                        f"z={layer.get('z', 0.0):.3f}mm\n")
+            except Exception as ex:
+                import traceback
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: Could not build silkscreen: {ex}\n")
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: {traceback.format_exc()}\n")
+
         return (board_solid, footprints_data, board_color, outline_edges,
                 thickness, bend_lines, board_face, couplers_data,
-                copper_layers, mask_layers, body_transparency)
+                copper_layers, mask_layers, silkscreen_layers,
+                body_transparency)
 
     except Exception as e:
         import traceback
@@ -1789,7 +1822,8 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         )
         from FreekiCAD.workspace_bus import report_error
         report_error(socket_path, e)
-    return None, [], None, [], DEFAULT_PCB_THICKNESS, [], None
+    return (None, [], None, [], DEFAULT_PCB_THICKNESS, [], None, [], [], [],
+            [], 0)
 
 
 def _fit_view(obj):
@@ -2299,6 +2333,11 @@ class PcbObject:
         )
         obj.ImportSolderMask = False
         obj.addProperty(
+            "App::PropertyBool", "ImportSilkscreen", "LinkedFile",
+            "Import F.SilkS and B.SilkS as planar display layers"
+        )
+        obj.ImportSilkscreen = False
+        obj.addProperty(
             "App::PropertyBool", "BuildDebugObjects", "LinkedFile",
             "Build debug arrows and cut lines"
         )
@@ -2371,7 +2410,7 @@ class PcbObject:
                 self._schedule_rebend(obj)
             return
         if prop in ("ImportOuterCopper", "ImportInnerCopper",
-                    "ImportSolderMask"):
+                    "ImportSolderMask", "ImportSilkscreen"):
             if not obj.Document.Restoring and hasattr(obj, 'FileMtime'):
                 obj.FileMtime = ""
             return
@@ -2490,6 +2529,7 @@ class PcbObject:
                     or child.Name.endswith("_Board") \
                     or hasattr(child, 'CopperLayer') \
                     or hasattr(child, 'MaskLayer') \
+                    or hasattr(child, 'SilkscreenLayer') \
                     or hasattr(child, 'CouplerType'):
                 try:
                     doc.removeObject(child.Name)
@@ -2535,14 +2575,17 @@ class PcbObject:
         _t_load = _time.time()
         board_solid, footprints_data, board_color, outline_edges, \
             thickness, bend_lines, board_face, couplers_data, \
-            copper_layers, mask_layers, body_transparency = load_board(
+            copper_layers, mask_layers, silkscreen_layers, \
+            body_transparency = load_board(
                 _resolved_linked_filename(obj), socket_path,
                 import_outer_copper=getattr(
                     obj, 'ImportOuterCopper', False),
                 import_inner_copper=getattr(
                     obj, 'ImportInnerCopper', False),
                 import_solder_mask=getattr(
-                    obj, 'ImportSolderMask', False))
+                    obj, 'ImportSolderMask', False),
+                import_silkscreen=getattr(
+                    obj, 'ImportSilkscreen', False))
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] load_board: "
             f"{_time.time() - _t_load:.3f}s\n")
@@ -2564,7 +2607,8 @@ class PcbObject:
                                    bend_lines, existing_components,
                                    existing_bends,
                                    board_face, couplers_data, copper_layers,
-                                   mask_layers, body_transparency)
+                                   mask_layers, silkscreen_layers,
+                                   body_transparency)
         finally:
             if _mw is not None:
                 _mw.setUpdatesEnabled(True)
@@ -2579,6 +2623,7 @@ class PcbObject:
                           existing_bends,
                           board_face=None, couplers_data=None,
                           copper_layers=None, mask_layers=None,
+                          silkscreen_layers=None,
                           body_transparency=0):
         import json
         import time as _time
@@ -2684,6 +2729,34 @@ class PcbObject:
             except Exception:
                 pass
             obj.addObject(mask_obj)
+
+        # Silkscreen is kept planar for fast loading.  Its physical thickness
+        # is metadata; its display plane is the outermost reserved level.
+        self._unbent_silkscreen_shapes = {}
+        for layer_data in silkscreen_layers or []:
+            safe_name = layer_data['name'].replace('.', '_')
+            silk_obj = doc.addObject(
+                "Part::Feature", obj.Name + "_Silkscreen_" + safe_name)
+            silk_obj.Label = layer_data['name']
+            silk_obj.addProperty(
+                "App::PropertyString", "SilkscreenLayer", "KiCad",
+                "KiCad silkscreen layer name")
+            silk_obj.SilkscreenLayer = layer_data['name']
+            silk_obj.setPropertyStatus("SilkscreenLayer", "ReadOnly")
+            silk_obj.addProperty(
+                "App::PropertyLength", "SilkscreenThickness", "KiCad",
+                "Physical silkscreen thickness from the KiCad stackup")
+            silk_obj.SilkscreenThickness = layer_data['thickness']
+            silk_obj.setPropertyStatus("SilkscreenThickness", "ReadOnly")
+            silk_obj.Shape = layer_data['shape']
+            self._unbent_silkscreen_shapes[silk_obj.Name] = \
+                layer_data['shape'].copy()
+            try:
+                silk_obj.ViewObject.ShapeColor = layer_data['color']
+                silk_obj.ViewObject.LineColor = layer_data['color']
+            except Exception:
+                pass
+            obj.addObject(silk_obj)
 
         # Add / update bend line children
         if existing_bends is None:
@@ -2964,12 +3037,14 @@ class PcbObject:
                 return (2, layer_order)
             if hasattr(c, 'MaskLayer'):
                 return (3, 0 if str(c.MaskLayer) == 'F.Mask' else 1)
+            if hasattr(c, 'SilkscreenLayer'):
+                return (4, 0 if str(c.SilkscreenLayer).startswith('F.') else 1)
             if getattr(getattr(c, 'Proxy', None),
                        'Type', None) == 'BendLine':
-                return (4, c.Label)
-            if hasattr(c, 'CouplerType'):
                 return (5, c.Label)
-            return (6, c.Label)
+            if hasattr(c, 'CouplerType'):
+                return (6, c.Label)
+            return (7, c.Label)
         obj.Group = sorted(obj.Group, key=_child_sort_key)
 
         # Store unbent placements for bend lines and components.
@@ -3811,6 +3886,9 @@ class PcbObject:
                 if display_shape is None:
                     display_shape = getattr(
                         self, '_unbent_mask_shapes', {}).get(child.Name)
+                if display_shape is None:
+                    display_shape = getattr(
+                        self, '_unbent_silkscreen_shapes', {}).get(child.Name)
                 if display_shape is not None:
                     child.Shape = display_shape.copy()
 
@@ -9311,22 +9389,25 @@ class PcbObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Correction + assembly: "
             f"{_time.time() - _t_loft:.3f}s\n")
-        # Deform copper and solder mask with the same piece topology as the
-        # board.  Rigid regions use piece_plc.  Display faces inside a wedge
-        # are rebuilt from bent boundary curves using the board mapping.
+        # Deform copper, solder mask, and silkscreen with the same piece
+        # topology as the board.  Rigid regions use piece_plc.  Display faces
+        # inside a wedge are rebuilt from bent boundary curves.
         surface_objects = [
             child for child in obj.Group
-            if hasattr(child, 'CopperLayer') or hasattr(child, 'MaskLayer')]
+            if (hasattr(child, 'CopperLayer')
+                or hasattr(child, 'MaskLayer')
+                or hasattr(child, 'SilkscreenLayer'))]
         for surface_obj in surface_objects:
-            is_copper = hasattr(surface_obj, 'CopperLayer')
-            layer_name = str(
-                surface_obj.CopperLayer if is_copper
-                else surface_obj.MaskLayer)
-            source_shapes = getattr(
-                self,
-                '_unbent_copper_shapes' if is_copper
-                else '_unbent_mask_shapes',
-                {})
+            if hasattr(surface_obj, 'CopperLayer'):
+                layer_name = str(surface_obj.CopperLayer)
+                source_attr = '_unbent_copper_shapes'
+            elif hasattr(surface_obj, 'MaskLayer'):
+                layer_name = str(surface_obj.MaskLayer)
+                source_attr = '_unbent_mask_shapes'
+            else:
+                layer_name = str(surface_obj.SilkscreenLayer)
+                source_attr = '_unbent_silkscreen_shapes'
+            source_shapes = getattr(self, source_attr, {})
             source = source_shapes.get(surface_obj.Name)
             if source is None:
                 continue
@@ -11187,6 +11268,7 @@ class PcbObject:
     _KNOWN_PROPERTIES = {
         "FileName", "AutoReload", "SnapToCoupler", "EnableBending",
         "ImportOuterCopper", "ImportInnerCopper", "ImportSolderMask",
+        "ImportSilkscreen",
         "BuildDebugObjects", "DebugBoard", "WedgeMode",
         "ComponentMtimes", "FileMtime", "CouplerPoses",
     }
@@ -11208,6 +11290,11 @@ class PcbObject:
                 "App::PropertyBool", "ImportSolderMask", "LinkedFile",
                 "Import F.Mask and B.Mask as translucent display layers")
             obj.ImportSolderMask = False
+        if not hasattr(obj, 'ImportSilkscreen'):
+            obj.addProperty(
+                "App::PropertyBool", "ImportSilkscreen", "LinkedFile",
+                "Import F.SilkS and B.SilkS as planar display layers")
+            obj.ImportSilkscreen = False
         if not hasattr(obj, 'SnapToCoupler'):
             obj.addProperty(
                 "App::PropertyBool", "SnapToCoupler", "LinkedFile",

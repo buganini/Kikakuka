@@ -177,7 +177,10 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
     * Inspect Solder Mask
         * `ImportSolderMask` imports translucent `F.Mask` and `B.Mask` child objects, with pad/via openings computed by KiCad plus explicit mask-layer graphics. It defaults to off.
         * With mask import enabled, the board body uses the configured dielectric stackup colors and KiCad opacity, or white with KiCad's default board-body opacity when no color is available. Mask opacity likewise follows its KiCad stackup color. Both display opacities are scaled to 70% in FreeCAD. With mask import disabled, the original opaque board color is preserved.
-        * Mask and copper are zero-thickness display geometry separated by 20 um inside the finished PCB thickness. Mask stays at the finished outer boundaries; enabled copper and mask levels reduce the displayed central board body accordingly. Their physical thicknesses remain metadata only, while component and coupler Z continue to use the original finished thickness.
+        * Mask and copper are zero-thickness display geometry separated by 20 um inside the finished PCB thickness. Enabled surface levels reduce the displayed central board body accordingly. Their physical thicknesses remain metadata only, while component and coupler Z continue to use the original finished thickness.
+    * Inspect Silkscreen
+        * `ImportSilkscreen` imports board- and footprint-level graphics, references, values, fields, and free text from `F.SilkS` and `B.SilkS`. It defaults to off.
+        * Silkscreen is fast, zero-thickness planar display geometry. It occupies the finished outer boundary; enabled mask and copper planes move inward by 20 um per level, and the displayed board body shrinks by the corresponding total while component and coupler Z remain unchanged.
     * [Coupler-Based PCB Alignment](#coupler-based-pcb-alignment)
         * Place a `CouplerFixed` footprint on the reference PCB and a `CouplerMoving` footprint on the PCB to be aligned. Couplers are matched by their KiCad reference.
         * Alternatively, place one `CouplerOrigin` on a PCB to align it with a virtual `CouplerFixed` at world `(0, 0, 0)` with zero rotation and tilt. A PCB may contain only one positioning source: one `CouplerMoving` or one `CouplerOrigin`.

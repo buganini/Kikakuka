@@ -151,6 +151,11 @@ class OutlineWireOrderTests(unittest.TestCase):
             linked_object._body_display_bounds(
                 1.6, import_outer_copper=True,
                 import_solder_mask=True), (0.04, 1.56))
+        self.assertEqual(
+            linked_object._body_display_bounds(
+                1.6, import_outer_copper=True,
+                import_solder_mask=True,
+                import_silkscreen=True), (0.06, 1.54))
 
     def test_linked_filename_resolves_relative_to_saved_fcstd(self):
         linked_object = self._import_linked_object()
@@ -184,6 +189,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertIs(obj.ImportOuterCopper, False)
         self.assertIs(obj.ImportInnerCopper, False)
         self.assertIs(obj.ImportSolderMask, False)
+        self.assertIs(obj.ImportSilkscreen, False)
 
     def test_linked_filename_becomes_relative_for_document_descendant(self):
         linked_object = self._import_linked_object()
