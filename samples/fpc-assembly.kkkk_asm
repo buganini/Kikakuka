@@ -1,0 +1,49 @@
+{
+  "objects": [
+    {
+      "type": "LinkedObject",
+      "file": "fpc2.kicad_pcb",
+      "settings": {
+        "AutoReload": true,
+        "SnapToCoupler": true,
+        "EnableBending": true,
+        "ImportOuterCopper": true,
+        "ImportInnerCopper": true,
+        "ImportSolderMask": true,
+        "BuildDebugObjects": false,
+        "DebugBoard": false,
+        "WedgeMode": "Smooth"
+      }
+    },
+    {
+      "type": "LinkedObject",
+      "file": "fpc.kicad_pcb",
+      "settings": {
+        "AutoReload": true,
+        "SnapToCoupler": true,
+        "EnableBending": true,
+        "ImportOuterCopper": true,
+        "ImportInnerCopper": true,
+        "ImportSolderMask": true,
+        "BuildDebugObjects": false,
+        "DebugBoard": false,
+        "WedgeMode": "Smooth"
+      },
+      "placement": {
+        "base": [
+          86.05696385856132,
+          95.98459155658311,
+          -32.37072057332223
+        ],
+        "rotation": {
+          "axis": [
+            0.05541215414839978,
+            -0.9903347142270333,
+            0.12714813002751682
+          ],
+          "angle_degrees": 174.71268028314114
+        }
+      }
+    }
+  ]
+}
