@@ -150,6 +150,38 @@ def _footprint_field_value(footprint, field_name, default=None):
     return default
 
 
+def _set_footprint_field_value(footprint, field_name, value):
+    """Set a named custom footprint field through the KiCad API wrapper."""
+    try:
+        fields = footprint.texts_and_fields
+    except Exception:
+        try:
+            fields = footprint.definition.texts
+        except Exception:
+            return False
+    for field in fields:
+        try:
+            if field.name != field_name:
+                continue
+        except Exception:
+            continue
+        try:
+            field.text.text.value = str(value)
+            return True
+        except Exception:
+            try:
+                field.text.value = str(value)
+                return True
+            except Exception:
+                continue
+    return False
+
+
+def _quantity_value(value):
+    """Return a FreeCAD quantity or a plain number as a float."""
+    return float(getattr(value, 'Value', value))
+
+
 def _parse_coupler_z(value):
     """Parse the coupler-plane Z displacement in millimetres."""
     if value is None:
@@ -1792,6 +1824,46 @@ class BendLine:
             obj.Active = True
 
 
+class CouplerMarker:
+    """Editable FreeCAD representation of a KiCad coupler footprint."""
+
+    Type = "CouplerMarker"
+
+    def __init__(self, obj):
+        obj.Proxy = self
+
+    def execute(self, obj):
+        pass
+
+    def onChanged(self, obj, prop):
+        if prop not in ("X", "Y", "Z", "Tilt"):
+            return
+        try:
+            if obj.Document.Restoring:
+                return
+        except Exception:
+            return
+        for parent in getattr(obj, 'InList', []):
+            proxy = getattr(parent, "Proxy", None)
+            if proxy and getattr(proxy, 'Type', None) == 'LinkedObject':
+                proxy._coupler_marker_changed(parent, obj)
+                break
+
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None
+
+    def onDocumentRestored(self, obj):
+        # Z and Tilt used to be read-only.  Keep restored documents editable.
+        for prop in ("Z", "Tilt"):
+            try:
+                obj.setPropertyStatus(prop, "-ReadOnly")
+            except Exception:
+                pass
+
+
 _sketch_observer = None
 
 
@@ -1883,6 +1955,17 @@ class _OutlineSketchObserver:
         except Exception:
             return
         if getattr(doc, 'Restoring', False):
+            return
+
+        # Also covers coupler markers restored from older documents, where
+        # the child was a plain Part::Feature without a Python proxy.
+        if prop in ("X", "Y", "Z", "Tilt") \
+                and hasattr(obj, 'CouplerType') \
+                and getattr(getattr(obj, 'Proxy', None), 'Type', None) \
+                != 'CouplerMarker':
+            parent = self._find_component_parent(obj)
+            if parent is not None:
+                parent.Proxy._coupler_marker_changed(parent, obj)
             return
 
         # Constrain component Placement: only X/Y move + Z rotation
@@ -2081,6 +2164,10 @@ def _handle_bus_response(reply):
         elif action == "monitor-couplers":
             proxy._handle_coupler_monitor_error(
                 reply.get("message", "unknown workspace error"))
+        elif action == "update-coupler":
+            proxy._handle_update_coupler_error(
+                obj, component,
+                reply.get("message", "unknown workspace error"))
         return
 
     if not socket_path:
@@ -2094,6 +2181,8 @@ def _handle_bus_response(reply):
         proxy._handle_open_sketch_response(obj, socket_path)
     elif action == "move-component":
         proxy._handle_move_component_response(obj, socket_path, component)
+    elif action == "update-coupler":
+        proxy._handle_update_coupler_response(obj, socket_path, component)
     elif action == "monitor-couplers":
         proxy._handle_coupler_monitor_response(obj, socket_path)
     else:
@@ -2206,6 +2295,34 @@ class LinkedObject:
         self._ensure_component_sync_state()
         self._ensure_coupler_monitor_state()
 
+    def onDocumentRestored(self, obj):
+        """Migrate saved coupler markers to the editable property set."""
+        self._ensure_properties(obj)
+        poses = self._coupler_poses(obj)
+        for marker in getattr(obj, 'Group', []):
+            if not hasattr(marker, 'CouplerType'):
+                continue
+            coupler_type = str(marker.CouplerType)
+            reference = str(marker.Reference)
+            pose = next((candidate for candidate in poses
+                         if str(candidate.get('type', '')) == coupler_type
+                         and str(candidate.get('ref', '')) == reference), {})
+            for name, description in (
+                    ('X', 'Coupler footprint X coordinate'),
+                    ('Y', 'Coupler footprint Y coordinate '
+                          '(FreeCAD convention)')):
+                if not hasattr(marker, name):
+                    marker.addProperty(
+                        'App::PropertyDistance', name, 'Coupler', description)
+                setattr(marker, name, float(pose.get(name.lower(), 0)))
+            for name in ('Z', 'Tilt'):
+                try:
+                    marker.setPropertyStatus(name, '-ReadOnly')
+                except Exception:
+                    pass
+            if getattr(marker, 'TypeId', '') == 'Part::FeaturePython':
+                CouplerMarker(marker)
+
     def onChanged(self, obj, prop):
         if prop in ("EnableBending", "BuildDebugObjects", "DebugBoard",
                     "WedgeMode"):
@@ -2261,6 +2378,12 @@ class LinkedObject:
             self._coupler_socket_pending = False
         if not hasattr(self, '_coupler_poll_retry_after'):
             self._coupler_poll_retry_after = 0.0
+        if not hasattr(self, '_coupler_update_timers'):
+            self._coupler_update_timers = {}
+        if not hasattr(self, '_pending_coupler_updates'):
+            self._pending_coupler_updates = {}
+        if not hasattr(self, '_coupler_updates_in_flight'):
+            self._coupler_updates_in_flight = {}
 
     def _is_component_move_blocked(self, obj=None):
         self._ensure_component_sync_state()
@@ -2921,6 +3044,160 @@ class LinkedObject:
                 if isinstance(p, dict)
                 and (coupler_type is None or p.get('type') == coupler_type)]
 
+    def _coupler_marker_changed(self, obj, marker):
+        """Apply an edited marker locally and debounce its KiCad update."""
+        if (getattr(self, '_updating_coupler_markers', False)
+                or getattr(self, '_reloading', False)
+                or getattr(self, '_in_execute', False)
+                or getattr(self, '_bending', False)):
+            return
+        self._ensure_coupler_monitor_state()
+        coupler_type = str(getattr(marker, 'CouplerType', ''))
+        reference = str(getattr(marker, 'Reference', ''))
+        poses = self._coupler_poses(obj)
+        pose = next((candidate for candidate in poses
+                     if str(candidate.get('type', '')) == coupler_type
+                     and str(candidate.get('ref', '')) == reference), None)
+        if pose is None:
+            return
+
+        pose.update({
+            'x': _quantity_value(marker.X),
+            'y': _quantity_value(marker.Y),
+            'z': _quantity_value(marker.Z),
+            'tilt': _quantity_value(marker.Tilt),
+        })
+        obj.CouplerPoses = json.dumps(poses)
+        placement = self._coupler_placement(pose)
+        self._updating_coupler_markers = True
+        try:
+            marker.Placement = placement
+            marker.FreekiCAD_InitPlacement = placement
+        finally:
+            self._updating_coupler_markers = False
+        if hasattr(self, '_unbent_placements'):
+            try:
+                self._unbent_placements[marker.Name] = placement.copy()
+            except Exception:
+                self._unbent_placements[marker.Name] = placement
+
+        update = {
+            'ref': reference,
+            'type': coupler_type,
+            'x': pose['x'],
+            'y': pose['y'],
+            'z': pose['z'],
+            'tilt': pose['tilt'],
+        }
+        self._pending_coupler_updates[reference] = update
+        self._coupler_monitor_generation += 1
+        self._coupler_poll_retry_after = time.monotonic() + 1.0
+        self._schedule_coupler_update(obj, reference)
+
+        if hasattr(self, '_unbent_board_shape'):
+            self._schedule_rebend(obj)
+        else:
+            self._reposition_all_coupled_objects(obj.Document)
+
+    def _schedule_coupler_update(self, obj, reference, delay_ms=200):
+        """Debounce property-editor changes before resolving the KiCad socket."""
+        self._ensure_coupler_monitor_state()
+        old_timer = self._coupler_update_timers.pop(reference, None)
+        if old_timer is not None:
+            old_timer.stop()
+        from PySide import QtCore
+        timer = QtCore.QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(
+            lambda: self._request_coupler_update(obj, reference))
+        self._coupler_update_timers[reference] = timer
+        timer.start(delay_ms)
+
+    def _request_coupler_update(self, obj, reference):
+        """Ask the workspace manager for the socket used to edit a coupler."""
+        self._ensure_coupler_monitor_state()
+        self._coupler_update_timers.pop(reference, None)
+        if reference in self._coupler_updates_in_flight:
+            return
+        update = self._pending_coupler_updates.pop(reference, None)
+        if update is None:
+            return
+        self._coupler_updates_in_flight[reference] = update
+        from FreekiCAD.workspace_bus import send_request
+        send_request(
+            "update-coupler", _resolved_linked_filename(obj),
+            object_label=obj.Label, component=reference)
+
+    def _handle_update_coupler_response(self, obj, socket_path, reference):
+        """Write an edited X/Y/Z/Tilt marker pose into KiCad."""
+        self._ensure_coupler_monitor_state()
+        update = self._coupler_updates_in_flight.pop(reference, None)
+        if update is None:
+            return
+        try:
+            from kipy.kicad import KiCad
+            from kipy.geometry import Vector2
+
+            kicad = KiCad(socket_path=f"ipc://{socket_path}")
+            board = _kipy_ready_board(kicad)
+            target_fp = None
+            for footprint in _kipy_retry(board.get_footprints):
+                try:
+                    fp_ref = footprint.reference_field.text.value
+                except Exception:
+                    continue
+                if (fp_ref == reference
+                        and _footprint_coupler_type(footprint)
+                        == update['type']):
+                    target_fp = footprint
+                    break
+            if target_fp is None:
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: Coupler '{reference}' not found in KiCad\n")
+                return
+
+            missing = [name for name in ('Z', 'Tilt')
+                       if _footprint_field_value(
+                           target_fp, name, None) is None]
+            if missing:
+                raise ValueError(
+                    f"missing coupler field(s): {', '.join(missing)}")
+
+            commit = board.begin_commit()
+            target_fp.position = Vector2.from_xy_mm(
+                update['x'], -update['y'])
+            if not _set_footprint_field_value(
+                    target_fp, 'Z', f"{update['z']:.12g} mm"):
+                raise ValueError("could not update coupler field Z")
+            if not _set_footprint_field_value(
+                    target_fp, 'Tilt', f"{update['tilt']:.12g} deg"):
+                raise ValueError("could not update coupler field Tilt")
+
+            board.update_items([target_fp])
+            board.push_commit(commit, f"Update coupler {reference} from FreeCAD")
+            self._coupler_poll_retry_after = time.monotonic() + 1.0
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Updated coupler '{reference}' in KiCad: "
+                f"X={update['x']:.3f}, Y={-update['y']:.3f}, "
+                f"Z={update['z']:.3f}, Tilt={update['tilt']:.3f}°\n")
+        except Exception as ex:
+            import traceback
+            FreeCAD.Console.PrintError(
+                f"FreekiCAD: Failed to update coupler '{reference}' in "
+                f"KiCad: {ex}\n{traceback.format_exc()}\n")
+        finally:
+            if reference in self._pending_coupler_updates:
+                self._schedule_coupler_update(obj, reference, delay_ms=0)
+
+    def _handle_update_coupler_error(self, obj, reference, message):
+        """Release a failed socket request while retaining the latest edit."""
+        self._ensure_coupler_monitor_state()
+        update = self._coupler_updates_in_flight.pop(reference, None)
+        if update is not None and reference not in self._pending_coupler_updates:
+            self._pending_coupler_updates[reference] = update
+        FreeCAD.Console.PrintError(
+            f"FreekiCAD: Could not update coupler '{reference}': {message}\n")
+
     def _request_coupler_poll(self, obj):
         """Read persisted couplers from KiCad without blocking FreeCAD UI."""
         self._ensure_coupler_monitor_state()
@@ -3020,26 +3297,21 @@ class LinkedObject:
                 continue
             marker = matches.pop(0)
             placement = self._coupler_placement(pose)
-            for prop, value in (
-                    ('CouplerType', pose.get('type', '')),
-                    ('Reference', str(pose.get('ref', ''))),
-                    ('Z', float(pose.get('z', 0))),
-                    ('Tilt', float(pose.get('tilt', 0)))):
-                unlocked = False
-                try:
-                    marker.setPropertyStatus(prop, "-ReadOnly")
-                    unlocked = True
-                    setattr(marker, prop, value)
-                except Exception:
-                    pass
-                finally:
-                    if unlocked:
-                        try:
-                            marker.setPropertyStatus(prop, "ReadOnly")
-                        except Exception:
-                            pass
-            marker.Placement = placement
-            marker.FreekiCAD_InitPlacement = placement
+            self._updating_coupler_markers = True
+            try:
+                for prop, value in (
+                        ('X', float(pose.get('x', 0))),
+                        ('Y', float(pose.get('y', 0))),
+                        ('Z', float(pose.get('z', 0))),
+                        ('Tilt', float(pose.get('tilt', 0)))):
+                    try:
+                        setattr(marker, prop, value)
+                    except Exception:
+                        pass
+                marker.Placement = placement
+                marker.FreekiCAD_InitPlacement = placement
+            finally:
+                self._updating_coupler_markers = False
             if hasattr(self, '_unbent_placements'):
                 try:
                     self._unbent_placements[marker.Name] = placement.copy()
@@ -3078,7 +3350,7 @@ class LinkedObject:
             z = float(pose.get('z', 0))
 
             marker = doc.addObject(
-                "Part::Feature",
+                "Part::FeaturePython",
                 f"{obj.Name}_Coupler_{coupler_type}_{ref}_{index}")
             marker.Label = f"{coupler_type} {ref}"
             obj.addObject(marker)
@@ -3090,6 +3362,12 @@ class LinkedObject:
                 "App::PropertyString", "Reference", "Coupler",
                 "KiCad reference used to match the coupler")
             marker.addProperty(
+                "App::PropertyDistance", "X", "Coupler",
+                "Coupler footprint X coordinate")
+            marker.addProperty(
+                "App::PropertyDistance", "Y", "Coupler",
+                "Coupler footprint Y coordinate (FreeCAD convention)")
+            marker.addProperty(
                 "App::PropertyDistance", "Z", "Coupler",
                 "Coupler-plane displacement")
             marker.addProperty(
@@ -3097,9 +3375,11 @@ class LinkedObject:
                 "Coupler-plane tilt around footprint-local X")
             marker.CouplerType = coupler_type
             marker.Reference = str(ref)
+            marker.X = float(pose.get('x', 0))
+            marker.Y = float(pose.get('y', 0))
             marker.Z = z
             marker.Tilt = float(pose.get('tilt', 0))
-            for prop in ('CouplerType', 'Reference', 'Z', 'Tilt'):
+            for prop in ('CouplerType', 'Reference'):
                 try:
                     marker.setPropertyStatus(prop, "ReadOnly")
                 except Exception:
@@ -3130,6 +3410,8 @@ class LinkedObject:
                     "FreekiCAD_InitPlacement", "Hidden")
             except Exception:
                 pass
+
+            CouplerMarker(marker)
 
             try:
                 marker.ViewObject.Visibility = False

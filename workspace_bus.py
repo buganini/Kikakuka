@@ -694,7 +694,7 @@ class WorkspaceBus:
 
         if action in (
                 "reload", "open-sketch", "move-component",
-                "monitor-couplers"):
+                "update-coupler", "monitor-couplers"):
             return self._resolve_socket(msg, pidmap)
 
         elif action == "log":

@@ -179,11 +179,11 @@ def send_request(action, filepath, object_label="", component=""):
     The response will be delivered asynchronously to the handler
     registered via set_response_handler().
 
-    *action*: ``"reload"``, ``"open-sketch"``, ``"move-component"``, or
-    ``"monitor-couplers"``
+    *action*: ``"reload"``, ``"open-sketch"``, ``"move-component"``,
+    ``"update-coupler"``, or ``"monitor-couplers"``
     *filepath*: path to the .kicad_pcb file
     *object_label*: the FreeCAD object label
-    *component*: component designator (for move-component)
+    *component*: footprint designator (for move-component/update-coupler)
     """
     msg = {"action": action, "object": object_label, "filepath": filepath}
     if component:

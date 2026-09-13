@@ -404,6 +404,18 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         self.assertEqual(linked_object._parse_coupler_tilt(value), -12.5)
 
+    def test_coupler_custom_field_can_be_updated(self):
+        linked_object = self._import_linked_object()
+        footprint = _NamedFootprint("CouplerMoving")
+        field = _CustomField("Z", "0 mm")
+        footprint.texts_and_fields = [field]
+
+        changed = linked_object._set_footprint_field_value(
+            footprint, "Z", "2.5 mm")
+
+        self.assertTrue(changed)
+        self.assertEqual(field.text.text.value, "2.5 mm")
+
     def test_live_coupler_pose_contains_all_positioning_properties(self):
         linked_object = self._import_linked_object()
         from kipy.proto.board.board_types_pb2 import BoardLayer
@@ -517,6 +529,8 @@ class OutlineWireOrderTests(unittest.TestCase):
             Name = "Board_Coupler_pair"
             CouplerType = "CouplerFixed"
             Reference = "pair"
+            X = 0
+            Y = 0
             Z = 0
             Tilt = 0
             Placement = None
@@ -542,11 +556,90 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy._apply_live_coupler_poses(obj, [pose])
 
         self.assertEqual(json.loads(obj.CouplerPoses), [pose])
+        self.assertEqual(marker.X, 10)
+        self.assertEqual(marker.Y, 20)
         self.assertEqual(marker.Z, 3)
         self.assertEqual(marker.Tilt, 12)
         self.assertIs(marker.Placement, placement)
         self.assertIs(marker.FreekiCAD_InitPlacement, placement)
         proxy._reposition_all_coupled_objects.assert_called_once_with(document)
+
+    def test_editing_coupler_fields_updates_pose_and_schedules_kicad_sync(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+        document = object()
+        marker = types.SimpleNamespace(
+            Name="Board_Coupler_pair", CouplerType="CouplerFixed",
+            Reference="pair", X=12.5, Y=7.25, Z=2.4, Tilt=-12.5,
+            Placement=None, FreekiCAD_InitPlacement=None)
+        obj = types.SimpleNamespace(
+            Label="board", CouplerPoses=json.dumps([{
+                "ref": "pair", "type": "CouplerFixed", "x": 1,
+                "y": 2, "board_z": 1.6, "rotation": 27,
+            }]), Document=document)
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy._schedule_coupler_update = mock.Mock()
+        proxy._reposition_all_coupled_objects = mock.Mock()
+
+        proxy._coupler_marker_changed(obj, marker)
+
+        pose = json.loads(obj.CouplerPoses)[0]
+        self.assertEqual(
+            (pose["x"], pose["y"], pose["z"], pose["tilt"]),
+            (12.5, 7.25, 2.4, -12.5))
+        self.assertEqual(proxy._pending_coupler_updates["pair"], {
+            "ref": "pair", "type": "CouplerFixed",
+            "x": 12.5, "y": 7.25, "z": 2.4, "tilt": -12.5,
+        })
+        proxy._schedule_coupler_update.assert_called_once_with(obj, "pair")
+        proxy._reposition_all_coupled_objects.assert_called_once_with(document)
+
+    def test_coupler_update_writes_xy_z_and_tilt_to_kicad(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
+            PrintError=mock.Mock())
+        footprint = _NamedFootprint("CouplerFixed")
+        footprint.reference_field = types.SimpleNamespace(
+            text=types.SimpleNamespace(value="pair"))
+        footprint.position = None
+        z_field = _CustomField("Z", "0 mm")
+        tilt_field = _CustomField("Tilt", "0 deg")
+        footprint.texts_and_fields = [z_field, tilt_field]
+        board = types.SimpleNamespace(
+            get_footprints=mock.Mock(return_value=[footprint]),
+            begin_commit=mock.Mock(return_value="commit"),
+            update_items=mock.Mock(), push_commit=mock.Mock())
+        linked_object._kipy_ready_board = mock.Mock(return_value=board)
+        linked_object._kipy_retry = lambda func: func()
+        vector2 = types.SimpleNamespace(
+            from_xy_mm=mock.Mock(return_value=(12.5, -7.25)))
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy._coupler_updates_in_flight = {"pair": {
+            "ref": "pair", "type": "CouplerFixed",
+            "x": 12.5, "y": 7.25, "z": 2.4, "tilt": -12.5,
+        }}
+        proxy._pending_coupler_updates = {}
+        proxy._coupler_update_timers = {}
+        fake_kicad = types.ModuleType("kipy.kicad")
+        fake_kicad.KiCad = mock.Mock(return_value=object())
+        fake_geometry = types.ModuleType("kipy.geometry")
+        fake_geometry.Vector2 = vector2
+
+        with mock.patch.dict(sys.modules, {
+                "kipy.kicad": fake_kicad,
+                "kipy.geometry": fake_geometry}):
+            proxy._handle_update_coupler_response(
+                types.SimpleNamespace(Label="board"), "/tmp/api.sock", "pair")
+
+        self.assertEqual(footprint.position, (12.5, -7.25))
+        self.assertEqual(z_field.text.text.value, "2.4 mm")
+        self.assertEqual(tilt_field.text.text.value, "-12.5 deg")
+        board.update_items.assert_called_once_with([footprint])
+        board.push_commit.assert_called_once_with(
+            "commit", "Update coupler pair from FreeCAD")
 
     def test_coupler_snap_makes_planes_coincide_face_to_face(self):
         linked_object = self._import_linked_object()

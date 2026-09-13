@@ -129,6 +129,24 @@ class WorkspaceBusResolveSocketTests(unittest.TestCase):
         bus._resolve_socket.assert_called_once_with(
             message, {"/boards/fpc.kicad_pcb": 111})
 
+    def test_update_coupler_action_resolves_existing_socket(self):
+        bus = self._make_bus({"/boards/fpc.kicad_pcb": 111})
+        expected = {
+            "status": "ok", "action": "update-coupler",
+            "socket": "/tmp/api.sock", "component": "J1",
+        }
+        bus._resolve_socket = mock.Mock(return_value=expected)
+        message = {
+            "action": "update-coupler", "object": "fpc",
+            "filepath": "/boards/fpc.kicad_pcb", "component": "J1",
+        }
+
+        reply = bus._handle(message)
+
+        self.assertEqual(reply, expected)
+        bus._resolve_socket.assert_called_once_with(
+            message, {"/boards/fpc.kicad_pcb": 111})
+
     def test_monitor_couplers_does_not_launch_kicad(self):
         bus = self._make_bus({})
         bus._open_file = mock.Mock(return_value=111)
