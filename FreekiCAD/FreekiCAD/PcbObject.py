@@ -2797,6 +2797,7 @@ class PcbObject:
             try:
                 mask_obj.ViewObject.ShapeColor = layer_data['color']
                 mask_obj.ViewObject.LineColor = layer_data['color']
+                mask_obj.ViewObject.DisplayMode = "Shaded"
                 mask_obj.ViewObject.Transparency = \
                     int(layer_data['transparency'])
             except Exception:
@@ -9583,45 +9584,15 @@ class PcbObject:
                             fragment.transformShape(pre_plc.toMatrix())
                         bent_faces = []
                         for source_face in getattr(fragment, 'Faces', []):
-                            bent_wires = []
-                            for source_wire in source_face.Wires:
-                                pairs = _build_bent_wedge_edges(
-                                    list(source_wire.Edges), wedge_ctx)
-                                edges = [
-                                    edge for _source_edge, edge in pairs
-                                    if edge is not None]
-                                if not edges:
-                                    continue
-                                wire = Part.Wire(edges)
-                                if not wire.isClosed():
-                                    try:
-                                        wire.fixWire(
-                                            None, GEOMETRY_TOLERANCE)
-                                    except Exception:
-                                        pass
-                                if wire.isClosed():
-                                    bent_wires.append(wire)
-                            if not bent_wires:
-                                continue
-                            try:
-                                if len(bent_wires) == 1:
-                                    bent_faces.append(
-                                        Part.Face(bent_wires[0]))
-                                else:
-                                    bent_faces.append(Part.Face(
-                                        bent_wires,
-                                        "Part::FaceMakerBullseye"))
-                            except Exception:
-                                # A copper face crossing the curved band is
-                                # non-planar. Tessellate its flat face, then
-                                # bend each triangle with the board mapping.
-                                patches = \
-                                    _build_bent_source_face_triangle_patches(
-                                        source_face, wedge_ctx)
-                                if patches:
-                                    bent_faces.extend(patches)
-                                else:
-                                    bent_faces.extend(bent_wires)
+                            # A face spanning a wedge is cylindrical rather
+                            # than planar.  Part.Face can sometimes accept its
+                            # non-planar boundary but silently fill a large
+                            # planar bridge across the bend.  Always map its
+                            # tessellated interior so every patch follows the
+                            # same curved transform as the board wedge.
+                            bent_faces.extend(
+                                _build_bent_source_face_triangle_patches(
+                                    source_face, wedge_ctx))
                         if not bent_faces:
                             continue
                         bent_fragment = Part.makeCompound(bent_faces)
