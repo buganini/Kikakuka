@@ -4,6 +4,7 @@
     * Add automatic linked-board alignment using matching `CouplerFixed` and `CouplerMoving` footprints or a `CouplerOrigin`
         * Support Z offsets, tilt angles, post-bending coupler positions, multi-board dependencies, and transformed FreeCAD groups
         * Recalculate coupled-board placements after reload and restore them when opening saved FreeCAD documents
+        * Monitor saved couplers in the live KiCad document every second and reposition linked boards when their poses change
         * Reject boards with multiple or conflicting positioning couplers
     * Support relative paths for linked PCB files
     * Recover failed or timed-out workspace reloads without leaving linked boards permanently pending

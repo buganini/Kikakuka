@@ -179,7 +179,8 @@ def send_request(action, filepath, object_label="", component=""):
     The response will be delivered asynchronously to the handler
     registered via set_response_handler().
 
-    *action*: ``"reload"``, ``"open-sketch"``, or ``"move-component"``
+    *action*: ``"reload"``, ``"open-sketch"``, ``"move-component"``, or
+    ``"monitor-couplers"``
     *filepath*: path to the .kicad_pcb file
     *object_label*: the FreeCAD object label
     *component*: component designator (for move-component)
@@ -209,6 +210,18 @@ def send_request(action, filepath, object_label="", component=""):
     # Hand off the socket to a listener thread for the response
     threading.Thread(
         target=_listener_thread, args=(s, msg), daemon=True).start()
+
+
+def dispatch_to_main_thread(callback):
+    """Queue *callback* on FreeCAD's Qt main thread.
+
+    Long-running KiCad API queries run on worker threads.  Their results must
+    be applied to FreeCAD document objects on the GUI thread.
+    """
+    if _dispatcher is not None:
+        _dispatcher.dispatch.emit(callback)
+    else:
+        callback()
 
 
 def report_error(socket_path, error):

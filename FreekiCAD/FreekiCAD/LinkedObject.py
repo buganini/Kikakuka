@@ -19,6 +19,7 @@ COUPLER_MOVING = "CouplerMoving"
 COUPLER_FIXED = "CouplerFixed"
 COUPLER_ORIGIN = "CouplerOrigin"
 _COUPLER_TYPES = {COUPLER_MOVING, COUPLER_FIXED, COUPLER_ORIGIN}
+COUPLER_MONITOR_INTERVAL_MS = 1000
 
 
 def _log_bending_bfs(message):
@@ -175,6 +176,65 @@ def _parse_coupler_tilt(value):
     if match is None:
         raise ValueError(f"invalid Tilt value {value!r}; expected degrees")
     return float(match.group(1))
+
+
+def _coupler_pose_from_footprint(footprint, thickness):
+    """Return a serializable live coupler pose, or None for another part."""
+    from kipy.proto.board.board_types_pb2 import BoardLayer
+
+    coupler_type = _footprint_coupler_type(footprint)
+    if coupler_type is None:
+        return None
+    try:
+        ref = footprint.reference_field.text.value \
+            if footprint.reference_field else "?"
+    except Exception:
+        ref = "?"
+    position = footprint.position
+    is_back = footprint.layer == BoardLayer.BL_B_Cu
+    return {
+        'ref': ref,
+        'type': coupler_type,
+        'x': position.x / 1e6,
+        'y': -position.y / 1e6,
+        'board_z': 0.0 if is_back else thickness,
+        'is_back': is_back,
+        'z': _parse_coupler_z(
+            _footprint_field_value(footprint, 'Z', 0)),
+        'tilt': _parse_coupler_tilt(
+            _footprint_field_value(footprint, 'Tilt', 0)),
+        'rotation': _coupler_rotation_degrees(footprint),
+    }
+
+
+def _select_monitored_coupler_poses(monitored, live):
+    """Select live poses matching the persisted coupler list and its order.
+
+    List membership is intentionally controlled by PCB reloads.  Returning
+    None when any persisted coupler is absent prevents a transient/partial
+    KiCad response from replacing a valid saved list.
+    """
+    buckets = {}
+    for pose in live:
+        key = (str(pose.get('type', '')), str(pose.get('ref', '')))
+        buckets.setdefault(key, []).append(pose)
+
+    selected = []
+    for pose in monitored:
+        key = (str(pose.get('type', '')), str(pose.get('ref', '')))
+        matches = buckets.get(key, [])
+        if not matches:
+            return None
+        selected.append(matches.pop(0))
+    return selected
+
+
+def _coupler_pose_signature(poses):
+    """Return the live fields which affect coupler placement."""
+    fields = (
+        'ref', 'type', 'x', 'y', 'board_z', 'is_back', 'z', 'tilt',
+        'rotation')
+    return tuple(tuple(pose.get(field) for field in fields) for pose in poses)
 
 
 def _signed_line_side_2d(point, seg_p0, seg_p1):
@@ -1406,22 +1466,8 @@ def load_board(filepath, socket_path, import_outer_copper=False,
             coupler_type = _footprint_coupler_type(fp)
             if coupler_type is not None:
                 try:
-                    coupler_pos = fp.position
-                    coupler_rotation = _coupler_rotation_degrees(fp)
-                    couplers_data.append({
-                        'ref': ref,
-                        'type': coupler_type,
-                        'x': coupler_pos.x / 1e6,
-                        'y': -coupler_pos.y / 1e6,
-                        'board_z': 0.0 if fp.layer == BoardLayer.BL_B_Cu
-                        else thickness,
-                        'is_back': fp.layer == BoardLayer.BL_B_Cu,
-                        'z': _parse_coupler_z(
-                            _footprint_field_value(fp, 'Z', 0)),
-                        'tilt': _parse_coupler_tilt(
-                            _footprint_field_value(fp, 'Tilt', 0)),
-                        'rotation': coupler_rotation,
-                    })
+                    couplers_data.append(
+                        _coupler_pose_from_footprint(fp, thickness))
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD:   {ref}: found {coupler_type} "
                         f"surfaceZ={couplers_data[-1]['board_z']:.4g}mm "
@@ -1841,6 +1887,10 @@ class _OutlineSketchObserver:
 
         # Constrain component Placement: only X/Y move + Z rotation
         if prop == "Placement" and not self._constraining:
+            # Coupler markers are maintained from KiCad and by bending.  They
+            # are Part::Feature children, but are not editable components.
+            if hasattr(obj, 'CouplerType'):
+                return
             parent = self._find_component_parent(obj)
             if parent is not None:
                 # Skip when bending is active — placement changes are
@@ -2028,6 +2078,9 @@ def _handle_bus_response(reply):
         if action == "reload":
             proxy._handle_reload_error(
                 obj, reply.get("message", "unknown workspace error"))
+        elif action == "monitor-couplers":
+            proxy._handle_coupler_monitor_error(
+                reply.get("message", "unknown workspace error"))
         return
 
     if not socket_path:
@@ -2041,6 +2094,8 @@ def _handle_bus_response(reply):
         proxy._handle_open_sketch_response(obj, socket_path)
     elif action == "move-component":
         proxy._handle_move_component_response(obj, socket_path, component)
+    elif action == "monitor-couplers":
+        proxy._handle_coupler_monitor_response(obj, socket_path)
     else:
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD: Unknown bus action '{action}'\n")
@@ -2149,6 +2204,7 @@ class LinkedObject:
         self._board_color = None
         self._ensure_rebend_timer_state()
         self._ensure_component_sync_state()
+        self._ensure_coupler_monitor_state()
 
     def onChanged(self, obj, prop):
         if prop in ("EnableBending", "BuildDebugObjects", "DebugBoard",
@@ -2178,6 +2234,11 @@ class LinkedObject:
             if obj.FileName:
                 obj.Label = os.path.splitext(os.path.basename(obj.FileName))[0]
             self._suppress_execute = True
+            self._ensure_coupler_monitor_state()
+            self._coupler_monitor_generation += 1
+            self._coupler_socket_pending = False
+            self._cached_socket_path = None
+            self._kicad = None
             if hasattr(obj, 'FileMtime'):
                 obj.FileMtime = ""
             self._remove_children(obj)
@@ -2190,6 +2251,16 @@ class LinkedObject:
             self._component_sync_suspended = False
         if not hasattr(self, '_component_sync_generation'):
             self._component_sync_generation = 0
+
+    def _ensure_coupler_monitor_state(self):
+        if not hasattr(self, '_coupler_poll_in_flight'):
+            self._coupler_poll_in_flight = False
+        if not hasattr(self, '_coupler_monitor_generation'):
+            self._coupler_monitor_generation = 0
+        if not hasattr(self, '_coupler_socket_pending'):
+            self._coupler_socket_pending = False
+        if not hasattr(self, '_coupler_poll_retry_after'):
+            self._coupler_poll_retry_after = 0.0
 
     def _is_component_move_blocked(self, obj=None):
         self._ensure_component_sync_state()
@@ -2849,6 +2920,154 @@ class LinkedObject:
         return [p for p in poses
                 if isinstance(p, dict)
                 and (coupler_type is None or p.get('type') == coupler_type)]
+
+    def _request_coupler_poll(self, obj):
+        """Read persisted couplers from KiCad without blocking FreeCAD UI."""
+        self._ensure_coupler_monitor_state()
+        if (self._coupler_poll_in_flight
+                or self._coupler_socket_pending
+                or getattr(self, '_reloading', False)
+                or getattr(self, '_in_execute', False)
+                or getattr(self, '_bending', False)
+                or time.monotonic() < self._coupler_poll_retry_after):
+            return
+
+        monitored = self._coupler_poses(obj)
+        if not monitored:
+            return
+
+        socket_path = getattr(self, '_cached_socket_path', None)
+        if socket_path is None:
+            self._coupler_socket_pending = True
+            from FreekiCAD.workspace_bus import send_request
+            send_request(
+                "monitor-couplers", _resolved_linked_filename(obj),
+                object_label=obj.Label)
+            return
+
+        import threading
+
+        self._coupler_poll_in_flight = True
+        generation = self._coupler_monitor_generation
+        thickness = float(getattr(
+            self, '_board_thickness', DEFAULT_PCB_THICKNESS))
+        monitored = [dict(pose) for pose in monitored]
+
+        def _worker():
+            live_poses = None
+            error = None
+            try:
+                from kipy.kicad import KiCad
+                kicad = KiCad(
+                    socket_path=f"ipc://{socket_path}", timeout_ms=900)
+                board = kicad.get_board()
+                live_poses = []
+                for footprint in board.get_footprints():
+                    try:
+                        pose = _coupler_pose_from_footprint(
+                            footprint, thickness)
+                    except Exception:
+                        continue
+                    if pose is not None:
+                        live_poses.append(pose)
+                live_poses = _select_monitored_coupler_poses(
+                    monitored, live_poses)
+            except Exception as ex:
+                error = ex
+
+            from FreekiCAD.workspace_bus import dispatch_to_main_thread
+            dispatch_to_main_thread(lambda: self._finish_coupler_poll(
+                obj, generation, live_poses, error))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _finish_coupler_poll(self, obj, generation, live_poses, error):
+        """Apply a completed live KiCad query on FreeCAD's main thread."""
+        self._ensure_coupler_monitor_state()
+        self._coupler_poll_in_flight = False
+        if generation != self._coupler_monitor_generation:
+            return
+        if error is not None:
+            self._coupler_poll_retry_after = time.monotonic() + 2.0
+            self._cached_socket_path = None
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Coupler monitor for '{obj.Label}' failed: "
+                f"{error}; retrying later\n")
+            return
+        self._coupler_poll_retry_after = 0.0
+        if live_poses is None:
+            return
+
+        previous = self._coupler_poses(obj)
+        if _coupler_pose_signature(previous) == \
+                _coupler_pose_signature(live_poses):
+            return
+        self._apply_live_coupler_poses(obj, live_poses)
+
+    def _apply_live_coupler_poses(self, obj, poses):
+        """Update saved poses and markers, then repeat coupler positioning."""
+        obj.CouplerPoses = json.dumps(poses)
+        markers = {}
+        for child in getattr(obj, 'Group', []):
+            if hasattr(child, 'CouplerType'):
+                key = (str(child.CouplerType), str(child.Reference))
+                markers.setdefault(key, []).append(child)
+
+        for pose in poses:
+            key = (str(pose.get('type', '')), str(pose.get('ref', '')))
+            matches = markers.get(key, [])
+            if not matches:
+                continue
+            marker = matches.pop(0)
+            placement = self._coupler_placement(pose)
+            for prop, value in (
+                    ('CouplerType', pose.get('type', '')),
+                    ('Reference', str(pose.get('ref', ''))),
+                    ('Z', float(pose.get('z', 0))),
+                    ('Tilt', float(pose.get('tilt', 0)))):
+                unlocked = False
+                try:
+                    marker.setPropertyStatus(prop, "-ReadOnly")
+                    unlocked = True
+                    setattr(marker, prop, value)
+                except Exception:
+                    pass
+                finally:
+                    if unlocked:
+                        try:
+                            marker.setPropertyStatus(prop, "ReadOnly")
+                        except Exception:
+                            pass
+            marker.Placement = placement
+            marker.FreekiCAD_InitPlacement = placement
+            if hasattr(self, '_unbent_placements'):
+                try:
+                    self._unbent_placements[marker.Name] = placement.copy()
+                except Exception:
+                    self._unbent_placements[marker.Name] = placement
+
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: Live couplers changed for '{obj.Label}'; "
+            "repositioning linked boards\n")
+        if hasattr(self, '_unbent_board_shape'):
+            self._rebend(obj)
+        else:
+            self._reposition_all_coupled_objects(obj.Document)
+
+    def _handle_coupler_monitor_response(self, obj, socket_path):
+        """Cache a workspace-resolved socket for subsequent live polls."""
+        self._ensure_coupler_monitor_state()
+        self._coupler_socket_pending = False
+        self._coupler_poll_retry_after = 0.0
+        self._cached_socket_path = socket_path
+
+    def _handle_coupler_monitor_error(self, message):
+        """Back off after a workspace socket-resolution failure."""
+        self._ensure_coupler_monitor_state()
+        self._coupler_socket_pending = False
+        self._coupler_poll_retry_after = time.monotonic() + 5.0
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD: Coupler monitor unavailable: {message}\n")
 
     def _build_coupler_children(self, obj, couplers):
         """Create visible child markers for the board's coupler planes."""
@@ -10426,6 +10645,8 @@ class LinkedObject:
             return
         self._reloading = True
         self._reload_failed = False
+        self._ensure_coupler_monitor_state()
+        self._coupler_monitor_generation += 1
         self._ensure_properties(obj)
         from FreekiCAD.workspace_bus import send_request
         send_request("reload", _resolved_linked_filename(obj),
@@ -10435,6 +10656,10 @@ class LinkedObject:
         """Called when the workspace bus responds to a reload request."""
         import time as _time
         _t0_reload = _time.time()
+        self._ensure_coupler_monitor_state()
+        self._cached_socket_path = socket_path
+        self._coupler_socket_pending = False
+        self._coupler_poll_retry_after = 0.0
         resolved_filename = _resolved_linked_filename(obj)
         outline_name = obj.Name + "_Outline"
         self._suspend_component_move_sync(obj)
@@ -10575,6 +10800,7 @@ class LinkedObject:
         self._board_color = None
         self._ensure_rebend_timer_state()
         self._ensure_component_sync_state()
+        self._ensure_coupler_monitor_state()
 
     def _ensure_rebend_timer_state(self):
         if not hasattr(self, '_rebend_timer'):
@@ -10692,6 +10918,23 @@ class LinkedObjectViewProvider:
         self._auto_reload_timer = QtCore.QTimer()
         self._auto_reload_timer.timeout.connect(lambda: self._auto_reload(vobj))
         self._auto_reload_timer.start(2000)
+        self._coupler_monitor_timer = QtCore.QTimer()
+        self._coupler_monitor_timer.timeout.connect(
+            lambda: self._monitor_couplers(vobj))
+        self._coupler_monitor_timer.start(COUPLER_MONITOR_INTERVAL_MS)
+
+    def _monitor_couplers(self, vobj):
+        """Poll the live KiCad document for persisted coupler pose changes."""
+        try:
+            obj = vobj.Object
+        except ReferenceError:
+            self._coupler_monitor_timer.stop()
+            return
+        if obj.Document.Restoring or not obj.FileName:
+            return
+        proxy = getattr(obj, 'Proxy', None)
+        if proxy is not None and hasattr(proxy, '_request_coupler_poll'):
+            proxy._request_coupler_poll(obj)
 
     def _auto_reload(self, vobj):
         """Called by the timer — reload when file changed.

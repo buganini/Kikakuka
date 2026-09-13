@@ -581,6 +581,14 @@ class WorkspaceBus:
                 pid = None
                 pidmap = self._get_pidmap()
 
+            # Monitoring is passive: opening an FCStd must not launch KiCad
+            # merely to poll couplers saved in the document.
+            if pid is None and action == "monitor-couplers":
+                return {
+                    "status": "error",
+                    "message": "file is not open in KiCad",
+                }
+
             if pid is None and self._open_file:
                 rebuild_done = getattr(self, "_pidmap_rebuild_done", None)
                 if rebuild_done is not None and not rebuild_done.is_set():
@@ -684,7 +692,9 @@ class WorkspaceBus:
         action = msg.get("action")
         pidmap = self._get_pidmap()
 
-        if action in ("reload", "open-sketch", "move-component"):
+        if action in (
+                "reload", "open-sketch", "move-component",
+                "monitor-couplers"):
             return self._resolve_socket(msg, pidmap)
 
         elif action == "log":

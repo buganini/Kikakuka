@@ -111,6 +111,37 @@ class WorkspaceBusResolveSocketTests(unittest.TestCase):
             [("/ipc/api.sock", 111), ("/ipc/api-222.sock", 222)],
         )
 
+    def test_monitor_couplers_action_resolves_existing_socket(self):
+        bus = self._make_bus({"/boards/fpc.kicad_pcb": 111})
+        expected = {
+            "status": "ok", "action": "monitor-couplers",
+            "socket": "/tmp/api.sock",
+        }
+        bus._resolve_socket = mock.Mock(return_value=expected)
+        message = {
+            "action": "monitor-couplers", "object": "fpc",
+            "filepath": "/boards/fpc.kicad_pcb",
+        }
+
+        reply = bus._handle(message)
+
+        self.assertEqual(reply, expected)
+        bus._resolve_socket.assert_called_once_with(
+            message, {"/boards/fpc.kicad_pcb": 111})
+
+    def test_monitor_couplers_does_not_launch_kicad(self):
+        bus = self._make_bus({})
+        bus._open_file = mock.Mock(return_value=111)
+
+        reply = bus._resolve_socket({
+            "action": "monitor-couplers", "object": "fpc",
+            "filepath": "/boards/fpc.kicad_pcb",
+        }, {})
+
+        self.assertEqual(reply["status"], "error")
+        self.assertEqual(reply["message"], "file is not open in KiCad")
+        bus._open_file.assert_not_called()
+
     def test_rebuild_pidmap_retries_busy_socket_then_restores_mapping(self):
         bus = self._make_bus({})
         restored = []

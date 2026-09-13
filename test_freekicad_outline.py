@@ -404,6 +404,31 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         self.assertEqual(linked_object._parse_coupler_tilt(value), -12.5)
 
+    def test_live_coupler_pose_contains_all_positioning_properties(self):
+        linked_object = self._import_linked_object()
+        from kipy.proto.board.board_types_pb2 import BoardLayer
+
+        footprint = _NamedFootprint("CouplerMoving")
+        footprint.reference_field = types.SimpleNamespace(
+            text=types.SimpleNamespace(value="pair"))
+        footprint.position = types.SimpleNamespace(
+            x=12_500_000, y=-7_250_000)
+        footprint.layer = BoardLayer.BL_F_Cu
+        footprint.orientation = _Angle(27)
+        footprint.texts_and_fields = [
+            _CustomField("Z", "2.4 mm"),
+            _CustomField("Tilt", "-12.5 deg"),
+        ]
+
+        pose = linked_object._coupler_pose_from_footprint(footprint, 1.6)
+
+        self.assertEqual(pose, {
+            "ref": "pair", "type": "CouplerMoving",
+            "x": 12.5, "y": 7.25, "board_z": 1.6,
+            "is_back": False, "z": 2.4, "tilt": -12.5,
+            "rotation": 27,
+        })
+
     def test_stored_coupler_poses_are_loaded_from_json(self):
         linked_object = self._import_linked_object()
         obj = types.SimpleNamespace(CouplerPoses=json.dumps([
@@ -417,6 +442,111 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(poses, [
             {"ref": "mcu", "type": "CouplerFixed", "z": 2.4},
         ])
+
+    def test_live_coupler_poll_updates_only_persisted_list(self):
+        linked_object = self._import_linked_object()
+        monitored = [
+            {"ref": "pair", "type": "CouplerFixed", "x": 1},
+            {"ref": "origin", "type": "CouplerOrigin", "x": 2},
+        ]
+        live = [
+            {"ref": "new", "type": "CouplerFixed", "x": 30},
+            {"ref": "origin", "type": "CouplerOrigin", "x": 20},
+            {"ref": "pair", "type": "CouplerFixed", "x": 10},
+        ]
+
+        selected = linked_object._select_monitored_coupler_poses(
+            monitored, live)
+
+        self.assertEqual([pose["ref"] for pose in selected], [
+            "pair", "origin"])
+        self.assertEqual([pose["x"] for pose in selected], [10, 20])
+
+    def test_live_coupler_poll_rejects_partial_result(self):
+        linked_object = self._import_linked_object()
+        monitored = [
+            {"ref": "pair", "type": "CouplerFixed"},
+            {"ref": "pair", "type": "CouplerMoving"},
+        ]
+        live = [{"ref": "pair", "type": "CouplerFixed"}]
+
+        self.assertIsNone(
+            linked_object._select_monitored_coupler_poses(monitored, live))
+
+    def test_changed_live_couplers_are_applied(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy._coupler_poll_in_flight = True
+        proxy._coupler_monitor_generation = 7
+        proxy._coupler_poll_retry_after = 0.0
+        proxy._apply_live_coupler_poses = mock.Mock()
+        old_pose = {
+            "ref": "pair", "type": "CouplerFixed", "x": 1,
+        }
+        new_pose = {
+            "ref": "pair", "type": "CouplerFixed", "x": 2,
+        }
+        obj = types.SimpleNamespace(
+            Label="board", CouplerPoses=json.dumps([old_pose]))
+
+        proxy._finish_coupler_poll(obj, 7, [new_pose], None)
+
+        self.assertFalse(proxy._coupler_poll_in_flight)
+        proxy._apply_live_coupler_poses.assert_called_once_with(
+            obj, [new_pose])
+
+    def test_stale_live_coupler_result_is_ignored_after_reload(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy._coupler_poll_in_flight = True
+        proxy._coupler_monitor_generation = 8
+        proxy._coupler_poll_retry_after = 0.0
+        proxy._apply_live_coupler_poses = mock.Mock()
+        obj = types.SimpleNamespace(CouplerPoses="[]")
+
+        proxy._finish_coupler_poll(obj, 7, [], None)
+
+        proxy._apply_live_coupler_poses.assert_not_called()
+
+    def test_applying_live_coupler_updates_marker_and_repositions(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock())
+
+        class Marker:
+            Name = "Board_Coupler_pair"
+            CouplerType = "CouplerFixed"
+            Reference = "pair"
+            Z = 0
+            Tilt = 0
+            Placement = None
+            FreekiCAD_InitPlacement = None
+
+            def setPropertyStatus(self, _prop, _status):
+                pass
+
+        marker = Marker()
+        document = object()
+        obj = types.SimpleNamespace(
+            Label="board", CouplerPoses="[]", Group=[marker],
+            Document=document)
+        placement = object()
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        proxy._coupler_placement = mock.Mock(return_value=placement)
+        proxy._reposition_all_coupled_objects = mock.Mock()
+        pose = {
+            "ref": "pair", "type": "CouplerFixed", "x": 10,
+            "y": 20, "z": 3, "tilt": 12, "rotation": 30,
+        }
+
+        proxy._apply_live_coupler_poses(obj, [pose])
+
+        self.assertEqual(json.loads(obj.CouplerPoses), [pose])
+        self.assertEqual(marker.Z, 3)
+        self.assertEqual(marker.Tilt, 12)
+        self.assertIs(marker.Placement, placement)
+        self.assertIs(marker.FreekiCAD_InitPlacement, placement)
+        proxy._reposition_all_coupled_objects.assert_called_once_with(document)
 
     def test_coupler_snap_makes_planes_coincide_face_to_face(self):
         linked_object = self._import_linked_object()
