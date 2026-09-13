@@ -631,8 +631,9 @@ class OutlineWireOrderTests(unittest.TestCase):
         with mock.patch.dict(sys.modules, {
                 "kipy.kicad": fake_kicad,
                 "kipy.geometry": fake_geometry}):
-            proxy._handle_update_coupler_response(
-                types.SimpleNamespace(Label="board"), "/tmp/api.sock", "pair")
+            proxy._write_coupler_update_to_kicad(
+                "/tmp/api.sock", "pair",
+                proxy._coupler_updates_in_flight["pair"])
 
         self.assertEqual(footprint.position, (12.5, -7.25))
         self.assertEqual(z_field.text.text.value, "2.4 mm")
@@ -640,6 +641,33 @@ class OutlineWireOrderTests(unittest.TestCase):
         board.update_items.assert_called_once_with([footprint])
         board.push_commit.assert_called_once_with(
             "commit", "Update coupler pair from FreeCAD")
+
+    def test_coupler_update_response_does_not_write_on_main_thread(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.LinkedObject.__new__(linked_object.LinkedObject)
+        update = {"ref": "pair", "type": "CouplerFixed"}
+        proxy._coupler_updates_in_flight = {"pair": update}
+        proxy._pending_coupler_updates = {}
+        proxy._coupler_update_timers = {}
+        proxy._write_coupler_update_to_kicad = mock.Mock()
+        started = []
+
+        class FakeThread:
+            def __init__(self, target, daemon):
+                self.target = target
+                self.daemon = daemon
+
+            def start(self):
+                started.append(self)
+
+        with mock.patch("threading.Thread", FakeThread):
+            proxy._handle_update_coupler_response(
+                types.SimpleNamespace(Label="board"),
+                "/tmp/api.sock", "pair")
+
+        self.assertEqual(len(started), 1)
+        self.assertTrue(started[0].daemon)
+        proxy._write_coupler_update_to_kicad.assert_not_called()
 
     def test_coupler_snap_makes_planes_coincide_face_to_face(self):
         linked_object = self._import_linked_object()

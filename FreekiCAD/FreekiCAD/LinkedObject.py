@@ -3129,62 +3129,86 @@ class LinkedObject:
             object_label=obj.Label, component=reference)
 
     def _handle_update_coupler_response(self, obj, socket_path, reference):
-        """Write an edited X/Y/Z/Tilt marker pose into KiCad."""
+        """Start a non-blocking KiCad write for an edited coupler pose."""
         self._ensure_coupler_monitor_state()
-        update = self._coupler_updates_in_flight.pop(reference, None)
+        update = self._coupler_updates_in_flight.get(reference)
         if update is None:
             return
+        import threading
+
+        def _worker():
+            error = None
+            try:
+                self._write_coupler_update_to_kicad(
+                    socket_path, reference, update)
+            except Exception as ex:
+                import traceback
+                error = (ex, traceback.format_exc())
+            from FreekiCAD.workspace_bus import dispatch_to_main_thread
+            dispatch_to_main_thread(lambda: self._finish_coupler_update(
+                obj, reference, update, error))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    @staticmethod
+    def _write_coupler_update_to_kicad(socket_path, reference, update):
+        """Perform the blocking KiCad API operations on a worker thread."""
+        from kipy.kicad import KiCad
+        from kipy.geometry import Vector2
+
+        kicad = KiCad(socket_path=f"ipc://{socket_path}")
+        board = _kipy_ready_board(kicad)
+        target_fp = None
+        for footprint in _kipy_retry(board.get_footprints):
+            try:
+                fp_ref = footprint.reference_field.text.value
+            except Exception:
+                continue
+            if (fp_ref == reference
+                    and _footprint_coupler_type(footprint)
+                    == update['type']):
+                target_fp = footprint
+                break
+        if target_fp is None:
+            raise ValueError(f"coupler '{reference}' not found in KiCad")
+
+        missing = [name for name in ('Z', 'Tilt')
+                   if _footprint_field_value(target_fp, name, None) is None]
+        if missing:
+            raise ValueError(
+                f"missing coupler field(s): {', '.join(missing)}")
+
+        commit = board.begin_commit()
+        target_fp.position = Vector2.from_xy_mm(
+            update['x'], -update['y'])
+        if not _set_footprint_field_value(
+                target_fp, 'Z', f"{update['z']:.12g} mm"):
+            raise ValueError("could not update coupler field Z")
+        if not _set_footprint_field_value(
+                target_fp, 'Tilt', f"{update['tilt']:.12g} deg"):
+            raise ValueError("could not update coupler field Tilt")
+
+        board.update_items([target_fp])
+        board.push_commit(commit, f"Update coupler {reference} from FreeCAD")
+
+    def _finish_coupler_update(self, obj, reference, update, error):
+        """Finish a worker write on FreeCAD's main thread."""
+        current = self._coupler_updates_in_flight.get(reference)
+        if current is not update:
+            return
+        self._coupler_updates_in_flight.pop(reference, None)
         try:
-            from kipy.kicad import KiCad
-            from kipy.geometry import Vector2
-
-            kicad = KiCad(socket_path=f"ipc://{socket_path}")
-            board = _kipy_ready_board(kicad)
-            target_fp = None
-            for footprint in _kipy_retry(board.get_footprints):
-                try:
-                    fp_ref = footprint.reference_field.text.value
-                except Exception:
-                    continue
-                if (fp_ref == reference
-                        and _footprint_coupler_type(footprint)
-                        == update['type']):
-                    target_fp = footprint
-                    break
-            if target_fp is None:
-                FreeCAD.Console.PrintWarning(
-                    f"FreekiCAD: Coupler '{reference}' not found in KiCad\n")
+            if error is not None:
+                ex, traceback_text = error
+                FreeCAD.Console.PrintError(
+                    f"FreekiCAD: Failed to update coupler '{reference}' in "
+                    f"KiCad: {ex}\n{traceback_text}\n")
                 return
-
-            missing = [name for name in ('Z', 'Tilt')
-                       if _footprint_field_value(
-                           target_fp, name, None) is None]
-            if missing:
-                raise ValueError(
-                    f"missing coupler field(s): {', '.join(missing)}")
-
-            commit = board.begin_commit()
-            target_fp.position = Vector2.from_xy_mm(
-                update['x'], -update['y'])
-            if not _set_footprint_field_value(
-                    target_fp, 'Z', f"{update['z']:.12g} mm"):
-                raise ValueError("could not update coupler field Z")
-            if not _set_footprint_field_value(
-                    target_fp, 'Tilt', f"{update['tilt']:.12g} deg"):
-                raise ValueError("could not update coupler field Tilt")
-
-            board.update_items([target_fp])
-            board.push_commit(commit, f"Update coupler {reference} from FreeCAD")
             self._coupler_poll_retry_after = time.monotonic() + 1.0
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Updated coupler '{reference}' in KiCad: "
                 f"X={update['x']:.3f}, Y={-update['y']:.3f}, "
                 f"Z={update['z']:.3f}, Tilt={update['tilt']:.3f}°\n")
-        except Exception as ex:
-            import traceback
-            FreeCAD.Console.PrintError(
-                f"FreekiCAD: Failed to update coupler '{reference}' in "
-                f"KiCad: {ex}\n{traceback.format_exc()}\n")
         finally:
             if reference in self._pending_coupler_updates:
                 self._schedule_coupler_update(obj, reference, delay_ms=0)
