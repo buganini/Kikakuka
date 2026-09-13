@@ -11296,13 +11296,14 @@ class LinkedObjectViewProvider:
         return None
 
 
-def create_linked_object(filename=""):
-    doc = FreeCAD.ActiveDocument
+def create_linked_object(filename="", document=None):
+    doc = document or FreeCAD.ActiveDocument
     if doc is None:
         doc = FreeCAD.newDocument()
 
-    label = os.path.splitext(os.path.basename(filename))[0] if filename else "LinkedObject"
-    obj = doc.addObject("Part::FeaturePython", label)
+    default_label = (os.path.splitext(os.path.basename(filename))[0]
+                     if filename else "LinkedObject")
+    obj = doc.addObject("Part::FeaturePython", default_label)
     LinkedObject(obj)
     LinkedObjectViewProvider(obj.ViewObject)
 

@@ -44,6 +44,7 @@ It creates a few more dimensions for KiCad:
 * FreeCAD Integration (only tested on macOS/Windows)
     * Requires FreeCAD 1.0 or later
     * `FreekiCAD` supports loading multiple .kicad_pcb files into a FreeCAD document
+    * Import and export lightweight `.kkkk_asm` assembly manifests as JSON
     * Designed to work with the `Assembly` and `Manipulator` workbenches, as well as FreeCAD's built-in transform tool; alternatively, use the automatic coupler-based PCB alignment described below.
     * A sketch is provided for real-time board outline editing in FreeCAD
     * Components moved in FreeCAD are synced to KiCad in real time
@@ -157,6 +158,10 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * Menubar -> FreekiCAD -> Add KiCad PCB
     * Reload PCB
         * Right-click on the board object -> Reload KiCad PCB
+    * Save or load an assembly manifest
+        * Use FreeCAD's standard Import/Export commands and select `FreekiCAD Assembly (*.kkkk_asm)`.
+        * The JSON stores each linked PCB path, editable FreekiCAD settings, and its placement. Paths are relative to the manifest whenever the platform permits it; FreeCAD regenerates object names and labels during import.
+        * Placement is omitted for a `CouplerMoving` board when the same export contains its matching `CouplerFixed` board; coupler alignment recalculates that placement after import.
     * Edit Board Shape
         * Expand the object's children.
         * Open the sketch with the `_Outline` suffix.

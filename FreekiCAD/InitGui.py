@@ -4,8 +4,9 @@ import FreeCADGui
 import FreekiCAD as FreekiCADPackage
 
 
-WORKBENCH_DIR = os.path.dirname(os.path.dirname(
-    os.path.abspath(FreekiCADPackage.__file__)))
+_package_file = getattr(FreekiCADPackage, "__file__", None)
+WORKBENCH_DIR = (os.path.dirname(os.path.dirname(os.path.abspath(_package_file)))
+                 if _package_file else os.path.dirname(os.path.abspath(__file__)))
 WORKBENCH_ICON = os.path.join(
     WORKBENCH_DIR, "Resources", "icons", "FreekiCAD.png")
 
