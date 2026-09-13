@@ -193,8 +193,8 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
             * `Tilt` tilts the plane around the footprint's local X axis. It is specified in degrees and defaults to `0`.
         * `Z` and `Tilt` are independent: `Tilt` rotates the plane around its Z-offset origin and does not change that origin's position. The footprint's normal KiCad rotation supplies the rotation around its local Z axis.
     * [Flex PCB Bending](#flexible-pcb-bending)
-        * Draw bend lines as line segments on KiCad's `User.4` layer.
-        * Add bend parameters as `User.4` text near a bend line endpoint, for example `a=-70 r=0.5` or `a=-70 s=0.61`.
+        * Name a KiCad graphical layer `FreekiCAD` (case-insensitive) and draw bend lines on it as line segments.
+        * Add bend parameters as text on the same `FreekiCAD` layer near a bend line endpoint, for example `a=-70 r=0.5` or `a=-70 s=0.61`.
             * The text anchor must be within `0.1 mm` of a bend line endpoint.
             * `a` is bend angle in degrees.
             * `r` is bend radius in mm.
@@ -202,7 +202,7 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * After loading the board in FreeCAD, each bend line appears as a child object with `Angle`, `Radius`, and `Active` properties.
         * The linked PCB object also has an `EnableBending` property to toggle the deformation on or off.
         * Imported copper and solder mask are cut with the same board pieces. Rigid display faces follow each piece, while faces in a bend band are rebuilt with the wedge's curved point mapping.
-        * If no `User.4` text is provided, the bend line still loads and can be configured directly in FreeCAD.
+        * If no bend text is provided, the bend line still loads and can be configured directly in FreeCAD.
 
 ## Coupler-Based PCB Alignment
 

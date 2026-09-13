@@ -157,6 +157,41 @@ class OutlineWireOrderTests(unittest.TestCase):
                 import_solder_mask=True,
                 import_silkscreen=True), (0.06, 1.54))
 
+    def test_bend_layer_is_found_by_case_insensitive_board_name(self):
+        linked_object = self._import_linked_object()
+        board = types.SimpleNamespace(
+            get_layer_name=mock.Mock(
+                side_effect=lambda layer: {1: "Edge.Cuts", 7: "FrEeKiCaD"}[layer]))
+        items = [
+            types.SimpleNamespace(layer=1),
+            types.SimpleNamespace(layer=7),
+            types.SimpleNamespace(layer=7),
+        ]
+
+        with mock.patch.object(
+            linked_object, "_kipy_retry", side_effect=lambda call: call()
+        ):
+            layer, name = linked_object._find_named_board_layer(
+                board, items, "freekicad")
+
+        self.assertEqual(layer, 7)
+        self.assertEqual(name, "FrEeKiCaD")
+        self.assertEqual(board.get_layer_name.call_count, 2)
+
+    def test_user4_enum_without_freekicad_name_is_not_a_bend_layer(self):
+        linked_object = self._import_linked_object()
+        board = types.SimpleNamespace(
+            get_layer_name=mock.Mock(return_value="User.4"))
+
+        with mock.patch.object(
+            linked_object, "_kipy_retry", side_effect=lambda call: call()
+        ):
+            layer, name = linked_object._find_named_board_layer(
+                board, [types.SimpleNamespace(layer=7)], "freekicad")
+
+        self.assertIsNone(layer)
+        self.assertIsNone(name)
+
     def test_linked_filename_resolves_relative_to_saved_fcstd(self):
         linked_object = self._import_linked_object()
         obj = types.SimpleNamespace(

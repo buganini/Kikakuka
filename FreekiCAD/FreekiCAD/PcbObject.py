@@ -14,6 +14,7 @@ BEND_ANNOTATION_POSITION_TOLERANCE = 0.1  # mm
 DEBUG_BENDING_BFS = True
 STEP_IMPORTER_REVISION = 1
 COPPER_STRAIN_WARNING = 0.05
+FREEKICAD_LAYER_NAME = "freekicad"
 
 COUPLER_MOVING = "CouplerMoving"
 COUPLER_FIXED = "CouplerFixed"
@@ -364,7 +365,7 @@ _BEND_ANNOTATION_NUMBER_RE = (
 
 
 def _parse_bend_annotation(text_val, thickness):
-    """Parse User.4 bend text and return ``(angle_deg, radius_mm, span_mm)``.
+    """Parse bend text and return ``(angle_deg, radius_mm, span_mm)``.
 
     ``r=...`` remains the explicit radius input. When ``r`` is omitted,
     ``s=...`` is interpreted as bend spanning (the full inset band width)
@@ -399,6 +400,24 @@ def _parse_bend_annotation(text_val, thickness):
 
     radius = span / abs(angle_rad) - thickness / 2.0
     return angle, radius, span
+
+
+def _find_named_board_layer(board, items, expected_name):
+    """Find the layer used by *items* with a case-insensitive board name."""
+    seen = set()
+    for item in items:
+        layer = getattr(item, "layer", None)
+        if layer is None or layer in seen:
+            continue
+        seen.add(layer)
+        try:
+            layer_name = _kipy_retry(
+                lambda layer=layer: board.get_layer_name(layer))
+        except Exception:
+            continue
+        if str(layer_name).strip().lower() == expected_name.lower():
+            return layer, str(layer_name)
+    return None, None
 
 
 def _polyline_to_edges(polyline):
@@ -1265,10 +1284,12 @@ def load_board(filepath, socket_path, import_outer_copper=False,
             f"FreekiCAD: Edge.Cuts edges collected: {len(edges)}\n"
         )
 
-        # --- Bend lines (User.4 layer) ---
+        # --- Bend lines (custom layer named "FreekiCAD") ---
+        bend_layer, bend_layer_name = _find_named_board_layer(
+            board, all_shapes, FREEKICAD_LAYER_NAME)
         bend_lines = []
         for s in all_shapes:
-            if s.layer != BoardLayer.BL_User_4:
+            if bend_layer is None or s.layer != bend_layer:
                 continue
             try:
                 concrete = to_concrete_board_shape(s)
@@ -1283,7 +1304,9 @@ def load_board(filepath, socket_path, import_outer_copper=False,
             except Exception:
                 continue
         FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: User.4 bend lines: {len(bend_lines)}\n")
+            f"FreekiCAD: Bend layer "
+            f"'{bend_layer_name or FREEKICAD_LAYER_NAME}': "
+            f"{len(bend_lines)} line(s)\n")
 
         # Get board thickness from stackup
         thickness = DEFAULT_PCB_THICKNESS
@@ -1316,7 +1339,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                     f"{body_bottom_z:.3f}mm per side; body z="
                     f"{body_bottom_z:.3f}..{body_top_z:.3f}mm\n")
 
-        # --- Parse text on User.4 for bend parameters ---
+        # --- Parse text on the named bend layer for bend parameters ---
         if bend_lines:
             try:
                 from kipy.board_types import BoardText as KiPyBoardText
@@ -1325,14 +1348,14 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                 for t in all_text:
                     if not isinstance(t, KiPyBoardText):
                         continue
-                    if t.layer != BoardLayer.BL_User_4:
+                    if t.layer != bend_layer:
                         continue
                     u4_text_count += 1
                     text_val = t.value.strip()
                     tx = t.position.x / 1e6
                     ty = -t.position.y / 1e6
                     FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: User.4 text '{text_val}' "
+                        f"FreekiCAD: Bend text '{text_val}' "
                         f"at ({tx:.3f},{ty:.3f})\n")
                     if not text_val:
                         continue
@@ -1375,12 +1398,12 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                             f"(d={best_dist:.6f}mm >= "
                             f"{BEND_ANNOTATION_POSITION_TOLERANCE:g}mm)\n")
                 FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: User.4 text items: "
+                    f"FreekiCAD: Bend text items: "
                     f"{u4_text_count}\n")
             except Exception as ex:
                 import traceback
                 FreeCAD.Console.PrintWarning(
-                    f"FreekiCAD: Failed to parse User.4 "
+                    f"FreekiCAD: Failed to parse bend-layer "
                     f"text: {ex}\n")
                 FreeCAD.Console.PrintWarning(
                     f"FreekiCAD: {traceback.format_exc()}\n")
