@@ -194,6 +194,7 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * `Z` and `Tilt` are independent: `Tilt` rotates the plane around its Z-offset origin and does not change that origin's position. The footprint's normal KiCad rotation supplies the rotation around its local Z axis.
     * [Flex PCB Bending](#flexible-pcb-bending)
         * Name a KiCad graphical layer `FreekiCAD` (case-insensitive) and draw bend lines on it as line segments.
+        * Panel export maps every source PCB's `FreekiCAD` drawings to one collision-free User layer and preserves the `freekicad` layer name, even when source boards use different `User.x` layers.
         * Add bend parameters as text on the same `FreekiCAD` layer near a bend line endpoint, for example `a=-70 r=0.5` or `a=-70 s=0.61`.
             * The text anchor must be within `0.1 mm` of a bend line endpoint.
             * `a` is bend angle in degrees.

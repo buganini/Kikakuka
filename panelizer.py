@@ -36,6 +36,10 @@ from buildexpr import buildexpr
 import gc
 from threading import BoundedSemaphore, Event, Lock, Thread, current_thread
 from workspace import bringToFront, posix_open_file, windows_open_file
+from panelizer_freekicad import (
+    FREEKICAD_LAYER_NAME,
+    prepare_panel_freekicad_sources,
+)
 
 BUILDEXPR = "BUILDEXPR"
 
@@ -1743,7 +1747,51 @@ class PanelizerUI(Application):
 
         cpl_unknown_layers = []
 
+        export_files = None
+        freekicad_layer = None
+        if export:
+            export_files = []
+            for pcb in pcbs:
+                file = pcb.kicad_file
+                if not os.path.exists(file):
+                    convert_errors = convert_to_kicad(
+                        pcb.file,
+                        pcb.kicad_file,
+                        outline_only=False,
+                        bom_file=(pcb.bom_file if os.path.exists(pcb.bom_file)
+                                  else None),
+                        cpl_file=(pcb.cpl_file if os.path.exists(pcb.cpl_file)
+                                  else None))
+                    pcb.permanent_errors.extend(convert_errors)
+                export_files.append(file)
+            try:
+                export_files, freekicad_layer, moved_counts = \
+                    prepare_panel_freekicad_sources(
+                        export_files, self.temp_dir, pcbnew,
+                        FREEKICAD_LAYER_NAME,
+                        reserved_layers=(
+                            [Layer.User_1]
+                            if self.state.vc_layer == "User.1" else []))
+            except (OSError, ValueError, RuntimeError) as ex:
+                errors.append(f"Could not normalize FreekiCAD layers: {ex}")
+                with self.state:
+                    self.state.errors = errors
+                    self.state.conflicts = conflicts
+                    self.state.warnings = warnings
+                return
+            if freekicad_layer is not None:
+                print(
+                    "Panelizer: FreekiCAD canonical layer "
+                    f"{pcbnew.BOARD.GetStandardLayerName(freekicad_layer)}; "
+                    f"drawings={moved_counts}")
+
         panel = panelize.Panel(self.state.export_path if export else os.path.join(self.temp_dir, "temp.kicad_pcb"))
+        if freekicad_layer is not None:
+            panel.board.SetLayerName(
+                freekicad_layer, FREEKICAD_LAYER_NAME)
+            enabled_layers = panel.board.GetEnabledLayers()
+            enabled_layers.addLayer(freekicad_layer)
+            panel.board.SetEnabledLayers(enabled_layers)
         panel.vCutSettings.layer = {
             "Cmts.User": Layer.Cmts_User,
             "Edge.Cuts": Layer.Edge_Cuts,
@@ -1763,10 +1811,7 @@ class PanelizerUI(Application):
             self.refMap = {}
             file = pcb.outline_file
             if export:
-                file = pcb.kicad_file
-                if not os.path.exists(file):
-                    convert_errors = convert_to_kicad(pcb.file, pcb.kicad_file, outline_only=False, bom_file=pcb.bom_file if os.path.exists(pcb.bom_file) else None, cpl_file=pcb.cpl_file if os.path.exists(pcb.cpl_file) else None)
-                    pcb.permanent_errors.extend(convert_errors)
+                file = export_files[i]
 
             if export:
                 panel.appendBoard(

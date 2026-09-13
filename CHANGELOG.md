@@ -10,6 +10,7 @@
 * Panelizer / FabPlan
     * Add `Variable` and `StringTemplate` footprints for build-dependent text
     * Rename the fabrication-plan format and UI to FabPlan
+    * Preserve FreekiCAD bend drawings across panels using one collision-free canonical layer
 * Footprints
     * Add editor selection handles to `Variable`, `StringTemplate`, and reference-only placeholder footprints
 * Update multi-board samples, icons, and documentation

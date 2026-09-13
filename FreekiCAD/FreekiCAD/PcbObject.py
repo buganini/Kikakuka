@@ -6,6 +6,8 @@ import time
 import FreeCAD
 import Part
 
+from .constants import FREEKICAD_LAYER_NAME
+
 
 
 DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
@@ -14,7 +16,6 @@ BEND_ANNOTATION_POSITION_TOLERANCE = 0.1  # mm
 DEBUG_BENDING_BFS = True
 STEP_IMPORTER_REVISION = 1
 COPPER_STRAIN_WARNING = 0.05
-FREEKICAD_LAYER_NAME = "freekicad"
 
 COUPLER_MOVING = "CouplerMoving"
 COUPLER_FIXED = "CouplerFixed"
