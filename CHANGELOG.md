@@ -1,32 +1,18 @@
 # Next:
 * FreekiCAD
-    * Add `.kkkk_asm` JSON assembly import and export with portable relative paths, object settings, and placements
-        * Let `CouplerMoving` position linked PCBs without storing redundant placements
-        * Support both reloadable KiCad PCB and standalone STEP objects
-    * Add an Add STEP command for importing independently reloadable STEP models
-    * Rename the linked PCB proxy from `LinkedObject` to `PcbObject`, while retaining compatibility with existing documents
-    * Optionally import outer and inner copper layers, solder mask, and planar silkscreen, including deformation with flex PCB bends
-        * Allocate the 20 um separation between zero-thickness surface layers inside the finished PCB thickness and reduce the displayed board body accordingly
-        * Debounce display-layer property changes for two seconds, cancelling the previous pending reload and suppressing outline-sync requests before rebuilding
-    * Add automatic linked-board alignment using matching `CouplerFixed` and `CouplerMoving` footprints or a `CouplerOrigin`
-        * Support Z offsets, tilt angles, post-bending coupler positions, multi-board dependencies, and transformed FreeCAD groups
-        * Recalculate coupled-board placements after reload and restore them when opening saved FreeCAD documents
-        * Monitor saved couplers in the live KiCad document every second and reposition linked boards when their poses change
-        * Reject boards with multiple or conflicting positioning couplers
-    * Support relative paths for linked PCB files
-    * Recover failed or timed-out workspace reloads without leaving linked boards permanently pending
-    * Fix board and solder-mask color and opacity handling
-    * Fix STEP face-color assignment on FreeCAD versions that use `ShapeAppearance` instead of `DiffuseColor`
-    * Ignore completed coupler-monitor requests after their linked PCB object has been deleted
-    * Improve bend annotation matching near bend-line endpoints
+    * Add portable `.kkkk_asm` assembly manifests and independently reloadable STEP objects
+    * Add optional copper, solder-mask, and silkscreen display layers without changing finished component Z
+    * Add automatic multi-board alignment and live synchronization through editable couplers
+    * Improve linked-file reload reliability, material appearance, and relative-path handling
+    * Rename `LinkedObject` to `PcbObject` while retaining saved-document compatibility
 * Workspace Manager
     * Serialize simultaneous KiCad editor launches to avoid PID and IPC socket conflicts
-* Panelizer / Build Variants
-    * Add `Variable` footprints for displaying build-dependent values
-    * Add `StringTemplate` footprints for formatting values from footprint properties and build options
+* Panelizer / FabPlan
+    * Add `Variable` and `StringTemplate` footprints for build-dependent text
+    * Rename the fabrication-plan format and UI to FabPlan
 * Footprints
     * Add editor selection handles to `Variable`, `StringTemplate`, and reference-only placeholder footprints
-* Add multi-board assembly samples and FreekiCAD documentation
+* Update multi-board samples, icons, and documentation
 
 # 6.12:
 * Panelizer

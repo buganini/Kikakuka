@@ -180,7 +180,7 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * Mask and copper are zero-thickness display geometry separated by 20 um inside the finished PCB thickness. Enabled surface levels reduce the displayed central board body accordingly. Their physical thicknesses remain metadata only, while component and coupler Z continue to use the original finished thickness.
     * Inspect Silkscreen
         * `ImportSilkscreen` imports board- and footprint-level graphics, references, values, fields, and free text from `F.SilkS` and `B.SilkS`. It defaults to off.
-        * Silkscreen is fast, zero-thickness planar display geometry. It occupies the finished outer boundary; enabled mask and copper planes move inward by 20 um per level, and the displayed board body shrinks by the corresponding total while component and coupler Z remain unchanged.
+        * Silkscreen is fast, zero-thickness planar display geometry rendered in shaded mode without face boundaries or boolean union. It occupies the finished outer boundary; enabled mask and copper planes move inward by 20 um per level, and the displayed board body shrinks by the corresponding total while component and coupler Z remain unchanged.
     * [Coupler-Based PCB Alignment](#coupler-based-pcb-alignment)
         * Place a `CouplerFixed` footprint on the reference PCB and a `CouplerMoving` footprint on the PCB to be aligned. Couplers are matched by their KiCad reference.
         * Alternatively, place one `CouplerOrigin` on a PCB to align it with a virtual `CouplerFixed` at world `(0, 0, 0)` with zero rotation and tilt. A PCB may contain only one positioning source: one `CouplerMoving` or one `CouplerOrigin`.

@@ -2745,6 +2745,7 @@ class PcbObject:
                 from .Copper import COPPER_COLOR
                 copper_obj.ViewObject.ShapeColor = COPPER_COLOR
                 copper_obj.ViewObject.LineColor = COPPER_COLOR
+                copper_obj.ViewObject.DisplayMode = "Shaded"
             except Exception:
                 pass
             obj.addObject(copper_obj)
@@ -2803,6 +2804,7 @@ class PcbObject:
             try:
                 silk_obj.ViewObject.ShapeColor = layer_data['color']
                 silk_obj.ViewObject.LineColor = layer_data['color']
+                silk_obj.ViewObject.DisplayMode = "Shaded"
             except Exception:
                 pass
             obj.addObject(silk_obj)

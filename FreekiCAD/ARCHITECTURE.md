@@ -58,8 +58,10 @@ wedge mapping as copper during bending.
 `Silkscreen.py` imports board- and footprint-level `F.SilkS`/`B.SilkS`
 graphics and asks KiCad to convert visible text and fields to polygonal shapes.
 The result is one planar, zero-thickness display object per non-empty side;
-there is no 3D extrusion or boolean union. Physical silkscreen thickness and
-stackup color are retained as metadata and appearance.
+there is no 3D extrusion or boolean union. Silkscreen and copper objects use
+FreeCAD's shaded display mode so compound face boundaries are not drawn.
+Physical silkscreen thickness and stackup color are retained as metadata and
+appearance.
 
 Silkscreen is the outermost display plane. Each enabled outer level reserves
 20 um inside the finished thickness: silkscreen stays at `0/T`, mask moves to
