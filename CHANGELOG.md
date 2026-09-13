@@ -1,5 +1,10 @@
 # Next:
 * FreekiCAD
+    * Add `.kkkk_asm` JSON assembly import and export with portable relative paths, object settings, and placements
+        * Let `CouplerMoving` position linked PCBs without storing redundant placements
+        * Support both reloadable KiCad PCB and standalone STEP objects
+    * Add an Add STEP command for importing independently reloadable STEP models
+    * Rename the linked PCB proxy from `LinkedObject` to `PcbObject`, while retaining compatibility with existing documents
     * Optionally import outer and inner copper layers and solder mask, including deformation with flex PCB bends
     * Add automatic linked-board alignment using matching `CouplerFixed` and `CouplerMoving` footprints or a `CouplerOrigin`
         * Support Z offsets, tilt angles, post-bending coupler positions, multi-board dependencies, and transformed FreeCAD groups
@@ -9,6 +14,8 @@
     * Support relative paths for linked PCB files
     * Recover failed or timed-out workspace reloads without leaving linked boards permanently pending
     * Fix board and solder-mask color and opacity handling
+    * Fix STEP face-color assignment on FreeCAD versions that use `ShapeAppearance` instead of `DiffuseColor`
+    * Ignore completed coupler-monitor requests after their linked PCB object has been deleted
     * Improve bend annotation matching near bend-line endpoints
 * Workspace Manager
     * Serialize simultaneous KiCad editor launches to avoid PID and IPC socket conflicts
