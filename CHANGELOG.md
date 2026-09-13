@@ -7,6 +7,7 @@
     * Rename the linked PCB proxy from `LinkedObject` to `PcbObject`, while retaining compatibility with existing documents
     * Optionally import outer and inner copper layers, solder mask, and planar silkscreen, including deformation with flex PCB bends
         * Allocate the 20 um separation between zero-thickness surface layers inside the finished PCB thickness and reduce the displayed board body accordingly
+        * Debounce display-layer property changes for two seconds, cancelling the previous pending reload and suppressing outline-sync requests before rebuilding
     * Add automatic linked-board alignment using matching `CouplerFixed` and `CouplerMoving` footprints or a `CouplerOrigin`
         * Support Z offsets, tilt angles, post-bending coupler positions, multi-board dependencies, and transformed FreeCAD groups
         * Recalculate coupled-board placements after reload and restore them when opening saved FreeCAD documents

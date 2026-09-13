@@ -46,6 +46,16 @@ def _log_bending_bfs(message):
         FreeCAD.Console.PrintMessage(message)
 
 
+def _log_surface_reload(message):
+    """Write a timestamped trace for display-layer reload debouncing."""
+    try:
+        FreeCAD.Console.PrintMessage(
+            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+            f"FreekiCAD: [surface-reload] {message}\n")
+    except Exception:
+        pass
+
+
 def _kipy_retry(func, max_retries=15, delay_s=1.0):
     """Call *func* and retry up to *max_retries* times when KiCad reports
     AS_NOT_READY or AS_BUSY.  Sleeps *delay_s* seconds between attempts."""
@@ -1940,6 +1950,7 @@ class CouplerMarker:
 
 
 _sketch_observer = None
+_SKETCH_OBSERVER_ATTR = "_FreekiCADOutlineSketchObserver"
 
 
 class _OutlineSketchObserver:
@@ -2004,6 +2015,15 @@ class _OutlineSketchObserver:
                 pass
         return self._is_bending_active(parent)
 
+    def _surface_reload_pending(self, parent):
+        proxy = getattr(parent, "Proxy", None)
+        if proxy and hasattr(proxy, "_surface_reload_is_pending"):
+            try:
+                return proxy._surface_reload_is_pending()
+            except Exception:
+                pass
+        return False
+
     def cancel_component_moves(self, parent):
         parent_name = getattr(parent, "Name", parent)
         for name, owner in list(self._move_timer_parents.items()):
@@ -2022,6 +2042,10 @@ class _OutlineSketchObserver:
             return
         parent = self._find_linked_parent(obj)
         if parent and hasattr(parent, "Proxy"):
+            if self._surface_reload_pending(parent):
+                _log_surface_reload(
+                    f"outline open suppressed during debounce: {obj.Name}")
+                return
             parent.Proxy._on_outline_edit_start(parent)
 
     def slotChangedObject(self, obj, prop):
@@ -2079,6 +2103,10 @@ class _OutlineSketchObserver:
         parent = self._find_linked_parent(obj)
         if parent:
             proxy = parent.Proxy
+            if self._surface_reload_pending(parent):
+                _log_surface_reload(
+                    f"outline change suppressed during debounce: {obj.Name}")
+                return
             # Ensure KiCad connection if slotInEdit didn't fire (Windows)
             if getattr(proxy, '_cached_socket_path', None) is None:
                 proxy._on_outline_edit_start(parent)
@@ -2268,12 +2296,31 @@ def _handle_bus_response(reply):
 def _ensure_sketch_observer():
     global _sketch_observer
     if _sketch_observer is None:
+        # Keep the observer identity on the persistent FreeCAD module.  Python
+        # module reloads reset this file's globals but FreeCAD retains document
+        # observers, otherwise each workbench reload adds another open-sketch
+        # request for the same event.
+        previous = getattr(FreeCAD, _SKETCH_OBSERVER_ATTR, None)
+        if previous is not None:
+            try:
+                FreeCAD.removeDocumentObserver(previous)
+            except Exception:
+                pass
+            try:
+                import FreeCADGui
+                FreeCADGui.removeDocumentObserver(previous)
+            except Exception:
+                pass
         _sketch_observer = _OutlineSketchObserver()
         # App observer for slotChangedObject (geometry changes)
         FreeCAD.addDocumentObserver(_sketch_observer)
         # Gui observer for slotInEdit / slotResetEdit (edit mode)
         import FreeCADGui
         FreeCADGui.addDocumentObserver(_sketch_observer)
+        try:
+            setattr(FreeCAD, _SKETCH_OBSERVER_ATTR, _sketch_observer)
+        except Exception:
+            pass
         # Register the global workspace bus response handler
         from FreekiCAD.workspace_bus import set_response_handler
         set_response_handler(_handle_bus_response)
@@ -2291,6 +2338,7 @@ class PcbObject:
     _WEDGE_MODE_OPTIONS = [
         "Smooth", "Wireframe"]
     _REBEND_DEBOUNCE_MS = 1000
+    _SURFACE_RELOAD_DEBOUNCE_MS = 2000
     _COMPONENT_MOVE_DEBOUNCE_MS = 200
     _COMPONENT_SYNC_GRACE_MS = 200
 
@@ -2372,6 +2420,7 @@ class PcbObject:
         self.Type = "PcbObject"
         self._board_color = None
         self._ensure_rebend_timer_state()
+        self._ensure_surface_reload_timer_state()
         self._ensure_component_sync_state()
         self._ensure_coupler_monitor_state()
 
@@ -2411,8 +2460,8 @@ class PcbObject:
             return
         if prop in ("ImportOuterCopper", "ImportInnerCopper",
                     "ImportSolderMask", "ImportSilkscreen"):
-            if not obj.Document.Restoring and hasattr(obj, 'FileMtime'):
-                obj.FileMtime = ""
+            if not obj.Document.Restoring:
+                self._schedule_surface_reload(obj, property_name=prop)
             return
         if prop == "AutoReload":
             try:
@@ -3855,6 +3904,62 @@ class PcbObject:
         if self._rebend_timer.isActive():
             self._rebend_timer.stop()
         self._rebend_timer.start(delay_ms)
+
+    def _schedule_surface_reload(self, obj, property_name=None):
+        """Reload once after surface import properties remain stable."""
+        from PySide import QtCore
+
+        self._ensure_surface_reload_timer_state()
+        was_pending = self._surface_reload_is_pending()
+        self._surface_reload_target = obj
+        self._surface_reload_property = property_name or "unknown"
+        delay_ms = self._get_surface_reload_debounce_ms(obj)
+        self._surface_reload_deadline = time.monotonic() + delay_ms / 1000.0
+
+        if self._surface_reload_timer is None:
+            self._surface_reload_timer = QtCore.QTimer()
+            self._surface_reload_timer.setSingleShot(True)
+
+            def _do_reload():
+                target = self._surface_reload_target
+                if target is None:
+                    return
+                if getattr(self, '_reloading', False):
+                    _log_surface_reload(
+                        "timer elapsed while reload is active; "
+                        f"retrying in {self._get_surface_reload_debounce_ms(target)}ms")
+                    self._surface_reload_timer.start(
+                        self._get_surface_reload_debounce_ms(target))
+                    return
+                property_name = self._surface_reload_property
+                self._surface_reload_target = None
+                self._surface_reload_property = None
+                self._surface_reload_deadline = 0.0
+                if hasattr(target, 'FileMtime'):
+                    target.FileMtime = ""
+                _log_surface_reload(
+                    f"timer elapsed for {property_name}; FileMtime cleared; "
+                    "calling reload immediately")
+                self.reload(target)
+
+            self._surface_reload_timer.timeout.connect(_do_reload)
+
+        # Restarting the single-shot timer discards the previous pending
+        # reload, so rapid toggles produce only one board rebuild.
+        if self._surface_reload_timer.isActive():
+            self._surface_reload_timer.stop()
+        self._surface_reload_timer.start(delay_ms)
+        _log_surface_reload(
+            f"property={self._surface_reload_property}; scheduled={delay_ms}ms; "
+            f"replaced_pending={'yes' if was_pending else 'no'}")
+
+    def _surface_reload_is_pending(self):
+        """Return whether a display-layer debounce is waiting to fire."""
+        self._ensure_surface_reload_timer_state()
+        if self._surface_reload_target is not None:
+            return True
+        timer = self._surface_reload_timer
+        return timer is not None and timer.isActive()
 
     def _rebend(self, obj):
         """Re-apply bending after Radius/Angle/Active or EnableBending
@@ -11073,6 +11178,14 @@ class PcbObject:
         when the response arrives via _handle_reload_response."""
         if getattr(self, '_reloading', False):
             return
+        if (not force
+                and time.monotonic() < getattr(
+                    self, '_surface_reload_deadline', 0.0)):
+            remaining_ms = max(0, int(round(
+                (self._surface_reload_deadline - time.monotonic()) * 1000)))
+            _log_surface_reload(
+                f"reload blocked by debounce deadline; remaining={remaining_ms}ms")
+            return
         retry_after = getattr(self, '_reload_retry_after', 0.0)
         if not force and time.monotonic() < retry_after:
             return
@@ -11089,6 +11202,8 @@ class PcbObject:
         from FreekiCAD.workspace_bus import send_request
         send_request("reload", _resolved_linked_filename(obj),
                      object_label=obj.Label)
+        _log_surface_reload(
+            f"reload request sent; force={'yes' if force else 'no'}")
 
     def _handle_reload_response(self, obj, socket_path):
         """Called when the workspace bus responds to a reload request."""
@@ -11237,6 +11352,7 @@ class PcbObject:
             self.Type = "PcbObject"
         self._board_color = None
         self._ensure_rebend_timer_state()
+        self._ensure_surface_reload_timer_state()
         self._ensure_component_sync_state()
         self._ensure_coupler_monitor_state()
 
@@ -11245,6 +11361,16 @@ class PcbObject:
             self._rebend_timer = None
         if not hasattr(self, '_rebend_target'):
             self._rebend_target = None
+
+    def _ensure_surface_reload_timer_state(self):
+        if not hasattr(self, '_surface_reload_timer'):
+            self._surface_reload_timer = None
+        if not hasattr(self, '_surface_reload_target'):
+            self._surface_reload_target = None
+        if not hasattr(self, '_surface_reload_property'):
+            self._surface_reload_property = None
+        if not hasattr(self, '_surface_reload_deadline'):
+            self._surface_reload_deadline = 0.0
 
     def _get_wedge_mode(self, obj):
         return self._normalize_wedge_mode_value(
@@ -11261,6 +11387,9 @@ class PcbObject:
 
     def _get_rebend_debounce_ms(self, obj=None):
         return max(0, int(self._REBEND_DEBOUNCE_MS))
+
+    def _get_surface_reload_debounce_ms(self, obj=None):
+        return max(0, int(self._SURFACE_RELOAD_DEBOUNCE_MS))
 
     # Properties that belong to this class (group "LinkedFile").
     # Anything in this group not listed here is obsolete and removed
@@ -11394,6 +11523,14 @@ class PcbObjectViewProvider:
         if not obj.FileName:
             return
         if not hasattr(obj, "Proxy") or not hasattr(obj.Proxy, "_check_file_changed"):
+            return
+        # A layer-property change owns the next reload.  Do not let this
+        # periodic poll bypass its two-second debounce because FileMtime is
+        # already empty or the KiCad file also changed in the meantime.
+        if (hasattr(obj.Proxy, "_surface_reload_is_pending")
+                and obj.Proxy._surface_reload_is_pending()):
+            _log_surface_reload(
+                "periodic auto-reload poll skipped while debounce is pending")
             return
         stored = getattr(obj, "FileMtime", "") if hasattr(obj, "FileMtime") else ""
         first_load = not stored

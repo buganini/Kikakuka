@@ -191,6 +191,114 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertIs(obj.ImportSolderMask, False)
         self.assertIs(obj.ImportSilkscreen, False)
 
+    def test_surface_property_change_is_debounced_before_clearing_mtime(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy._schedule_surface_reload = mock.Mock()
+        obj = types.SimpleNamespace(
+            Document=types.SimpleNamespace(Restoring=False),
+            FileMtime="loaded",
+        )
+
+        proxy.onChanged(obj, "ImportSilkscreen")
+
+        self.assertEqual(obj.FileMtime, "loaded")
+        proxy._schedule_surface_reload.assert_called_once_with(
+            obj, property_name="ImportSilkscreen")
+
+    def test_surface_reload_restarts_pending_timer_and_reloads_immediately(self):
+        linked_object = self._import_linked_object()
+
+        class Signal:
+            def connect(self, callback):
+                self.callback = callback
+
+        class Timer:
+            def __init__(self):
+                self.timeout = Signal()
+                self.active = False
+                self.stop_count = 0
+                self.delays = []
+
+            def setSingleShot(self, _single_shot):
+                pass
+
+            def isActive(self):
+                return self.active
+
+            def stop(self):
+                self.stop_count += 1
+                self.active = False
+
+            def start(self, delay):
+                self.delays.append(delay)
+                self.active = True
+
+        timer = Timer()
+        fake_pyside = types.ModuleType("PySide")
+        fake_pyside.QtCore = types.SimpleNamespace(QTimer=lambda: timer)
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy._ensure_surface_reload_timer_state()
+        proxy.reload = mock.Mock()
+        first = types.SimpleNamespace(FileMtime="first")
+        latest = types.SimpleNamespace(FileMtime="latest")
+
+        with mock.patch.dict(sys.modules, {"PySide": fake_pyside}):
+            proxy._schedule_surface_reload(first)
+            proxy._schedule_surface_reload(latest)
+            timer.timeout.callback()
+
+        self.assertEqual(timer.delays, [2000, 2000])
+        self.assertEqual(timer.stop_count, 1)
+        self.assertEqual(first.FileMtime, "first")
+        self.assertEqual(latest.FileMtime, "")
+        proxy.reload.assert_called_once_with(latest)
+
+    def test_auto_reload_does_not_bypass_pending_surface_debounce(self):
+        linked_object = self._import_linked_object()
+        proxy = types.SimpleNamespace(
+            _check_file_changed=mock.Mock(return_value=True),
+            _surface_reload_is_pending=mock.Mock(return_value=True),
+            reload=mock.Mock(),
+        )
+        obj = types.SimpleNamespace(
+            Document=types.SimpleNamespace(Restoring=False),
+            FileName="/project/board.kicad_pcb",
+            FileMtime="",
+            AutoReload=True,
+            Proxy=proxy,
+        )
+        vobj = types.SimpleNamespace(Object=obj)
+        provider = linked_object.PcbObjectViewProvider.__new__(
+            linked_object.PcbObjectViewProvider)
+
+        provider._auto_reload(vobj)
+
+        proxy._check_file_changed.assert_not_called()
+        proxy.reload.assert_not_called()
+
+    def test_outline_observer_does_not_open_kicad_during_surface_debounce(self):
+        linked_object = self._import_linked_object()
+        proxy = types.SimpleNamespace(
+            _on_outline_changed=mock.Mock(),
+            _on_outline_edit_start=mock.Mock(),
+            _surface_reload_is_pending=mock.Mock(return_value=True),
+        )
+        parent = types.SimpleNamespace(Name="Board", Proxy=proxy)
+        sketch = types.SimpleNamespace(
+            Name="Board_Outline",
+            TypeId="Sketcher::SketchObject",
+            Document=types.SimpleNamespace(Restoring=False),
+            InList=[parent],
+        )
+        observer = linked_object._OutlineSketchObserver()
+
+        observer.slotInEdit(types.SimpleNamespace(Object=sketch))
+        observer.slotChangedObject(sketch, "Shape")
+
+        proxy._on_outline_edit_start.assert_not_called()
+        proxy._on_outline_changed.assert_not_called()
+
     def test_linked_filename_becomes_relative_for_document_descendant(self):
         linked_object = self._import_linked_object()
         obj = types.SimpleNamespace(
@@ -1010,6 +1118,19 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         proxy._reloading = False
         proxy._reload_retry_after = 200.0
+        proxy._check_file_changed = mock.Mock(return_value=True)
+        obj = types.SimpleNamespace(Name="Board")
+
+        with mock.patch.object(linked_object.time, "monotonic", return_value=100.0):
+            proxy.reload(obj)
+
+        proxy._check_file_changed.assert_not_called()
+
+    def test_automatic_reload_cannot_bypass_surface_deadline(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy._reloading = False
+        proxy._surface_reload_deadline = 102.0
         proxy._check_file_changed = mock.Mock(return_value=True)
         obj = types.SimpleNamespace(Name="Board")
 
