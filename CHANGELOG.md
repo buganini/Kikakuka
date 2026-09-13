@@ -6,6 +6,7 @@
     * Add an Add STEP command for importing independently reloadable STEP models
     * Rename the linked PCB proxy from `LinkedObject` to `PcbObject`, while retaining compatibility with existing documents
     * Optionally import outer and inner copper layers and solder mask, including deformation with flex PCB bends
+        * Allocate the 20 um separation between zero-thickness surface layers inside the finished PCB thickness and reduce the displayed board body accordingly
     * Add automatic linked-board alignment using matching `CouplerFixed` and `CouplerMoving` footprints or a `CouplerOrigin`
         * Support Z offsets, tilt angles, post-bending coupler positions, multi-board dependencies, and transformed FreeCAD groups
         * Recalculate coupled-board placements after reload and restore them when opening saved FreeCAD documents

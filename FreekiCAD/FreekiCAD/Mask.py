@@ -9,7 +9,6 @@ from .Copper import board_graphic_shape, polygon_with_holes_face
 
 
 NM_PER_MM = 1_000_000.0
-MASK_DISPLAY_GAP_MM = 0.020
 DEFAULT_MASK_THICKNESS_MM = 0.010
 DEFAULT_MASK_COLOR = (0.08, 0.20, 0.14)
 DEFAULT_SUBSTRATE_COLOR = (0.92, 0.92, 0.92)
@@ -94,9 +93,11 @@ def substrate_color(stackup):
     return substrate_appearance(stackup)[0]
 
 
-def mask_stackup_layers(stackup, board_layer):
-    total_mm = sum(max(0, getattr(entry, "thickness", 0))
-                   for entry in stackup.layers) / NM_PER_MM
+def mask_stackup_layers(stackup, board_layer, total_thickness=None):
+    total_mm = (float(total_thickness)
+                if total_thickness is not None
+                else sum(max(0, getattr(entry, "thickness", 0))
+                         for entry in stackup.layers) / NM_PER_MM)
     result = []
     for entry in stackup.layers:
         try:
@@ -114,8 +115,7 @@ def mask_stackup_layers(stackup, board_layer):
         result.append(MaskLayerInfo(
             layer=entry.layer,
             name="F.Mask" if is_front else "B.Mask",
-            z=(total_mm + 2 * MASK_DISPLAY_GAP_MM
-               if is_front else -2 * MASK_DISPLAY_GAP_MM),
+            z=(total_mm if is_front else 0.0),
             thickness=thickness,
             color=rgba[:3],
             transparency=_transparency(rgba[3]),
@@ -154,9 +154,11 @@ def padstack_item_exists_on_layer(item, layer):
 
 
 def build_solder_mask_layers(board, stackup, board_layer, board_face,
-                             board_shapes=None, warn=None):
+                             board_shapes=None, warn=None,
+                             total_thickness=None):
     """Return F.Mask/B.Mask faces using KiCad-computed padstack openings."""
-    infos = mask_stackup_layers(stackup, board_layer)
+    infos = mask_stackup_layers(
+        stackup, board_layer, total_thickness=total_thickness)
     try:
         pads = list(board.get_pads())
     except Exception as ex:

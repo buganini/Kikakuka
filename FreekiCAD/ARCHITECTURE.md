@@ -16,9 +16,9 @@ Entry point: `__apply_bends_impl()` in `PcbObject.py`.
 
 `Copper.py` imports every enabled copper layer in the KiCad stackup. Tracks,
 arc tracks, filled zone polygons, pads, vias, and graphical copper shapes are
-combined into one planar display shape per layer. `F.Cu` and `B.Cu` are offset
-20 um outside the board solely to avoid display z-fighting; inner layers remain
-at their physical stackup Z. Copper is zero-thickness display geometry, while
+combined into one planar display shape per layer. `F.Cu` and `B.Cu` stay inside
+the finished board envelope; inner layers remain at their physical stackup Z.
+Copper is zero-thickness display geometry, while
 the physical stackup copper thickness is retained in each child's
 `CopperThickness` property. It therefore never changes component or coupler Z.
 
@@ -37,9 +37,12 @@ This visualizes extension/compression but is not a material or FEA simulation.
 adds mask-layer graphical openings, and subtracts those openings from the board
 face. Pads and vias are filtered by `padstack.layers` before each polygon query
 so items from the opposite technical layer cannot be mixed into the result.
-The resulting translucent faces sit 20 um outside the corresponding
-outer-copper display faces. They are zero-thickness display geometry; physical
-mask thickness is retained only in each child's `MaskThickness` property.
+The resulting translucent faces sit on the finished board boundaries, with
+outer copper inset 20 um when mask is enabled. They are zero-thickness display
+geometry; physical mask thickness is retained only in each child's
+`MaskThickness` property. Each enabled outer display level reserves 20 um per
+side inside the finished thickness, reducing the central board body while
+leaving component and coupler Z unchanged.
 
 When `ImportSolderMask` is enabled, the board body becomes translucent and uses
 KiCad's sequential RGB/alpha mixing across configured dielectric stackup

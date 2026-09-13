@@ -76,17 +76,20 @@ def expanded_padstack_layers(padstack, target_layers):
             yield layer, descriptor
 
 
-def copper_stackup_layers(stackup, board_layer):
+def copper_stackup_layers(stackup, board_layer, outer_inset=0.0,
+                           total_thickness=None):
     """Return enabled copper layers with their board-local display Z.
 
     KiCad returns stackup entries from top to bottom.  The board body used by
-    FreekiCAD spans z=0..total_thickness.  Outer copper is displayed 20 um
-    outside that body to avoid z-fighting; inner copper stays at its physical
-    layer centre and becomes visible when the board is hidden/transparent.
+    FreekiCAD spans z=0..total_thickness.  Outer copper stays within that
+    finished envelope; ``outer_inset`` reserves space for an enabled mask
+    display plane. Inner copper stays at its physical layer centre.
     """
     entries = list(stackup.layers)
-    total_mm = sum(max(0, getattr(entry, "thickness", 0))
-                   for entry in entries) / NM_PER_MM
+    total_mm = (float(total_thickness)
+                if total_thickness is not None
+                else sum(max(0, getattr(entry, "thickness", 0))
+                         for entry in entries) / NM_PER_MM)
     consumed_mm = 0.0
     result = []
     for entry in entries:
@@ -96,9 +99,9 @@ def copper_stackup_layers(stackup, board_layer):
             name = board_layer_name(board_layer, entry.layer)
             physical_thickness = thickness_mm or DEFAULT_COPPER_THICKNESS_MM
             if name == "F.Cu":
-                z = total_mm + COPPER_DISPLAY_OFFSET_MM
+                z = total_mm - max(0.0, float(outer_inset))
             elif name == "B.Cu":
-                z = -COPPER_DISPLAY_OFFSET_MM
+                z = max(0.0, float(outer_inset))
             else:
                 z = total_mm - consumed_mm - thickness_mm / 2.0
             result.append(CopperLayerInfo(
@@ -541,9 +544,12 @@ def _copper_item_shape(item, pad_shape_enum):
 
 
 def build_copper_layers(board, stackup, board_layer, board_shapes=None,
-                        warn=None, include_outer=True, include_inner=True):
+                        warn=None, include_outer=True, include_inner=True,
+                        outer_inset=0.0, total_thickness=None):
     """Read KiCad copper items and return layer descriptors with Shapes."""
-    infos = copper_stackup_layers(stackup, board_layer)
+    infos = copper_stackup_layers(
+        stackup, board_layer, outer_inset=outer_inset,
+        total_thickness=total_thickness)
     if not include_outer:
         infos = [info for info in infos if not info.is_outer]
     if not include_inner:

@@ -84,10 +84,26 @@ class CopperStackupTests(unittest.TestCase):
 
         self.assertEqual([layer.name for layer in layers],
                          ["F.Cu", "In1.Cu", "B.Cu"])
-        self.assertAlmostEqual(layers[0].z, 1.628)
+        self.assertAlmostEqual(layers[0].z, 1.608)
         self.assertAlmostEqual(layers[1].z, 0.854)
-        self.assertAlmostEqual(layers[2].z, -0.020)
+        self.assertAlmostEqual(layers[2].z, 0.0)
         self.assertAlmostEqual(layers[1].thickness, 0.018)
+
+    def test_outer_copper_moves_inward_when_mask_plane_is_enabled(self):
+        copper = self._import_copper()
+        stackup = types.SimpleNamespace(layers=[
+            _StackEntry(1, 10_000),
+            _StackEntry(2, 35_000),
+            _StackEntry(3, 200_000),
+            _StackEntry(5, 35_000),
+            _StackEntry(6, 10_000),
+        ])
+
+        layers = copper.copper_stackup_layers(
+            stackup, _BoardLayer, outer_inset=0.020)
+
+        self.assertAlmostEqual(layers[0].z, 0.270)
+        self.assertAlmostEqual(layers[1].z, 0.020)
 
     def test_disabled_inner_layer_is_not_imported(self):
         copper = self._import_copper()

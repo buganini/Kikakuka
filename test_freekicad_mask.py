@@ -101,7 +101,7 @@ class MaskTests(unittest.TestCase):
 
         self.assertEqual(transparency, 37)
 
-    def test_mask_layers_are_twenty_um_outside_copper_display(self):
+    def test_mask_layers_stay_on_finished_board_boundaries(self):
         mask = self._import_mask()
         stackup = types.SimpleNamespace(layers=[
             _StackEntry(1, 10_000, _Color(0, 128, 0, 255)),
@@ -115,8 +115,8 @@ class MaskTests(unittest.TestCase):
 
         self.assertEqual([layer.name for layer in layers],
                          ["F.Mask", "B.Mask"])
-        self.assertAlmostEqual(layers[0].z, 0.330)
-        self.assertAlmostEqual(layers[1].z, -0.040)
+        self.assertAlmostEqual(layers[0].z, 0.290)
+        self.assertAlmostEqual(layers[1].z, 0.0)
         self.assertAlmostEqual(layers[0].thickness, 0.010)
         self.assertEqual(layers[0].color, (0, 128 / 255, 0))
         self.assertEqual(layers[0].transparency, 30)

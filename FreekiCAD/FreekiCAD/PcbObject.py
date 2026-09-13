@@ -26,6 +26,19 @@ PCB_OBJECT_TYPES = {"PcbObject", "LinkedObject"}
 COUPLER_KICAD_SYNC_ENABLED = True
 
 
+def _body_display_bounds(finished_thickness, import_outer_copper=False,
+                         import_solder_mask=False, display_gap=0.020):
+    """Allocate 2D surface-layer separation inside finished thickness."""
+    level_count = int(bool(import_outer_copper)) \
+        + int(bool(import_solder_mask))
+    inset = max(0.0, float(display_gap)) * level_count
+    bottom = inset
+    top = float(finished_thickness) - inset
+    if top <= bottom:
+        return 0.0, float(finished_thickness)
+    return bottom, top
+
+
 def _log_bending_bfs(message):
     if DEBUG_BENDING_BFS:
         FreeCAD.Console.PrintMessage(message)
@@ -1262,6 +1275,8 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         # Get board thickness from stackup
         thickness = DEFAULT_PCB_THICKNESS
         stackup = None
+        body_bottom_z = 0.0
+        body_top_z = thickness
         try:
             stackup = _kipy_retry(board.get_stackup)
             total_nm = sum(layer.thickness for layer in stackup.layers)
@@ -1274,6 +1289,18 @@ def load_board(filepath, socket_path, import_outer_copper=False,
             FreeCAD.Console.PrintWarning(
                 f"FreekiCAD: Could not read stackup, using default {DEFAULT_PCB_THICKNESS}mm: {ex}\n"
             )
+        if stackup is not None:
+            from .Copper import COPPER_DISPLAY_OFFSET_MM
+            body_bottom_z, body_top_z = _body_display_bounds(
+                thickness,
+                import_outer_copper=import_outer_copper,
+                import_solder_mask=import_solder_mask,
+                display_gap=COPPER_DISPLAY_OFFSET_MM)
+            if body_bottom_z > 0.0:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: 2D surface layers reserve "
+                    f"{body_bottom_z:.3f}mm per side; body z="
+                    f"{body_bottom_z:.3f}..{body_top_z:.3f}mm\n")
 
         # --- Parse text on User.4 for bend parameters ---
         if bend_lines:
@@ -1402,7 +1429,12 @@ def load_board(filepath, socket_path, import_outer_copper=False,
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Board face area={face.Area:.4f}"
                 f" valid={face.isValid()}\n")
-            board_solid = face.extrude(FreeCAD.Vector(0, 0, thickness))
+            body_thickness = body_top_z - body_bottom_z
+            board_solid = face.extrude(
+                FreeCAD.Vector(0, 0, body_thickness))
+            if body_bottom_z:
+                board_solid.translate(
+                    FreeCAD.Vector(0, 0, body_bottom_z))
 
             board_face = face
 
@@ -1463,8 +1495,9 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                 for hx, hy, radius in drill_holes:
                     cyl = Part.makeCylinder(
                         radius,
-                        thickness + 2 * margin,
-                        FreeCAD.Vector(hx, hy, -margin),
+                        body_thickness + 2 * margin,
+                        FreeCAD.Vector(
+                            hx, hy, body_bottom_z - margin),
                         FreeCAD.Vector(0, 0, 1),
                     )
                     drill_shapes.append(cyl)
@@ -1688,7 +1721,10 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                     board, stackup, BoardLayer,
                     board_shapes=all_shapes, warn=_surface_warning,
                     include_outer=import_outer_copper,
-                    include_inner=import_inner_copper)
+                    include_inner=import_inner_copper,
+                    outer_inset=(COPPER_DISPLAY_OFFSET_MM
+                                 if import_solder_mask else 0.0),
+                    total_thickness=thickness)
                 for layer in copper_layers:
                     item_summary = ", ".join(
                         f"{kind}={count}" for kind, count in sorted(
@@ -1718,7 +1754,8 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                     substrate_appearance(stackup)
                 mask_layers = build_solder_mask_layers(
                     board, stackup, BoardLayer, board_face,
-                    board_shapes=all_shapes, warn=_surface_warning)
+                    board_shapes=all_shapes, warn=_surface_warning,
+                    total_thickness=thickness)
                 for layer in mask_layers:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD: Solder mask {layer['name']}: "

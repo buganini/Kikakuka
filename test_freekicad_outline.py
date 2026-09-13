@@ -139,6 +139,19 @@ class OutlineWireOrderTests(unittest.TestCase):
             sys.modules.pop(module_name, None)
             return importlib.import_module(module_name)
 
+    def test_2d_surface_gaps_are_reserved_inside_finished_thickness(self):
+        linked_object = self._import_linked_object()
+
+        self.assertEqual(
+            linked_object._body_display_bounds(1.6), (0.0, 1.6))
+        self.assertEqual(
+            linked_object._body_display_bounds(
+                1.6, import_outer_copper=True), (0.02, 1.58))
+        self.assertEqual(
+            linked_object._body_display_bounds(
+                1.6, import_outer_copper=True,
+                import_solder_mask=True), (0.04, 1.56))
+
     def test_linked_filename_resolves_relative_to_saved_fcstd(self):
         linked_object = self._import_linked_object()
         obj = types.SimpleNamespace(
