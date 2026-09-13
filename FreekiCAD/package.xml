@@ -6,7 +6,7 @@
     <maintainer email="buganini@b612.tw">Buganini Chiu</maintainer>
     <license>MIT</license>
     <url type="repository">https://github.com/buganini/kikakuka</url>
-    <depend type="python">kicad-python</depend>
+    <depend type="python" version_eq="0.8.0">kicad-python</depend>
     <content>
         <workbench>
             <classname>FreekiCADWorkbench</classname>
