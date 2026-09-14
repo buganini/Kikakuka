@@ -12,7 +12,9 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
 from common import *
 
-FILE_ORDER = [*PNL_SUFFIXES, ".kicad_pro"]
+FREECAD_SUFFIXES = (ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX)
+FILE_ORDER = [*PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, ".kicad_pro"]
+WINDOWS_FREECAD_EXE = r"C:\Program Files\FreeCAD 1.0\bin\FreeCAD.exe"
 
 try:
     KIPY_VERSION = package_version("kicad-python")
@@ -29,6 +31,43 @@ if platform.system() == 'Windows':
     import win32gui
     import win32process
     import win32con
+
+def windows_associated_executable(extension):
+    """Return the executable registered for a Windows file extension."""
+    import ctypes
+    from ctypes import wintypes
+
+    assoc_query_string = ctypes.windll.shlwapi.AssocQueryStringW
+    assoc_query_string.argtypes = (
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+        wintypes.LPWSTR,
+        ctypes.POINTER(wintypes.DWORD),
+    )
+    assoc_query_string.restype = wintypes.LONG
+
+    assocstr_executable = 2
+    length = wintypes.DWORD()
+    assoc_query_string(
+        0, assocstr_executable, extension, None, None, ctypes.byref(length)
+    )
+    if not length.value:
+        return None
+
+    executable = ctypes.create_unicode_buffer(length.value)
+    result = assoc_query_string(
+        0,
+        assocstr_executable,
+        extension,
+        None,
+        executable,
+        ctypes.byref(length),
+    )
+    if result != 0:
+        return None
+    return executable.value or None
 
 def windows_open_file(file_path, filters):
     """
@@ -406,7 +445,7 @@ class WorkspaceUI(PUIView):
     def content(self):
         with VBox():
             with HBox():
-                Button("Import Project/FabPlan").click(lambda e: self.addFileDialog())
+                Button("Import KiCad/FabPlan/Assembly").click(lambda e: self.addFileDialog())
                 Button("New FabPlan").click(lambda e: self.newPanelization())
                 Button("Differ").click(lambda e: self.openDiffer())
                 Spacer()
@@ -570,7 +609,11 @@ class WorkspaceUI(PUIView):
         dir = None
         if self.state.filepath:
             dir = os.path.dirname(self.state.filepath)
-        filepath = OpenFile("Open Project/FabPlan", dir=dir, types=f"KiCad Project/FabPlan, FreeCAD File, Step File (*.kicad_pro *.kkkk_fab *.kikit_pnl *.FCStd *.step)|*.kicad_pro;*.kkkk_fab;*.kikit_pnl;*.FCStd;*.step")
+        filepath = OpenFile(
+            "Open KiCad/FabPlan/Assembly",
+            dir=dir,
+            types="KiCad/FabPlan/Assembly (*.kicad_pro *.kkkk_fab *.kikit_pnl *.kkkk_asm *.FCStd *.step)|*.kicad_pro;*.kkkk_fab;*.kikit_pnl;*.kkkk_asm;*.FCStd;*.step",
+        )
         if filepath:
             self.addFile(filepath)
 
@@ -584,7 +627,7 @@ class WorkspaceUI(PUIView):
             "path": filepath,
             "description": "",
         })
-        self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
+        self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1].lower()), os.path.basename(x["path"])))
         populateWorkspace(self.state.workspace, self.state.root)
         self.saveFile()
         self.state()
@@ -608,7 +651,7 @@ class WorkspaceUI(PUIView):
                     "path": filepath,
                     "description": "",
                 })
-                self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1]), os.path.basename(x["path"])))
+                self.state.workspace["projects"].sort(key=lambda x: (-indexOf(FILE_ORDER, os.path.splitext(x["path"])[1].lower()), os.path.basename(x["path"])))
                 populateWorkspace(self.state.workspace, self.state.root)
                 self.saveFile()
                 self.state()
@@ -618,8 +661,8 @@ class WorkspaceUI(PUIView):
         if path.lower().endswith(PNL_SUFFIXES):
             self.openPanelizer(path)
             return
-        if path.lower().endswith(STEP_SUFFIX):
-            self.openStep(path)
+        if path.lower().endswith(FREECAD_SUFFIXES):
+            self.openFreeCAD(path)
             return
         pid = self.main.pidmap.get(path)
         if pid is not None:
@@ -654,20 +697,30 @@ class WorkspaceUI(PUIView):
         p.wait()
         self.main.pidmap.pop(filepath, None)
 
-    def openStep(self, filepath):
+    def openFreeCAD(self, filepath):
         if bringToFront(self.main.pidmap.get(filepath)):
             return
-        Thread(target=self._openStep, args=[filepath], daemon=True).start()
+        Thread(target=self._openFreeCAD, args=[filepath], daemon=True).start()
 
-    def _openStep(self, filepath):
+    def _openFreeCAD(self, filepath):
         if platform.system() == 'Darwin':
             pid = posix_open_file(filepath, ["freecad"], "-a", "FreeCAD", "-n", "-W", "--args")
             if pid:
                 self.main.pidmap[filepath] = pid
         elif platform.system() == 'Windows':
-            pid = windows_open_file(filepath, ["freecad"])
-            if pid:
-                self.main.pidmap[filepath] = pid
+            executable = (
+                windows_associated_executable(FREECAD_SUFFIX)
+                or WINDOWS_FREECAD_EXE
+            )
+            process = subprocess.Popen([executable, filepath])
+            self.main.pidmap[filepath] = process.pid
+            process.wait()
+            self.main.pidmap.pop(filepath, None)
+        else:
+            process = subprocess.Popen(["freecad", filepath])
+            self.main.pidmap[filepath] = process.pid
+            process.wait()
+            self.main.pidmap.pop(filepath, None)
 
     def close(self):
         if Confirm("Are you sure you want to close this workspace?", "Close workspace"):

@@ -6,6 +6,7 @@
     * Improve linked-file reload reliability, material appearance, and relative-path handling
     * Rename `LinkedObject` to `PcbObject` while retaining saved-document compatibility
 * Workspace Manager
+    * Import `.kkkk_asm` assemblies and open them with FreeCAD
     * Serialize simultaneous KiCad editor launches to avoid PID and IPC socket conflicts
 * Panelizer / FabPlan
     * Add `Variable` and `StringTemplate` footprints for build-dependent text

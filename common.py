@@ -12,6 +12,8 @@ PNL_SUFFIXES = (PNL_SUFFIX, LEGACY_PNL_SUFFIX)
 PCB_SUFFIX = ".kicad_pcb"
 SCH_SUFFIX = ".kicad_sch"
 STEP_SUFFIX = ".step"
+FREECAD_SUFFIX = ".fcstd"
+ASSEMBLY_SUFFIX = ".kkkk_asm"
 
 def resource_path(relative_path):
     try:
