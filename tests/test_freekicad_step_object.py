@@ -7,8 +7,9 @@ import unittest
 from unittest import mock
 
 
+REPOSITORY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STEP_OBJECT_PATH = os.path.join(
-    os.path.dirname(__file__), "FreekiCAD", "freecad", "FreekiCAD",
+    REPOSITORY_ROOT, "FreekiCAD", "freecad", "FreekiCAD",
     "StepObject.py"
 )
 
