@@ -130,7 +130,7 @@ class OutlineWireOrderTests(unittest.TestCase):
     def _import_linked_object(self):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_part = types.ModuleType("Part")
-        module_name = "FreekiCAD.FreekiCAD.PcbObject"
+        module_name = "FreekiCAD.freecad.FreekiCAD.PcbObject"
         self.addCleanup(sys.modules.pop, module_name, None)
         with mock.patch.dict(
             sys.modules,
@@ -375,7 +375,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         fake_part = types.ModuleType("Part")
         fake_part.Face = _FakeFace
 
-        module_name = "FreekiCAD.FreekiCAD.PcbObject"
+        module_name = "FreekiCAD.freecad.FreekiCAD.PcbObject"
         self.addCleanup(sys.modules.pop, module_name, None)
         with mock.patch.dict(
             sys.modules,
@@ -396,7 +396,7 @@ class OutlineWireOrderTests(unittest.TestCase):
     def test_board_circle_uses_radius_method_without_end_attribute(self):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_part = types.ModuleType("Part")
-        module_name = "FreekiCAD.FreekiCAD.PcbObject"
+        module_name = "FreekiCAD.freecad.FreekiCAD.PcbObject"
         self.addCleanup(sys.modules.pop, module_name, None)
 
         with mock.patch.dict(
@@ -1187,7 +1187,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         with mock.patch.object(linked_object.time, "monotonic", return_value=100.0), \
                 mock.patch.dict(sys.modules, {
-                    "FreekiCAD.workspace_bus": types.SimpleNamespace(
+                    "FreekiCAD.freecad.FreekiCAD.workspace_bus": types.SimpleNamespace(
                         send_request=send_request),
                 }):
             proxy.reload(obj, force=True)

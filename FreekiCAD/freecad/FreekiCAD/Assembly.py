@@ -226,12 +226,12 @@ def insert(filename, document_name):
             raise ValueError("object {} has no file path".format(index))
 
         if item["type"] in ("PcbObject", "LinkedObject"):
-            from FreekiCAD.PcbObject import create_pcb_object
+            from .PcbObject import create_pcb_object
 
             obj = create_pcb_object(document=document)
             setting_names = PCB_OBJECT_SETTINGS
         else:
-            from FreekiCAD.StepObject import create_step_object
+            from .StepObject import create_step_object
 
             obj = create_step_object(document=document)
             setting_names = ("AutoReload",)

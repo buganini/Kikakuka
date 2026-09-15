@@ -104,7 +104,7 @@ class StepObject:
 
         self._reloading = True
         try:
-            from FreekiCAD.PcbObject import _load_step, _write_face_colors
+            from .PcbObject import _load_step, _write_face_colors
 
             parts = _load_step(filename, obj.Document)
             if not parts:

@@ -2,7 +2,7 @@
 
 import os
 
-from FreekiCAD.FreekiCAD.constants import FREEKICAD_LAYER_NAME
+from FreekiCAD.freecad.FreekiCAD.constants import FREEKICAD_LAYER_NAME
 
 
 def find_freekicad_layer(board, all_layers,

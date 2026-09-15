@@ -18,12 +18,12 @@ import time
 import psutil
 
 try:
-    from FreekiCAD.FreekiCAD.kicad_api_retry import (
+    from FreekiCAD.freecad.FreekiCAD.kicad_api_retry import (
         get_ready_kicad_board,
         is_kicad_retryable_error,
     )
 except ImportError:
-    from FreekiCAD.kicad_api_retry import (
+    from freecad.FreekiCAD.kicad_api_retry import (
         get_ready_kicad_board,
         is_kicad_retryable_error,
     )

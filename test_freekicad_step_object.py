@@ -8,13 +8,14 @@ from unittest import mock
 
 
 STEP_OBJECT_PATH = os.path.join(
-    os.path.dirname(__file__), "FreekiCAD", "FreekiCAD", "StepObject.py"
+    os.path.dirname(__file__), "FreekiCAD", "freecad", "FreekiCAD",
+    "StepObject.py"
 )
 
 
 def load_step_object_module(fake_freecad):
     spec = importlib.util.spec_from_file_location(
-        "_freekicad_step_object_test", STEP_OBJECT_PATH)
+        "FreekiCAD.freecad.FreekiCAD.StepObject", STEP_OBJECT_PATH)
     module = importlib.util.module_from_spec(spec)
     with mock.patch.dict(sys.modules, {"FreeCAD": fake_freecad}):
         spec.loader.exec_module(module)
@@ -32,7 +33,8 @@ class StepObjectTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".step") as stream:
             shape = types.SimpleNamespace(Faces=[object(), object()])
             colors = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
-            pcb_module = types.ModuleType("FreekiCAD.PcbObject")
+            pcb_module = types.ModuleType(
+                "FreekiCAD.freecad.FreekiCAD.PcbObject")
             pcb_module._load_step = mock.Mock(return_value=[(shape, colors)])
             pcb_module._write_face_colors = mock.Mock()
             placement = object()
@@ -51,7 +53,8 @@ class StepObjectTests(unittest.TestCase):
             proxy._reloading = False
 
             with mock.patch.dict(
-                    sys.modules, {"FreekiCAD.PcbObject": pcb_module}):
+                    sys.modules,
+                    {"FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module}):
                 loaded = proxy.reload(obj, force=True)
 
             self.assertTrue(loaded)

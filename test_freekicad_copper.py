@@ -60,7 +60,7 @@ class CopperStackupTests(unittest.TestCase):
             fake_part.Face = lambda wire, *args: ("face", wire)
             fake_part.makeCompound = mock.Mock(
                 side_effect=AssertionError("compound geometry is not expected"))
-        module_name = "FreekiCAD.FreekiCAD.Copper"
+        module_name = "FreekiCAD.freecad.FreekiCAD.Copper"
         self.addCleanup(sys.modules.pop, module_name, None)
         with mock.patch.dict(
             sys.modules, {"FreeCAD": fake_freecad, "Part": fake_part}

@@ -10,7 +10,8 @@ from unittest import mock
 
 
 ASSEMBLY_PATH = os.path.join(
-    os.path.dirname(__file__), "FreekiCAD", "FreekiCAD", "Assembly.py"
+    os.path.dirname(__file__), "FreekiCAD", "freecad", "FreekiCAD",
+    "Assembly.py"
 )
 
 
@@ -77,7 +78,7 @@ class StepObjectStub:
 
 
 def load_assembly_module(fake_freecad):
-    module_name = "_freekicad_assembly_test"
+    module_name = "FreekiCAD.freecad.FreekiCAD.Assembly"
     spec = importlib.util.spec_from_file_location(module_name, ASSEMBLY_PATH)
     module = importlib.util.module_from_spec(spec)
     with mock.patch.dict(sys.modules, {"FreeCAD": fake_freecad}):
@@ -219,10 +220,13 @@ class AssemblyTests(unittest.TestCase):
             document = Document("Target")
             self.documents[document.Name] = document
             created = PcbObjectStub(document)
-            pcb_module = types.ModuleType("FreekiCAD.PcbObject")
+            pcb_module = types.ModuleType(
+                "FreekiCAD.freecad.FreekiCAD.PcbObject")
             pcb_module.create_pcb_object = mock.Mock(return_value=created)
 
-            with mock.patch.dict(sys.modules, {"FreekiCAD.PcbObject": pcb_module}):
+            with mock.patch.dict(
+                    sys.modules,
+                    {"FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module}):
                 result = self.assembly.insert(manifest_path, document.Name)
 
             self.assertEqual(result, [created])
@@ -260,10 +264,13 @@ class AssemblyTests(unittest.TestCase):
             document = Document("Target")
             self.documents[document.Name] = document
             created = StepObjectStub(document)
-            step_module = types.ModuleType("FreekiCAD.StepObject")
+            step_module = types.ModuleType(
+                "FreekiCAD.freecad.FreekiCAD.StepObject")
             step_module.create_step_object = mock.Mock(return_value=created)
 
-            with mock.patch.dict(sys.modules, {"FreekiCAD.StepObject": step_module}):
+            with mock.patch.dict(
+                    sys.modules,
+                    {"FreekiCAD.freecad.FreekiCAD.StepObject": step_module}):
                 result = self.assembly.insert(manifest_path, document.Name)
 
             self.assertEqual(result, [created])

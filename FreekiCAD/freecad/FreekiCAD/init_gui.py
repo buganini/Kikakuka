@@ -1,14 +1,11 @@
 import os
 import FreeCAD
 import FreeCADGui
-import FreekiCAD as FreekiCADPackage
 
 
-_package_file = getattr(FreekiCADPackage, "__file__", None)
-WORKBENCH_DIR = (os.path.dirname(os.path.dirname(os.path.abspath(_package_file)))
-                 if _package_file else os.path.dirname(os.path.abspath(__file__)))
+WORKBENCH_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKBENCH_ICON = os.path.join(
-    WORKBENCH_DIR, "Resources", "icons", "FreekiCAD.png")
+    WORKBENCH_DIR, "resources", "icons", "FreekiCAD.png")
 
 
 class CreatePcbObjectCommand:
@@ -24,9 +21,9 @@ class CreatePcbObjectCommand:
         return FreeCAD.ActiveDocument is not None
 
     def Activated(self):
-        from PySide import QtGui
-        from FreekiCAD.PcbObject import create_pcb_object
-        filepath, _ = QtGui.QFileDialog.getOpenFileName(
+        from PySide import QtWidgets
+        from .PcbObject import create_pcb_object
+        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(
             None, "Select file to link", "", "KiCad PCB (*.kicad_pcb)"
         )
         if filepath:
@@ -46,10 +43,10 @@ class CreateStepObjectCommand:
         return FreeCAD.ActiveDocument is not None
 
     def Activated(self):
-        from PySide import QtGui
-        from FreekiCAD.StepObject import create_step_object
+        from PySide import QtWidgets
+        from .StepObject import create_step_object
 
-        filepath, _ = QtGui.QFileDialog.getOpenFileName(
+        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(
             None,
             "Select STEP file to link",
             "",

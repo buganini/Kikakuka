@@ -20,7 +20,7 @@ class ReloadAllObjectsCommandTests(unittest.TestCase):
         fake_freecad_gui.addWorkbench = mock.Mock()
         fake_freecad_gui.addCommand = mock.Mock()
 
-        module_name = "FreekiCAD.InitGui"
+        module_name = "FreekiCAD.freecad.FreekiCAD.init_gui"
         self.addCleanup(sys.modules.pop, module_name, None)
         with mock.patch.dict(
             sys.modules,

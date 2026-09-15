@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "freecad-freekicad"
+version = "0.1.0"
+description = "FreeCAD workbench for bidirectional KiCad PCB integration via kipy IPC API."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+maintainers = [
+    { name = "Buganini Chiu", email = "buganini@b612.tw" },
+]
+requires-python = ">=3.10"
+dependencies = ["kicad-python==0.8.0"]
+
+[project.urls]
+Repository = "https://github.com/buganini/FreekiCAD"
+Issues = "https://github.com/buganini/FreekiCAD/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["freecad"]

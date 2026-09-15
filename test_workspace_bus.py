@@ -3,7 +3,7 @@ import unittest
 from unittest import mock
 
 import workspace_bus
-from FreekiCAD.FreekiCAD.kicad_api_retry import retry_kicad_call
+from FreekiCAD.freecad.FreekiCAD.kicad_api_retry import retry_kicad_call
 from kipy.errors import ApiError
 from kipy.proto.common import ApiStatusCode
 
@@ -19,7 +19,8 @@ class RetryKicadCallTests(unittest.TestCase):
             return "ok"
 
         with mock.patch(
-            "FreekiCAD.FreekiCAD.kicad_api_retry.time.sleep", return_value=None
+            "FreekiCAD.freecad.FreekiCAD.kicad_api_retry.time.sleep",
+            return_value=None,
         ):
             result = retry_kicad_call(func, max_retries=5, delay_s=1.0)
 

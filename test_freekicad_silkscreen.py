@@ -60,7 +60,7 @@ class SilkscreenTests(unittest.TestCase):
             )
 
         fake_part.makeCompound = make_compound
-        module_name = "FreekiCAD.FreekiCAD.Silkscreen"
+        module_name = "FreekiCAD.freecad.FreekiCAD.Silkscreen"
         self.addCleanup(sys.modules.pop, module_name, None)
         with mock.patch.dict(
             sys.modules, {"FreeCAD": fake_freecad, "Part": fake_part}

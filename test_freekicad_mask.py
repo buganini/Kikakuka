@@ -39,7 +39,7 @@ class MaskTests(unittest.TestCase):
     def _import_mask(self):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_part = types.ModuleType("Part")
-        module_name = "FreekiCAD.FreekiCAD.Mask"
+        module_name = "FreekiCAD.freecad.FreekiCAD.Mask"
         self.addCleanup(sys.modules.pop, module_name, None)
         with mock.patch.dict(
             sys.modules, {"FreeCAD": fake_freecad, "Part": fake_part}
