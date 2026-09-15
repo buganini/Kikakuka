@@ -16,7 +16,8 @@ PCB editing and mechanical assembly.
 The `.kkkk_asm` format stores only file paths and placement information. STEP
 models are referenced rather than embedded, so imported models remain
 reloadable. This also makes FreekiCAD useful for assembling multiple STEP models
-without KiCad.
+without KiCad. See the [FPC assembly example][fpc-assembly-example] for a
+complete `.kkkk_asm` file.
 
 ## Upstream
 
@@ -24,3 +25,4 @@ This repository is a release mirror. Development takes place in the
 [FreekiCAD directory of the Kikakuka repository][upstream].
 
 [upstream]: https://github.com/buganini/Kikakuka/tree/main/FreekiCAD
+[fpc-assembly-example]: https://github.com/buganini/Kikakuka/blob/main/samples/fpc-assembly.kkkk_asm
