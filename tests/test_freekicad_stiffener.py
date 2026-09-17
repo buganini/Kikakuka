@@ -53,6 +53,8 @@ class StiffenerTests(unittest.TestCase):
         fake_copper = types.ModuleType(
             "FreekiCAD.freecad.FreekiCAD.Copper")
         fake_copper.board_graphic_area_shape = lambda graphic: graphic.shape
+        fake_copper.board_graphic_path_edge = lambda graphic: getattr(
+            graphic, "edge", None)
         module_name = "FreekiCAD.freecad.FreekiCAD.Stiffener"
         self.addCleanup(sys.modules.pop, module_name, None)
         with mock.patch.dict(sys.modules, {
@@ -157,6 +159,52 @@ class StiffenerTests(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertEqual(warnings,
                          ["Ignoring unannotated area on F.Stiffener"])
+
+    def test_invalid_annotation_is_reported_as_error(self):
+        stiffener = self._import_stiffener()
+        warnings = []
+        errors = []
+        area = types.SimpleNamespace(
+            layer=10, shape=_AreaShape(0, 0, 2, 2))
+        text = types.SimpleNamespace(
+            layer=10,
+            value="Material=Polymide\nThickness=12.5um",
+            position=types.SimpleNamespace(x=1_000_000, y=-1_000_000))
+
+        result = stiffener.build_stiffener_layers(
+            [area], [text], [(10, "F.Stiffener", True)], 1.6,
+            warn=warnings.append, error=errors.append)
+
+        self.assertEqual(result, [])
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Ignoring invalid F.Stiffener area", errors[0])
+        self.assertIn("Polymide", errors[0])
+
+    def test_closed_line_chain_builds_stiffener_area(self):
+        stiffener = self._import_stiffener()
+        edges = [object() for _index in range(4)]
+        graphics = [
+            types.SimpleNamespace(layer=10, shape=None, edge=edge)
+            for edge in edges]
+        text = types.SimpleNamespace(
+            layer=10,
+            value="Material=Polyimide\nThickness=12.5um",
+            position=types.SimpleNamespace(x=1_000_000, y=-1_000_000))
+        wire = types.SimpleNamespace(
+            isClosed=lambda: True,
+            fixWire=lambda *_args: None)
+        stiffener.Part.sortEdges = lambda values: [values]
+        stiffener.Part.Wire = lambda values: wire
+        stiffener.Part.Face = lambda value: _AreaShape(0, 0, 2, 2)
+
+        result = stiffener.build_stiffener_layers(
+            graphics, [text], [(10, "B.Stiffener", False)], 1.6)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["material"], "Polyimide")
+        self.assertAlmostEqual(result[0]["thickness"], 0.0125)
+        self.assertLess(result[0]["shape"].extrusion_z, 0.0)
 
 
 if __name__ == "__main__":

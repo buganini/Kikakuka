@@ -226,8 +226,9 @@ Coupler plane markers are available as child objects in FreeCAD and are hidden b
 ## Flexible PCB Stiffener
 
 Rename KiCad user layers to `F.Stiffener` and/or `B.Stiffener`
-(case-insensitive). Each closed rectangle, circle, or polygon is imported
-automatically as one stiffener area; the KiCad display fill may be on or off.
+(case-insensitive). Each closed rectangle, circle, polygon, or connected
+line/arc outline is imported automatically as one stiffener area; the KiCad
+display fill may be on or off.
 Put one text annotation inside each area and separate properties with `/` or
 newlines:
 
@@ -245,6 +246,10 @@ the suffix of the FreeCAD child name and label (`F_Stiffener_<Name>` or
 `B_Stiffener_<Name>`) and is included in bend-overlap warnings. Thickness
 accepts `mm`, `in`, `mil` (`0.001 in`), and `um`; a unitless value is
 interpreted as millimetres.
+
+Invalid annotations, annotations outside an area, and areas with multiple
+annotations are reported as errors and skipped. Unannotated areas are skipped
+with a warning.
 
 | Material | Default color | Default opacity |
 | --- | --- | ---: |

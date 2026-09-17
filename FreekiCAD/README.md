@@ -23,9 +23,10 @@ complete `.kkkk_asm` file.
 ## Flexible PCB Stiffener
 
 Rename KiCad user layers to `F.Stiffener` and/or `B.Stiffener`
-(case-insensitive). Each closed rectangle, circle, or polygon is imported as
-one stiffener area, regardless of its KiCad display-fill setting. Put one text
-annotation inside each area and separate properties with `/` or newlines:
+(case-insensitive). Each closed rectangle, circle, polygon, or connected
+line/arc outline is imported as one stiffener area, regardless of its KiCad
+display-fill setting. Put one text annotation inside each area and separate
+properties with `/` or newlines:
 
 ```text
 Name=Tail reinforcement
@@ -60,8 +61,9 @@ when `ImportSolderMask` is disabled.
 Stiffeners remain rigid during flexible-PCB bending. If a stiffener overlaps a
 full bend band, FreekiCAD prints a warning containing its name, the bend name,
 and the overlap area. If an area contains multiple property-text objects, it is
-skipped with a warning. The [FPC sample board][fpc-sample] contains a complete
-stiffener example.
+reported as an error and skipped. Invalid annotations and annotations outside
+an area are also errors; unannotated areas are skipped with a warning. The
+[FPC sample board][fpc-sample] contains a complete stiffener example.
 
 ## Flexible PCB Bending
 

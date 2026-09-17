@@ -6,7 +6,10 @@ import re
 import FreeCAD
 import Part
 
-from .Copper import board_graphic_area_shape
+from .Copper import (
+    board_graphic_area_shape,
+    board_graphic_path_edge,
+)
 from .Units import parse_length_mm
 
 
@@ -132,16 +135,19 @@ def _contains(shape, point):
 
 def build_stiffener_layers(board_shapes, board_text, layers,
                            total_thickness, to_concrete=None, warn=None,
-                           mask_openings=None):
+                           error=None, mask_openings=None):
     """Return one solid per annotated closed area on F/B.Stiffener.
 
     ``layers`` contains ``(layer_id, displayed_name, is_front)`` tuples.
     Annotation text is assigned to the smallest containing area, which makes
     nested drawings deterministic.
     """
+    report_error = error or warn
     result = []
     for layer_id, layer_name, is_front in layers:
         areas = []
+        path_edges = []
+        path_sources = []
         for source in board_shapes or []:
             if getattr(source, "layer", None) != layer_id:
                 continue
@@ -152,9 +158,34 @@ def build_stiffener_layers(board_shapes, board_text, layers,
                 shape = _area_shape(graphic)
                 if shape is not None:
                     areas.append((source, shape))
+                    continue
+                edge = board_graphic_path_edge(graphic)
+                if edge is not None:
+                    path_edges.append(edge)
+                    path_sources.append(source)
             except Exception as ex:
-                if warn:
-                    warn(f"Could not build {layer_name} area: {ex}")
+                if report_error:
+                    report_error(f"Could not build {layer_name} area: {ex}")
+
+        if path_edges:
+            try:
+                for edge_group in Part.sortEdges(path_edges):
+                    wire = Part.Wire(edge_group)
+                    if not wire.isClosed():
+                        try:
+                            wire.fixWire(None, 0.001)
+                        except Exception:
+                            pass
+                    if not wire.isClosed():
+                        continue
+                    shape = Part.Face(wire)
+                    if (getattr(shape, "Faces", [])
+                            and float(getattr(shape, "Area", 0.0)) > 0.0):
+                        areas.append((path_sources[0], shape))
+            except Exception as ex:
+                if report_error:
+                    report_error(
+                        f"Could not join {layer_name} outline: {ex}")
 
         assignments = {index: [] for index in range(len(areas))}
         for item in board_text or []:
@@ -165,17 +196,19 @@ def build_stiffener_layers(board_shapes, board_text, layers,
                 continue
             point = _text_point(item)
             if point is None:
-                if warn:
-                    warn(f"Could not locate {layer_name} annotation {value!r}")
+                if report_error:
+                    report_error(
+                        f"Could not locate {layer_name} annotation {value!r}")
                 continue
             candidates = [
                 index for index, (_source, shape) in enumerate(areas)
                 if _contains(shape, point)
             ]
             if not candidates:
-                if warn:
-                    warn(f"{layer_name} annotation is outside any area: "
-                         f"{value!r}")
+                if report_error:
+                    report_error(
+                        f"{layer_name} annotation is outside any area: "
+                        f"{value!r}")
                 continue
             selected = min(
                 candidates,
@@ -190,8 +223,9 @@ def build_stiffener_layers(board_shapes, board_text, layers,
                     warn(f"Ignoring unannotated area on {layer_name}")
                 continue
             if len(annotations) > 1:
-                if warn:
-                    warn(f"Ignoring {layer_name} area with multiple annotations")
+                if report_error:
+                    report_error(
+                        f"Ignoring {layer_name} area with multiple annotations")
                 continue
             try:
                 spec = parse_stiffener_annotation(annotations[0])
@@ -230,6 +264,7 @@ def build_stiffener_layers(board_shapes, board_text, layers,
                     "shape": solid,
                 })
             except Exception as ex:
-                if warn:
-                    warn(f"Ignoring invalid {layer_name} area: {ex}")
+                if report_error:
+                    report_error(
+                        f"Ignoring invalid {layer_name} area: {ex}")
     return result

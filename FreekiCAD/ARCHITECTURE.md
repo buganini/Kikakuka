@@ -79,14 +79,15 @@ the same rigid-piece and wedge mapping as copper and mask during bending.
 ## Stiffener Solids
 
 `Stiffener.py` finds user layers named `F.Stiffener` or `B.Stiffener`
-case-insensitively. Each closed graphic rectangle, circle, or polygon is an
-independent area regardless of its display fill. A slash- or newline-separated
+case-insensitively. Each closed graphic rectangle, circle, polygon, or
+connected line/arc outline is an independent area regardless of its display
+fill. A slash- or newline-separated
 text annotation whose anchor lies inside the smallest containing area supplies
 required `Material` and `Thickness` properties plus optional `Name`, `Color`,
 and `Opacity` overrides. A non-empty name becomes the suffix of the child name
 and label after `F_Stiffener_` or `B_Stiffener_`, and the resulting label is
-used by bend-overlap warnings. Invalid,
-unannotated, or multiply annotated areas are skipped with a warning.
+used by bend-overlap warnings. Invalid, misplaced, or multiply annotated areas
+are skipped with an error. Unannotated areas are skipped with a warning.
 
 Thickness and coupler Z share `Units.parse_length_mm`, accepting `mm`, `in`,
 `mil` (0.001 inch), and `um`, with unitless values interpreted as millimetres. Stiffener faces

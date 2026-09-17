@@ -434,6 +434,17 @@ def board_graphic_area_shape(graphic):
     return None
 
 
+def board_graphic_path_edge(graphic):
+    """Return the center-line edge of a line or arc board graphic."""
+    kind = type(graphic).__name__
+    if kind in ("BoardSegment", "Segment"):
+        return Part.makeLine(_v(graphic.start), _v(graphic.end))
+    if kind in ("BoardArc", "Arc"):
+        return Part.Arc(
+            _v(graphic.start), _v(graphic.mid), _v(graphic.end)).toShape()
+    return None
+
+
 def board_graphic_shape(graphic):
     """Build filled/stroked geometry for a copper BoardShape."""
     kind = type(graphic).__name__

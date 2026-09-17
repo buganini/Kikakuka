@@ -1780,6 +1780,9 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         def _surface_warning(message):
             FreeCAD.Console.PrintWarning(f"FreekiCAD: {message}\n")
 
+        def _surface_error(message):
+            FreeCAD.Console.PrintError(f"FreekiCAD: {message}\n")
+
         copper_layers = []
         if ((import_outer_copper or import_inner_copper)
                 and stackup is not None):
@@ -1845,6 +1848,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                 all_shapes, all_text, stiffener_layer_defs, thickness,
                 to_concrete=to_concrete_board_shape,
                 warn=_surface_warning,
+                error=_surface_error,
                 mask_openings=mask_openings_by_side)
             for area in stiffener_layers:
                 FreeCAD.Console.PrintMessage(
