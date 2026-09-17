@@ -46,6 +46,9 @@ BUILDEXPR = "BUILDEXPR"
 MAX_BOARD_SIZE = 10000*mm
 MIN_SPACING = 0.0
 VC_EXTENT = 3
+HOLE_HANDLE_SIZE = 8
+HOLE_HANDLE_HIT_RADIUS = 8
+HOLE_INSERT_DRAG_THRESHOLD = 3
 MIN_SHAPELY_VERSION = (2, 0, 7)
 OUTLINE_CHAINING_EPSILON_MM = getattr(pcbnew, "DEFAULT_CHAINING_EPSILON_MM", 0.01)
 OUTLINE_CHAINING_EPSILON = round(OUTLINE_CHAINING_EPSILON_MM * pcbnew.PCB_IU_PER_MM)
@@ -766,6 +769,45 @@ class Hole(StateObject):
     def polygon(self):
         return transform(self._polygon, lambda x: x+[self.x+self.main.off_x, self.y+self.main.off_y])
 
+    @property
+    def vertices(self):
+        return list(self.polygon.exterior.coords)[:-1]
+
+    def _set_vertices(self, vertices):
+        if len(vertices) < 3:
+            return False
+
+        polygon = Polygon(vertices)
+        if polygon.is_empty or polygon.area <= 0 or not polygon.is_valid:
+            return False
+
+        offset_x = self.x + self.main.off_x
+        offset_y = self.y + self.main.off_y
+        self._polygon = Polygon([
+            (x - offset_x, y - offset_y)
+            for x, y in vertices
+        ])
+        return True
+
+    def insert_vertex(self, edge_index, point):
+        vertices = self.vertices
+        vertices.insert(edge_index + 1, point)
+        return self._set_vertices(vertices)
+
+    def move_vertex(self, vertex_index, point):
+        vertices = self.vertices
+        if vertices[vertex_index] == point:
+            return False
+        vertices[vertex_index] = point
+        return self._set_vertices(vertices)
+
+    def remove_vertex(self, vertex_index):
+        vertices = self.vertices
+        if len(vertices) <= 3:
+            return False
+        del vertices[vertex_index]
+        return self._set_vertices(vertices)
+
     def contains(self, p):
         return self.polygon.contains(p)
 
@@ -939,6 +981,8 @@ class PanelizerUI(Application):
         self.mousehold = False
         self.mousemoved = 0
         self.mouse_action_from_inside = False
+        self.hole_handle_drag = None
+        self.hole_double_click_handled = False
         self.tool = Tool.NONE
         self.state.edit_polygon = None
 
@@ -1241,6 +1285,7 @@ class PanelizerUI(Application):
 
     def select_hole(self, e, hole):
         self.state.focus = hole
+        self.state.focus_tab = None
 
     def save(self, e, target=None):
         if target is None:
@@ -2696,6 +2741,33 @@ class PanelizerUI(Application):
         offx, offy, scale = self.state.scale
         return (x - offx)/scale, (y - offy)/scale
 
+    def hole_handle_at(self, canvas_x, canvas_y, vertices_only=False):
+        hole = self.state.focus
+        if not self.state.show_hole or not isinstance(hole, Hole):
+            return None
+
+        vertices = hole.vertices
+        canvas_vertices = [
+            self.toCanvas(x - self.off_x, y - self.off_y)
+            for x, y in vertices
+        ]
+
+        for index, (x, y) in enumerate(canvas_vertices):
+            if math.hypot(canvas_x - x, canvas_y - y) <= HOLE_HANDLE_HIT_RADIUS:
+                return hole, "vertex", index
+
+        if vertices_only:
+            return None
+
+        for index, ((x1, y1), (x2, y2)) in enumerate(zip(
+                canvas_vertices, canvas_vertices[1:] + canvas_vertices[:1])):
+            x = (x1 + x2) / 2
+            y = (y1 + y2) / 2
+            if math.hypot(canvas_x - x, canvas_y - y) <= HOLE_HANDLE_HIT_RADIUS:
+                return hole, "midpoint", index
+
+        return None
+
     def dblclicked(self, e):
         if self.tool == Tool.HOLE:
             polygon = list(self.state.edit_polygon)
@@ -2704,8 +2776,22 @@ class PanelizerUI(Application):
                 self.state.edit_polygon = []
                 h = Hole(self, polygon)
                 self.state.holes.append(h)
+                self.state.focus = h
+                self.state.focus_tab = None
                 self.tool = Tool.END
                 self.build()
+            return
+
+        handle = self.hole_handle_at(e.x, e.y, vertices_only=True)
+        if handle is not None:
+            hole, _, vertex_index = handle
+            self.hole_double_click_handled = True
+            self.hole_handle_drag = None
+            self.mouse_dragging = None
+            if hole.remove_vertex(vertex_index):
+                self.build()
+            else:
+                self.state()
 
     def mousedown(self, e):
         self.state.crosshair = None
@@ -2720,10 +2806,21 @@ class PanelizerUI(Application):
             x, y = self.fromCanvas(e.x, e.y)
             self.state.edit_polygon.append((x,y))
         else:
+            self.mouse_dragging = None
+            handle = self.hole_handle_at(e.x, e.y)
+            if handle is not None:
+                hole, kind, index = handle
+                self.hole_handle_drag = {
+                    "hole": hole,
+                    "kind": kind,
+                    "index": index,
+                    "changed": False,
+                }
+                return
+
             x, y = self.fromCanvas(e.x, e.y)
 
             p = Point(x+self.off_x, y+self.off_y)
-            self.mouse_dragging = None
             if self.state.focus and self.state.focus.contains(p):
                 self.mouse_dragging = self.state.focus
                 self.mouse_action_from_inside = True
@@ -2731,6 +2828,18 @@ class PanelizerUI(Application):
 
     def mouseup(self, e):
         self.mousehold = False
+        if self.hole_double_click_handled:
+            self.hole_double_click_handled = False
+            self.hole_handle_drag = None
+            return
+
+        if self.hole_handle_drag is not None:
+            changed = self.hole_handle_drag["changed"]
+            self.hole_handle_drag = None
+            if changed:
+                self.build()
+            return
+
         if self.tool == Tool.TAB:
             x, y = self.fromCanvas(e.x, e.y)
             if self.state.focus.contains(Point(x+self.off_x, y+self.off_y)):
@@ -2755,6 +2864,7 @@ class PanelizerUI(Application):
                             continue
                         else:
                             self.state.focus = hole
+                            self.state.focus_tab = None
 
                 if not found:
                     for pcb in [pcb for pcb in pcbs if pcb is not self.state.focus]:
@@ -2786,7 +2896,29 @@ class PanelizerUI(Application):
             dx = x2 - x1
             dy = y2 - y1
 
-            if self.state.focus and self.state.focus_tab is not None:
+            if self.hole_handle_drag is not None:
+                drag = self.hole_handle_drag
+                hole = drag["hole"]
+
+                if (drag["kind"] == "midpoint"
+                        and self.mousemoved >= HOLE_INSERT_DRAG_THRESHOLD):
+                    vertices = hole.vertices
+                    edge_index = drag["index"]
+                    p1 = vertices[edge_index]
+                    p2 = vertices[(edge_index + 1) % len(vertices)]
+                    midpoint = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2)
+                    if hole.insert_vertex(edge_index, midpoint):
+                        drag["kind"] = "vertex"
+                        drag["index"] = edge_index + 1
+                        drag["changed"] = True
+
+                if drag["kind"] == "vertex" and self.mousemoved > 0:
+                    point = (x2 + self.off_x, y2 + self.off_y)
+                    if hole.move_vertex(drag["index"], point):
+                        drag["changed"] = True
+
+                self.state()
+            elif self.state.focus and self.state.focus_tab is not None:
                 if self.mouse_action_from_inside:
                     p = affinity.rotate(Point(dx, dy), self.state.focus.rotate*1, origin=(0,0))
 
@@ -2901,6 +3033,29 @@ class PanelizerUI(Application):
         shape = transform(shape, lambda p:p * scale + (offx, offy))
         canvas.drawShapely(shape, stroke=stroke, fill=fill)
 
+    def drawHoleHandles(self, canvas, hole):
+        vertices = [
+            self.toCanvas(x - self.off_x, y - self.off_y)
+            for x, y in hole.vertices
+        ]
+        half = HOLE_HANDLE_SIZE / 2
+
+        for (x1, y1), (x2, y2) in zip(vertices, vertices[1:] + vertices[:1]):
+            x = (x1 + x2) / 2
+            y = (y1 + y2) / 2
+            canvas.drawRect(
+                x - half, y - half, x + half, y + half,
+                stroke=0xFF6E00,
+                width=2,
+            )
+
+        for x, y in vertices:
+            canvas.drawRect(
+                x - half, y - half, x + half, y + half,
+                fill=0xFFCF55,
+                stroke=0x261000,
+            )
+
     def drawVCutV(self, canvas, x):
         x1, y1 = self.toCanvas(x-self.off_x, -VC_EXTENT*self.unit)
         x2, y2 = self.toCanvas(x-self.off_x, (self.state.frame_height+VC_EXTENT)*self.unit)
@@ -3006,6 +3161,8 @@ class PanelizerUI(Application):
         if self.state.show_hole:
             for hole in self.state.holes:
                 self.drawShapely(canvas, transform(hole.polygon, lambda p:p-(self.off_x, self.off_y)), stroke=0xFFCF55 if hole is self.state.focus else 0xFF6E00, fill=0x261000 if hole is self.state.focus else None)
+            if isinstance(self.state.focus, Hole):
+                self.drawHoleHandles(canvas, self.state.focus)
 
         if self.state.show_conflicts:
             for conflict in self.state.conflicts:
@@ -3058,6 +3215,11 @@ class PanelizerUI(Application):
 
         if self.tool == Tool.HOLE:
             drawCross = True
+            canvas.drawText(
+                12, 12,
+                "double click to finish the hole",
+                color=0xFF6E00,
+            )
 
         if self.tool == Tool.TAB:
             x, y = self.fromCanvas(*self.state.mousepos)
