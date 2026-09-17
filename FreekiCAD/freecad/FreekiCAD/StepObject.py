@@ -104,7 +104,7 @@ class StepObject:
 
         self._reloading = True
         try:
-            from .PcbObject import _load_step, _write_face_colors
+            from .StepLoader import _load_step, _write_face_colors
 
             parts = _load_step(filename, obj.Document)
             if not parts:

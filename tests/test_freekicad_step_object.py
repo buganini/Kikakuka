@@ -34,10 +34,11 @@ class StepObjectTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".step") as stream:
             shape = types.SimpleNamespace(Faces=[object(), object()])
             colors = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
-            pcb_module = types.ModuleType(
-                "FreekiCAD.freecad.FreekiCAD.PcbObject")
-            pcb_module._load_step = mock.Mock(return_value=[(shape, colors)])
-            pcb_module._write_face_colors = mock.Mock()
+            step_loader_module = types.ModuleType(
+                "FreekiCAD.freecad.FreekiCAD.StepLoader")
+            step_loader_module._load_step = mock.Mock(
+                return_value=[(shape, colors)])
+            step_loader_module._write_face_colors = mock.Mock()
             placement = object()
             obj = types.SimpleNamespace(
                 FileName=stream.name,
@@ -55,12 +56,14 @@ class StepObjectTests(unittest.TestCase):
 
             with mock.patch.dict(
                     sys.modules,
-                    {"FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module}):
+                    {"FreekiCAD.freecad.FreekiCAD.StepLoader":
+                     step_loader_module,
+                     "FreekiCAD.freecad.FreekiCAD.PcbObject": None}):
                 loaded = proxy.reload(obj, force=True)
 
             self.assertTrue(loaded)
             self.assertIs(obj.Shape, shape)
-            pcb_module._write_face_colors.assert_called_once_with(
+            step_loader_module._write_face_colors.assert_called_once_with(
                 obj.ViewObject, colors)
             self.assertIs(obj.Placement, placement)
             self.assertEqual(obj.FileMtime, str(os.path.getmtime(stream.name)))
