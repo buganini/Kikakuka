@@ -169,17 +169,29 @@ class OutlineWireOrderTests(unittest.TestCase):
             types.SimpleNamespace(overlap_area=0.00001),
         ]
         overlaps = linked_object._stiffener_bend_overlaps(
-            {"Board_Stiffener_F_1": Area()},
+            {"F_Stiffener_Tail reinforcement": Area()},
             [object(), object()], spans,
             area_tolerance=0.0001,
         )
 
-        self.assertEqual(overlaps, [("Board_Stiffener_F_1", 0, 0.25)])
+        self.assertEqual(
+            overlaps, [("F_Stiffener_Tail reinforcement", 0, 0.25)])
         warning = linked_object._stiffener_bend_warning(
             "F.Stiffener Polyimide 1", "Bend 1", 0.25)
         self.assertIn("F.Stiffener Polyimide 1", warning)
         self.assertIn("Bend 1", warning)
         self.assertIn("not deformed", warning)
+
+    def test_stiffener_object_name_has_side_prefix(self):
+        linked_object = self._import_linked_object()
+
+        self.assertEqual(
+            linked_object._stiffener_object_name(
+                True, "Tail reinforcement", "Polyimide", 1),
+            "F_Stiffener_Tail reinforcement")
+        self.assertEqual(
+            linked_object._stiffener_object_name(False, "", "FR4", 2),
+            "B_Stiffener_FR4_2")
 
     def test_bend_layer_is_found_by_case_insensitive_board_name(self):
         linked_object = self._import_linked_object()

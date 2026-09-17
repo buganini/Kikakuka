@@ -83,8 +83,9 @@ case-insensitively. Each closed graphic rectangle, circle, or polygon is an
 independent area regardless of its display fill. A slash- or newline-separated
 text annotation whose anchor lies inside the smallest containing area supplies
 required `Material` and `Thickness` properties plus optional `Name`, `Color`,
-and `Opacity` overrides. A non-empty name becomes the child label and the
-identifier used by bend-overlap warnings. Invalid,
+and `Opacity` overrides. A non-empty name becomes the suffix of the child name
+and label after `F_Stiffener_` or `B_Stiffener_`, and the resulting label is
+used by bend-overlap warnings. Invalid,
 unannotated, or multiply annotated areas are skipped with a warning.
 
 Thickness and coupler Z share `Units.parse_length_mm`, accepting `mm`, `in`,

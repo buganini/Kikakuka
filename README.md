@@ -241,7 +241,8 @@ Thickness=250 um
 
 `Material` and `Thickness` are required. `Name`, `Color`, and `Opacity` are
 optional and property names are case-insensitive. A non-empty `Name` becomes
-the FreeCAD child label and is included in bend-overlap warnings. Thickness
+the suffix of the FreeCAD child name and label (`F_Stiffener_<Name>` or
+`B_Stiffener_<Name>`) and is included in bend-overlap warnings. Thickness
 accepts `mm`, `in`, `mil` (`0.001 in`), and `um`; a unitless value is
 interpreted as millimetres.
 

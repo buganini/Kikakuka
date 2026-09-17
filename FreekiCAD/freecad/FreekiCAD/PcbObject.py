@@ -71,6 +71,13 @@ def _stiffener_bend_warning(stiffener_label, bend_label, overlap_area):
     )
 
 
+def _stiffener_object_name(is_front, name, material, index):
+    """Return the side-prefixed FreeCAD name/label for a stiffener."""
+    prefix = "F_Stiffener_" if is_front else "B_Stiffener_"
+    suffix = str(name or "").strip() or f"{material}_{index}"
+    return prefix + suffix
+
+
 def _log_bending_bfs(message):
     if DEBUG_BENDING_BFS:
         FreeCAD.Console.PrintMessage(message)
@@ -2915,12 +2922,12 @@ class PcbObject:
         # board surface, beyond the front/back silkscreen planes.
         self._unbent_stiffener_areas = {}
         for index, layer_data in enumerate(stiffener_layers or [], 1):
-            side = "F" if layer_data['is_front'] else "B"
+            object_name = _stiffener_object_name(
+                layer_data['is_front'], layer_data['name'],
+                layer_data['material'], index)
             stiffener_obj = doc.addObject(
-                "Part::Feature", f"{obj.Name}_Stiffener_{side}_{index}")
-            generated_label = (
-                f"{layer_data['layer_name']} {layer_data['material']} {index}")
-            stiffener_obj.Label = layer_data['name'] or generated_label
+                "Part::Feature", object_name)
+            stiffener_obj.Label = object_name
             stiffener_obj.addProperty(
                 "App::PropertyString", "StiffenerLayer", "KiCad",
                 "KiCad stiffener layer name")
