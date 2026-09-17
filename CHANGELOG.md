@@ -2,17 +2,16 @@
 * FreekiCAD
     * Add named, material-aware solid stiffeners from annotated `F.Stiffener` and `B.Stiffener` layers, cut by same-side solder-mask openings
     * Accept micrometres (`um`) and mils (`mil`, 0.001 inch) for stiffener thickness and coupler Z offsets
-    * Add portable `.kkkk_asm` assembly manifests and independently reloadable STEP objects
+    * Add portable `.kkkk_asm` assemblies with independently reloadable PCB/STEP objects and Workspace Manager integration
     * Add optional copper, solder-mask, and silkscreen display layers without changing finished component Z
     * Add automatic multi-board alignment and live synchronization through editable couplers
     * Improve linked-file reload reliability, material appearance, and relative-path handling
-    * Rename `LinkedObject` to `PcbObject` while retaining saved-document compatibility
 * Workspace Manager
-    * Import `.kkkk_asm` assemblies and open them with FreeCAD
     * Serialize simultaneous KiCad editor launches to avoid PID and IPC socket conflicts
 * Panelizer / FabPlan
     * Add `Variable` and `StringTemplate` footprints for build-dependent text
-    * Rename the fabrication-plan format and UI to FabPlan
+    * Rename `.kikit_pnl` to `.kkkk_fab`
+    * Rename the Panelizer to Fabrication Planner
     * Preserve FreekiCAD bend drawings across panels using one collision-free canonical layer
 * Footprints
     * Add editor selection handles to `Variable`, `StringTemplate`, and reference-only placeholder footprints
