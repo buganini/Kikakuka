@@ -212,7 +212,7 @@ def _read(filename):
     return data
 
 
-def insert(filename, document_name):
+def insert(filename, document_name, recompute=True):
     """Insert all objects from a manifest into an existing document."""
     data = _read(filename)
     document = FreeCAD.getDocument(document_name)
@@ -228,12 +228,12 @@ def insert(filename, document_name):
         if item["type"] in ("PcbObject", "LinkedObject"):
             from .PcbObject import create_pcb_object
 
-            obj = create_pcb_object(document=document)
+            obj = create_pcb_object(document=document, recompute=False)
             setting_names = PCB_OBJECT_SETTINGS
         else:
             from .StepObject import create_step_object
 
-            obj = create_step_object(document=document)
+            obj = create_step_object(document=document, recompute=False)
             setting_names = ("AutoReload",)
         settings = item.get("settings", {})
         if not isinstance(settings, dict):
@@ -248,7 +248,8 @@ def insert(filename, document_name):
         obj.FileName = _loaded_path(source, filename)
         imported.append(obj)
 
-    document.recompute()
+    if recompute:
+        document.recompute()
     return imported
 
 

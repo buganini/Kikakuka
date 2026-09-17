@@ -45,12 +45,12 @@ It creates a few more dimensions for KiCad:
     * Convert saved fabrication plans (`.kkkk_fab`, or legacy `.kikit_pnl`) to KiCad files in one command
 * FreeCAD Integration (only tested on macOS/Windows)
     * Requires FreeCAD 1.0 or later
-    * `FreekiCAD` supports loading multiple .kicad_pcb files into a FreeCAD document
+    * `FreekiCAD` creates linked FreeCAD objects for external `.kicad_pcb` and STEP files; the FreeCAD document caches generated geometry while retaining the reloadable source paths
     * Import and export lightweight `.kkkk_asm` assembly manifests as JSON
     * Designed to work with the `Assembly` and `Manipulator` workbenches, as well as FreeCAD's built-in transform tool; alternatively, use the automatic coupler-based PCB alignment described below.
     * A sketch is provided for real-time board outline editing in FreeCAD
     * Components moved in FreeCAD are synced to KiCad in real time
-    * Auto or manual in-place PCB reloading
+    * `AutoReload` is enabled by default for both linked PCB and STEP objects; source-file changes are reloaded automatically, with manual reload also available
     * Optional copper and solder-mask import, with outer copper, inner copper, and mask controlled independently
     * Solid stiffeners from annotated `F.Stiffener` and `B.Stiffener` user-layer areas
     * [Flex PCB bending](#flexible-pcb-bending) driven by bend lines and parameters defined in KiCad
@@ -145,6 +145,14 @@ Requires **FreeCAD 1.0** or later. Importing STEP files and working with
 Python dependencies. KiCad PCB integration requires **KiCad 9.0** or later,
 `kicad-python`, and `shapely`.
 
+KiCad `.kicad_pcb` boards and STEP models remain external files referenced by
+path. The FreeCAD document caches their generated objects and geometry, but the
+links remain reloadable from the source files. A `.kkkk_asm` manifest stores the
+source paths, settings, and placements without the cached geometry. `AutoReload`
+is enabled by default on both object types, so changing either source file
+reloads its linked FreeCAD object. The option can be disabled independently for
+each object.
+
 * Manually install FreekiCAD to FreeCAD
     * Open FreeCAD's python console: Menubar -> View -> Panels -> Python Console
     * Get the installation path by executing `print(os.path.join(App.getUserAppDataDir(), "Mod"))` in the Python console
@@ -162,16 +170,17 @@ Python dependencies. KiCad PCB integration requires **KiCad 9.0** or later,
     * Add PCB
         * Switch to the `FreekiCAD` workbench.
         * Menubar -> FreekiCAD -> Add KiCad PCB
-        * The linked board is represented by a reloadable `PcbObject`.
+        * The selected `.kicad_pcb` remains an external file and is represented by a linked `PcbObject`. Its `AutoReload` property defaults to enabled.
     * Add STEP
         * Menubar -> FreekiCAD -> Add STEP
-        * The linked STEP object preserves its Placement when its source file is manually or automatically reloaded.
+        * The selected STEP model remains an external file. Its `AutoReload` property defaults to enabled, and its Placement is preserved when the source file is manually or automatically reloaded.
     * Reload PCB
         * Right-click on the board object -> Reload KiCad PCB
     * Save or load an assembly manifest
         * Use FreeCAD's standard Import/Export commands and select `FreekiCAD Assembly (*.kkkk_asm)`.
-        * The JSON stores each linked PCB or STEP path, editable FreekiCAD settings, and its placement. Paths are relative to the manifest whenever the platform permits it; FreeCAD regenerates object names and labels during import.
+        * The JSON stores each external PCB or STEP source path, editable FreekiCAD settings, and its placement; it does not embed generated geometry. Paths are relative to the manifest whenever the platform permits it; FreeCAD regenerates object names and labels during import.
         * Placement is omitted for a `CouplerMoving` board when the same export contains its matching `CouplerFixed` board; coupler alignment recalculates that placement after import.
+        * Headless STEP export: `freecadcmd kkkk_export.py input.kkkk_asm output.step`. See [Headless Assembly Export](FreekiCAD/README.md#headless-assembly-export) for platform-specific paths and requirements.
     * Edit Board Shape
         * Expand the object's children.
         * Open the sketch with the `_Outline` suffix.

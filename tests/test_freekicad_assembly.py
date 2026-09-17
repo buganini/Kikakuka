@@ -232,7 +232,7 @@ class AssemblyTests(unittest.TestCase):
 
             self.assertEqual(result, [created])
             pcb_module.create_pcb_object.assert_called_once_with(
-                document=document
+                document=document, recompute=False
             )
             self.assertEqual(
                 created.FileName,
@@ -276,12 +276,38 @@ class AssemblyTests(unittest.TestCase):
 
             self.assertEqual(result, [created])
             step_module.create_step_object.assert_called_once_with(
-                document=document
+                document=document, recompute=False
             )
             self.assertEqual(created.FileName, os.path.join(root, "enclosure.step"))
             self.assertFalse(created.AutoReload)
             self.assertEqual(created.Placement.Base.x, 10)
             self.assertAlmostEqual(created.Placement.Rotation.Angle, math.pi / 3)
+
+    def test_insert_can_defer_all_recomputation_for_headless_loading(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "main.kkkk_asm")
+            with open(manifest_path, "w", encoding="utf-8") as stream:
+                json.dump({"objects": [{
+                    "type": "StepObject",
+                    "file": "enclosure.step",
+                }]}, stream)
+
+            document = Document("Target")
+            self.documents[document.Name] = document
+            created = StepObjectStub(document)
+            step_module = types.ModuleType(
+                "FreekiCAD.freecad.FreekiCAD.StepObject")
+            step_module.create_step_object = mock.Mock(return_value=created)
+
+            with mock.patch.dict(
+                    sys.modules,
+                    {"FreekiCAD.freecad.FreekiCAD.StepObject": step_module}):
+                self.assembly.insert(
+                    manifest_path, document.Name, recompute=False)
+
+            step_module.create_step_object.assert_called_once_with(
+                document=document, recompute=False)
+            self.assertEqual(document.recompute_count, 0)
 
     def test_rejects_non_object_manifest(self):
         with tempfile.NamedTemporaryFile("w", suffix=".kkkk_asm") as stream:

@@ -20,6 +20,8 @@ import FreeCAD
 from PySide import QtCore
 
 RECV_TIMEOUT = 45.0     # per-request recv timeout (seconds)
+SYNC_CONNECT_RETRIES = 10
+SYNC_CONNECT_RETRY_DELAY = 0.5
 
 # Global response handler callback.
 # Set via set_response_handler(callback).
@@ -210,6 +212,57 @@ def send_request(action, filepath, object_label="", component=""):
     # Hand off the socket to a listener thread for the response
     threading.Thread(
         target=_listener_thread, args=(s, msg), daemon=True).start()
+
+
+def request_sync(action, filepath, object_label="", component="",
+                 connect_retries=SYNC_CONNECT_RETRIES,
+                 connect_retry_delay=SYNC_CONNECT_RETRY_DELAY):
+    """Send a workspace request and block until its response arrives.
+
+    This is the headless counterpart to :func:`send_request`.  It retries the
+    connection to a starting workspace manager, then lets the manager perform
+    its normal KiCad launch/socket readiness retries.  Once connected, the
+    receive timeout is disabled because a newly launched KiCad instance may
+    legitimately take longer than :data:`RECV_TIMEOUT` to become ready.
+    """
+    msg = {"action": action, "object": object_label, "filepath": filepath}
+    if component:
+        msg["component"] = component
+
+    _log_message(f"REQ  {msg}")
+    s = None
+    for attempt in range(connect_retries + 1):
+        s = _connect(action=action)
+        if s is not None:
+            break
+        if attempt >= connect_retries:
+            break
+        _log_message(
+            "Workspace manager unavailable, retrying "
+            f"({attempt + 1}/{connect_retries})")
+        time.sleep(connect_retry_delay)
+
+    if s is None:
+        raise ConnectionError(
+            "Could not connect to Kikakuka workspace manager. "
+            "Start the workspace manager first.")
+
+    try:
+        _send(s, msg)
+        s.settimeout(None)
+        reply = _recv(s)
+    finally:
+        s.close()
+
+    if not isinstance(reply, dict):
+        raise RuntimeError("Workspace manager returned no response")
+    _log_message(f"RESP {reply}")
+    if reply.get("status") == "error":
+        raise RuntimeError(
+            reply.get("message", "unknown workspace manager error"))
+    if not reply.get("socket"):
+        raise RuntimeError(f"Workspace manager returned no socket: {reply}")
+    return reply
 
 
 def dispatch_to_main_thread(callback):

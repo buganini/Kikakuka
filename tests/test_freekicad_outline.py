@@ -2,6 +2,7 @@ import importlib
 import json
 import math
 import sys
+import tempfile
 import types
 import unittest
 from unittest import mock
@@ -138,6 +139,54 @@ class OutlineWireOrderTests(unittest.TestCase):
         ):
             sys.modules.pop(module_name, None)
             return importlib.import_module(module_name)
+
+    def test_create_pcb_object_skips_view_provider_in_headless_mode(self):
+        linked_object = self._import_linked_object()
+
+        class HeadlessObject:
+            def __init__(self):
+                self.ViewObject = None
+                self.Name = "PcbObject"
+                self.Label = "PcbObject"
+
+            def addExtension(self, *args):
+                pass
+
+            def addProperty(self, *args):
+                pass
+
+            def setPropertyStatus(self, *args):
+                pass
+
+        obj = HeadlessObject()
+        document = types.SimpleNamespace(
+            addObject=mock.Mock(return_value=obj),
+            recompute=mock.Mock(),
+        )
+        linked_object.FreeCAD.GuiUp = False
+
+        with mock.patch.object(
+                linked_object, "PcbObjectViewProvider") as view_provider:
+            result = linked_object.create_pcb_object(document=document)
+
+        self.assertIs(result, obj)
+        view_provider.assert_not_called()
+        document.recompute.assert_called_once_with()
+
+    def test_pcb_retains_uniform_face_colors_for_headless_export(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy._export_face_colors = {}
+        child = types.SimpleNamespace(
+            Name="Board_Mask_F_Mask",
+            Shape=types.SimpleNamespace(Faces=[object(), object()]))
+
+        proxy._remember_export_colors(
+            child, (0.1, 0.6, 0.2), transparency=40)
+
+        self.assertEqual(proxy._export_face_colors[child.Name], [
+            (0.1, 0.6, 0.2, 0.6),
+        ])
 
     def test_body_is_full_when_no_copper_or_mask_is_imported(self):
         linked_object = self._import_linked_object()
@@ -1177,6 +1226,46 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy._handle_reload_response(obj, "/tmp/kicad.sock")
 
         proxy._reposition_all_coupled_objects.assert_called_once_with(document)
+
+    def test_synchronous_reload_waits_for_workspace_and_board_geometry(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy.Type = "PcbObject"
+        proxy._reloading = False
+        proxy._coupler_monitor_generation = 0
+        proxy._ensure_coupler_monitor_state = mock.Mock()
+        proxy._ensure_properties = mock.Mock()
+        shape = types.SimpleNamespace(isNull=lambda: False)
+        workspace_bus = types.ModuleType(
+            "FreekiCAD.freecad.FreekiCAD.workspace_bus")
+        workspace_bus.request_sync = mock.Mock(return_value={
+            "socket": "/tmp/kicad.sock",
+        })
+
+        with tempfile.NamedTemporaryFile(suffix=".kicad_pcb") as board_file:
+            obj = types.SimpleNamespace(
+                Name="Board", Label="board", FileName=board_file.name,
+                Group=[])
+
+            def finish_reload(actual_obj, socket_path, reposition=True):
+                self.assertEqual(socket_path, "/tmp/kicad.sock")
+                self.assertFalse(reposition)
+                actual_obj.Group.append(types.SimpleNamespace(
+                    Name="Board_Board", Shape=shape))
+                proxy._reloading = False
+
+            proxy._handle_reload_response = mock.Mock(
+                side_effect=finish_reload)
+            with mock.patch.dict(sys.modules, {
+                    "FreekiCAD.freecad.FreekiCAD.workspace_bus":
+                    workspace_bus}):
+                result = proxy.reload_sync(obj, reposition=False)
+
+        self.assertTrue(result)
+        workspace_bus.request_sync.assert_called_once_with(
+            "reload", board_file.name, object_label="board")
+        proxy._handle_reload_response.assert_called_once_with(
+            obj, "/tmp/kicad.sock", reposition=False)
 
     def test_reposition_skips_only_board_actively_rebuilding(self):
         linked_object = self._import_linked_object()

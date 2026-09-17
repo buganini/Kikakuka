@@ -6,7 +6,7 @@ import FreeCAD
 import Part
 
 
-_DEFAULT_COLOR = (0.8, 0.8, 0.8, 0.0)
+_DEFAULT_COLOR = (0.8, 0.8, 0.8, 1.0)
 
 
 def _read_face_colors(vobj, n_faces):
@@ -137,6 +137,53 @@ def _load_step(step_path, doc, cache=None):
     if cache is not None and canonical in cache:
         shape, colors = cache[canonical]
         return [(shape.copy(), list(colors) if colors else None)]
+
+    # FreeCAD 1.0+ exposes a command-line OCAF importer that returns
+    # ``(object, per-face colors)`` pairs without requiring ViewObjects.
+    # Prefer it under FreeCADCmd, where ImportGui cannot supply colors.
+    if not getattr(FreeCAD, "GuiUp", False):
+        tmp_doc = None
+        try:
+            import Import
+            tmp_doc = FreeCAD.newDocument("__FreekiCAD_tmp__")
+            imported = Import.insert(
+                name=step_path,
+                docName=tmp_doc.Name,
+                merge=True,
+                useLinkGroup=False,
+            )
+            tmp_doc.recompute()
+            shapes = []
+            colors = []
+            for entry in imported or []:
+                if not isinstance(entry, tuple) or len(entry) != 2:
+                    continue
+                imported_obj, face_colors = entry
+                shape = getattr(imported_obj, "Shape", None)
+                if shape is None or shape.isNull():
+                    continue
+                shape = shape.copy()
+                entry_colors = list(face_colors or [])
+                if len(entry_colors) != len(shape.Faces):
+                    entry_colors = [_DEFAULT_COLOR] * len(shape.Faces)
+                shapes.append(shape)
+                colors.extend(entry_colors)
+            if shapes:
+                shape = (shapes[0] if len(shapes) == 1
+                         else Part.makeCompound(shapes))
+                if cache is not None:
+                    cache[canonical] = (shape.copy(), list(colors))
+                return [(shape, colors)]
+        except Exception as ex:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD:   Headless colored STEP import failed for "
+                f"{step_path}: {ex}\n")
+        finally:
+            if tmp_doc is not None:
+                try:
+                    FreeCAD.closeDocument(tmp_doc.Name)
+                except Exception:
+                    pass
 
     # Strategy 1: ImportGui (shape + colours)
     try:

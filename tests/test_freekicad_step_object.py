@@ -63,6 +63,7 @@ class StepObjectTests(unittest.TestCase):
 
             self.assertTrue(loaded)
             self.assertIs(obj.Shape, shape)
+            self.assertEqual(proxy._export_face_colors, colors)
             step_loader_module._write_face_colors.assert_called_once_with(
                 obj.ViewObject, colors)
             self.assertIs(obj.Placement, placement)
@@ -93,6 +94,34 @@ class StepObjectTests(unittest.TestCase):
         obj.FileMtime = ""
         proxy.execute(obj)
         proxy.reload.assert_called_once_with(obj, force=True)
+
+    def test_create_object_skips_view_provider_in_headless_mode(self):
+        class HeadlessObject:
+            def __init__(self):
+                self.ViewObject = None
+                self.Name = "StepObject"
+                self.Label = "StepObject"
+
+            def addProperty(self, *args):
+                pass
+
+            def setPropertyStatus(self, *args):
+                pass
+
+        obj = HeadlessObject()
+        document = types.SimpleNamespace(
+            addObject=mock.Mock(return_value=obj),
+            recompute=mock.Mock(),
+        )
+        self.module.FreeCAD.GuiUp = False
+
+        with mock.patch.object(
+                self.module, "StepObjectViewProvider") as view_provider:
+            result = self.module.create_step_object(document=document)
+
+        self.assertIs(result, obj)
+        view_provider.assert_not_called()
+        document.recompute.assert_called_once_with()
 
 
 if __name__ == "__main__":

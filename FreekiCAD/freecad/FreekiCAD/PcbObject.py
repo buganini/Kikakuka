@@ -2473,6 +2473,7 @@ class PcbObject:
         obj.Proxy = self
         self.Type = "PcbObject"
         self._board_color = None
+        self._export_face_colors = {}
         self._ensure_rebend_timer_state()
         self._ensure_surface_reload_timer_state()
         self._ensure_component_sync_state()
@@ -2480,6 +2481,7 @@ class PcbObject:
 
     def onDocumentRestored(self, obj):
         """Migrate saved coupler markers to the editable property set."""
+        self._export_face_colors = {}
         self._ensure_properties(obj)
         poses = self._coupler_poses(obj)
         for marker in getattr(obj, 'Group', []):
@@ -2593,7 +2595,8 @@ class PcbObject:
         self._ensure_component_sync_state()
         token = self._component_sync_generation
         if delay_ms is None:
-            delay_ms = self._COMPONENT_SYNC_GRACE_MS
+            delay_ms = (self._COMPONENT_SYNC_GRACE_MS
+                        if getattr(FreeCAD, "GuiUp", False) else 0)
         if delay_ms <= 0:
             self._component_sync_suspended = False
             return
@@ -2662,6 +2665,25 @@ class PcbObject:
         """Called by FreeCAD recompute.  Only ensures properties exist.
         Actual KiCad loading is done by reload()."""
         self._ensure_properties(obj)
+
+    def _remember_export_colors(self, child, colors, transparency=0):
+        """Retain per-face colors for command-line STEP export."""
+        if not colors or child is None:
+            return
+        face_count = len(getattr(getattr(child, 'Shape', None), 'Faces', []))
+        if face_count <= 0:
+            return
+        values = list(colors)
+        if values and not isinstance(values[0], (tuple, list)):
+            color = tuple(values)
+            if len(color) == 3 and transparency:
+                opacity = 1.0 - float(transparency) / 100.0
+                color += (max(0.0, min(1.0, opacity)),)
+            values = [color]
+        if len(values) in (1, face_count):
+            if not hasattr(self, '_export_face_colors'):
+                self._export_face_colors = {}
+            self._export_face_colors[child.Name] = values
 
     def _do_execute(self, obj, socket_path, existing_components=None,
                     existing_bends=None):
@@ -2732,6 +2754,7 @@ class PcbObject:
                           stiffener_layers=None,
                           body_transparency=0):
         import json
+        self._export_face_colors = {}
         import time as _time
         _t0_body = _time.time()
         doc = obj.Document
@@ -2755,7 +2778,7 @@ class PcbObject:
                 obj.FileMtime = ""
 
         # Add board outline sketch as a child
-        if outline_edges:
+        if outline_edges and getattr(FreeCAD, "GuiUp", False):
             sketch = doc.addObject("Sketcher::SketchObject",
                                    obj.Name + "_Outline")
             obj.addObject(sketch)
@@ -2767,6 +2790,8 @@ class PcbObject:
             board_obj = doc.addObject("Part::Feature", obj.Name + "_Board")
             board_obj.Shape = board_solid
             if board_color:
+                self._remember_export_colors(
+                    board_obj, board_color, body_transparency)
                 try:
                     board_obj.ViewObject.ShapeColor = board_color
                     board_obj.ViewObject.Transparency = int(
@@ -2811,6 +2836,7 @@ class PcbObject:
             self._layer_cap_modes[copper_obj.Name] = "plane"
             try:
                 from .Copper import COPPER_COLOR
+                self._remember_export_colors(copper_obj, COPPER_COLOR)
                 copper_obj.ViewObject.ShapeColor = COPPER_COLOR
                 copper_obj.ViewObject.LineColor = COPPER_COLOR
                 copper_obj.ViewObject.DisplayMode = "Shaded"
@@ -2844,6 +2870,9 @@ class PcbObject:
                 float(layer_data['direction'])
             self._layer_cap_modes[mask_obj.Name] = "plane"
             try:
+                self._remember_export_colors(
+                    mask_obj, layer_data['color'],
+                    layer_data['transparency'])
                 mask_obj.ViewObject.ShapeColor = layer_data['color']
                 mask_obj.ViewObject.LineColor = layer_data['color']
                 mask_obj.ViewObject.DisplayMode = "Shaded"
@@ -2879,6 +2908,8 @@ class PcbObject:
                 float(layer_data['direction'])
             self._layer_cap_modes[silk_obj.Name] = "outer"
             try:
+                self._remember_export_colors(
+                    silk_obj, layer_data['color'])
                 silk_obj.ViewObject.ShapeColor = layer_data['color']
                 silk_obj.ViewObject.LineColor = layer_data['color']
                 silk_obj.ViewObject.DisplayMode = "Shaded"
@@ -2934,6 +2965,9 @@ class PcbObject:
             self._unbent_stiffener_areas[stiffener_obj.Name] = \
                 layer_data['area_shape'].copy()
             try:
+                self._remember_export_colors(
+                    stiffener_obj, layer_data['color'],
+                    layer_data['transparency'])
                 stiffener_obj.ViewObject.ShapeColor = layer_data['color']
                 stiffener_obj.ViewObject.LineColor = layer_data['color']
                 stiffener_obj.ViewObject.DisplayMode = "Shaded"
@@ -2967,7 +3001,9 @@ class PcbObject:
                 bend_obj.Placement = FreeCAD.Placement()
                 bend_obj.Shape = Part.makeLine(p0, p1)
                 obj.addObject(bend_obj)
-                bend_obj.ViewObject.Proxy = 0
+                view_object = getattr(bend_obj, 'ViewObject', None)
+                if view_object is not None:
+                    view_object.Proxy = 0
             # Apply angle/radius from KiCad text annotation
             if 'angle' in bl:
                 bend_obj.Angle = bl['angle']
@@ -3186,6 +3222,7 @@ class PcbObject:
             if comp_colors and hasattr(comp_obj, 'ViewObject') \
                     and comp_obj.ViewObject:
                 _write_face_colors(comp_obj.ViewObject, comp_colors)
+            self._remember_export_colors(comp_obj, comp_colors)
 
         # Remove unmatched old components
         for label, child in existing_components.items():
@@ -11544,7 +11581,51 @@ class PcbObject:
         _log_surface_reload(
             f"reload request sent; force={'yes' if force else 'no'}")
 
-    def _handle_reload_response(self, obj, socket_path):
+    def reload_sync(self, obj, reposition=True):
+        """Synchronously reload a PCB for headless export.
+
+        The workspace manager still owns KiCad launch and socket-readiness
+        retries.  This method returns only after the board and all component
+        models have been rebuilt from their source files.
+        """
+        if getattr(self, '_reloading', False):
+            raise RuntimeError(f"'{obj.Label}' is already reloading")
+
+        filename = _resolved_linked_filename(obj)
+        if not filename:
+            raise ValueError(f"'{obj.Label}' has no linked PCB filename")
+        if not os.path.isfile(filename):
+            raise FileNotFoundError(filename)
+
+        self._reloading = True
+        self._reload_failed = False
+        self._ensure_coupler_monitor_state()
+        self._coupler_monitor_generation += 1
+        self._ensure_properties(obj)
+        try:
+            from .workspace_bus import request_sync
+            reply = request_sync(
+                "reload", filename, object_label=obj.Label)
+            self._handle_reload_response(
+                obj, reply["socket"], reposition=reposition)
+        except Exception:
+            self._reloading = False
+            self._reload_failed = True
+            raise
+
+        board_child = next(
+            (child for child in getattr(obj, 'Group', [])
+             if child.Name.endswith('_Board')
+             and hasattr(child, 'Shape')
+             and not child.Shape.isNull()),
+            None)
+        if board_child is None:
+            self._reload_failed = True
+            raise RuntimeError(
+                f"Fresh load of '{obj.Label}' produced no board geometry")
+        return True
+
+    def _handle_reload_response(self, obj, socket_path, reposition=True):
         """Called when the workspace bus responds to a reload request."""
         import time as _time
         _t0_reload = _time.time()
@@ -11593,7 +11674,8 @@ class PcbObject:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: [profile] TOTAL _handle_reload_response: "
                 f"{_time.time() - _t0_reload:.3f}s\n")
-        self._reposition_all_coupled_objects(obj.Document)
+        if reposition:
+            self._reposition_all_coupled_objects(obj.Document)
 
     def _handle_reload_error(self, obj, message):
         """Release a failed asynchronous reload so AutoReload can retry."""
@@ -11903,7 +11985,7 @@ class PcbObjectViewProvider:
         return None
 
 
-def create_pcb_object(filename="", document=None):
+def create_pcb_object(filename="", document=None, recompute=True):
     doc = document or FreeCAD.ActiveDocument
     if doc is None:
         doc = FreeCAD.newDocument()
@@ -11912,10 +11994,13 @@ def create_pcb_object(filename="", document=None):
                      if filename else "PcbObject")
     obj = doc.addObject("Part::FeaturePython", default_label)
     PcbObject(obj)
-    PcbObjectViewProvider(obj.ViewObject)
+    view_object = getattr(obj, "ViewObject", None)
+    if getattr(FreeCAD, "GuiUp", False) and view_object is not None:
+        PcbObjectViewProvider(view_object)
 
     if filename:
         obj.FileName = filename
 
-    doc.recompute()
+    if recompute:
+        doc.recompute()
     return obj

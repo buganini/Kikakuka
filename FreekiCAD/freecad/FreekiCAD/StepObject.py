@@ -41,6 +41,7 @@ class StepObject:
         obj.Proxy = self
         self.Type = "StepObject"
         self._reloading = False
+        self._export_face_colors = None
 
     def onDocumentRestored(self, obj):
         if not hasattr(obj, "AutoReload"):
@@ -54,6 +55,7 @@ class StepObject:
                 "Stored mtime of the linked STEP file")
             obj.setPropertyStatus("FileMtime", "Hidden")
         self._reloading = False
+        self._export_face_colors = None
 
     def onChanged(self, obj, prop):
         if prop != "FileName" or getattr(self, "_reloading", False):
@@ -113,6 +115,7 @@ class StepObject:
                 return False
             shape, colors = parts[0]
             obj.Shape = shape
+            self._export_face_colors = list(colors) if colors else None
             if colors and len(colors) == len(shape.Faces):
                 _write_face_colors(obj.ViewObject, list(colors))
             obj.FileMtime = str(mtime)
@@ -170,7 +173,7 @@ class StepObjectViewProvider:
         return None
 
 
-def create_step_object(filename="", document=None):
+def create_step_object(filename="", document=None, recompute=True):
     doc = document or FreeCAD.ActiveDocument
     if doc is None:
         doc = FreeCAD.newDocument()
@@ -178,8 +181,11 @@ def create_step_object(filename="", document=None):
              if filename else "StepObject")
     obj = doc.addObject("Part::FeaturePython", label)
     StepObject(obj)
-    StepObjectViewProvider(obj.ViewObject)
+    view_object = getattr(obj, "ViewObject", None)
+    if getattr(FreeCAD, "GuiUp", False) and view_object is not None:
+        StepObjectViewProvider(view_object)
     if filename:
         obj.FileName = filename
-    doc.recompute()
+    if recompute:
+        doc.recompute()
     return obj

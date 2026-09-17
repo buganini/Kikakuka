@@ -7,18 +7,25 @@ PCB editing and mechanical assembly.
 
 ## Features
 
-- Importing KiCad PCB files
+- Linking external KiCad `.kicad_pcb` files
 - Editing board outlines
 - Importing solid stiffeners from annotated `F.Stiffener` and `B.Stiffener` layers
 - Bending flexible PCBs from a KiCad user layer named `FreekiCAD`
-- Assembling multiple PCBs and STEP models
+- Assembling multiple linked PCBs and STEP models
 - Importing and exporting `.kkkk_asm` assembly files
 
-The `.kkkk_asm` format stores only file paths and placement information. STEP
-models are referenced rather than embedded, so imported models remain
-reloadable. This also makes FreekiCAD useful for assembling multiple STEP models
-without KiCad. See the [FPC assembly example][fpc-assembly-example] for a
-complete `.kkkk_asm` file.
+Both `.kicad_pcb` boards and STEP models remain linked to their external source
+files. A FreeCAD document caches the generated objects and geometry, while
+retaining each source path so the linked object can be reloaded. `AutoReload`
+is enabled by default for both object types and can be disabled independently
+on each linked object.
+
+The `.kkkk_asm` format therefore stores the linked source paths, object settings,
+and placements rather than the cached objects or generated geometry. This also
+makes FreekiCAD useful for assembling multiple STEP models without KiCad.
+
+The [FPC assembly example][fpc-assembly-example] shows a `.kkkk_asm` manifest
+containing linked KiCad PCB files.
 
 ## Manual Installation
 
@@ -36,6 +43,52 @@ import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys
 ```
 
 Restart FreeCAD after installation.
+
+## Headless Assembly Export
+
+Use `kkkk_export.py` with FreeCAD's command-line executable to convert a
+`.kkkk_asm` assembly to STEP without opening the FreeCAD GUI:
+
+```text
+freecadcmd kkkk_export.py input.kkkk_asm output.step
+```
+
+The exporter synchronously loads every object and component model before it
+writes the STEP file. Assemblies containing only STEP objects need no extra
+Python dependencies. For assemblies containing KiCad PCB objects, install
+`kicad-python` and `shapely` and keep the Kikakuka Workspace Manager running;
+it resolves or starts the matching KiCad instance and waits for its IPC API.
+
+Run the command from the directory containing `kkkk_export.py`. The actual
+FreeCAD user-data directory can be printed from FreeCAD's Python console with
+`print(App.getUserAppDataDir())`.
+
+### macOS
+
+```sh
+"/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd" kkkk_export.py input.kkkk_asm output.step
+```
+
+### Windows PowerShell
+
+```powershell
+& "C:\Program Files\FreeCAD 1.1\bin\FreeCADCmd.exe" kkkk_export.py input.kkkk_asm output.step
+```
+
+For `cmd.exe`, use the same command without the leading `&`.
+
+### Linux
+
+```sh
+/usr/bin/freecadcmd kkkk_export.py input.kkkk_asm output.step
+```
+
+When `freecadcmd` is already in `PATH`, its full path can be omitted. For an
+AppImage, use its `--console` mode:
+
+```sh
+./FreeCAD_1.1-Linux-x86_64.AppImage --console kkkk_export.py input.kkkk_asm output.step
+```
 
 ## Flexible PCB Stiffener
 
