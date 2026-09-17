@@ -29,19 +29,117 @@ PCB_OBJECT_TYPES = {"PcbObject", "LinkedObject"}
 COUPLER_KICAD_SYNC_ENABLED = True
 
 
-def _body_display_bounds(finished_thickness, import_outer_copper=False,
-                         import_solder_mask=False, import_silkscreen=False,
-                         display_gap=0.020):
-    """Allocate 2D surface-layer separation inside finished thickness."""
-    level_count = int(bool(import_outer_copper)) \
-        + int(bool(import_solder_mask)) \
-        + int(bool(import_silkscreen))
-    inset = max(0.0, float(display_gap)) * level_count
-    bottom = inset
-    top = float(finished_thickness) - inset
+def _outer_body_bounds(thickness, layer_groups):
+    """Return the single body's Z bounds after imported outer layers."""
+    total = max(0.0, float(thickness))
+    intervals = []
+    for layers in layer_groups:
+        for layer in layers or []:
+            if not layer.get("body_cut_full", False):
+                continue
+            try:
+                start = float(layer["z"])
+                end = start + float(layer.get(
+                    "body_direction", layer.get("direction", 0.0)))
+            except Exception:
+                continue
+            low = max(0.0, min(total, min(start, end)))
+            high = max(0.0, min(total, max(start, end)))
+            if high <= low:
+                continue
+            intervals.append((low, high))
+    intervals.sort()
+    merged = []
+    for low, high in intervals:
+        if merged and low <= merged[-1][1] + 1e-9:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], high))
+        else:
+            merged.append((low, high))
+    bottom = (merged[0][1]
+              if merged and merged[0][0] <= 1e-9 else 0.0)
+    top = (merged[-1][0]
+           if merged and merged[-1][1] >= total - 1e-9 else total)
     if top <= bottom:
-        return 0.0, float(finished_thickness)
+        return 0.0, total
     return bottom, top
+
+
+def _build_single_board_body(board_face, thickness, layer_groups, warn=None):
+    """Build one body whose Z bounds reserve imported outer-layer space."""
+    if board_face is None:
+        return None
+    started = time.perf_counter()
+    bottom, top = _outer_body_bounds(thickness, layer_groups)
+    FreeCAD.Console.PrintMessage(
+        f"FreekiCAD: [profile] single board body start: "
+        f"z={bottom:.4f}..{top:.4f}mm\n")
+    profile = board_face.copy()
+    profile.translate(FreeCAD.Vector(0, 0, bottom))
+    body = profile.extrude(FreeCAD.Vector(0, 0, top - bottom))
+    FreeCAD.Console.PrintMessage(
+        f"FreekiCAD: [profile] single board body: "
+        f"{time.perf_counter() - started:.3f}s, "
+        f"solids={len(getattr(body, 'Solids', []))}\n")
+    return body
+
+
+def _orient_flat_shape_positive_z(shape):
+    """Return flat faces consistently oriented toward board-local +Z."""
+    oriented = []
+    for source_face in getattr(shape, "Faces", []):
+        face = source_face.copy()
+        try:
+            u_min, u_max, v_min, v_max = face.ParameterRange
+            normal = face.normalAt(
+                (u_min + u_max) / 2.0,
+                (v_min + v_max) / 2.0)
+            if normal.z < 0.0:
+                face = face.reversed()
+        except Exception:
+            pass
+        oriented.append(face)
+    if len(oriented) == 1:
+        return oriented[0]
+    if oriented:
+        return Part.makeCompound(oriented)
+    return shape
+
+
+def _largest_dielectric_gap_midpoint(thickness, layer_groups):
+    """Choose a Z plane outside imported copper/mask volumes."""
+    total = max(0.0, float(thickness))
+    intervals = []
+    for layers in layer_groups:
+        for layer in layers or []:
+            try:
+                start = float(layer["z"])
+                end = start + float(layer.get(
+                    "body_direction", layer.get("direction", 0.0)))
+            except Exception:
+                continue
+            low = max(0.0, min(total, min(start, end)))
+            high = max(0.0, min(total, max(start, end)))
+            if high > low:
+                intervals.append((low, high))
+    intervals.sort()
+    merged = []
+    for low, high in intervals:
+        if merged and low <= merged[-1][1] + 1e-9:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], high))
+        else:
+            merged.append((low, high))
+    gaps = []
+    cursor = 0.0
+    for low, high in merged:
+        if low > cursor:
+            gaps.append((cursor, low))
+        cursor = max(cursor, high)
+    if cursor < total:
+        gaps.append((cursor, total))
+    if not gaps:
+        return total / 2.0
+    low, high = max(gaps, key=lambda gap: gap[1] - gap[0])
+    return (low + high) / 2.0
 
 
 def _stiffener_bend_overlaps(stiffener_areas, bend_info, bend_spans,
@@ -484,6 +582,17 @@ def _outline_wire_order(wires):
             return -1.0
 
     return sorted(range(len(wires)), key=enclosed_area, reverse=True)
+
+
+def _single_planar_face(shape):
+    """Unwrap FreeCAD's one-face Shell result from planar boolean cuts."""
+    if hasattr(shape, "OuterWire"):
+        return shape
+    faces = list(getattr(shape, "Faces", []))
+    if len(faces) == 1:
+        return faces[0]
+    raise ValueError(
+        "planar boolean produced {} faces; expected one".format(len(faces)))
 
 
 def _board_circle_radius_mm(circle):
@@ -1344,8 +1453,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         # Get board thickness from stackup
         thickness = DEFAULT_PCB_THICKNESS
         stackup = None
-        body_bottom_z = 0.0
-        body_top_z = thickness
+        outer_stackup = {}
         try:
             stackup = _kipy_retry(board.get_stackup)
             total_nm = sum(layer.thickness for layer in stackup.layers)
@@ -1354,23 +1462,12 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: Board thickness from stackup: {thickness}mm\n"
                 )
+            from .Copper import outer_stackup_thicknesses
+            outer_stackup = outer_stackup_thicknesses(stackup, BoardLayer)
         except Exception as ex:
             FreeCAD.Console.PrintWarning(
                 f"FreekiCAD: Could not read stackup, using default {DEFAULT_PCB_THICKNESS}mm: {ex}\n"
             )
-        if stackup is not None:
-            from .Copper import COPPER_DISPLAY_OFFSET_MM
-            body_bottom_z, body_top_z = _body_display_bounds(
-                thickness,
-                import_outer_copper=import_outer_copper,
-                import_solder_mask=import_solder_mask,
-                import_silkscreen=import_silkscreen,
-                display_gap=COPPER_DISPLAY_OFFSET_MM)
-            if body_bottom_z > 0.0:
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: 2D surface layers reserve "
-                    f"{body_bottom_z:.3f}mm per side; body z="
-                    f"{body_bottom_z:.3f}..{body_top_z:.3f}mm\n")
 
         # --- Parse text on the named bend layer for bend parameters ---
         if bend_lines:
@@ -1443,6 +1540,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         board_solid = None
         outline_edges = []
         board_face = None
+        body_face = None
         if edges:
             sorted_groups = Part.sortEdges(edges)
             FreeCAD.Console.PrintMessage(
@@ -1498,14 +1596,12 @@ def load_board(filepath, socket_path, import_outer_copper=False,
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Board face area={face.Area:.4f}"
                 f" valid={face.isValid()}\n")
-            body_thickness = body_top_z - body_bottom_z
+            body_thickness = thickness
             board_solid = face.extrude(
                 FreeCAD.Vector(0, 0, body_thickness))
-            if body_bottom_z:
-                board_solid.translate(
-                    FreeCAD.Vector(0, 0, body_bottom_z))
 
             board_face = face
+            body_face = face
 
             # --- Drill holes ---
             drill_holes = []
@@ -1558,30 +1654,33 @@ def load_board(filepath, socket_path, import_outer_copper=False,
             )
 
             if drill_holes and board_solid:
-                # Build all drill cylinders and cut from board
-                margin = GEOMETRY_TOLERANCE
-                drill_shapes = []
+                # Cut through-holes from the 2D board profile once, then
+                # extrude. This is substantially faster than a compound of
+                # cylinders against the finished 3D body.
+                drill_faces = []
                 for hx, hy, radius in drill_holes:
-                    cyl = Part.makeCylinder(
-                        radius,
-                        body_thickness + 2 * margin,
-                        FreeCAD.Vector(
-                            hx, hy, body_bottom_z - margin),
-                        FreeCAD.Vector(0, 0, 1),
-                    )
-                    drill_shapes.append(cyl)
-                if drill_shapes:
+                    edge = Part.makeCircle(
+                        radius, FreeCAD.Vector(hx, hy, 0))
+                    drill_faces.append(Part.Face(Part.Wire([edge])))
+                if drill_faces:
                     try:
-                        drill_compound = drill_shapes[0]
-                        for ds in drill_shapes[1:]:
-                            drill_compound = drill_compound.fuse(ds)
-                        board_solid = board_solid.cut(drill_compound)
+                        drill_compound = (
+                            drill_faces[0] if len(drill_faces) == 1
+                            else Part.makeCompound(drill_faces))
+                        drilled_face = board_face.cut(drill_compound)
+                        if drilled_face is None or drilled_face.isNull():
+                            raise RuntimeError(
+                                "2D drill cut returned an empty profile")
+                        body_face = _single_planar_face(drilled_face)
+                        board_solid = body_face.extrude(
+                            FreeCAD.Vector(0, 0, body_thickness))
                         FreeCAD.Console.PrintMessage(
-                            f"FreekiCAD: Cut {len(drill_holes)} drill holes\n"
+                            f"FreekiCAD: Cut {len(drill_holes)} drill holes "
+                            "in 2D\n"
                         )
                     except Exception as ex:
                         FreeCAD.Console.PrintWarning(
-                            f"FreekiCAD: Boolean cut failed: {ex}\n"
+                            f"FreekiCAD: 2D drill cut failed: {ex}\n"
                         )
 
         # --- Board color ---
@@ -1789,14 +1888,19 @@ def load_board(filepath, socket_path, import_outer_copper=False,
             try:
                 from .Copper import build_copper_layers
 
+                FreeCAD.Console.PrintMessage(
+                    "FreekiCAD: [profile] copper build start\n")
                 copper_layers = build_copper_layers(
                     board, stackup, BoardLayer,
                     board_shapes=all_shapes, warn=_surface_warning,
                     include_outer=import_outer_copper,
                     include_inner=import_inner_copper,
-                    outer_inset=COPPER_DISPLAY_OFFSET_MM * (
-                        int(bool(import_solder_mask))
-                        + int(bool(import_silkscreen))),
+                    outer_offsets={
+                        "F.Cu": (outer_stackup.get("F.Mask", 0.0)
+                                 if import_solder_mask else 0.0),
+                        "B.Cu": (outer_stackup.get("B.Mask", 0.0)
+                                 if import_solder_mask else 0.0),
+                    },
                     total_thickness=thickness)
                 for layer in copper_layers:
                     item_summary = ", ".join(
@@ -1807,6 +1911,8 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                         f"items={layer['item_count']} ({item_summary}), "
                         f"faces={layer.get('face_count', 0)}, "
                         f"area={layer.get('area', 0.0):.3f}mm^2, "
+                        f"volume={layer.get('volume', 0.0):.4f}mm^3, "
+                        f"profile={layer.get('profile_seconds', 0.0):.3f}s, "
                         f"z={layer.get('z', 0.0):.3f}mm\n")
             except Exception as ex:
                 import traceback
@@ -1844,12 +1950,21 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                     False: mask_opening_data.get(
                         BoardLayer.BL_B_Mask, {}).get("shapes", []),
                 }
+            stiffener_surface_offsets = {}
+            if import_silkscreen and stackup is not None:
+                from .Silkscreen import silkscreen_stackup_layers
+                for silk_info in silkscreen_stackup_layers(
+                        stackup, BoardLayer,
+                        total_thickness=thickness):
+                    stiffener_surface_offsets[
+                        silk_info.name == "F.SilkS"] = silk_info.thickness
             stiffener_layers = build_stiffener_layers(
                 all_shapes, all_text, stiffener_layer_defs, thickness,
                 to_concrete=to_concrete_board_shape,
                 warn=_surface_warning,
                 error=_surface_error,
-                mask_openings=mask_openings_by_side)
+                mask_openings=mask_openings_by_side,
+                surface_offsets=stiffener_surface_offsets)
             for area in stiffener_layers:
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: Stiffener {area['layer_name']}: "
@@ -1878,8 +1993,6 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                     board, stackup, BoardLayer, board_face,
                     board_shapes=all_shapes, warn=_surface_warning,
                     total_thickness=thickness,
-                    outer_inset=(COPPER_DISPLAY_OFFSET_MM
-                                 if import_silkscreen else 0.0),
                     opening_data=mask_opening_data)
                 for layer in mask_layers:
                     FreeCAD.Console.PrintMessage(
@@ -1889,6 +2002,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                         f"openings={layer['opening_count']}, "
                         f"faces={layer['face_count']}, "
                         f"area={layer['area']:.3f}mm^2, "
+                        f"volume={layer.get('volume', 0.0):.4f}mm^3, "
                         f"z={layer['z']:.3f}mm\n")
             except Exception as ex:
                 import traceback
@@ -1921,6 +2035,21 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                     f"FreekiCAD: Could not build silkscreen: {ex}\n")
                 FreeCAD.Console.PrintWarning(
                     f"FreekiCAD: {traceback.format_exc()}\n")
+
+        # Reserve complete outer stackup slabs before the single body
+        # extrusion. Inner copper remains a display-only plane and does not
+        # cut cavities into the substrate. Disabled imports leave the body
+        # filling the corresponding thickness.
+        for layer in copper_layers:
+            layer["body_cut_full"] = bool(layer.get("is_outer"))
+        for layer in mask_layers:
+            layer["body_cut_full"] = True
+        if body_face is not None:
+            single_body = _build_single_board_body(
+                body_face, thickness, (copper_layers, mask_layers),
+                warn=_surface_warning)
+            if single_body is not None:
+                board_solid = single_body
 
         return (board_solid, footprints_data, board_color, outline_edges,
                 thickness, bend_lines, board_face, couplers_data,
@@ -2486,12 +2615,12 @@ class PcbObject:
         obj.ImportInnerCopper = False
         obj.addProperty(
             "App::PropertyBool", "ImportSolderMask", "LinkedFile",
-            "Import F.Mask and B.Mask as translucent display layers"
+            "Import planar F.Mask and B.Mask display faces"
         )
         obj.ImportSolderMask = False
         obj.addProperty(
             "App::PropertyBool", "ImportSilkscreen", "LinkedFile",
-            "Import F.SilkS and B.SilkS as planar display layers"
+            "Import outward physical F.SilkS and B.SilkS display shells"
         )
         obj.ImportSilkscreen = False
         obj.addProperty(
@@ -2797,6 +2926,8 @@ class PcbObject:
         self._board_color = board_color
         self._outline_edges = outline_edges or []
         self._board_face = board_face
+        self._surface_clip_z = _largest_dielectric_gap_midpoint(
+            thickness, (copper_layers, mask_layers))
 
         # Record file modification time
         try:
@@ -2832,9 +2963,13 @@ class PcbObject:
                     pass
             obj.addObject(board_obj)
 
-        # Copper is display geometry only.  Its Z does not participate in
-        # component/coupler placement because stackup thickness already does.
+        # Copper and mask remain zero-thickness display faces at physical
+        # stackup Z. Silkscreen retains its outward physical display shell.
+        # Finished thickness still controls component/coupler placement.
+        self._layer_extrusion_directions = {}
+        self._layer_cap_modes = {}
         self._unbent_copper_shapes = {}
+        self._unbent_copper_profiles = {}
         for layer_data in copper_layers or []:
             safe_name = layer_data['name'].replace('.', '_')
             copper_obj = doc.addObject(
@@ -2853,6 +2988,11 @@ class PcbObject:
             copper_obj.Shape = layer_data['shape']
             self._unbent_copper_shapes[copper_obj.Name] = \
                 layer_data['shape'].copy()
+            self._unbent_copper_profiles[copper_obj.Name] = \
+                layer_data['profile_shape'].copy()
+            self._layer_extrusion_directions[copper_obj.Name] = \
+                float(layer_data['direction'])
+            self._layer_cap_modes[copper_obj.Name] = "plane"
             try:
                 from .Copper import COPPER_COLOR
                 copper_obj.ViewObject.ShapeColor = COPPER_COLOR
@@ -2862,9 +3002,8 @@ class PcbObject:
                 pass
             obj.addObject(copper_obj)
 
-        # Solder mask is also zero-thickness display geometry.  It sits one
-        # additional display gap outside copper and does not affect stackup Z.
         self._unbent_mask_shapes = {}
+        self._unbent_mask_profiles = {}
         for layer_data in mask_layers or []:
             safe_name = layer_data['name'].replace('.', '_')
             mask_obj = doc.addObject(
@@ -2883,6 +3022,11 @@ class PcbObject:
             mask_obj.Shape = layer_data['shape']
             self._unbent_mask_shapes[mask_obj.Name] = \
                 layer_data['shape'].copy()
+            self._unbent_mask_profiles[mask_obj.Name] = \
+                layer_data['profile_shape'].copy()
+            self._layer_extrusion_directions[mask_obj.Name] = \
+                float(layer_data['direction'])
+            self._layer_cap_modes[mask_obj.Name] = "plane"
             try:
                 mask_obj.ViewObject.ShapeColor = layer_data['color']
                 mask_obj.ViewObject.LineColor = layer_data['color']
@@ -2893,9 +3037,8 @@ class PcbObject:
                 pass
             obj.addObject(mask_obj)
 
-        # Silkscreen is kept planar for fast loading.  Its physical thickness
-        # is metadata; its display plane is the outermost reserved level.
         self._unbent_silkscreen_shapes = {}
+        self._unbent_silkscreen_profiles = {}
         for layer_data in silkscreen_layers or []:
             safe_name = layer_data['name'].replace('.', '_')
             silk_obj = doc.addObject(
@@ -2914,6 +3057,11 @@ class PcbObject:
             silk_obj.Shape = layer_data['shape']
             self._unbent_silkscreen_shapes[silk_obj.Name] = \
                 layer_data['shape'].copy()
+            self._unbent_silkscreen_profiles[silk_obj.Name] = \
+                layer_data['profile_shape'].copy()
+            self._layer_extrusion_directions[silk_obj.Name] = \
+                float(layer_data['direction'])
+            self._layer_cap_modes[silk_obj.Name] = "outer"
             try:
                 silk_obj.ViewObject.ShapeColor = layer_data['color']
                 silk_obj.ViewObject.LineColor = layer_data['color']
@@ -2922,8 +3070,8 @@ class PcbObject:
                 pass
             obj.addObject(silk_obj)
 
-        # Stiffeners are mechanical solids extruded away from the finished
-        # board surface, beyond the front/back silkscreen planes.
+        # Stiffeners use additive physical thickness outside the finished
+        # board. Their objects render the outward cap and walls only.
         self._unbent_stiffener_areas = {}
         for index, layer_data in enumerate(stiffener_layers or [], 1):
             object_name = _stiffener_object_name(
@@ -8713,12 +8861,12 @@ class PcbObject:
             return target_edge_splits, effective_splits, max_depth
 
         def _build_bent_source_face_triangle_patches(
-                source_face, wedge_ctx):
+                source_face, wedge_ctx, reduction_levels=1):
             tri_faces = []
             (target_edge_splits,
              effective_splits,
              max_depth) = _triangle_fallback_subdivision_info(
-                wedge_ctx, reduction_levels=1)
+                wedge_ctx, reduction_levels=reduction_levels)
             used_deflection = None
             deflection_attempts = _source_face_tessellation_deflections(
                 source_face, wedge_ctx)
@@ -8754,6 +8902,111 @@ class PcbObject:
                     f" depth={max_depth}"
                     f"{attempt_msg}\n")
             return tri_faces
+
+        def _clip_polygon_to_wedge_d(
+                polygon, wedge_ctx, boundary, keep_greater):
+            """Clip a convex polygon at one constant bend-distance plane."""
+            if not polygon:
+                return []
+            cur_p0 = wedge_ctx['cur_p0']
+            cur_normal = wedge_ctx['cur_normal']
+            tolerance = 1e-9
+
+            def _distance(point):
+                return (FreeCAD.Vector(point) - cur_p0).dot(cur_normal)
+
+            def _inside(distance):
+                if keep_greater:
+                    return distance >= boundary - tolerance
+                return distance <= boundary + tolerance
+
+            clipped = []
+            previous = FreeCAD.Vector(polygon[-1])
+            previous_d = _distance(previous)
+            previous_inside = _inside(previous_d)
+            for current_value in polygon:
+                current = FreeCAD.Vector(current_value)
+                current_d = _distance(current)
+                current_inside = _inside(current_d)
+                if current_inside != previous_inside:
+                    denominator = current_d - previous_d
+                    if abs(denominator) > 1e-12:
+                        fraction = (boundary - previous_d) / denominator
+                        fraction = max(0.0, min(1.0, fraction))
+                        clipped.append(
+                            previous + (current - previous) * fraction)
+                if current_inside:
+                    clipped.append(current)
+                previous = current
+                previous_d = current_d
+                previous_inside = current_inside
+            return clipped
+
+        def _split_triangle_into_wedge_bands(triangle, wedge_ctx):
+            """Split a flat triangle only along the direction that bends."""
+            points = [FreeCAD.Vector(point) for point in triangle]
+            cur_p0 = wedge_ctx['cur_p0']
+            cur_normal = wedge_ctx['cur_normal']
+            distances = [
+                (point - cur_p0).dot(cur_normal) for point in points]
+            low = min(distances)
+            high = max(distances)
+            sweep_span = abs(float(
+                wedge_ctx.get(
+                    'sweep_span', wedge_ctx.get('far_span', 0.0))
+                or 0.0))
+            segment_count = max(
+                int(wedge_ctx.get('slice_count', 8) or 8), 1)
+            if sweep_span <= 1e-9 or high - low <= 1e-9:
+                return [points]
+
+            step = sweep_span / float(segment_count)
+            reference = float(wedge_ctx.get('sweep_ref_d', 0.0) or 0.0)
+            first_band = int(math.floor((low - reference) / step))
+            last_band = int(math.ceil((high - reference) / step)) - 1
+            polygons = []
+            for band_index in range(first_band, last_band + 1):
+                band_low = reference + band_index * step
+                band_high = band_low + step
+                polygon = _clip_polygon_to_wedge_d(
+                    points, wedge_ctx, band_low, True)
+                polygon = _clip_polygon_to_wedge_d(
+                    polygon, wedge_ctx, band_high, False)
+                if len(polygon) >= 3:
+                    polygons.append(polygon)
+            return polygons or [points]
+
+        def _build_bent_planar_face_triangle_patches(
+                source_face, wedge_ctx):
+            """Bend a zero-thickness face with bend-direction-only strips."""
+            bent_faces = []
+            used_deflection = None
+            deflection_attempts = _source_face_tessellation_deflections(
+                source_face, wedge_ctx)
+            for deflection in deflection_attempts:
+                bent_faces = []
+                for triangle in _tessellate_face_triangles(
+                        source_face, deflection):
+                    for polygon in _split_triangle_into_wedge_bands(
+                            triangle, wedge_ctx):
+                        bent = [
+                            _bend_wedge_point(point, wedge_ctx)
+                            for point in polygon]
+                        for index in range(1, len(bent) - 1):
+                            tri_face = _make_triangle_face(
+                                bent[0], bent[index], bent[index + 1])
+                            if tri_face is not None:
+                                bent_faces.append(tri_face)
+                if bent_faces:
+                    used_deflection = deflection
+                    break
+            if bent_faces and wedge_diag:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD:   curved planar face"
+                    f" patches={len(bent_faces)}"
+                    f" strips={max(int(wedge_ctx.get('slice_count', 8) or 8), 1)}"
+                    f" defl={used_deflection:.4f}\n")
+            return bent_faces
 
         copper_wedge_contexts = {}
         wedge_output_placements = {}
@@ -9683,101 +9936,212 @@ class PcbObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Correction + assembly: "
             f"{_time.time() - _t_loft:.3f}s\n")
-        # Deform copper, solder mask, and silkscreen with the same piece
-        # topology as the board.  Rigid regions use piece_plc.  Display faces
-        # inside a wedge are rebuilt from bent boundary curves.
+        # Deform layer profiles directly at their base/outer Z values. This
+        # avoids the old per-triangle 3D offset + fuse path. Fragment boundary
+        # walls are cheap 2D-derived faces; coincident cut-boundary walls stay
+        # inside the same shaded layer object and need no geometric fuse.
+        def _map_wedge_point_at_layer_z(
+                point, z_offset, wedge_ctx, pre_plc, output_plc):
+            mapped = FreeCAD.Vector(point)
+            mapped.z += float(z_offset)
+            if pre_plc is not None:
+                mapped = pre_plc.multVec(mapped)
+            mapped = _bend_wedge_point(mapped, wedge_ctx)
+            if output_plc is not None:
+                mapped = output_plc.multVec(mapped)
+            return mapped
+
+        def _bent_boundary_wall_faces(
+                edge, direction, wedge_ctx, pre_plc, output_plc):
+            try:
+                coarse = edge.discretize(Deflection=0.05)
+            except Exception:
+                coarse = [vertex.Point for vertex in edge.Vertexes]
+            if len(coarse) < 2:
+                return []
+            sweep_span = max(
+                abs(float(wedge_ctx.get('sweep_span', 0.0) or 0.0)),
+                abs(float(wedge_ctx.get('far_span', 0.0) or 0.0)),
+                GEOMETRY_TOLERANCE)
+            target_splits = max(
+                int(wedge_ctx.get('target_edge_splits', 8) or 8) // 4, 1)
+            normal = wedge_ctx['cur_normal']
+            points = [FreeCAD.Vector(coarse[0])]
+            for start, end in zip(coarse, coarse[1:]):
+                start = FreeCAD.Vector(start)
+                end = FreeCAD.Vector(end)
+                d_span = abs((end - start).dot(normal))
+                segment_count = max(
+                    1, min(target_splits,
+                           int(math.ceil(
+                               d_span / sweep_span * target_splits))))
+                for index in range(1, segment_count + 1):
+                    fraction = index / float(segment_count)
+                    points.append(start + (end - start) * fraction)
+
+            faces = []
+            for start, end in zip(points, points[1:]):
+                base_start = _map_wedge_point_at_layer_z(
+                    start, 0.0, wedge_ctx, pre_plc, output_plc)
+                base_end = _map_wedge_point_at_layer_z(
+                    end, 0.0, wedge_ctx, pre_plc, output_plc)
+                outer_start = _map_wedge_point_at_layer_z(
+                    start, direction, wedge_ctx, pre_plc, output_plc)
+                outer_end = _map_wedge_point_at_layer_z(
+                    end, direction, wedge_ctx, pre_plc, output_plc)
+                first = _make_triangle_face(
+                    base_start, base_end, outer_end)
+                second = _make_triangle_face(
+                    base_start, outer_end, outer_start)
+                if first is not None:
+                    faces.append(first)
+                if second is not None:
+                    faces.append(second)
+            return faces
+
         surface_objects = [
             child for child in obj.Group
             if (hasattr(child, 'CopperLayer')
                 or hasattr(child, 'MaskLayer')
                 or hasattr(child, 'SilkscreenLayer'))]
+        from .Copper import extrusion_display_faces
         for surface_obj in surface_objects:
+            surface_started = _time.time()
             if hasattr(surface_obj, 'CopperLayer'):
                 layer_name = str(surface_obj.CopperLayer)
-                source_attr = '_unbent_copper_shapes'
+                source_attr = '_unbent_copper_profiles'
             elif hasattr(surface_obj, 'MaskLayer'):
                 layer_name = str(surface_obj.MaskLayer)
-                source_attr = '_unbent_mask_shapes'
+                source_attr = '_unbent_mask_profiles'
             else:
                 layer_name = str(surface_obj.SilkscreenLayer)
-                source_attr = '_unbent_silkscreen_shapes'
+                source_attr = '_unbent_silkscreen_profiles'
             source_shapes = getattr(self, source_attr, {})
             source = source_shapes.get(surface_obj.Name)
             if source is None:
                 continue
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: [profile] bend display layer "
+                f"{layer_name} start\n")
             try:
                 source_z = float(source.BoundBox.ZMin)
             except Exception:
                 source_z = half_t
-            fragments = []
+            direction = getattr(
+                self, '_layer_extrusion_directions', {}).get(
+                    surface_obj.Name)
+            cap_mode = getattr(self, '_layer_cap_modes', {}).get(
+                surface_obj.Name, 'outer')
+            if direction is None:
+                continue
+            display_faces = []
+            fragment_count = 0
             source_faces = list(getattr(source, 'Faces', []))
+            clip_z = getattr(self, '_surface_clip_z', half_t)
             for source_face_index, original_face in enumerate(source_faces):
-                source_at_midplane = original_face.copy()
-                source_at_midplane.translate(
-                    FreeCAD.Vector(0, 0, half_t - source_z))
+                source_at_clip = original_face.copy()
+                source_at_clip.translate(
+                    FreeCAD.Vector(0, 0, clip_z - source_z))
                 for pi, flat_piece in enumerate(pieces):
                     try:
-                        copper_bb = source_at_midplane.BoundBox
+                        copper_bb = source_at_clip.BoundBox
                         piece_bb = flat_piece.BoundBox
                         if (copper_bb.XMax < piece_bb.XMin
                                 or copper_bb.XMin > piece_bb.XMax
                                 or copper_bb.YMax < piece_bb.YMin
                                 or copper_bb.YMin > piece_bb.YMax):
                             continue
-                        fragment = source_at_midplane.common(flat_piece)
+                        fragment = source_at_clip.common(flat_piece)
                         if fragment.isNull():
                             continue
                         fragment.translate(
-                            FreeCAD.Vector(0, 0, source_z - half_t))
+                            FreeCAD.Vector(0, 0, source_z - clip_z))
+                        fragment = _orient_flat_shape_positive_z(fragment)
                     except Exception:
                         continue
+                    fragment_count += 1
+                    boundary_edges = list(getattr(fragment, 'Edges', []))
 
                     wedge_ctx = copper_wedge_contexts.get(pi)
                     if wedge_ctx is None:
                         try:
-                            fragment.transformShape(piece_plc[pi].toMatrix())
-                            fragments.append(fragment)
+                            placement = piece_plc[pi].toMatrix()
+                            if cap_mode == 'plane':
+                                mapped = fragment.copy()
+                                mapped.transformShape(placement)
+                                display_faces.extend(mapped.Faces)
+                            else:
+                                for flat_face in fragment.Faces:
+                                    solid = flat_face.extrude(
+                                        FreeCAD.Vector(0, 0, direction))
+                                    shell_faces = extrusion_display_faces(
+                                        solid, flat_face,
+                                        include_end_cap=cap_mode == 'outer',
+                                        include_base_cap=False)
+                                    shell = Part.makeCompound(shell_faces)
+                                    shell.transformShape(placement)
+                                    display_faces.extend(shell.Faces)
                         except Exception:
                             pass
                         continue
 
                     try:
                         pre_plc = wedge_pre_plc.get(pi)
-                        if pre_plc is not None:
-                            fragment.transformShape(pre_plc.toMatrix())
-                        bent_faces = []
-                        for source_face in getattr(fragment, 'Faces', []):
-                            # A face spanning a wedge is cylindrical rather
-                            # than planar.  Part.Face can sometimes accept its
-                            # non-planar boundary but silently fill a large
-                            # planar bridge across the bend.  Always map its
-                            # tessellated interior so every patch follows the
-                            # same curved transform as the board wedge.
-                            bent_faces.extend(
-                                _build_bent_source_face_triangle_patches(
-                                    source_face, wedge_ctx))
-                        if not bent_faces:
-                            continue
-                        bent_fragment = Part.makeCompound(bent_faces)
                         output_plc = wedge_output_placements.get(pi)
-                        if output_plc is not None:
-                            bent_fragment.transformShape(
-                                output_plc.toMatrix())
-                        fragments.append(bent_fragment)
+                        if cap_mode == 'plane':
+                            mapped_fragment = fragment.copy()
+                            if pre_plc is not None:
+                                mapped_fragment.transformShape(
+                                    pre_plc.toMatrix())
+                            mapped_faces = []
+                            for mapped_face in mapped_fragment.Faces:
+                                mapped_faces.extend(
+                                    _build_bent_planar_face_triangle_patches(
+                                        mapped_face, wedge_ctx))
+                            if mapped_faces:
+                                mapped_shape = Part.makeCompound(mapped_faces)
+                                if output_plc is not None:
+                                    mapped_shape.transformShape(
+                                        output_plc.toMatrix())
+                                display_faces.extend(mapped_shape.Faces)
+                        elif cap_mode == 'outer':
+                            outer_fragment = fragment.copy()
+                            outer_fragment.translate(
+                                FreeCAD.Vector(0, 0, direction))
+                            if pre_plc is not None:
+                                outer_fragment.transformShape(
+                                    pre_plc.toMatrix())
+                            outer_faces = []
+                            for outer_face in outer_fragment.Faces:
+                                outer_faces.extend(
+                                    _build_bent_source_face_triangle_patches(
+                                        outer_face, wedge_ctx,
+                                        reduction_levels=3))
+                            if outer_faces:
+                                outer_shape = Part.makeCompound(outer_faces)
+                                if output_plc is not None:
+                                    outer_shape.transformShape(
+                                        output_plc.toMatrix())
+                                display_faces.extend(outer_shape.Faces)
+                        if cap_mode != 'plane':
+                            for edge in boundary_edges:
+                                display_faces.extend(_bent_boundary_wall_faces(
+                                    edge, direction, wedge_ctx,
+                                    pre_plc, output_plc))
                     except Exception as ex:
                         FreeCAD.Console.PrintWarning(
                             f"FreekiCAD: Could not bend "
                             f"{layer_name} face "
                             f"{source_face_index} on wedge p{pi}: {ex}\n")
-            if fragments:
-                surface_obj.Shape = Part.makeCompound(fragments)
+            if display_faces:
+                surface_obj.Shape = Part.makeCompound(display_faces)
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Bent display layer {layer_name}: "
                 f"source_faces={len(source_faces)}, "
-                f"fragments={len(fragments)}, "
+                f"fragments={fragment_count}, "
                 f"faces={len(getattr(surface_obj.Shape, 'Faces', []))}, "
                 f"area={float(getattr(surface_obj.Shape, 'Area', 0.0)):.3f}"
-                f"mm^2\n")
+                f"mm^2, elapsed={_time.time() - surface_started:.3f}s\n")
 
         # Update board shape with all pieces (including bent wedges)
         _t_final = _time.time()
@@ -11576,12 +11940,12 @@ class PcbObject:
         if not hasattr(obj, 'ImportSolderMask'):
             obj.addProperty(
                 "App::PropertyBool", "ImportSolderMask", "LinkedFile",
-                "Import F.Mask and B.Mask as translucent display layers")
+                "Import planar F.Mask and B.Mask display faces")
             obj.ImportSolderMask = False
         if not hasattr(obj, 'ImportSilkscreen'):
             obj.addProperty(
                 "App::PropertyBool", "ImportSilkscreen", "LinkedFile",
-                "Import F.SilkS and B.SilkS as planar display layers")
+                "Import outward physical F.SilkS and B.SilkS display shells")
             obj.ImportSilkscreen = False
         if not hasattr(obj, 'SnapToCoupler'):
             obj.addProperty(

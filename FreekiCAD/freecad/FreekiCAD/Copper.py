@@ -1,20 +1,24 @@
-"""Build display geometry for KiCad copper layers.
-
-Copper is represented as planar faces.  The stackup thickness is metadata;
-the faces themselves stay zero-thickness so importing copper cannot change
-component or coupler placement and does not double-count board thickness.
-"""
+"""Build unioned planar copper geometry at physical stackup Z."""
 
 from dataclasses import dataclass
 import math
+import time
 
 import FreeCAD
 import Part
 
+try:
+    import shapely
+    from shapely.geometry import Polygon
+except Exception:
+    shapely = None
+    Polygon = None
+
 
 NM_PER_MM = 1_000_000.0
 DEFAULT_COPPER_THICKNESS_MM = 0.035
-COPPER_DISPLAY_OFFSET_MM = 0.020
+COPPER_2D_DEFLECTION_MM = 0.002
+COPPER_2D_GRID_MM = 0.001
 COPPER_COLOR = (0.72, 0.45, 0.12)
 
 
@@ -25,6 +29,7 @@ class CopperLayerInfo:
     z: float
     thickness: float
     is_outer: bool
+    direction: float
 
 
 @dataclass(frozen=True)
@@ -55,6 +60,33 @@ def is_copper_layer(board_layer, layer):
     )
 
 
+def outer_stackup_thicknesses(stackup, board_layer):
+    """Return physical thicknesses for imported outer copper/mask layers."""
+    result = {name: 0.0 for name in (
+        "F.Mask", "F.Cu", "B.Cu", "B.Mask")}
+    name_map = {
+        "BL_F_Mask": "F.Mask",
+        "BL_F_Cu": "F.Cu",
+        "BL_B_Cu": "B.Cu",
+        "BL_B_Mask": "B.Mask",
+    }
+    for entry in stackup.layers:
+        if not getattr(entry, "enabled", True):
+            continue
+        try:
+            name = name_map.get(board_layer.Name(entry.layer))
+        except Exception:
+            continue
+        if name is None:
+            continue
+        thickness = max(0, getattr(entry, "thickness", 0)) / NM_PER_MM
+        if not thickness:
+            thickness = (0.010 if name.endswith(".Mask")
+                         else DEFAULT_COPPER_THICKNESS_MM)
+        result[name] = thickness
+    return result
+
+
 def expanded_padstack_layers(padstack, target_layers):
     """Yield (target layer, geometry descriptor) pairs for a padstack.
 
@@ -76,14 +108,15 @@ def expanded_padstack_layers(padstack, target_layers):
             yield layer, descriptor
 
 
-def copper_stackup_layers(stackup, board_layer, outer_inset=0.0,
+def copper_stackup_layers(stackup, board_layer, outer_offsets=None,
                            total_thickness=None):
-    """Return enabled copper layers with their board-local display Z.
+    """Return enabled copper layers with their physical stackup origin.
 
     KiCad returns stackup entries from top to bottom.  The board body used by
-    FreekiCAD spans z=0..total_thickness.  Outer copper stays within that
-    finished envelope; ``outer_inset`` reserves space for an enabled mask
-    display plane. Inner copper stays at its physical layer centre.
+    FreekiCAD spans z=0..total_thickness. ``outer_offsets`` is the imported
+    material outside F.Cu/B.Cu, normally solder mask. ``z`` is the inner face
+    for outer copper and the lower face for inner copper. ``direction`` points
+    through the physical copper volume used to locate the planar display face.
     """
     entries = list(stackup.layers)
     total_mm = (float(total_thickness)
@@ -91,6 +124,7 @@ def copper_stackup_layers(stackup, board_layer, outer_inset=0.0,
                 else sum(max(0, getattr(entry, "thickness", 0))
                          for entry in entries) / NM_PER_MM)
     consumed_mm = 0.0
+    outer_offsets = outer_offsets or {}
     result = []
     for entry in entries:
         thickness_mm = max(0, getattr(entry, "thickness", 0)) / NM_PER_MM
@@ -99,17 +133,25 @@ def copper_stackup_layers(stackup, board_layer, outer_inset=0.0,
             name = board_layer_name(board_layer, entry.layer)
             physical_thickness = thickness_mm or DEFAULT_COPPER_THICKNESS_MM
             if name == "F.Cu":
-                z = total_mm - max(0.0, float(outer_inset))
+                z = (total_mm - max(
+                    0.0, float(outer_offsets.get(name, 0.0)))
+                    - physical_thickness)
+                direction = physical_thickness
             elif name == "B.Cu":
-                z = max(0.0, float(outer_inset))
+                z = (max(0.0, float(outer_offsets.get(name, 0.0)))
+                     + physical_thickness)
+                direction = -physical_thickness
             else:
-                z = total_mm - consumed_mm - thickness_mm / 2.0
+                center_z = total_mm - consumed_mm - thickness_mm / 2.0
+                z = center_z - physical_thickness / 2.0
+                direction = physical_thickness
             result.append(CopperLayerInfo(
                 layer=entry.layer,
                 name=name,
                 z=z,
                 thickness=physical_thickness,
                 is_outer=name in ("F.Cu", "B.Cu"),
+                direction=direction,
             ))
         consumed_mm += thickness_mm
     return result
@@ -599,12 +641,248 @@ def _copper_item_shape(item, pad_shape_enum):
     return None
 
 
+def _wire_coordinates(wire, deflection=COPPER_2D_DEFLECTION_MM):
+    """Return one closed XY coordinate ring from an ordered FreeCAD wire."""
+    segments = []
+    for edge in wire.Edges:
+        points = edge.discretize(Deflection=deflection)
+        coordinates = [(float(point.x), float(point.y)) for point in points]
+        if len(coordinates) >= 2:
+            segments.append(coordinates)
+    if not segments:
+        return None
+
+    tolerance_squared = 1e-12
+
+    def distance_squared(a, b):
+        return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+    for reverse_first in (False, True):
+        coordinates = list(reversed(segments[0])) \
+            if reverse_first else list(segments[0])
+        valid = True
+        for segment in segments[1:]:
+            forward_distance = distance_squared(coordinates[-1], segment[0])
+            reverse_distance = distance_squared(coordinates[-1], segment[-1])
+            if reverse_distance < forward_distance:
+                segment = list(reversed(segment))
+                forward_distance = reverse_distance
+            if forward_distance > tolerance_squared:
+                valid = False
+                break
+            coordinates.extend(segment[1:])
+        if valid and distance_squared(
+                coordinates[-1], coordinates[0]) <= tolerance_squared:
+            coordinates[-1] = coordinates[0]
+            return coordinates
+    return None
+
+
+def _shape_to_polygons(shape):
+    polygons = []
+    for face in shape.Faces:
+        exterior = _wire_coordinates(face.OuterWire)
+        if exterior is None:
+            continue
+        holes = []
+        for wire in face.Wires:
+            try:
+                if wire.isSame(face.OuterWire):
+                    continue
+            except Exception:
+                if wire == face.OuterWire:
+                    continue
+            ring = _wire_coordinates(wire)
+            if ring is not None:
+                holes.append(ring)
+        polygon = Polygon(exterior, holes)
+        if not polygon.is_valid:
+            polygon = shapely.make_valid(polygon)
+        if not polygon.is_empty:
+            polygons.append(polygon)
+    return polygons
+
+
+def _polygon_geometries(geometry):
+    if geometry.geom_type == "Polygon":
+        yield geometry
+        return
+    for child in getattr(geometry, "geoms", []):
+        yield from _polygon_geometries(child)
+
+
+def _ring_wire(coordinates):
+    points = [FreeCAD.Vector(float(x), float(y), 0)
+              for x, y, *_rest in coordinates]
+    if len(points) < 4:
+        return None
+    return Part.makePolygon(points)
+
+
+def _polygons_to_part_shape(geometry):
+    faces = []
+    for polygon in _polygon_geometries(geometry):
+        exterior = _ring_wire(polygon.exterior.coords)
+        if exterior is None:
+            continue
+        wires = [exterior]
+        wires.extend(wire for wire in (
+            _ring_wire(interior.coords) for interior in polygon.interiors)
+                     if wire is not None)
+        face = (Part.Face(wires[0]) if len(wires) == 1
+                else Part.Face(wires, "Part::FaceMakerBullseye"))
+        faces.append(face)
+    if not faces:
+        raise RuntimeError("2D union returned no polygon faces")
+    return faces[0] if len(faces) == 1 else Part.makeCompound(faces)
+
+
+def union_planar_profiles(shapes, warn=None, layer_name=""):
+    """Union overlapping coplanar profiles before physical extrusion."""
+    shapes = [shape for shape in shapes if shape is not None]
+    if not shapes:
+        return None
+    if len(shapes) == 1:
+        return shapes[0]
+    prefix = f" {layer_name}" if layer_name else ""
+    if shapely is not None:
+        try:
+            polygons = []
+            for shape in shapes:
+                polygons.extend(_shape_to_polygons(shape))
+            if not polygons:
+                raise RuntimeError("no polygon faces were produced")
+            merged = shapely.union_all(
+                polygons, grid_size=COPPER_2D_GRID_MM)
+            if merged.is_empty:
+                raise RuntimeError("union returned an empty geometry")
+            return _polygons_to_part_shape(merged)
+        except Exception as ex:
+            if warn:
+                warn(f"Could not perform fast 2D union for{prefix}; "
+                     f"trying BRep fallback: {ex}")
+    elif warn:
+        warn(f"Shapely is unavailable for{prefix}; trying BRep fallback")
+
+    try:
+        profile = shapes[0].multiFuse(shapes[1:])
+        if profile is None or profile.isNull():
+            raise RuntimeError("BRep union returned an empty shape")
+        try:
+            profile = profile.removeSplitter()
+        except Exception:
+            pass
+        return profile
+    except Exception as ex:
+        if warn:
+            warn(f"Could not union{prefix}; using separate profiles: {ex}")
+        return Part.makeCompound(shapes)
+
+
+def _same_face(left, right):
+    try:
+        return bool(left.isSame(right))
+    except Exception:
+        return left == right
+
+
+def _face_mid_normal(face):
+    try:
+        u_min, u_max, v_min, v_max = face.ParameterRange
+        normal = face.normalAt(
+            (u_min + u_max) / 2.0,
+            (v_min + v_max) / 2.0)
+        normal.normalize()
+        return normal
+    except Exception:
+        return None
+
+
+def extrusion_display_faces(solid, base_face, include_end_cap=True,
+                            include_base_cap=False):
+    """Select extrusion walls and requested caps from one solid.
+
+    The base cap is the source profile. The end cap is the physical surface
+    reached by extrusion. Omitting interface caps entirely prevents two
+    touching layer objects from submitting coincident triangles to Coin3D.
+    """
+    faces = list(getattr(solid, "Faces", []))
+    if len(faces) <= 2:
+        return faces
+    base_cap = next(
+        (face for face in faces if _same_face(face, base_face)), None)
+    if base_cap is None:
+        try:
+            center = base_face.CenterOfMass
+            base_cap = min(
+                faces,
+                key=lambda face: face.CenterOfMass.distanceToPoint(center))
+        except Exception:
+            base_cap = max(
+                faces, key=lambda face: float(getattr(face, "Area", 0.0)))
+
+    remaining = [face for face in faces if not _same_face(face, base_cap)]
+    base_normal = _face_mid_normal(base_cap)
+    cap_candidates = []
+    if base_normal is not None:
+        for face in remaining:
+            normal = _face_mid_normal(face)
+            if normal is not None and abs(normal.dot(base_normal)) >= 0.8:
+                cap_candidates.append(face)
+    if not cap_candidates:
+        cap_candidates = sorted(
+            remaining,
+            key=lambda face: float(getattr(face, "Area", 0.0)),
+            reverse=True,
+        )[:1]
+    try:
+        base_center = base_cap.CenterOfMass
+        end_cap = max(
+            cap_candidates,
+            key=lambda face: face.CenterOfMass.distanceToPoint(base_center))
+    except Exception:
+        end_cap = cap_candidates[0] if cap_candidates else None
+    selected = [face for face in faces
+                if not _same_face(face, base_cap)
+                and (end_cap is None or not _same_face(face, end_cap))]
+    if include_base_cap:
+        selected.append(base_cap)
+    if include_end_cap and end_cap is not None:
+        selected.append(end_cap)
+    return selected
+
+
+def extrude_profile_for_display(profile, direction, cap_mode="outer"):
+    """Return ``(display_shell, subtraction_solid)`` for a planar profile.
+
+    ``outer`` shows walls plus the extrusion end cap. ``walls`` shows only
+    walls. The source/base cap is never displayed.
+    """
+    display_faces = []
+    solids = []
+    vector = FreeCAD.Vector(0, 0, float(direction))
+    for base_face in getattr(profile, "Faces", []):
+        solid = base_face.extrude(vector)
+        if solid is None or getattr(solid, "isNull", lambda: False)():
+            continue
+        solids.append(solid)
+        display_faces.extend(extrusion_display_faces(
+            solid, base_face,
+            include_end_cap=cap_mode == "outer",
+            include_base_cap=False))
+    if not solids:
+        raise RuntimeError("profile extrusion returned no solids")
+    display = Part.makeCompound(display_faces)
+    subtraction = solids[0] if len(solids) == 1 else Part.makeCompound(solids)
+    return display, subtraction
+
+
 def build_copper_layers(board, stackup, board_layer, board_shapes=None,
                         warn=None, include_outer=True, include_inner=True,
-                        outer_inset=0.0, total_thickness=None):
+                        outer_offsets=None, total_thickness=None):
     """Read KiCad copper items and return layer descriptors with Shapes."""
     infos = copper_stackup_layers(
-        stackup, board_layer, outer_inset=outer_inset,
+        stackup, board_layer, outer_offsets=outer_offsets,
         total_thickness=total_thickness)
     if not include_outer:
         infos = [info for info in infos if not info.is_outer]
@@ -657,18 +935,37 @@ def build_copper_layers(board, stackup, board_layer, board_shapes=None,
         item_shapes = by_layer[info.layer]
         if not item_shapes:
             continue
-        shape = Part.makeCompound(item_shapes)
-        shape.translate(FreeCAD.Vector(0, 0, info.z))
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] 2D union {info.name} start: "
+            f"items={len(item_shapes)}\n")
+        profile_started = time.perf_counter()
+        profile = union_planar_profiles(
+            item_shapes, warn=warn, layer_name=info.name)
+        profile_seconds = time.perf_counter() - profile_started
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] 2D union {info.name}: "
+            f"{profile_seconds:.3f}s\n")
+        display_z = (info.z + info.direction
+                     if info.is_outer
+                     else info.z + info.direction / 2.0)
+        profile.translate(FreeCAD.Vector(0, 0, display_z))
+        shape = profile
         result.append({
             "layer": info.layer,
             "name": info.name,
             "z": info.z,
+            "display_z": display_z,
             "thickness": info.thickness,
             "is_outer": info.is_outer,
+            "direction": 0.0,
+            "body_direction": info.direction,
             "item_count": counts[info.layer],
             "item_counts": kind_counts[info.layer],
+            "profile_seconds": profile_seconds,
             "face_count": len(getattr(shape, "Faces", [])),
             "area": float(getattr(shape, "Area", 0.0)),
+            "volume": 0.0,
             "shape": shape,
+            "profile_shape": profile,
         })
     return result

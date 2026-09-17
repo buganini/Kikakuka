@@ -9,6 +9,7 @@ import Part
 from .Copper import (
     board_graphic_area_shape,
     board_graphic_path_edge,
+    extrude_profile_for_display,
 )
 from .Units import parse_length_mm
 
@@ -135,8 +136,9 @@ def _contains(shape, point):
 
 def build_stiffener_layers(board_shapes, board_text, layers,
                            total_thickness, to_concrete=None, warn=None,
-                           error=None, mask_openings=None):
-    """Return one solid per annotated closed area on F/B.Stiffener.
+                           error=None, mask_openings=None,
+                           surface_offsets=None):
+    """Return physical/display geometry per annotated F/B.Stiffener area.
 
     ``layers`` contains ``(layer_id, displayed_name, is_front)`` tuples.
     Annotation text is assigned to the smallest containing area, which makes
@@ -240,10 +242,14 @@ def build_stiffener_layers(board_shapes, board_text, layers,
                     raise ValueError(
                         "area is empty after applying solder-mask openings")
                 placed = cut_area.copy()
-                base_z = float(total_thickness) if is_front else 0.0
+                side_offset = max(0.0, float(
+                    (surface_offsets or {}).get(is_front, 0.0)))
+                base_z = (float(total_thickness) + side_offset
+                          if is_front else -side_offset)
                 placed.translate(FreeCAD.Vector(0, 0, base_z))
                 direction = spec.thickness if is_front else -spec.thickness
-                solid = placed.extrude(FreeCAD.Vector(0, 0, direction))
+                display, solid = extrude_profile_for_display(
+                    placed, direction, cap_mode="outer")
                 center = cut_area.CenterOfMass
                 source_id = getattr(getattr(source, "id", None), "value", "")
                 result.append({
@@ -257,11 +263,14 @@ def build_stiffener_layers(board_shapes, board_text, layers,
                     "opacity": spec.opacity,
                     "transparency": int(round((1.0 - spec.opacity) * 100.0)),
                     "thickness": spec.thickness,
+                    "direction": direction,
                     "mask_opening_count": len(side_openings),
                     "x": float(center.x),
                     "y": float(center.y),
                     "area_shape": cut_area,
-                    "shape": solid,
+                    "shape": display,
+                    "profile_shape": placed,
+                    "solid_shape": solid,
                 })
             except Exception as ex:
                 if report_error:

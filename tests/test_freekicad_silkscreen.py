@@ -123,8 +123,14 @@ class SilkscreenTests(unittest.TestCase):
         stackup = types.SimpleNamespace(layers=[_Entry(1, 10_000)])
 
         with mock.patch.object(
-            silk, "board_graphic_shape", side_effect=lambda _item: _Shape()
-        ):
+                silk, "board_graphic_shape",
+                side_effect=lambda _item: _Shape()), mock.patch.object(
+                silk, "union_planar_profiles",
+                side_effect=lambda shapes, **_kwargs: silk.Part.makeCompound(
+                    shapes)), mock.patch.object(
+                silk, "extrude_profile_for_display",
+                side_effect=lambda profile, _direction, cap_mode: (
+                    profile, types.SimpleNamespace(Volume=0.04))):
             layers = silk.build_silkscreen_layers(
                 kicad, board, stackup, _BoardLayer,
                 board_shapes=[board_graphic], footprints=[footprint],
@@ -138,6 +144,7 @@ class SilkscreenTests(unittest.TestCase):
         self.assertEqual(layers[0]["face_count"], 4)
         self.assertAlmostEqual(layers[0]["area"], 4.0)
         self.assertAlmostEqual(layers[0]["shape"].z, 1.6)
+        self.assertAlmostEqual(layers[0]["direction"], 0.010)
         kicad.get_text_as_shapes.assert_called_once_with(
             ["board text", "reference text"])
 

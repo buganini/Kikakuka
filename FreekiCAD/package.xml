@@ -13,6 +13,7 @@
     <url type="bugtracker">https://github.com/buganini/FreekiCAD/issues</url>
     <url type="readme">https://github.com/buganini/FreekiCAD/raw/main/README.md</url>
     <depend type="python" version_eq="0.8.0">kicad-python</depend>
+    <depend type="python" version_eq="2.0.7">shapely</depend>
     <content>
         <workbench>
             <classname>FreekiCADWorkbench</classname>

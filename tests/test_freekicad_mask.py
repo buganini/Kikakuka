@@ -101,7 +101,7 @@ class MaskTests(unittest.TestCase):
 
         self.assertEqual(transparency, 37)
 
-    def test_mask_layers_stay_on_finished_board_boundaries(self):
+    def test_mask_layers_extrude_from_inner_to_outer_boundaries(self):
         mask = self._import_mask()
         stackup = types.SimpleNamespace(layers=[
             _StackEntry(1, 10_000, _Color(0, 128, 0, 255)),
@@ -115,27 +115,13 @@ class MaskTests(unittest.TestCase):
 
         self.assertEqual([layer.name for layer in layers],
                          ["F.Mask", "B.Mask"])
-        self.assertAlmostEqual(layers[0].z, 0.290)
-        self.assertAlmostEqual(layers[1].z, 0.0)
+        self.assertAlmostEqual(layers[0].z, 0.280)
+        self.assertAlmostEqual(layers[1].z, 0.010)
         self.assertAlmostEqual(layers[0].thickness, 0.010)
+        self.assertAlmostEqual(layers[0].direction, 0.010)
+        self.assertAlmostEqual(layers[1].direction, -0.010)
         self.assertEqual(layers[0].color, (0, 128 / 255, 0))
         self.assertEqual(layers[0].transparency, 30)
-
-    def test_mask_layers_reserve_outer_silkscreen_level(self):
-        mask = self._import_mask()
-        stackup = types.SimpleNamespace(layers=[
-            _StackEntry(1, 10_000, _Color(0, 128, 0, 255)),
-            _StackEntry(2, 35_000),
-            _StackEntry(3, 200_000, dielectric=object()),
-            _StackEntry(4, 35_000),
-            _StackEntry(5, 10_000, _Color(0, 128, 0, 255)),
-        ])
-
-        layers = mask.mask_stackup_layers(
-            stackup, _BoardLayer, outer_inset=0.02)
-
-        self.assertAlmostEqual(layers[0].z, 0.270)
-        self.assertAlmostEqual(layers[1].z, 0.020)
 
     def test_opening_reader_uses_kicad_final_layer_polygons(self):
         mask = self._import_mask()

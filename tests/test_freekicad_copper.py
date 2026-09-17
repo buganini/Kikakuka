@@ -40,6 +40,16 @@ class _Vector:
                 + (self.z - other.z) ** 2) ** 0.5
 
 
+class _SurfaceFace:
+    def __init__(self, name, area, z):
+        self.name = name
+        self.Area = area
+        self.CenterOfMass = _Vector(0, 0, z)
+
+    def isSame(self, other):
+        return self is other
+
+
 class _Arc:
     def __init__(self, start, mid, end):
         self.points = (start, mid, end)
@@ -84,12 +94,15 @@ class CopperStackupTests(unittest.TestCase):
 
         self.assertEqual([layer.name for layer in layers],
                          ["F.Cu", "In1.Cu", "B.Cu"])
-        self.assertAlmostEqual(layers[0].z, 1.608)
-        self.assertAlmostEqual(layers[1].z, 0.854)
-        self.assertAlmostEqual(layers[2].z, 0.0)
+        self.assertAlmostEqual(layers[0].z, 1.573)
+        self.assertAlmostEqual(layers[1].z, 0.845)
+        self.assertAlmostEqual(layers[2].z, 0.035)
         self.assertAlmostEqual(layers[1].thickness, 0.018)
+        self.assertAlmostEqual(layers[0].direction, 0.035)
+        self.assertAlmostEqual(layers[1].direction, 0.018)
+        self.assertAlmostEqual(layers[2].direction, -0.035)
 
-    def test_outer_copper_moves_inward_when_mask_plane_is_enabled(self):
+    def test_outer_copper_sits_inside_imported_mask_volume(self):
         copper = self._import_copper()
         stackup = types.SimpleNamespace(layers=[
             _StackEntry(1, 10_000),
@@ -100,10 +113,27 @@ class CopperStackupTests(unittest.TestCase):
         ])
 
         layers = copper.copper_stackup_layers(
-            stackup, _BoardLayer, outer_inset=0.020)
+            stackup, _BoardLayer,
+            outer_offsets={"F.Cu": 0.010, "B.Cu": 0.010})
 
-        self.assertAlmostEqual(layers[0].z, 0.270)
-        self.assertAlmostEqual(layers[1].z, 0.020)
+        self.assertAlmostEqual(layers[0].z, 0.245)
+        self.assertAlmostEqual(layers[1].z, 0.045)
+
+    def test_outer_stackup_thicknesses_use_physical_defaults(self):
+        copper = self._import_copper()
+        stackup = types.SimpleNamespace(layers=[
+            _StackEntry(1, 10_000),
+            _StackEntry(2, 35_000),
+            _StackEntry(5, 0),
+            _StackEntry(6, 0),
+        ])
+
+        result = copper.outer_stackup_thicknesses(stackup, _BoardLayer)
+
+        self.assertEqual(result["F.Mask"], 0.010)
+        self.assertEqual(result["F.Cu"], 0.035)
+        self.assertEqual(result["B.Cu"], 0.035)
+        self.assertEqual(result["B.Mask"], 0.010)
 
     def test_disabled_inner_layer_is_not_imported(self):
         copper = self._import_copper()
@@ -234,6 +264,30 @@ class CopperStackupTests(unittest.TestCase):
         self.assertEqual(shape[0], "face")
         self.assertEqual(len(shape[1]), 4)
         self.assertTrue(all(edge[0] == "arc" for edge in shape[1]))
+
+    def test_outer_shell_keeps_walls_and_end_cap_only(self):
+        copper = self._import_copper()
+        base = _SurfaceFace("base", 10.0, 0.0)
+        end = _SurfaceFace("end", 10.0, 0.035)
+        wall = _SurfaceFace("wall", 1.0, 0.0175)
+        solid = types.SimpleNamespace(Faces=[base, end, wall])
+
+        result = copper.extrusion_display_faces(
+            solid, base, include_end_cap=True, include_base_cap=False)
+
+        self.assertEqual([face.name for face in result], ["wall", "end"])
+
+    def test_inner_copper_shell_keeps_walls_only(self):
+        copper = self._import_copper()
+        base = _SurfaceFace("base", 10.0, 0.0)
+        end = _SurfaceFace("end", 10.0, 0.018)
+        wall = _SurfaceFace("wall", 0.5, 0.009)
+        solid = types.SimpleNamespace(Faces=[base, end, wall])
+
+        result = copper.extrusion_display_faces(
+            solid, base, include_end_cap=False, include_base_cap=False)
+
+        self.assertEqual([face.name for face in result], ["wall"])
 
 if __name__ == "__main__":
     unittest.main()

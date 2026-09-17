@@ -139,23 +139,61 @@ class OutlineWireOrderTests(unittest.TestCase):
             sys.modules.pop(module_name, None)
             return importlib.import_module(module_name)
 
-    def test_2d_surface_gaps_are_reserved_inside_finished_thickness(self):
+    def test_body_is_full_when_no_copper_or_mask_is_imported(self):
+        linked_object = self._import_linked_object()
+        bounds = linked_object._outer_body_bounds(1.6, ([], []))
+
+        self.assertEqual(bounds, (0.0, 1.6))
+
+    def test_single_planar_face_unwraps_boolean_shell(self):
+        linked_object = self._import_linked_object()
+        face = types.SimpleNamespace(OuterWire=object())
+        shell = types.SimpleNamespace(Faces=[face])
+
+        self.assertIs(linked_object._single_planar_face(shell), face)
+
+    def test_imported_outer_layers_set_single_body_bounds(self):
+        linked_object = self._import_linked_object()
+        front_copper = {
+            "name": "F.Cu", "z": 1.555, "direction": 0.035,
+            "body_cut_full": True,
+        }
+        front_mask = {
+            "name": "F.Mask", "z": 1.59, "direction": 0.010,
+            "body_cut_full": True,
+        }
+        inner_copper = {
+            "name": "In1.Cu", "z": 0.700, "direction": 0.018,
+            "body_cut_full": False,
+        }
+        back_copper = {
+            "name": "B.Cu", "z": 0.045, "direction": -0.035,
+            "body_cut_full": True,
+        }
+        back_mask = {
+            "name": "B.Mask", "z": 0.010, "direction": -0.010,
+            "body_cut_full": True,
+        }
+
+        bounds = linked_object._outer_body_bounds(
+            1.6,
+            ([front_copper, inner_copper, back_copper],
+             [front_mask, back_mask]))
+
+        self.assertEqual(bounds, (0.045, 1.555))
+
+    def test_surface_clipping_uses_largest_dielectric_gap(self):
         linked_object = self._import_linked_object()
 
-        self.assertEqual(
-            linked_object._body_display_bounds(1.6), (0.0, 1.6))
-        self.assertEqual(
-            linked_object._body_display_bounds(
-                1.6, import_outer_copper=True), (0.02, 1.58))
-        self.assertEqual(
-            linked_object._body_display_bounds(
-                1.6, import_outer_copper=True,
-                import_solder_mask=True), (0.04, 1.56))
-        self.assertEqual(
-            linked_object._body_display_bounds(
-                1.6, import_outer_copper=True,
-                import_solder_mask=True,
-                import_silkscreen=True), (0.06, 1.54))
+        result = linked_object._largest_dielectric_gap_midpoint(
+            1.6,
+            ([{"z": 1.555, "direction": 0.035},
+              {"z": 0.045, "direction": -0.035},
+              {"z": 0.700, "direction": 0.018}],
+             [{"z": 1.59, "direction": 0.010},
+              {"z": 0.010, "direction": -0.010}]))
+
+        self.assertAlmostEqual(result, (0.718 + 1.555) / 2.0)
 
     def test_stiffener_bend_overlap_uses_full_bend_span_area(self):
         linked_object = self._import_linked_object()

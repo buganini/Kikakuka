@@ -58,6 +58,9 @@ explicit mask-graphic openings on `F.Mask` are cut through front stiffeners,
 while `B.Mask` openings are cut through back stiffeners. This still applies
 when `ImportSolderMask` is disabled.
 
+Stiffener thickness is additive outside the finished PCB; it is not included
+in the board thickness and is never subtracted from the board body.
+
 Stiffeners remain rigid during flexible-PCB bending. If a stiffener overlaps a
 full bend band, FreekiCAD prints a warning containing its name, the bend name,
 and the overlap area. If an area contains multiple property-text objects, it is

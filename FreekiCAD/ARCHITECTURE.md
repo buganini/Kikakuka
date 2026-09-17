@@ -16,20 +16,24 @@ Entry point: `__apply_bends_impl()` in `freecad/FreekiCAD/PcbObject.py`.
 
 `Copper.py` imports every enabled copper layer in the KiCad stackup. Tracks,
 arc tracks, filled zone polygons, pads, vias, and graphical copper shapes are
-combined into one planar display shape per layer. `F.Cu` and `B.Cu` stay inside
-the finished board envelope; inner layers remain at their physical stackup Z.
-Copper is zero-thickness display geometry, while
-the physical stackup copper thickness is retained in each child's
-`CopperThickness` property. It therefore never changes component or coupler Z.
+unioned into one planar profile per layer on a 1 um Shapely grid, with an exact
+BRep fallback. The FreeCAD child remains a zero-thickness face. Outer copper is
+placed at its outward physical stackup surface; inner copper is placed at its
+physical layer centre.
+
+The substrate remains one extrusion body. Imported outer copper reserves its
+full-board stackup thickness by adjusting that body's top/bottom Z bounds.
+Inner copper remains display-only and does not create costly internal body
+cavities. If copper import is disabled, the normal board body fills that outer
+thickness. Finished thickness and component/coupler Z are unchanged.
 
 During bending, each copper layer is intersected with the same flat board
-pieces used by the substrate. Rigid fragments receive the corresponding
-`piece_plc`. Wedge fragments are transformed into the wedge's pre-bend frame,
-rebuilt using the same `_bend_wedge_point()` mapping, and then receive all
-remaining post-bend transforms. Because the point mapping rotates each layer
-around a common center of curvature while retaining its stackup Z, outer-side
-copper follows a longer radius and inner-side copper follows a shorter radius.
-This visualizes extension/compression but is not a material or FEA simulation.
+pieces used by the substrate at a Z plane chosen from the largest dielectric
+gap. Rigid fragments receive the corresponding `piece_plc`; wedge fragments
+use the same curved point mapping as the board. Because each face retains its
+stackup Z, outer and inner layers follow different bend radii without any 3D
+offset, extrusion, or fuse operation. This visualizes extension/compression
+but is not a material or FEA simulation.
 
 ## Solder Mask Layers
 
@@ -37,12 +41,10 @@ This visualizes extension/compression but is not a material or FEA simulation.
 adds mask-layer graphical openings, and subtracts those openings from the board
 face. Pads and vias are filtered by `padstack.layers` before each polygon query
 so items from the opposite technical layer cannot be mixed into the result.
-The resulting translucent faces sit on the finished board boundaries, with
-outer copper inset 20 um when mask is enabled. They are zero-thickness display
-geometry; physical mask thickness is retained only in each child's
-`MaskThickness` property. Each enabled outer display level reserves 20 um per
-side inside the finished thickness, reducing the central board body while
-leaving component and coupler Z unchanged.
+The resulting profile remains a zero-thickness face at the finished outer
+surface. Its physical thickness adjusts the single substrate body's outer Z
+bound whenever mask import is enabled. With mask import disabled, the body
+fills that thickness. Finished thickness and component/coupler Z are unchanged.
 
 Mask opening faces are collected once and reused by stiffener construction:
 `F.Mask` openings are subtracted only from front stiffeners, while `B.Mask`
@@ -63,18 +65,11 @@ wedge mapping as copper during bending.
 
 `Silkscreen.py` imports board- and footprint-level `F.SilkS`/`B.SilkS`
 graphics and asks KiCad to convert visible text and fields to polygonal shapes.
-The result is one planar, zero-thickness display object per non-empty side;
-there is no 3D extrusion or boolean union. Silkscreen and copper objects use
-FreeCAD's shaded display mode so compound face boundaries are not drawn.
-Physical silkscreen thickness and stackup color are retained as metadata and
-appearance.
-
-Silkscreen is the outermost display plane. Each enabled outer level reserves
-20 um inside the finished thickness: silkscreen stays at `0/T`, mask moves to
-`0.02/T-0.02`, copper to `0.04/T-0.04`, and the central board body begins and
-ends another 0.02 mm inward when all three are enabled. Component and coupler
-Z continue to use the unchanged finished thickness. Silkscreen faces follow
-the same rigid-piece and wedge mapping as copper and mask during bending.
+The profiles on each side are unioned, extruded outward from `0/T` by their
+physical thickness, and reduced to outward caps plus walls. The inward cap is
+not rendered. Silkscreen is additive outside the finished board and is never
+subtracted from the body. Its base profiles follow the same rigid-piece and
+wedge mapping as copper and mask during bending.
 
 ## Stiffener Solids
 
@@ -86,13 +81,16 @@ text annotation whose anchor lies inside the smallest containing area supplies
 required `Material` and `Thickness` properties plus optional `Name`, `Color`,
 and `Opacity` overrides. A non-empty name becomes the suffix of the child name
 and label after `F_Stiffener_` or `B_Stiffener_`, and the resulting label is
-used by bend-overlap warnings. Invalid, misplaced, or multiply annotated areas
-are skipped with an error. Unannotated areas are skipped with a warning.
+used by bend-overlap warnings. Invalid,
+misplaced, or multiply annotated areas are skipped with an error. Unannotated
+areas are skipped with a warning.
 
 Thickness and coupler Z share `Units.parse_length_mm`, accepting `mm`, `in`,
-`mil` (0.001 inch), and `um`, with unitless values interpreted as millimetres. Stiffener faces
-start at the finished `0/T` boundary and extrude away from the board, so they
-remain outside silkscreen without altering board or component thickness.
+`mil` (0.001 inch), and `um`, with unitless values interpreted as millimetres.
+Stiffeners start beyond an imported silkscreen and extrude away from the board.
+Their display shells contain the outward cap and walls but no inward interface
+cap. Stiffener thickness is additive: it is never included in the finished
+board thickness or subtracted from the board body.
 During flex bending each solid remains rigid and follows the board region
 containing its flat centroid. Before deformation, its flat area is intersected
 with every active bend span; each non-trivial overlap emits a warning because

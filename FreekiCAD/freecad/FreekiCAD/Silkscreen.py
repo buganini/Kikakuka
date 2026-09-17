@@ -1,4 +1,4 @@
-"""Build zero-thickness KiCad silkscreen display geometry."""
+"""Build outward physical silkscreen display shells."""
 
 from dataclasses import dataclass
 import warnings
@@ -6,7 +6,11 @@ import warnings
 import FreeCAD
 import Part
 
-from .Copper import board_graphic_shape
+from .Copper import (
+    board_graphic_shape,
+    extrude_profile_for_display,
+    union_planar_profiles,
+)
 
 
 NM_PER_MM = 1_000_000.0
@@ -21,6 +25,7 @@ class SilkscreenLayerInfo:
     z: float
     thickness: float
     color: tuple
+    direction: float
 
 
 def _color_tuple(color, fallback=DEFAULT_SILKSCREEN_COLOR):
@@ -41,7 +46,7 @@ def _color_tuple(color, fallback=DEFAULT_SILKSCREEN_COLOR):
 
 
 def silkscreen_stackup_layers(stackup, board_layer,
-                               total_thickness=None, outer_inset=0.0):
+                               total_thickness=None):
     """Return F/B silkscreen layer display metadata.
 
     Both sides are described so silk graphics still import when an older
@@ -57,7 +62,6 @@ def silkscreen_stackup_layers(stackup, board_layer,
     ]
     entries = {getattr(entry, "layer", None): entry
                for entry in stackup.layers}
-    inset = max(0.0, float(outer_inset))
     result = []
     for layer, name, is_front in targets:
         entry = entries.get(layer)
@@ -68,9 +72,11 @@ def silkscreen_stackup_layers(stackup, board_layer,
         result.append(SilkscreenLayerInfo(
             layer=layer,
             name=name,
-            z=(total_mm - inset if is_front else inset),
+            z=(total_mm if is_front else 0.0),
             thickness=thickness or DEFAULT_SILKSCREEN_THICKNESS_MM,
             color=_color_tuple(getattr(entry, "color", None)),
+            direction=(thickness or DEFAULT_SILKSCREEN_THICKNESS_MM)
+            * (1.0 if is_front else -1.0),
         ))
     return result
 
@@ -101,11 +107,10 @@ def _text_base_shape(item):
 
 def build_silkscreen_layers(kicad, board, stackup, board_layer,
                              board_shapes=None, footprints=None, warn=None,
-                             total_thickness=None, outer_inset=0.0):
-    """Return one planar display shape for each non-empty silk layer."""
+                             total_thickness=None):
+    """Return one outward physical display shell per non-empty silk layer."""
     infos = silkscreen_stackup_layers(
-        stackup, board_layer, total_thickness=total_thickness,
-        outer_inset=outer_inset)
+        stackup, board_layer, total_thickness=total_thickness)
     try:
         board_text = list(board.get_text())
     except Exception as ex:
@@ -178,18 +183,25 @@ def build_silkscreen_layers(kicad, board, stackup, board_layer,
 
         if not shapes:
             continue
-        shape = shapes[0] if len(shapes) == 1 else Part.makeCompound(shapes)
-        shape.translate(FreeCAD.Vector(0, 0, info.z))
+        profile = union_planar_profiles(
+            shapes, warn=warn, layer_name=info.name)
+        profile.translate(FreeCAD.Vector(0, 0, info.z))
+        shape, solid = extrude_profile_for_display(
+            profile, info.direction, cap_mode="outer")
         result.append({
             "layer": info.layer,
             "name": info.name,
             "z": info.z,
             "thickness": info.thickness,
+            "direction": info.direction,
             "color": info.color,
             "graphic_count": graphic_count,
             "text_count": text_count,
             "face_count": len(getattr(shape, "Faces", [])),
             "area": float(getattr(shape, "Area", 0.0)),
+            "volume": float(getattr(solid, "Volume", 0.0)),
             "shape": shape,
+            "profile_shape": profile,
+            "solid_shape": solid,
         })
     return result

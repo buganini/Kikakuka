@@ -174,15 +174,16 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * FreekiCAD imports tracks, filled zones, pads, vias, and copper-layer graphics as separate `F.Cu`, `In*.Cu`, and `B.Cu` child objects.
         * `ImportOuterCopper` independently controls `F.Cu` and `B.Cu`; `ImportInnerCopper` controls `In*.Cu`. Both default to off.
         * Inner layers use their physical stackup Z and are normally hidden by the board body; hide the board or make it transparent to inspect them.
-        * Copper is display geometry and does not add to component Z. The board thickness already includes the complete KiCad stackup.
+        * Copper is rendered as one unioned zero-thickness face per layer, eliminating overlap between tracks, pads, vias, and zones. Each face retains its physical stackup Z, so inner layers follow the correct bend radius.
+        * The substrate remains one body. Imported outer copper reserves its physical stackup thickness at the body boundary; inner copper does not create expensive internal body cavities. Finished board thickness and component/coupler Z never change.
     * Inspect Solder Mask
         * `ImportSolderMask` imports translucent `F.Mask` and `B.Mask` child objects, with pad/via openings computed by KiCad plus explicit mask-layer graphics. It defaults to off.
         * The resulting F/B mask-opening geometry is also subtracted from stiffener solids on the matching side.
         * With mask import enabled, the board body uses the configured dielectric stackup colors and KiCad opacity, or white with KiCad's default board-body opacity when no color is available. Mask opacity likewise follows its KiCad stackup color. Both display opacities are scaled to 70% in FreeCAD. With mask import disabled, the original opaque board color is preserved.
-        * Mask and copper are zero-thickness display geometry separated by 20 um inside the finished PCB thickness. Enabled surface levels reduce the displayed central board body accordingly. Their physical thicknesses remain metadata only, while component and coupler Z continue to use the original finished thickness.
+        * Mask is a zero-thickness face at the finished outer surface. Imported mask reserves its physical outer stackup thickness in the single substrate body; when mask import is disabled, the body fills that thickness.
     * Inspect Silkscreen
         * `ImportSilkscreen` imports board- and footprint-level graphics, references, values, fields, and free text from `F.SilkS` and `B.SilkS`. It defaults to off.
-        * Silkscreen is fast, zero-thickness planar display geometry rendered in shaded mode without face boundaries or boolean union. It occupies the finished outer boundary; enabled mask and copper planes move inward by 20 um per level, and the displayed board body shrinks by the corresponding total while component and coupler Z remain unchanged.
+        * Silkscreen is extruded outward from the finished board boundary and renders its outward surface and walls without an inward interface surface. It is additive and does not consume finished board thickness.
     * [Flexible PCB Stiffener](#flexible-pcb-stiffener)
         * Import annotated stiffener solids automatically from `F.Stiffener` and `B.Stiffener` user layers.
     * [Coupler-Based PCB Alignment](#coupler-based-pcb-alignment)
@@ -267,6 +268,9 @@ are cut through front stiffeners; `B.Mask` openings are cut through back
 stiffeners. This happens even when `ImportSolderMask` is disabled. If a
 stiffener overlaps the full bend band, FreekiCAD prints a warning containing
 the stiffener name, bend name, and overlap area.
+
+Stiffener thickness is additive outside the finished PCB and is never counted
+in or subtracted from the board body.
 
 ## Flexible PCB Bending
 Manual bending checks are currently done with these sample boards:

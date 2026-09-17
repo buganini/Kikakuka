@@ -55,6 +55,10 @@ class StiffenerTests(unittest.TestCase):
         fake_copper.board_graphic_area_shape = lambda graphic: graphic.shape
         fake_copper.board_graphic_path_edge = lambda graphic: getattr(
             graphic, "edge", None)
+        fake_copper.extrude_profile_for_display = lambda profile, direction, cap_mode: (
+            profile.extrude(_Vector(0, 0, direction)),
+            profile.extrude(_Vector(0, 0, direction)),
+        )
         module_name = "FreekiCAD.freecad.FreekiCAD.Stiffener"
         self.addCleanup(sys.modules.pop, module_name, None)
         with mock.patch.dict(sys.modules, {
@@ -129,16 +133,17 @@ class StiffenerTests(unittest.TestCase):
             [front, back], [front_text, back_text],
             [(10, "f.STIFFENER", True), (11, "B.Stiffener", False)],
             total_thickness=1.6,
-            mask_openings={True: ["front-pad"], False: ["back-pad"]})
+            mask_openings={True: ["front-pad"], False: ["back-pad"]},
+            surface_offsets={True: 0.01, False: 0.02})
 
         self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]["shape"].base_z, 1.6)
+        self.assertEqual(result[0]["shape"].base_z, 1.61)
         self.assertAlmostEqual(result[0]["shape"].extrusion_z, 0.2)
         self.assertEqual(result[0]["source_id"], "front-id")
         self.assertEqual(result[0]["name"], "Front brace")
         self.assertEqual(result[0]["shape"].cut_openings, ["front-pad"])
         self.assertEqual(result[0]["mask_opening_count"], 1)
-        self.assertEqual(result[1]["shape"].base_z, 0.0)
+        self.assertEqual(result[1]["shape"].base_z, -0.02)
         self.assertAlmostEqual(result[1]["shape"].extrusion_z, -0.254)
         self.assertEqual(result[1]["name"], "")
         self.assertEqual(result[1]["shape"].cut_openings, ["back-pad"])
