@@ -50,6 +50,7 @@ It creates a few more dimensions for KiCad:
     * Components moved in FreeCAD are synced to KiCad in real time
     * Auto or manual in-place PCB reloading
     * Optional copper and solder-mask import, with outer copper, inner copper, and mask controlled independently
+    * Solid stiffeners from annotated `F.Stiffener` and `B.Stiffener` user-layer areas
     * [Flex PCB bending](#flexible-pcb-bending) driven by bend lines and parameters defined in KiCad
     * [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment) using matching `CouplerFixed` and `CouplerMoving` footprints or a `CouplerOrigin`, with coupler plane markers for inspection
     * `kicad-python` is used and the workspace manager handles multiple KiCad instances & API sockets
@@ -176,11 +177,14 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * Copper is display geometry and does not add to component Z. The board thickness already includes the complete KiCad stackup.
     * Inspect Solder Mask
         * `ImportSolderMask` imports translucent `F.Mask` and `B.Mask` child objects, with pad/via openings computed by KiCad plus explicit mask-layer graphics. It defaults to off.
+        * The resulting F/B mask-opening geometry is also subtracted from stiffener solids on the matching side.
         * With mask import enabled, the board body uses the configured dielectric stackup colors and KiCad opacity, or white with KiCad's default board-body opacity when no color is available. Mask opacity likewise follows its KiCad stackup color. Both display opacities are scaled to 70% in FreeCAD. With mask import disabled, the original opaque board color is preserved.
         * Mask and copper are zero-thickness display geometry separated by 20 um inside the finished PCB thickness. Enabled surface levels reduce the displayed central board body accordingly. Their physical thicknesses remain metadata only, while component and coupler Z continue to use the original finished thickness.
     * Inspect Silkscreen
         * `ImportSilkscreen` imports board- and footprint-level graphics, references, values, fields, and free text from `F.SilkS` and `B.SilkS`. It defaults to off.
         * Silkscreen is fast, zero-thickness planar display geometry rendered in shaded mode without face boundaries or boolean union. It occupies the finished outer boundary; enabled mask and copper planes move inward by 20 um per level, and the displayed board body shrinks by the corresponding total while component and coupler Z remain unchanged.
+    * [Flexible PCB Stiffener](#flexible-pcb-stiffener)
+        * Import annotated stiffener solids automatically from `F.Stiffener` and `B.Stiffener` user layers.
     * [Coupler-Based PCB Alignment](#coupler-based-pcb-alignment)
         * Place a `CouplerFixed` footprint on the reference PCB and a `CouplerMoving` footprint on the PCB to be aligned. Couplers are matched by their KiCad reference.
         * Alternatively, place one `CouplerOrigin` on a PCB to align it with a virtual `CouplerFixed` at world `(0, 0, 0)` with zero rotation and tilt. A PCB may contain only one positioning source: one `CouplerMoving` or one `CouplerOrigin`.
@@ -189,7 +193,7 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
         * The bundled footprints are [`CouplerFixed`](resources/kikakuka.pretty/CouplerFixed.kicad_mod), [`CouplerMoving`](resources/kikakuka.pretty/CouplerMoving.kicad_mod), and [`CouplerOrigin`](resources/kikakuka.pretty/CouplerOrigin.kicad_mod) in `resources/kikakuka.pretty`.
         * Alignment example boards: [`assembly-power.kicad_pcb`](samples/assembly-power.kicad_pcb), [`assembly-mcu.kicad_pcb`](samples/assembly-mcu.kicad_pcb), [`assembly-led.kicad_pcb`](samples/assembly-led.kicad_pcb), and [`assembly-mezzanine.kicad_pcb`](samples/assembly-mezzanine.kicad_pcb).
         * The coupler plane is defined by the footprint position, side, rotation, and these custom footprint properties:
-            * `Z` moves the plane origin along the footprint's local Z axis. It defaults to `0 mm`; values without a unit are millimetres, and `mm` and `in` are supported. The origin starts at the PCB surface, including the board thickness on F.Cu. The local Z direction is reversed on B.Cu.
+            * `Z` moves the plane origin along the footprint's local Z axis. It defaults to `0 mm`; values without a unit are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and `um` are supported. The origin starts at the PCB surface, including the board thickness on F.Cu. The local Z direction is reversed on B.Cu.
             * `Tilt` tilts the plane around the footprint's local X axis. It is specified in degrees and defaults to `0`.
         * `Z` and `Tilt` are independent: `Tilt` rotates the plane around its Z-offset origin and does not change that origin's position. The footprint's normal KiCad rotation supplies the rotation around its local Z axis.
     * [Flex PCB Bending](#flexible-pcb-bending)
@@ -218,6 +222,45 @@ Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
 ![FreekiCAD-Coupler-Z-Tilt-Assembly](screenshots/freekicad_coupler_z_tilt_assembly.png)
 
 Coupler plane markers are available as child objects in FreeCAD and are hidden by default.
+
+## Flexible PCB Stiffener
+
+Rename KiCad user layers to `F.Stiffener` and/or `B.Stiffener`
+(case-insensitive). Each closed rectangle, circle, or polygon is imported
+automatically as one stiffener area; the KiCad display fill may be on or off.
+Put one text annotation inside each area and separate properties with `/` or
+newlines:
+
+```text
+Name=Tail reinforcement
+Material=Polyimide
+Color=#C87518
+Opacity=0.65
+Thickness=250 um
+```
+
+`Material` and `Thickness` are required. `Name`, `Color`, and `Opacity` are
+optional and property names are case-insensitive. A non-empty `Name` becomes
+the FreeCAD child label and is included in bend-overlap warnings. Thickness
+accepts `mm`, `in`, `mil` (`0.001 in`), and `um`; a unitless value is
+interpreted as millimetres.
+
+| Material | Default color | Default opacity |
+| --- | --- | ---: |
+| `FR4` | `#C8B45A` | `0.90` |
+| `Polyimide` | `#C87518` | `0.65` |
+| `Stainless_Steel` | `#A7ADB4` | `1.00` |
+| `3M468` | `#F2E3BD` | `0.28` |
+| `tesa8854` | `#EEE8D8` | `0.45` |
+| `3M9077` | `#DDE8EE` | `0.30` |
+
+Front stiffeners extend outward from the front silkscreen plane; back
+stiffeners extend outward from the back silkscreen plane. They remain rigid
+during flex bending. Pad, via, and explicit mask-graphic openings on `F.Mask`
+are cut through front stiffeners; `B.Mask` openings are cut through back
+stiffeners. This happens even when `ImportSolderMask` is disabled. If a
+stiffener overlaps the full bend band, FreekiCAD prints a warning containing
+the stiffener name, bend name, and overlap area.
 
 ## Flexible PCB Bending
 Manual bending checks are currently done with these sample boards:

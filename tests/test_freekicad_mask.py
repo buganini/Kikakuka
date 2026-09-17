@@ -163,6 +163,73 @@ class MaskTests(unittest.TestCase):
 
         self.assertFalse(mask.padstack_item_exists_on_layer(object(), 1))
 
+    def test_opening_collector_keeps_mask_graphics_on_their_side(self):
+        mask = self._import_mask()
+        front = object()
+        back = object()
+        front_graphic = types.SimpleNamespace(layer=1, face=front)
+        back_graphic = types.SimpleNamespace(layer=5, face=back)
+        board = types.SimpleNamespace(
+            get_pads=lambda: [], get_vias=lambda: [])
+
+        with mock.patch.object(
+                mask, "board_graphic_shape",
+                side_effect=lambda graphic: graphic.face):
+            result = mask.collect_solder_mask_openings(
+                board, [1, 5], [front_graphic, back_graphic])
+
+        self.assertEqual(result[1]["shapes"], [front])
+        self.assertEqual(result[5]["shapes"], [back])
+
+    def test_builder_reuses_precomputed_opening_geometry(self):
+        mask = self._import_mask()
+
+        class Face:
+            def __init__(self):
+                self.Faces = [self]
+                self.Area = 10.0
+                self.openings = []
+                self.z = 0.0
+
+            def copy(self):
+                return Face()
+
+            def cut(self, openings):
+                self.openings = list(openings)
+                self.Area -= len(self.openings)
+                return self
+
+            def translate(self, vector):
+                self.z += vector.z
+
+        mask.Part.makeCompound = lambda shapes: list(shapes)
+        mask.FreeCAD.Vector = lambda x, y, z: types.SimpleNamespace(
+            x=x, y=y, z=z)
+        stackup = types.SimpleNamespace(layers=[
+            _StackEntry(1, 10_000, _Color(0, 128, 0, 255)),
+            _StackEntry(5, 10_000, _Color(0, 128, 0, 255)),
+        ])
+        board = types.SimpleNamespace(
+            get_pads=lambda: [], get_vias=lambda: [])
+        front = object()
+        back = object()
+
+        layers = mask.build_solder_mask_layers(
+            board, stackup, _BoardLayer, Face(),
+            opening_data={
+                1: {"shapes": [front], "pad_count": 1, "via_count": 0},
+                5: {"shapes": [back], "pad_count": 0, "via_count": 1},
+            },
+        )
+
+        self.assertEqual(layers[0]["shape"].openings, [front])
+        self.assertEqual(layers[1]["shape"].openings, [back])
+        self.assertEqual(
+            [layer["opening_count"] for layer in layers], [1, 1])
+        self.assertEqual(
+            [(layer["pad_count"], layer["via_count"]) for layer in layers],
+            [(1, 0), (0, 1)])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -410,6 +410,30 @@ def pad_layer_shape(pad, pad_layer, pad_shape_enum):
     return shape
 
 
+def board_graphic_area_shape(graphic):
+    """Build the enclosed area of a closed board graphic.
+
+    Unlike :func:`board_graphic_shape`, this intentionally ignores KiCad's
+    display fill flag.  It is used when the closed outline itself defines a
+    mechanical area, such as a stiffener.
+    """
+    kind = type(graphic).__name__
+    if kind in ("BoardCircle", "Circle"):
+        return _circle_face(
+            float(graphic.radius()) / NM_PER_MM, _v(graphic.center))
+    if kind in ("BoardRectangle", "Rectangle"):
+        p0, p1 = _v(graphic.top_left), _v(graphic.bottom_right)
+        face = _rect_face(abs(p1.x - p0.x), abs(p1.y - p0.y))
+        return _transform(face, (p0.x + p1.x) / 2, (p0.y + p1.y) / 2)
+    if kind in ("BoardPolygon", "Polygon"):
+        faces = [polygon_with_holes_face(p) for p in graphic.polygons]
+        faces = [face for face in faces if face is not None]
+        if not faces:
+            return None
+        return faces[0] if len(faces) == 1 else Part.makeCompound(faces)
+    return None
+
+
 def board_graphic_shape(graphic):
     """Build filled/stroked geometry for a copper BoardShape."""
     kind = type(graphic).__name__

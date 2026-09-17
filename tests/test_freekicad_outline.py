@@ -157,6 +157,30 @@ class OutlineWireOrderTests(unittest.TestCase):
                 import_solder_mask=True,
                 import_silkscreen=True), (0.06, 1.54))
 
+    def test_stiffener_bend_overlap_uses_full_bend_span_area(self):
+        linked_object = self._import_linked_object()
+
+        class Area:
+            def common(self, span):
+                return types.SimpleNamespace(Area=span.overlap_area)
+
+        spans = [
+            types.SimpleNamespace(overlap_area=0.25),
+            types.SimpleNamespace(overlap_area=0.00001),
+        ]
+        overlaps = linked_object._stiffener_bend_overlaps(
+            {"Board_Stiffener_F_1": Area()},
+            [object(), object()], spans,
+            area_tolerance=0.0001,
+        )
+
+        self.assertEqual(overlaps, [("Board_Stiffener_F_1", 0, 0.25)])
+        warning = linked_object._stiffener_bend_warning(
+            "F.Stiffener Polyimide 1", "Bend 1", 0.25)
+        self.assertIn("F.Stiffener Polyimide 1", warning)
+        self.assertIn("Bend 1", warning)
+        self.assertIn("not deformed", warning)
+
     def test_bend_layer_is_found_by_case_insensitive_board_name(self):
         linked_object = self._import_linked_object()
         board = types.SimpleNamespace(
@@ -556,6 +580,9 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(linked_object._parse_coupler_z(value), 2.4)
         self.assertEqual(linked_object._parse_coupler_z("2.4"), 2.4)
         self.assertEqual(linked_object._parse_coupler_z("1 in"), 25.4)
+        self.assertEqual(linked_object._parse_coupler_z("10 mil"), 0.254)
+        self.assertEqual(linked_object._parse_coupler_z("250 um"), 0.25)
+        self.assertEqual(linked_object._parse_coupler_z("250 µm"), 0.25)
 
     def test_coupler_tilt_reads_custom_field_in_degrees(self):
         linked_object = self._import_linked_object()

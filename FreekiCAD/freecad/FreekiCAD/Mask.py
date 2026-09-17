@@ -155,13 +155,8 @@ def padstack_item_exists_on_layer(item, layer):
         return False
 
 
-def build_solder_mask_layers(board, stackup, board_layer, board_face,
-                             board_shapes=None, warn=None,
-                             total_thickness=None, outer_inset=0.0):
-    """Return F.Mask/B.Mask faces using KiCad-computed padstack openings."""
-    infos = mask_stackup_layers(
-        stackup, board_layer, total_thickness=total_thickness,
-        outer_inset=outer_inset)
+def collect_solder_mask_openings(board, layers, board_shapes=None, warn=None):
+    """Build reusable pad/via/graphic opening faces for mask layers."""
     try:
         pads = list(board.get_pads())
     except Exception as ex:
@@ -174,16 +169,17 @@ def build_solder_mask_layers(board, stackup, board_layer, board_face,
         vias = []
         if warn:
             warn(f"Could not read vias for solder mask: {ex}")
-    result = []
-    for info in infos:
+
+    result = {}
+    for layer in layers:
         layer_pads = [pad for pad in pads
-                      if padstack_item_exists_on_layer(pad, info.layer)]
+                      if padstack_item_exists_on_layer(pad, layer)]
         layer_vias = [via for via in vias
-                      if padstack_item_exists_on_layer(via, info.layer)]
+                      if padstack_item_exists_on_layer(via, layer)]
         polygons = read_mask_opening_polygons(
-            board, layer_pads, info.layer, warn)
+            board, layer_pads, layer, warn)
         polygons.extend(read_mask_opening_polygons(
-            board, layer_vias, info.layer, warn))
+            board, layer_vias, layer, warn))
         openings = []
         for polygon in polygons:
             try:
@@ -194,7 +190,7 @@ def build_solder_mask_layers(board, stackup, board_layer, board_face,
                 if warn:
                     warn(f"Could not build mask opening: {ex}")
         for graphic in board_shapes or []:
-            if getattr(graphic, "layer", None) != info.layer:
+            if getattr(graphic, "layer", None) != layer:
                 continue
             try:
                 face = board_graphic_shape(graphic)
@@ -203,6 +199,30 @@ def build_solder_mask_layers(board, stackup, board_layer, board_face,
             except Exception as ex:
                 if warn:
                     warn(f"Could not build mask graphic opening: {ex}")
+        result[layer] = {
+            "shapes": openings,
+            "pad_count": len(layer_pads),
+            "via_count": len(layer_vias),
+        }
+    return result
+
+
+def build_solder_mask_layers(board, stackup, board_layer, board_face,
+                             board_shapes=None, warn=None,
+                             total_thickness=None, outer_inset=0.0,
+                             opening_data=None):
+    """Return F.Mask/B.Mask faces using KiCad-computed padstack openings."""
+    infos = mask_stackup_layers(
+        stackup, board_layer, total_thickness=total_thickness,
+        outer_inset=outer_inset)
+    if opening_data is None:
+        opening_data = collect_solder_mask_openings(
+            board, [info.layer for info in infos],
+            board_shapes=board_shapes, warn=warn)
+    result = []
+    for info in infos:
+        layer_openings = opening_data.get(info.layer, {})
+        openings = list(layer_openings.get("shapes", []))
 
         mask = board_face.copy()
         if openings:
@@ -219,8 +239,8 @@ def build_solder_mask_layers(board, stackup, board_layer, board_face,
             "thickness": info.thickness,
             "color": info.color,
             "transparency": info.transparency,
-            "pad_count": len(layer_pads),
-            "via_count": len(layer_vias),
+            "pad_count": int(layer_openings.get("pad_count", 0)),
+            "via_count": int(layer_openings.get("via_count", 0)),
             "opening_count": len(openings),
             "face_count": len(getattr(mask, "Faces", [])),
             "area": float(getattr(mask, "Area", 0.0)),

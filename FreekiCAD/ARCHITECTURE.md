@@ -44,6 +44,12 @@ geometry; physical mask thickness is retained only in each child's
 side inside the finished thickness, reducing the central board body while
 leaving component and coupler Z unchanged.
 
+Mask opening faces are collected once and reused by stiffener construction:
+`F.Mask` openings are subtracted only from front stiffeners, while `B.Mask`
+openings are subtracted only from back stiffeners. Collection runs whenever a
+stiffener layer exists, even if `ImportSolderMask` is disabled, so stiffener
+solids never depend on whether the mask display object is visible.
+
 When `ImportSolderMask` is enabled, the board body becomes translucent and uses
 KiCad's sequential RGB/alpha mixing across configured dielectric stackup
 colors, falling back to translucent white. Mask opacity follows its KiCad
@@ -69,6 +75,26 @@ Silkscreen is the outermost display plane. Each enabled outer level reserves
 ends another 0.02 mm inward when all three are enabled. Component and coupler
 Z continue to use the unchanged finished thickness. Silkscreen faces follow
 the same rigid-piece and wedge mapping as copper and mask during bending.
+
+## Stiffener Solids
+
+`Stiffener.py` finds user layers named `F.Stiffener` or `B.Stiffener`
+case-insensitively. Each closed graphic rectangle, circle, or polygon is an
+independent area regardless of its display fill. A slash- or newline-separated
+text annotation whose anchor lies inside the smallest containing area supplies
+required `Material` and `Thickness` properties plus optional `Name`, `Color`,
+and `Opacity` overrides. A non-empty name becomes the child label and the
+identifier used by bend-overlap warnings. Invalid,
+unannotated, or multiply annotated areas are skipped with a warning.
+
+Thickness and coupler Z share `Units.parse_length_mm`, accepting `mm`, `in`,
+`mil` (0.001 inch), and `um`, with unitless values interpreted as millimetres. Stiffener faces
+start at the finished `0/T` boundary and extrude away from the board, so they
+remain outside silkscreen without altering board or component thickness.
+During flex bending each solid remains rigid and follows the board region
+containing its flat centroid. Before deformation, its flat area is intersected
+with every active bend span; each non-trivial overlap emits a warning because
+the stiffener itself is not curved through the bend.
 
 ---
 

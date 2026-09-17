@@ -7,6 +7,7 @@ import FreeCAD
 import Part
 
 from .constants import FREEKICAD_LAYER_NAME
+from .Units import parse_length_mm
 
 
 
@@ -41,6 +42,33 @@ def _body_display_bounds(finished_thickness, import_outer_copper=False,
     if top <= bottom:
         return 0.0, float(finished_thickness)
     return bottom, top
+
+
+def _stiffener_bend_overlaps(stiffener_areas, bend_info, bend_spans,
+                              area_tolerance=1e-4):
+    """Return ``(object_name, bend_index, overlap_area)`` conflicts."""
+    result = []
+    for object_name, stiffener_area in (stiffener_areas or {}).items():
+        for bend_index, bend_span in enumerate(bend_spans):
+            if bend_span is None or bend_index >= len(bend_info):
+                continue
+            try:
+                overlap = stiffener_area.common(bend_span)
+                overlap_area = float(getattr(overlap, "Area", 0.0))
+            except Exception:
+                continue
+            if overlap_area > area_tolerance:
+                result.append((object_name, bend_index, overlap_area))
+    return result
+
+
+def _stiffener_bend_warning(stiffener_label, bend_label, overlap_area):
+    return (
+        f"FreekiCAD: Stiffener '{stiffener_label}' overlaps "
+        f"bend band '{bend_label}' "
+        f"(area={overlap_area:.4f} mm^2). "
+        "Stiffeners remain rigid and are not deformed through bends.\n"
+    )
 
 
 def _log_bending_bfs(message):
@@ -217,16 +245,7 @@ def _parse_coupler_z(value):
     """Parse the coupler-plane Z displacement in millimetres."""
     if value is None:
         return 0.0
-    match = re.fullmatch(
-        r'\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:\s*(mm|in))?\s*',
-        str(value), re.IGNORECASE)
-    if match is None:
-        raise ValueError(
-            f"invalid Z value {value!r}; expected mm or in")
-    result = float(match.group(1))
-    if (match.group(2) or '').lower() == 'in':
-        result *= 25.4
-    return result
+    return parse_length_mm(value, "Z")
 
 
 def _parse_coupler_tilt(value):
@@ -1197,7 +1216,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
     solid + footprint metadata.
     Returns (board_shape, footprints_data, color, outline_edges, thickness,
     bend_lines, board_face, couplers_data, copper_layers, mask_layers,
-    silkscreen_layers, body_transparency) where
+    silkscreen_layers, stiffener_layers, body_transparency) where
     footprints_data is a list of dicts with ref/position/models info,
     couplers_data contains the custom CouplerMoving/CouplerFixed poses, and
     copper_layers contains one display shape per imported stackup layer."""
@@ -1229,6 +1248,12 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Total board shapes: {len(all_shapes)}\n"
         )
+        try:
+            all_text = list(_kipy_retry(board.get_text))
+        except Exception as ex:
+            all_text = []
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Could not read board text: {ex}\n")
 
         for s in all_shapes:
             if s.layer != BoardLayer.BL_Edge_Cuts:
@@ -1344,7 +1369,6 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         if bend_lines:
             try:
                 from kipy.board_types import BoardText as KiPyBoardText
-                all_text = _kipy_retry(board.get_text)
                 u4_text_count = 0
                 for t in all_text:
                     if not isinstance(t, KiPyBoardText):
@@ -1781,6 +1805,54 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                 FreeCAD.Console.PrintWarning(
                     f"FreekiCAD: {traceback.format_exc()}\n")
 
+        # Build stiffeners before solder mask so each valid same-side area can
+        # reuse the same pad/via/graphic opening geometry.
+        stiffener_layers = []
+        mask_opening_data = None
+        try:
+            from .Stiffener import build_stiffener_layers
+
+            stiffener_layer_defs = []
+            layer_items = list(all_shapes) + list(all_text)
+            for expected_name, is_front in (
+                    ("F.Stiffener", True), ("B.Stiffener", False)):
+                layer_id, actual_name = _find_named_board_layer(
+                    board, layer_items, expected_name)
+                if layer_id is not None:
+                    stiffener_layer_defs.append(
+                        (layer_id, actual_name, is_front))
+            mask_openings_by_side = {}
+            if stiffener_layer_defs:
+                from .Mask import collect_solder_mask_openings
+                mask_opening_data = collect_solder_mask_openings(
+                    board,
+                    [BoardLayer.BL_F_Mask, BoardLayer.BL_B_Mask],
+                    board_shapes=all_shapes, warn=_surface_warning)
+                mask_openings_by_side = {
+                    True: mask_opening_data.get(
+                        BoardLayer.BL_F_Mask, {}).get("shapes", []),
+                    False: mask_opening_data.get(
+                        BoardLayer.BL_B_Mask, {}).get("shapes", []),
+                }
+            stiffener_layers = build_stiffener_layers(
+                all_shapes, all_text, stiffener_layer_defs, thickness,
+                to_concrete=to_concrete_board_shape,
+                warn=_surface_warning,
+                mask_openings=mask_openings_by_side)
+            for area in stiffener_layers:
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: Stiffener {area['layer_name']}: "
+                    f"material={area['material']}, "
+                    f"thickness={area['thickness']:.4g}mm, "
+                    f"opacity={area['opacity']:.3g}, "
+                    f"mask_openings={area['mask_opening_count']}\n")
+        except Exception as ex:
+            import traceback
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Could not build stiffeners: {ex}\n")
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: {traceback.format_exc()}\n")
+
         mask_layers = []
         body_transparency = 0
         if import_solder_mask and stackup is not None and board_face is not None:
@@ -1796,7 +1868,8 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                     board_shapes=all_shapes, warn=_surface_warning,
                     total_thickness=thickness,
                     outer_inset=(COPPER_DISPLAY_OFFSET_MM
-                                 if import_silkscreen else 0.0))
+                                 if import_silkscreen else 0.0),
+                    opening_data=mask_opening_data)
                 for layer in mask_layers:
                     FreeCAD.Console.PrintMessage(
                         f"FreekiCAD: Solder mask {layer['name']}: "
@@ -1841,7 +1914,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         return (board_solid, footprints_data, board_color, outline_edges,
                 thickness, bend_lines, board_face, couplers_data,
                 copper_layers, mask_layers, silkscreen_layers,
-                body_transparency)
+                stiffener_layers, body_transparency)
 
     except Exception as e:
         import traceback
@@ -1857,7 +1930,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         from .workspace_bus import report_error
         report_error(socket_path, e)
     return (None, [], None, [], DEFAULT_PCB_THICKNESS, [], None, [], [], [],
-            [], 0)
+            [], [], 0)
 
 
 def _fit_view(obj):
@@ -2094,8 +2167,9 @@ class _OutlineSketchObserver:
         # Constrain component Placement: only X/Y move + Z rotation
         if prop == "Placement" and not self._constraining:
             # Coupler markers are maintained from KiCad and by bending.  They
-            # are Part::Feature children, but are not editable components.
-            if hasattr(obj, 'CouplerType'):
+            # and stiffeners are Part::Feature children, but are not editable
+            # components that should be synchronized back as footprints.
+            if hasattr(obj, 'CouplerType') or hasattr(obj, 'StiffenerLayer'):
                 return
             parent = self._find_component_parent(obj)
             if parent is not None:
@@ -2603,6 +2677,7 @@ class PcbObject:
                     or hasattr(child, 'CopperLayer') \
                     or hasattr(child, 'MaskLayer') \
                     or hasattr(child, 'SilkscreenLayer') \
+                    or hasattr(child, 'StiffenerLayer') \
                     or hasattr(child, 'CouplerType'):
                 try:
                     doc.removeObject(child.Name)
@@ -2648,7 +2723,7 @@ class PcbObject:
         _t_load = _time.time()
         board_solid, footprints_data, board_color, outline_edges, \
             thickness, bend_lines, board_face, couplers_data, \
-            copper_layers, mask_layers, silkscreen_layers, \
+            copper_layers, mask_layers, silkscreen_layers, stiffener_layers, \
             body_transparency = load_board(
                 _resolved_linked_filename(obj), socket_path,
                 import_outer_copper=getattr(
@@ -2681,6 +2756,7 @@ class PcbObject:
                                    existing_bends,
                                    board_face, couplers_data, copper_layers,
                                    mask_layers, silkscreen_layers,
+                                   stiffener_layers,
                                    body_transparency)
         finally:
             if _mw is not None:
@@ -2697,6 +2773,7 @@ class PcbObject:
                           board_face=None, couplers_data=None,
                           copper_layers=None, mask_layers=None,
                           silkscreen_layers=None,
+                          stiffener_layers=None,
                           body_transparency=0):
         import json
         import time as _time
@@ -2833,6 +2910,63 @@ class PcbObject:
             except Exception:
                 pass
             obj.addObject(silk_obj)
+
+        # Stiffeners are mechanical solids extruded away from the finished
+        # board surface, beyond the front/back silkscreen planes.
+        self._unbent_stiffener_areas = {}
+        for index, layer_data in enumerate(stiffener_layers or [], 1):
+            side = "F" if layer_data['is_front'] else "B"
+            stiffener_obj = doc.addObject(
+                "Part::Feature", f"{obj.Name}_Stiffener_{side}_{index}")
+            generated_label = (
+                f"{layer_data['layer_name']} {layer_data['material']} {index}")
+            stiffener_obj.Label = layer_data['name'] or generated_label
+            stiffener_obj.addProperty(
+                "App::PropertyString", "StiffenerLayer", "KiCad",
+                "KiCad stiffener layer name")
+            stiffener_obj.StiffenerLayer = layer_data['layer_name']
+            stiffener_obj.setPropertyStatus("StiffenerLayer", "ReadOnly")
+            stiffener_obj.addProperty(
+                "App::PropertyString", "Material", "Stiffener",
+                "Stiffener material")
+            stiffener_obj.Material = layer_data['material']
+            stiffener_obj.setPropertyStatus("Material", "ReadOnly")
+            stiffener_obj.addProperty(
+                "App::PropertyString", "StiffenerName", "Stiffener",
+                "Optional name from the KiCad annotation")
+            stiffener_obj.StiffenerName = layer_data['name']
+            stiffener_obj.setPropertyStatus("StiffenerName", "ReadOnly")
+            stiffener_obj.addProperty(
+                "App::PropertyLength", "StiffenerThickness", "Stiffener",
+                "Stiffener thickness from the KiCad annotation")
+            stiffener_obj.StiffenerThickness = layer_data['thickness']
+            stiffener_obj.setPropertyStatus("StiffenerThickness", "ReadOnly")
+            stiffener_obj.addProperty(
+                "App::PropertyFloat", "Opacity", "Stiffener",
+                "Stiffener display opacity")
+            stiffener_obj.Opacity = layer_data['opacity']
+            stiffener_obj.setPropertyStatus("Opacity", "ReadOnly")
+            # Hidden board-local anchor used by the existing rigid-region
+            # bend placement code.  A stiffener crossing a bend remains a
+            # rigid part and follows the region containing its centroid.
+            for coord in ("X", "Y"):
+                stiffener_obj.addProperty(
+                    "App::PropertyDistance", coord, "Stiffener",
+                    "Board-local stiffener centroid")
+                setattr(stiffener_obj, coord, layer_data[coord.lower()])
+                stiffener_obj.setPropertyStatus(coord, "Hidden")
+            stiffener_obj.Shape = layer_data['shape']
+            self._unbent_stiffener_areas[stiffener_obj.Name] = \
+                layer_data['area_shape'].copy()
+            try:
+                stiffener_obj.ViewObject.ShapeColor = layer_data['color']
+                stiffener_obj.ViewObject.LineColor = layer_data['color']
+                stiffener_obj.ViewObject.DisplayMode = "Shaded"
+                stiffener_obj.ViewObject.Transparency = \
+                    layer_data['transparency']
+            except Exception:
+                pass
+            obj.addObject(stiffener_obj)
 
         # Add / update bend line children
         if existing_bends is None:
@@ -3115,12 +3249,15 @@ class PcbObject:
                 return (3, 0 if str(c.MaskLayer) == 'F.Mask' else 1)
             if hasattr(c, 'SilkscreenLayer'):
                 return (4, 0 if str(c.SilkscreenLayer).startswith('F.') else 1)
+            if hasattr(c, 'StiffenerLayer'):
+                return (5, 0 if str(c.StiffenerLayer).lower().startswith('f.')
+                        else 1, c.Label)
             if getattr(getattr(c, 'Proxy', None),
                        'Type', None) == 'BendLine':
-                return (5, c.Label)
-            if hasattr(c, 'CouplerType'):
                 return (6, c.Label)
-            return (7, c.Label)
+            if hasattr(c, 'CouplerType'):
+                return (7, c.Label)
+            return (8, c.Label)
         obj.Group = sorted(obj.Group, key=_child_sort_key)
 
         # Store unbent placements for bend lines and components.
@@ -3147,14 +3284,15 @@ class PcbObject:
                                     'Type', None) == 'BendLine']
         enable = getattr(obj, 'EnableBending', True)
         active_bends = [c for c in bend_children
-                        if c.Active and c.Radius.Value >= 0]
+                        if c.Active and c.Angle.Value != 0
+                        and c.Radius.Value >= 0]
         board_obj = None
         for c in obj.Group:
             if c.Name.endswith("_Board"):
                 board_obj = c
                 break
-        if board_obj and bend_children:
-            self._apply_bends(obj, board_obj, bend_children,
+        if board_obj and enable and active_bends:
+            self._apply_bends(obj, board_obj, active_bends,
                               thickness, enable_bending=enable)
         elif board_obj:
             self._update_conflicts_debug_object(obj, None, thickness)
@@ -4166,6 +4304,19 @@ class PcbObject:
             bend_span_shapes.append(
                 self._build_bend_span_shape(
                     p0, p1, normal, insets[bi], board_face))
+        children_by_name = {child.Name: child for child in obj.Group}
+        stiffener_conflicts = _stiffener_bend_overlaps(
+            getattr(self, '_unbent_stiffener_areas', {}),
+            bend_info, bend_span_shapes, overlap_area_tol)
+        for stiffener_name, bend_index, overlap_area in stiffener_conflicts:
+            stiffener_obj = children_by_name.get(stiffener_name)
+            stiffener_label = getattr(
+                stiffener_obj, 'Label', stiffener_name)
+            bend_obj = bend_info[bend_index][0]
+            bend_label = getattr(bend_obj, 'Label', bend_obj.Name)
+            FreeCAD.Console.PrintWarning(
+                _stiffener_bend_warning(
+                    stiffener_label, bend_label, overlap_area))
         for i in range(len(bend_span_shapes)):
             span_i = bend_span_shapes[i]
             if span_i is None:
