@@ -3,6 +3,7 @@
     * Add named, material-aware solid stiffeners from annotated `F.Stiffener` and `B.Stiffener` layers, cut by same-side solder-mask openings
     * Accept micrometres (`um`) and mils (`mil`, 0.001 inch) for stiffener thickness and coupler Z offsets
     * Add portable `.kkkk_asm` assemblies with independently reloadable PCB/STEP objects and Workspace Manager integration
+    * Add `kkkk_export.py` for headless `.kkkk_asm` to STEP export with `freecadcmd`
     * Add optional copper, solder-mask, and silkscreen display layers without changing finished component Z
     * Add automatic multi-board alignment and live synchronization through editable couplers
     * Improve linked-file reload reliability, material appearance, and relative-path handling
