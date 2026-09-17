@@ -138,14 +138,17 @@ Drag inside the PCB for moving selected tab, drag outside the PCB for changing t
 ![Manual Tab](screenshots/manual_tab.gif)
 
 # FreeCAD Integration
-Requires **FreeCAD 1.0** or later and **KiCad 9.0** or later.
+Requires **FreeCAD 1.0** or later. Importing STEP files and working with
+`.kkkk_asm` assemblies that contain only STEP objects require no additional
+Python dependencies. KiCad PCB integration requires **KiCad 9.0** or later,
+`kicad-python`, and `shapely`.
 
 * Manually install FreekiCAD to FreeCAD
     * Open FreeCAD's python console: Menubar -> View -> Panels -> Python Console
     * Get the installation path by executing `print(os.path.join(App.getUserAppDataDir(), "Mod"))` in the Python console
     * Create the `Mod` folder if it does not exist
     * Copy the FreekiCAD folder into the `Mod` folder
-    * Install `kicad-python` and `shapely` into FreeCAD by executing the following command in the Python console. The command waits for pip to finish, then prints its output.
+    * If you need KiCad integration, install `kicad-python` and `shapely` into FreeCAD by executing the following command in the Python console. The command waits for pip to finish, then prints its output.
     ```
     import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
     ```

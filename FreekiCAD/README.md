@@ -22,10 +22,14 @@ complete `.kkkk_asm` file.
 
 ## Manual Installation
 
-FreekiCAD requires FreeCAD 1.0 or later and KiCad 9.0 or later. After copying
-the `FreekiCAD` folder into FreeCAD's `Mod` folder, open **View > Panels >
-Python Console** and paste this single line to install the Python dependencies.
-It waits for pip to finish, then prints its output:
+FreekiCAD requires FreeCAD 1.0 or later. Importing STEP files and working with
+`.kkkk_asm` assemblies that contain only STEP objects require no additional
+Python dependencies. KiCad PCB integration requires KiCad 9.0 or later plus
+`kicad-python` and `shapely`.
+
+After copying the `FreekiCAD` folder into FreeCAD's `Mod` folder, open **View >
+Panels > Python Console** and paste this single line if you need KiCad
+integration. It waits for pip to finish, then prints its output:
 
 ```python
 import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
