@@ -20,6 +20,19 @@ reloadable. This also makes FreekiCAD useful for assembling multiple STEP models
 without KiCad. See the [FPC assembly example][fpc-assembly-example] for a
 complete `.kkkk_asm` file.
 
+## Manual Installation
+
+FreekiCAD requires FreeCAD 1.0 or later and KiCad 9.0 or later. After copying
+the `FreekiCAD` folder into FreeCAD's `Mod` folder, open **View > Panels >
+Python Console** and paste this single line to install the Python dependencies.
+It waits for pip to finish, then prints its output:
+
+```python
+import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
+```
+
+Restart FreeCAD after installation.
+
 ## Flexible PCB Stiffener
 
 Rename KiCad user layers to `F.Stiffener` and/or `B.Stiffener`
