@@ -3,6 +3,8 @@
 
 Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely), modified [pcb-tools](https://github.com/curtacircuitos/pcb-tools), [OpenCV](https://github.com/opencv/opencv-python), [pypdfium2](https://github.com/pypdfium2-team/pypdfium2) and [PUI](https://github.com/buganini/PUI).
 
+Its FreeCAD integration is inspired by [KiCadStepUp](https://github.com/easyw/kicadStepUpMod) and [KiConnect](https://codeberg.org/kiconnect/KiConnect).
+
 It creates a few more dimensions for KiCad:
 * Workspace and project management
 * Revision management
