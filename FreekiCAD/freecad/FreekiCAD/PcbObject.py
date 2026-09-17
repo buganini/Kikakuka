@@ -207,6 +207,16 @@ def _kipy_retry(func, max_retries=15, delay_s=1.0):
     )
 
 
+def _is_kipy_import_error(error):
+    """Return whether *error* means the kicad-python API could not load."""
+    if not isinstance(error, ImportError):
+        return False
+    module_name = str(getattr(error, "name", "") or "")
+    return (module_name == "kipy"
+            or module_name.startswith("kipy.")
+            or "kipy" in str(error).lower())
+
+
 def _kipy_ready_board(kicad, max_retries=15, delay_s=1.0):
     """Return a board proxy after KiCad's board API is ready."""
     from .kicad_api_retry import get_ready_kicad_board
@@ -2058,9 +2068,15 @@ def load_board(filepath, socket_path, import_outer_copper=False,
 
     except Exception as e:
         import traceback
-        FreeCAD.Console.PrintWarning(
-            f"FreekiCAD: Could not load board via kipy: {e}\n"
-        )
+        if _is_kipy_import_error(e):
+            FreeCAD.Console.PrintError(
+                f"FreekiCAD: Could not import kipy: {e}. "
+                "Install kicad-python to load KiCad PCB objects.\n"
+            )
+        else:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Could not load board via kipy: {e}\n"
+            )
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD: Traceback:\n{traceback.format_exc()}\n"
         )

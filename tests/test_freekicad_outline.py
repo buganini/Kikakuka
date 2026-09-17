@@ -145,6 +145,34 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         self.assertEqual(bounds, (0.0, 1.6))
 
+    def test_missing_kipy_is_reported_as_error(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(),
+            PrintWarning=mock.Mock(),
+            PrintError=mock.Mock(),
+        )
+        workspace_bus = types.ModuleType(
+            "FreekiCAD.freecad.FreekiCAD.workspace_bus")
+        workspace_bus.report_error = mock.Mock()
+        blocked_kipy_modules = {
+            name: None
+            for name in sys.modules
+            if name == "kipy" or name.startswith("kipy.")
+        }
+        blocked_kipy_modules["kipy"] = None
+        blocked_kipy_modules[
+            "FreekiCAD.freecad.FreekiCAD.workspace_bus"] = workspace_bus
+
+        with mock.patch.dict(sys.modules, blocked_kipy_modules):
+            result = linked_object.load_board("board.kicad_pcb", "/tmp/kicad")
+
+        error = linked_object.FreeCAD.Console.PrintError.call_args.args[0]
+        self.assertIn("Could not import kipy", error)
+        self.assertIn("Install kicad-python", error)
+        workspace_bus.report_error.assert_called_once()
+        self.assertIsNone(result[0])
+
     def test_single_planar_face_unwraps_boolean_shell(self):
         linked_object = self._import_linked_object()
         face = types.SimpleNamespace(OuterWire=object())

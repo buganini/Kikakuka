@@ -6,6 +6,7 @@
     * Add optional copper, solder-mask, and silkscreen display layers without changing finished component Z
     * Add automatic multi-board alignment and live synchronization through editable couplers
     * Improve linked-file reload reliability, material appearance, and relative-path handling
+    * Report a missing `kicad-python` dependency as an error when loading PCB objects
 * Workspace Manager
     * Serialize simultaneous KiCad editor launches to avoid PID and IPC socket conflicts
 * Panelizer / FabPlan
