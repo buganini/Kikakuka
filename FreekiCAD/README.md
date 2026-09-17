@@ -11,6 +11,7 @@ PCB editing and mechanical assembly.
 - Editing board outlines
 - Importing solid stiffeners from annotated `F.Stiffener` and `B.Stiffener` layers
 - Bending flexible PCBs from a KiCad user layer named `FreekiCAD`
+- Automatically aligning linked PCBs with KiCad coupler footprints
 - Assembling multiple linked PCBs and STEP models
 - Importing and exporting `.kkkk_asm` assembly files
 
@@ -89,6 +90,42 @@ AppImage, use its `--console` mode:
 ```sh
 ./FreeCAD_1.1-Linux-x86_64.AppImage --console kkkk_export.py input.kkkk_asm output.step
 ```
+
+## Coupler-Based PCB Alignment
+
+Use the bundled `CouplerFixed` and `CouplerMoving` KiCad footprints to align
+two linked PCBs. Place `CouplerFixed` on the reference board and
+`CouplerMoving` on the board that should move, then give both footprints the
+same KiCad reference. FreekiCAD moves the entire `CouplerMoving` board so the
+two coupler planes meet face-to-face. `SnapToCoupler` is enabled by default on
+linked PCB objects; disable it to exclude a board from automatic alignment.
+
+Alternatively, place one `CouplerOrigin` footprint on a PCB to align its plane
+with world origin `(0, 0, 0)` at zero rotation and tilt. A PCB may use only one
+positioning source: one `CouplerMoving` or one `CouplerOrigin`. Alignment is
+recalculated in dependency order after linked boards reload and uses the
+coupler planes after flexible-PCB bending.
+
+The plane is defined by the footprint position, board side, rotation, and two
+custom footprint properties:
+
+- `Z` offsets the plane origin along its local Z axis. It defaults to `0 mm`;
+  unitless values are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and
+  `um` are supported. The origin starts at the PCB surface, including board
+  thickness on the front side, and local Z is reversed on the back side.
+- `Tilt` rotates the plane around its local X axis, in degrees, and defaults
+  to `0`. It does not change the Z-offset origin.
+
+Each coupler is represented by a FreeCAD child object whose plane marker is
+hidden by default. Its `X`, `Y`, `Z`, and `Tilt` properties are editable in
+FreeCAD; edits update alignment immediately and are written back to the live
+KiCad footprint. FreekiCAD also checks the live KiCad document every second,
+so unsaved position, side, rotation, `Z`, and `Tilt` edits update the marker
+and alignment. Adding or removing couplers, or changing their identity, takes
+effect after reloading the PCB.
+
+The footprints are available in Kikakuka's
+[`resources/kikakuka.pretty` library][coupler-library].
 
 ## Flexible PCB Stiffener
 
@@ -176,5 +213,6 @@ This repository is a release mirror. Development takes place in the
 [FreekiCAD directory of the Kikakuka repository][upstream].
 
 [upstream]: https://github.com/buganini/Kikakuka/tree/main/FreekiCAD
+[coupler-library]: https://github.com/buganini/Kikakuka/tree/main/resources/kikakuka.pretty
 [fpc-assembly-example]: https://github.com/buganini/Kikakuka/blob/main/samples/fpc-assembly.kkkk_asm
 [fpc-sample]: https://github.com/buganini/Kikakuka/blob/main/samples/fpc.kicad_pcb

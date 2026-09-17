@@ -1,4 +1,4 @@
-# Next:
+# 7.0:
 * FreekiCAD
     * Add named, material-aware solid stiffeners from annotated `F.Stiffener` and `B.Stiffener` layers, cut by same-side solder-mask openings
     * Accept micrometres (`um`) and mils (`mil`, 0.001 inch) for stiffener thickness and coupler Z offsets
