@@ -16,14 +16,18 @@ PCB editing and mechanical assembly.
 - Importing and exporting `.kkkk_asm` assembly files
 
 Both `.kicad_pcb` boards and STEP models remain linked to their external source
-files. A FreeCAD document caches the generated objects and geometry, while
-retaining each source path so the linked object can be reloaded. `AutoReload`
-is enabled by default for both object types and can be disabled independently
-on each linked object.
+files. When an assembly is saved as an `.FCStd` document, that document caches
+the generated objects and geometry while retaining each source path so the
+linked object can be reloaded. `AutoReload` is enabled by default for both
+object types and can be disabled independently on each linked object.
 
-The `.kkkk_asm` format therefore stores the linked source paths, object settings,
-and placements rather than the cached objects or generated geometry. This also
-makes FreekiCAD useful for assembling multiple STEP models without KiCad.
+By contrast, a `.kkkk_asm` manifest never contains cached objects or generated
+geometry. It stores only the linked source paths, object settings, and
+placements, and prefers paths relative to the manifest, falling back to an
+absolute path only when a relative path cannot be represented. On import,
+relative paths are resolved from the manifest's directory and every source is
+loaded fresh. This also makes FreekiCAD useful for assembling multiple STEP
+models without KiCad.
 
 The [FPC assembly example][fpc-assembly-example] shows a `.kkkk_asm` manifest
 containing linked KiCad PCB files.
