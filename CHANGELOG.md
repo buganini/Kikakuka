@@ -10,15 +10,13 @@
     * Report a missing `kicad-python` dependency as an error when loading PCB objects
 * Workspace Manager
     * Serialize simultaneous KiCad editor launches to avoid PID and IPC socket conflicts
-* Panelizer / FabPlan
+* Panelizer / Fabrication Planner
+    * Accept multi-board `.kicad_pcb` files
     * Add `Variable` and `StringTemplate` footprints for build-dependent text
     * Add vertex and midpoint-handle editing for panel holes
     * Rename `.kikit_pnl` to `.kkkk_fab`
     * Rename the Panelizer to Fabrication Planner
     * Preserve FreekiCAD bend drawings across panels using one collision-free canonical layer
-* Footprints
-    * Add editor selection handles to `Variable`, `StringTemplate`, and reference-only placeholder footprints
-* Update multi-board samples, icons, and documentation
 
 # 6.12:
 * Panelizer
