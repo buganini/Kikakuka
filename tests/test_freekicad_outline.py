@@ -898,8 +898,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         )
         self.assertEqual(
             linked_object._footprint_coupler_type(
-                _NamedFootprint("CouplerOrigin", "renamed value")),
-            "CouplerOrigin",
+                _NamedFootprint("CouplerAt", "renamed value")),
+            "CouplerAt",
         )
         self.assertIsNone(
             linked_object._footprint_coupler_type(
@@ -935,6 +935,14 @@ class OutlineWireOrderTests(unittest.TestCase):
         value = linked_object._footprint_field_value(footprint, "Tilt")
 
         self.assertEqual(linked_object._parse_coupler_tilt(value), -12.5)
+
+    def test_coupler_at_coordinates_default_to_mm(self):
+        linked_object = self._import_linked_object()
+
+        self.assertEqual(
+            linked_object._parse_coupler_at_coordinate("12.5", "X"), 12.5)
+        self.assertEqual(
+            linked_object._parse_coupler_at_coordinate("1 in", "Y"), 25.4)
 
     def test_coupler_custom_field_can_be_updated(self):
         linked_object = self._import_linked_object()
@@ -973,6 +981,30 @@ class OutlineWireOrderTests(unittest.TestCase):
             "rotation": 27,
         })
 
+    def test_live_coupler_at_pose_contains_world_target(self):
+        linked_object = self._import_linked_object()
+        from kipy.proto.board.board_types_pb2 import BoardLayer
+
+        footprint = _NamedFootprint("CouplerAt")
+        footprint.reference_field = types.SimpleNamespace(
+            text=types.SimpleNamespace(value="absolute"))
+        footprint.position = types.SimpleNamespace(x=5_000_000, y=-6_000_000)
+        footprint.layer = BoardLayer.BL_F_Cu
+        footprint.orientation = _Angle(10)
+        footprint.texts_and_fields = [
+            _CustomField("TargetX", "12.5 mm"),
+            _CustomField("TargetY", "1 in"),
+            _CustomField("TargetZ", "250 mil"),
+            _CustomField("Tilt", "5 deg"),
+        ]
+
+        pose = linked_object._coupler_pose_from_footprint(footprint, 1.6)
+
+        self.assertEqual(pose["target_x"], 12.5)
+        self.assertEqual(pose["target_y"], 25.4)
+        self.assertEqual(pose["target_z"], 6.35)
+        self.assertEqual(pose["z"], 0)
+
     def test_stored_coupler_poses_are_loaded_from_json(self):
         linked_object = self._import_linked_object()
         obj = types.SimpleNamespace(CouplerPoses=json.dumps([
@@ -991,11 +1023,11 @@ class OutlineWireOrderTests(unittest.TestCase):
         linked_object = self._import_linked_object()
         monitored = [
             {"ref": "pair", "type": "CouplerFixed", "x": 1},
-            {"ref": "origin", "type": "CouplerOrigin", "x": 2},
+            {"ref": "absolute", "type": "CouplerAt", "x": 2},
         ]
         live = [
             {"ref": "new", "type": "CouplerFixed", "x": 30},
-            {"ref": "origin", "type": "CouplerOrigin", "x": 20},
+            {"ref": "absolute", "type": "CouplerAt", "x": 20},
             {"ref": "pair", "type": "CouplerFixed", "x": 10},
         ]
 
@@ -1003,7 +1035,7 @@ class OutlineWireOrderTests(unittest.TestCase):
             monitored, live)
 
         self.assertEqual([pose["ref"] for pose in selected], [
-            "pair", "origin"])
+            "pair", "absolute"])
         self.assertEqual([pose["x"] for pose in selected], [10, 20])
 
     def test_live_coupler_poll_rejects_partial_result(self):
@@ -1191,6 +1223,47 @@ class OutlineWireOrderTests(unittest.TestCase):
         board.update_items.assert_called_once_with([footprint])
         board.push_commit.assert_called_once_with(
             "commit", "Update coupler pair from FreeCAD")
+
+    def test_coupler_at_update_does_not_require_or_write_local_z(self):
+        linked_object = self._import_linked_object()
+        footprint = _NamedFootprint("CouplerAt")
+        footprint.reference_field = types.SimpleNamespace(
+            text=types.SimpleNamespace(value="absolute"))
+        footprint.position = None
+        tilt_field = _CustomField("Tilt", "0 deg")
+        footprint.texts_and_fields = [
+            _CustomField("TargetX", "0 mm"),
+            _CustomField("TargetY", "0 mm"),
+            _CustomField("TargetZ", "0 mm"),
+            tilt_field,
+        ]
+        board = types.SimpleNamespace(
+            get_footprints=mock.Mock(return_value=[footprint]),
+            begin_commit=mock.Mock(return_value="commit"),
+            update_items=mock.Mock(), push_commit=mock.Mock())
+        linked_object._kipy_ready_board = mock.Mock(return_value=board)
+        linked_object._kipy_retry = lambda func: func()
+        vector2 = types.SimpleNamespace(
+            from_xy_mm=mock.Mock(return_value=(1.0, -2.0)))
+        update = {
+            "ref": "absolute", "type": "CouplerAt",
+            "x": 1.0, "y": 2.0, "z": 0.0, "tilt": 15.0,
+        }
+        fake_kicad = types.ModuleType("kipy.kicad")
+        fake_kicad.KiCad = mock.Mock(return_value=object())
+        fake_geometry = types.ModuleType("kipy.geometry")
+        fake_geometry.Vector2 = vector2
+
+        with mock.patch.dict(sys.modules, {
+                "kipy.kicad": fake_kicad,
+                "kipy.geometry": fake_geometry}):
+            linked_object.PcbObject._write_coupler_update_to_kicad(
+                "/tmp/api.sock", "absolute", update)
+
+        self.assertEqual(footprint.position, (1.0, -2.0))
+        self.assertEqual(tilt_field.text.text.value, "15 deg")
+        self.assertIsNone(
+            linked_object._footprint_field_value(footprint, "Z", None))
 
     def test_coupler_update_response_does_not_write_on_main_thread(self):
         linked_object = self._import_linked_object()
@@ -1493,7 +1566,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         fixed_proxy.Type = "PcbObject"
         fixed_proxy._reloading = False
         fixed_proxy._snap_moving_object = mock.Mock(return_value=True)
-        fixed_proxy._snap_origin_object = mock.Mock(return_value=True)
+        fixed_proxy._snap_at_object = mock.Mock(return_value=True)
         moving_proxy = linked_object.PcbObject.__new__(
             linked_object.PcbObject)
         moving_proxy.Type = "PcbObject"
@@ -1505,7 +1578,7 @@ class OutlineWireOrderTests(unittest.TestCase):
             Name="Fixed", Label="fixed", Proxy=fixed_proxy,
             SnapToCoupler=True, CouplerPoses=json.dumps([
                 {"ref": "pair", "type": "CouplerFixed"},
-                {"ref": "origin", "type": "CouplerOrigin"},
+                {"ref": "absolute", "type": "CouplerAt"},
             ]))
         moving = types.SimpleNamespace(
             Name="Moving", Label="moving", Proxy=moving_proxy,
@@ -1518,7 +1591,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         fixed_proxy._reposition_all_coupled_objects(document)
 
-        fixed_proxy._snap_origin_object.assert_called_once()
+        fixed_proxy._snap_at_object.assert_called_once()
         fixed_proxy._snap_moving_object.assert_not_called()
         message = linked_object.FreeCAD.Console.PrintMessage.call_args_list[0]
         self.assertIn("actively rebuilding", message.args[0])
@@ -1527,10 +1600,10 @@ class OutlineWireOrderTests(unittest.TestCase):
         # Waiting for a response leaves the previous board data intact, so it
         # must follow a changed root even though _reloading remains true.
         moving_proxy._in_execute = False
-        moving_proxy._snap_origin_object = mock.Mock(return_value=True)
+        moving_proxy._snap_at_object = mock.Mock(return_value=True)
         moving_proxy._reposition_all_coupled_objects(document)
 
-        moving_proxy._snap_origin_object.assert_called_once()
+        moving_proxy._snap_at_object.assert_called_once()
         moving_proxy._snap_moving_object.assert_called_once()
 
     def test_reload_error_releases_request_and_excludes_stale_board(self):
@@ -1732,10 +1805,10 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy._snap_moving_object.assert_not_called()
         error = linked_object.FreeCAD.Console.PrintError.call_args.args[0]
         self.assertIn("ambiguous board", error)
-        self.assertIn("2 CouplerMoving and 0 CouplerOrigin", error)
+        self.assertIn("2 CouplerMoving and 0 CouplerAt", error)
         self.assertIn("skipping", error)
 
-    def test_origin_coupler_snaps_to_virtual_fixed_coupler_at_world_origin(self):
+    def test_coupler_at_snaps_to_absolute_world_coordinates(self):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Vector = _Vector2D
         linked_object.FreeCAD.Rotation = _Rotation2D
@@ -1745,13 +1818,14 @@ class OutlineWireOrderTests(unittest.TestCase):
             PrintError=mock.Mock())
         proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         proxy.Type = "PcbObject"
-        origin_pose = {
-            "ref": "origin", "type": "CouplerOrigin",
+        at_pose = {
+            "ref": "absolute", "type": "CouplerAt",
             "x": 10, "y": 20, "rotation": 30,
+            "target_x": 12.5, "target_y": -4.25, "target_z": 3.5,
         }
         board = types.SimpleNamespace(
-            Name="Board", Label="origin board", Proxy=proxy,
-            SnapToCoupler=True, CouplerPoses=json.dumps([origin_pose]),
+            Name="Board", Label="absolute board", Proxy=proxy,
+            SnapToCoupler=True, CouplerPoses=json.dumps([at_pose]),
             Placement=_Placement2D(
                 _Vector2D(50, 60, 0), _Rotation2D(None, 45)),
             Group=[])
@@ -1760,16 +1834,16 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         proxy._reposition_all_coupled_objects(document)
 
-        origin_world = board.Placement.multiply(
-            proxy._coupler_placement(origin_pose))
-        self.assertAlmostEqual(origin_world.Base.x, 0)
-        self.assertAlmostEqual(origin_world.Base.y, 0)
-        self.assertAlmostEqual(origin_world.Base.z, 0)
-        self.assertAlmostEqual(origin_world.angle % 360, 180)
+        target_world = board.Placement.multiply(
+            proxy._coupler_placement(at_pose))
+        self.assertAlmostEqual(target_world.Base.x, 12.5)
+        self.assertAlmostEqual(target_world.Base.y, -4.25)
+        self.assertAlmostEqual(target_world.Base.z, 3.5)
+        self.assertAlmostEqual(target_world.angle % 360, 180)
         message = linked_object.FreeCAD.Console.PrintMessage.call_args.args[0]
-        self.assertIn("world origin", message)
+        self.assertIn("world (12.5, -4.25, 3.5)", message)
 
-    def test_origin_and_moving_couplers_report_error_and_skip_positioning(self):
+    def test_coupler_at_and_moving_report_error_and_skip_positioning(self):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
@@ -1782,7 +1856,7 @@ class OutlineWireOrderTests(unittest.TestCase):
             Name="Board", Label="conflicting board", Proxy=proxy,
             SnapToCoupler=True, CouplerPoses=json.dumps([
                 {"ref": "moving", "type": "CouplerMoving"},
-                {"ref": "origin", "type": "CouplerOrigin"},
+                {"ref": "absolute", "type": "CouplerAt"},
             ]))
         document = types.SimpleNamespace(Objects=[board])
         board.Document = document
@@ -1791,7 +1865,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         proxy._snap_moving_object.assert_not_called()
         error = linked_object.FreeCAD.Console.PrintError.call_args.args[0]
-        self.assertIn("1 CouplerMoving and 1 CouplerOrigin", error)
+        self.assertIn("1 CouplerMoving and 1 CouplerAt", error)
         self.assertIn("skipping", error)
 
     def test_coupler_mating_rotates_around_local_y(self):

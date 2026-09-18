@@ -139,28 +139,42 @@ same KiCad reference. FreekiCAD moves the entire `CouplerMoving` board so the
 two coupler planes meet face-to-face. `SnapToCoupler` is enabled by default on
 linked PCB objects; disable it to exclude a board from automatic alignment.
 
-Alternatively, place one `CouplerOrigin` footprint on a PCB to align its plane
-with world origin `(0, 0, 0)` at zero rotation and tilt. A PCB may use only one
-positioning source: one `CouplerMoving` or one `CouplerOrigin`. Alignment is
+Alternatively, place one `CouplerAt` footprint on a PCB to align its plane
+with the absolute FreeCAD world coordinates stored in its `TargetX`,
+`TargetY`, and `TargetZ` properties. All three default to `0 mm`, which
+places the plane at the world origin.
+Usually place `CouplerAt` on B.Cu so the PCB bottom surface is positioned at
+`TargetZ`; use F.Cu only when the top surface should be the reference.
+A PCB may use only one positioning source: one `CouplerMoving` or one
+`CouplerAt`. Alignment is
 recalculated in dependency order after linked boards reload and uses the
 coupler planes after flexible-PCB bending.
 
-The plane is defined by the footprint position, board side, rotation, and two
+The plane is defined by the footprint position, board side, rotation, and
 custom footprint properties:
 
-- `Z` offsets the plane origin along its local Z axis. It defaults to `0 mm`;
-  unitless values are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and
-  `um` are supported. The origin starts at the PCB surface, including board
-  thickness on the front side, and local Z is reversed on the back side.
+- `CouplerFixed` and `CouplerMoving` use `Z` to offset the plane origin along
+  its local Z axis. It defaults to `0 mm`; unitless values are millimetres,
+  and `mm`, `in`, `mil` (`0.001 in`), and `um` are supported. The origin
+  starts at the PCB surface, including board thickness on the front side, and
+  local Z is reversed on the back side.
 - `Tilt` rotates the plane around its local X axis, in degrees, and defaults
   to `0`. It does not change the Z-offset origin.
 
+`CouplerAt` also has `TargetX`, `TargetY`, and `TargetZ` properties for its
+absolute FreeCAD world target. All three default to `0 mm`; unitless values
+are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and `um` are supported.
+It has no local `Z` property. B.Cu is recommended for the usual bottom-surface
+placement at `TargetZ`; use F.Cu only to reference the top surface.
+
 Each coupler is represented by a FreeCAD child object whose plane marker is
-hidden by default. Its `X`, `Y`, `Z`, and `Tilt` properties are editable in
-FreeCAD; edits update alignment immediately and are written back to the live
-KiCad footprint. FreekiCAD also checks the live KiCad document every second,
-so unsaved position, side, rotation, `Z`, and `Tilt` edits update the marker
-and alignment. Adding or removing couplers, or changing their identity, takes
+hidden by default. Its footprint-position and local-plane properties are
+editable in FreeCAD; edits update alignment immediately and are written back
+to the live KiCad footprint. FreekiCAD also checks the live KiCad document
+every second, so unsaved position, side, rotation, and plane-property edits
+update the marker
+and alignment; `CouplerAt` target edits update its absolute alignment as well.
+Adding or removing couplers, or changing their identity, takes
 effect after reloading the PCB.
 
 The footprints are available in Kikakuka's

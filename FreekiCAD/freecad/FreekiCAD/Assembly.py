@@ -256,8 +256,8 @@ def _uses_moving_coupler(obj, assembly_objects):
     if not getattr(obj, "SnapToCoupler", True):
         return False
     moving = _coupler_poses(obj, "CouplerMoving")
-    origins = _coupler_poses(obj, "CouplerOrigin")
-    if len(moving) != 1 or origins:
+    absolute_targets = _coupler_poses(obj, "CouplerAt")
+    if len(moving) != 1 or absolute_targets:
         return False
     reference = moving[0].get("ref")
     if not reference:

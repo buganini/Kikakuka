@@ -25,8 +25,8 @@ COPPER_STRAIN_WARNING = 0.05
 
 COUPLER_MOVING = "CouplerMoving"
 COUPLER_FIXED = "CouplerFixed"
-COUPLER_ORIGIN = "CouplerOrigin"
-_COUPLER_TYPES = {COUPLER_MOVING, COUPLER_FIXED, COUPLER_ORIGIN}
+COUPLER_AT = "CouplerAt"
+_COUPLER_TYPES = {COUPLER_MOVING, COUPLER_FIXED, COUPLER_AT}
 COUPLER_MONITOR_INTERVAL_MS = 1000
 PCB_OBJECT_TYPES = {"PcbObject", "LinkedObject"}
 # Master switch for coupler synchronization in both directions.
@@ -368,6 +368,13 @@ def _parse_coupler_z(value):
     return parse_length_mm(value, "Z")
 
 
+def _parse_coupler_at_coordinate(value, field_name):
+    """Parse an absolute CouplerAt world coordinate in millimetres."""
+    if value is None:
+        return 0.0
+    return parse_length_mm(value, field_name)
+
+
 def _parse_coupler_tilt(value):
     """Parse the coupler-plane tilt around footprint-local X in degrees."""
     if value is None:
@@ -394,19 +401,27 @@ def _coupler_pose_from_footprint(footprint, thickness):
         ref = "?"
     position = footprint.position
     is_back = footprint.layer == BoardLayer.BL_B_Cu
-    return {
+    pose = {
         'ref': ref,
         'type': coupler_type,
         'x': position.x / 1e6,
         'y': -position.y / 1e6,
         'board_z': 0.0 if is_back else thickness,
         'is_back': is_back,
-        'z': _parse_coupler_z(
-            _footprint_field_value(footprint, 'Z', 0)),
+        'z': (0.0 if coupler_type == COUPLER_AT else _parse_coupler_z(
+            _footprint_field_value(footprint, 'Z', 0))),
         'tilt': _parse_coupler_tilt(
             _footprint_field_value(footprint, 'Tilt', 0)),
         'rotation': _coupler_rotation_degrees(footprint),
     }
+    if coupler_type == COUPLER_AT:
+        pose['target_x'] = _parse_coupler_at_coordinate(
+            _footprint_field_value(footprint, 'TargetX', 0), 'TargetX')
+        pose['target_y'] = _parse_coupler_at_coordinate(
+            _footprint_field_value(footprint, 'TargetY', 0), 'TargetY')
+        pose['target_z'] = _parse_coupler_at_coordinate(
+            _footprint_field_value(footprint, 'TargetZ', 0), 'TargetZ')
+    return pose
 
 
 def _select_monitored_coupler_poses(monitored, live):
@@ -435,7 +450,7 @@ def _coupler_pose_signature(poses):
     """Return the live fields which affect coupler placement."""
     fields = (
         'ref', 'type', 'x', 'y', 'board_z', 'is_back', 'z', 'tilt',
-        'rotation')
+        'rotation', 'target_x', 'target_y', 'target_z')
     return tuple(tuple(pose.get(field) for field in fields) for pose in poses)
 
 
@@ -2553,7 +2568,7 @@ class PcbObject:
         obj.Label2 = "AutoReload=On"
         obj.addProperty(
             "App::PropertyBool", "SnapToCoupler", "LinkedFile",
-            "Enable CouplerMoving or CouplerOrigin positioning"
+            "Enable CouplerMoving or CouplerAt positioning"
         )
         obj.SnapToCoupler = True
         obj.addProperty(
@@ -3605,9 +3620,10 @@ class PcbObject:
         pose.update({
             'x': _quantity_value(marker.X),
             'y': _quantity_value(marker.Y),
-            'z': _quantity_value(marker.Z),
             'tilt': _quantity_value(marker.Tilt),
         })
+        pose['z'] = (0.0 if coupler_type == COUPLER_AT
+                     else _quantity_value(marker.Z))
         obj.CouplerPoses = json.dumps(poses)
         placement = self._coupler_placement(pose)
         self._updating_coupler_markers = True
@@ -3714,7 +3730,9 @@ class PcbObject:
         if target_fp is None:
             raise ValueError(f"coupler '{reference}' not found in KiCad")
 
-        missing = [name for name in ('Z', 'Tilt')
+        required_fields = (('Tilt',) if update['type'] == COUPLER_AT
+                           else ('Z', 'Tilt'))
+        missing = [name for name in required_fields
                    if _footprint_field_value(target_fp, name, None) is None]
         if missing:
             raise ValueError(
@@ -3723,9 +3741,10 @@ class PcbObject:
         commit = board.begin_commit()
         target_fp.position = Vector2.from_xy_mm(
             update['x'], -update['y'])
-        if not _set_footprint_field_value(
-                target_fp, 'Z', f"{update['z']:.12g} mm"):
-            raise ValueError("could not update coupler field Z")
+        if update['type'] != COUPLER_AT:
+            if not _set_footprint_field_value(
+                    target_fp, 'Z', f"{update['z']:.12g} mm"):
+                raise ValueError("could not update coupler field Z")
         if not _set_footprint_field_value(
                 target_fp, 'Tilt', f"{update['tilt']:.12g} deg"):
             raise ValueError("could not update coupler field Tilt")
@@ -3932,7 +3951,7 @@ class PcbObject:
 
             marker.addProperty(
                 "App::PropertyString", "CouplerType", "Coupler",
-                "CouplerFixed, CouplerMoving, or CouplerOrigin")
+                "CouplerFixed, CouplerMoving, or CouplerAt")
             marker.addProperty(
                 "App::PropertyString", "Reference", "Coupler",
                 "KiCad reference used to match the coupler")
@@ -3942,9 +3961,10 @@ class PcbObject:
             marker.addProperty(
                 "App::PropertyDistance", "Y", "Coupler",
                 "Coupler footprint Y coordinate (FreeCAD convention)")
-            marker.addProperty(
-                "App::PropertyDistance", "Z", "Coupler",
-                "Coupler-plane displacement")
+            if coupler_type != COUPLER_AT:
+                marker.addProperty(
+                    "App::PropertyDistance", "Z", "Coupler",
+                    "Coupler-plane displacement")
             marker.addProperty(
                 "App::PropertyAngle", "Tilt", "Coupler",
                 "Coupler-plane tilt around footprint-local X")
@@ -3952,7 +3972,8 @@ class PcbObject:
             marker.Reference = str(ref)
             marker.X = float(pose.get('x', 0))
             marker.Y = float(pose.get('y', 0))
-            marker.Z = z
+            if coupler_type != COUPLER_AT:
+                marker.Z = z
             marker.Tilt = float(pose.get('tilt', 0))
             for prop in ('CouplerType', 'Reference'):
                 try:
@@ -4109,24 +4130,32 @@ class PcbObject:
                 f"'{fixed_obj.Label}': {ex}\n")
             return False
 
-    def _snap_origin_object(self, moving_obj, origin_pose):
-        """Mate an origin coupler with a virtual fixed coupler at world zero."""
+    def _snap_at_object(self, moving_obj, at_pose):
+        """Mate a CouplerAt with a virtual fixed coupler at world X/Y/Z."""
         try:
             moving_local = self._coupler_local_placement(
-                moving_obj, origin_pose)
-            target_world = self._coupler_mating_placement()
+                moving_obj, at_pose)
+            target_world = FreeCAD.Placement(
+                FreeCAD.Vector(
+                    float(at_pose.get('target_x', 0)),
+                    float(at_pose.get('target_y', 0)),
+                    float(at_pose.get('target_z', 0))),
+                FreeCAD.Rotation()).multiply(
+                    self._coupler_mating_placement())
             moving_obj.Placement = target_world.multiply(
                 moving_local.inverse())
             self._log_coupler_alignment(
-                moving_obj, origin_pose, target_world)
+                moving_obj, at_pose, target_world)
             FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Snapped '{moving_obj.Label}' CouplerOrigin "
-                "to world origin face-to-face\n")
+                f"FreekiCAD: Snapped '{moving_obj.Label}' CouplerAt "
+                f"to world ({at_pose.get('target_x', 0):.6g}, "
+                f"{at_pose.get('target_y', 0):.6g}, "
+                f"{at_pose.get('target_z', 0):.6g}) face-to-face\n")
             return True
         except Exception as ex:
             FreeCAD.Console.PrintWarning(
                 f"FreekiCAD: Could not snap '{moving_obj.Label}' to "
-                f"world origin: {ex}\n")
+                f"CouplerAt target: {ex}\n")
             return False
 
     def _reposition_all_coupled_objects(self, doc):
@@ -4172,26 +4201,25 @@ class PcbObject:
                     continue
                 fixed_by_ref[ref] = (fixed_obj, pose)
 
-        # A moving object may have exactly one positioning source.  An origin
-        # coupler mates with a virtual fixed coupler at world (0, 0, 0).
+        # A moving object may have exactly one positioning source.  CouplerAt
+        # mates with a virtual fixed coupler at its absolute world X/Y/Z.
         assignments = {}
         for moving_obj in linked:
             moving_poses = self._coupler_poses(
                 moving_obj, COUPLER_MOVING)
-            origin_poses = self._coupler_poses(
-                moving_obj, COUPLER_ORIGIN)
-            if len(moving_poses) + len(origin_poses) > 1:
+            at_poses = self._coupler_poses(moving_obj, COUPLER_AT)
+            if len(moving_poses) + len(at_poses) > 1:
                 FreeCAD.Console.PrintError(
                     f"FreekiCAD: '{moving_obj.Label}' has "
                     f"{len(moving_poses)} CouplerMoving and "
-                    f"{len(origin_poses)} CouplerOrigin footprints; "
+                    f"{len(at_poses)} CouplerAt footprints; "
                     "skipping coupler positioning for this object\n")
                 continue
             if not getattr(moving_obj, 'SnapToCoupler', True):
                 continue
-            if origin_poses:
+            if at_poses:
                 assignments[moving_obj.Name] = (
-                    moving_obj, origin_poses[0], None, None)
+                    moving_obj, at_poses[0], None, None)
                 continue
             for moving_pose in moving_poses:
                 match = fixed_by_ref.get(moving_pose.get('ref'))
@@ -4224,7 +4252,7 @@ class PcbObject:
             moving_obj, moving_pose, fixed_obj, fixed_pose = \
                 assignments[moving_name]
             if fixed_obj is None:
-                snapped = self._snap_origin_object(
+                snapped = self._snap_at_object(
                     moving_obj, moving_pose)
             else:
                 snapped = self._snap_moving_object(
@@ -12048,7 +12076,7 @@ class PcbObject:
         if not hasattr(obj, 'SnapToCoupler'):
             obj.addProperty(
                 "App::PropertyBool", "SnapToCoupler", "LinkedFile",
-                "Enable CouplerMoving or CouplerOrigin positioning")
+                "Enable CouplerMoving or CouplerAt positioning")
             obj.SnapToCoupler = True
         if not hasattr(obj, 'CouplerPoses'):
             obj.addProperty(
