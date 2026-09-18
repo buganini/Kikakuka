@@ -47,7 +47,7 @@ It creates a few more dimensions for KiCad:
     * Requires FreeCAD 1.0 or later
     * `FreekiCAD` creates linked FreeCAD objects for external `.kicad_pcb` and STEP files; an `.FCStd` document caches generated geometry while retaining the reloadable source paths
     * Import and export lightweight `.kkkk_asm` assembly manifests as JSON; manifests contain no cached geometry, prefer source paths relative to the manifest, and freshly load every external source when imported
-    * Designed to work with the `Assembly` and `Manipulator` workbenches, as well as FreeCAD's built-in transform tool; alternatively, use the automatic coupler-based PCB alignment described below.
+    * Linked objects work with the `Assembly` and `Manipulator` workbenches, as well as FreeCAD's built-in transform tool; exporting selected `App::Link` instances or an Assembly to `.kkkk_asm` flattens their final global placements
     * A sketch is provided for real-time board outline editing in FreeCAD
     * Components moved in FreeCAD are synced to KiCad in real time
     * `AutoReload` is enabled by default for both linked PCB and STEP objects; source-file changes are reloaded automatically, with manual reload also available
@@ -178,10 +178,12 @@ object. The option can be disabled independently for each object.
         * The selected STEP model remains an external file. Its `AutoReload` property defaults to enabled, and its Placement is preserved when the source file is manually or automatically reloaded.
     * Reload PCB
         * Right-click on the board object -> Reload KiCad PCB
-    * Save or load an assembly manifest
-        * Use FreeCAD's standard Import/Export commands and select `FreekiCAD Assembly (*.kkkk_asm)`.
+    * Export or import an assembly manifest
+        * Use FreeCAD's standard Export command to write `.kkkk_asm`, or its Import command to read `.kkkk_asm`; select `FreekiCAD Assembly (*.kkkk_asm)` as the file type.
         * The JSON stores only each external PCB or STEP source path, editable FreekiCAD settings, and its placement. It contains no cached objects or generated geometry, and every external source is loaded fresh during import. Export prefers paths relative to the manifest and falls back to absolute paths only when necessary; relative paths are resolved from the manifest's directory. FreeCAD regenerates object names and labels during import.
-        * Placement is omitted for a `CouplerMoving` board when the same export contains its matching `CouplerFixed` board; coupler alignment recalculates that placement after import.
+        * Selecting an original `PcbObject` or `StepObject` exports its own Placement. Selecting one or more `App::Link` instances exports each linked source at that instance's final global placement. Selecting an `Assembly::AssemblyObject` recursively expands its direct and nested Links, including multiple instances of the same source.
+        * Assembly and Link exports are flattened placement snapshots; `.kkkk_asm` does not store Links, joints, constraints, remaining degrees of freedom, or the Assembly hierarchy. A linked PCB snapshot is exported with `SnapToCoupler` disabled in the manifest so coupler alignment cannot overwrite its solved Assembly placement; the source `PcbObject` in the current FreeCAD document is not modified.
+        * When original PCB source objects are selected directly, Placement is omitted for a `CouplerMoving` board if the same export contains its matching `CouplerFixed` board; coupler alignment recalculates that placement after import.
         * Headless STEP export: `freecadcmd kkkk_export.py input.kkkk_asm output.step`. See [Headless Assembly Export](FreekiCAD/README.md#headless-assembly-export) for platform-specific paths and requirements.
     * Edit Board Shape
         * Expand the object's children.

@@ -355,6 +355,23 @@ class OutlineWireOrderTests(unittest.TestCase):
             "/project/boards/power.kicad_pcb",
         )
 
+    def test_repeated_pcb_filename_event_does_not_trigger_reload(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy._last_filename = "/project/boards/power.kicad_pcb"
+        proxy._remove_children = mock.Mock()
+        obj = types.SimpleNamespace(
+            FileName="boards/power.kicad_pcb", FileMtime="123",
+            Label="power",
+            Document=types.SimpleNamespace(
+                Restoring=False, FileName="/project/assembly.FCStd"),
+        )
+
+        proxy.onChanged(obj, "FileName")
+
+        self.assertEqual(obj.FileMtime, "123")
+        proxy._remove_children.assert_not_called()
+
     def test_new_linked_object_does_not_import_copper_by_default(self):
         linked_object = self._import_linked_object()
 
@@ -391,6 +408,53 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(obj.FileMtime, "loaded")
         proxy._schedule_surface_reload.assert_called_once_with(
             obj, property_name="ImportSilkscreen")
+
+    def test_duplicate_surface_property_events_do_not_reload(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy._schedule_surface_reload = mock.Mock()
+        properties = {
+            "ImportOuterCopper": True,
+            "ImportInnerCopper": False,
+            "ImportSolderMask": True,
+            "ImportSilkscreen": False,
+        }
+        proxy._rebuild_setting_values = dict(properties)
+        obj = types.SimpleNamespace(
+            Document=types.SimpleNamespace(Restoring=False), **properties)
+
+        for prop in properties:
+            proxy.onChanged(obj, prop)
+
+        proxy._schedule_surface_reload.assert_not_called()
+
+    def test_changed_surface_property_still_reloads(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy._schedule_surface_reload = mock.Mock()
+        proxy._rebuild_setting_values = {"ImportSilkscreen": False}
+        obj = types.SimpleNamespace(
+            Document=types.SimpleNamespace(Restoring=False),
+            ImportSilkscreen=True)
+
+        proxy.onChanged(obj, "ImportSilkscreen")
+
+        proxy._schedule_surface_reload.assert_called_once_with(
+            obj, property_name="ImportSilkscreen")
+
+    def test_disabling_snap_to_coupler_does_not_reload(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        proxy._schedule_surface_reload = mock.Mock()
+        proxy._schedule_rebend = mock.Mock()
+        obj = types.SimpleNamespace(
+            Document=types.SimpleNamespace(Restoring=False),
+            SnapToCoupler=False)
+
+        proxy.onChanged(obj, "SnapToCoupler")
+
+        proxy._schedule_surface_reload.assert_not_called()
+        proxy._schedule_rebend.assert_not_called()
 
     def test_surface_reload_restarts_pending_timer_and_reloads_immediately(self):
         linked_object = self._import_linked_object()
@@ -484,6 +548,14 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         proxy._on_outline_edit_start.assert_not_called()
         proxy._on_outline_changed.assert_not_called()
+
+    def test_outline_observer_ignores_assembly_view_provider(self):
+        linked_object = self._import_linked_object()
+        observer = linked_object._OutlineSketchObserver()
+        assembly_view_provider = types.SimpleNamespace()
+
+        observer.slotInEdit(assembly_view_provider)
+        observer.slotResetEdit(assembly_view_provider)
 
     def test_linked_filename_becomes_relative_for_document_descendant(self):
         linked_object = self._import_linked_object()

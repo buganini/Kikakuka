@@ -79,21 +79,48 @@ class StepObjectTests(unittest.TestCase):
             os.path.normpath("/project/models/case.stp"),
         )
 
-    def test_execute_respects_disabled_autoreload_after_first_load(self):
+    def test_recompute_does_not_reload_external_file(self):
         proxy = self.module.StepObject.__new__(self.module.StepObject)
         proxy._reloading = False
         proxy.reload = mock.Mock()
         proxy._check_file_changed = mock.Mock(return_value=True)
         obj = types.SimpleNamespace(
-            FileName="case.step", FileMtime="123", AutoReload=False)
+            FileName="case.step", FileMtime="", AutoReload=True)
 
         proxy.execute(obj)
 
         proxy.reload.assert_not_called()
+        proxy._check_file_changed.assert_not_called()
 
-        obj.FileMtime = ""
-        proxy.execute(obj)
+    def test_watcher_loads_new_object_even_when_autoreload_is_disabled(self):
+        proxy = types.SimpleNamespace(
+            _check_file_changed=mock.Mock(return_value=True),
+            reload=mock.Mock(),
+        )
+        obj = types.SimpleNamespace(
+            FileName="case.step", FileMtime="", AutoReload=False,
+            Proxy=proxy, Document=types.SimpleNamespace(Restoring=False))
+        view_object = types.SimpleNamespace(Object=obj)
+        view_proxy = self.module.StepObjectViewProvider.__new__(
+            self.module.StepObjectViewProvider)
+
+        view_proxy._auto_reload(view_object)
+
         proxy.reload.assert_called_once_with(obj, force=True)
+
+    def test_repeated_filename_event_does_not_clear_mtime(self):
+        document = types.SimpleNamespace(
+            Restoring=False, FileName="/project/assembly.FCStd")
+        obj = types.SimpleNamespace(
+            FileName="models/case.step", FileMtime="123",
+            Label="case", Document=document)
+        proxy = self.module.StepObject.__new__(self.module.StepObject)
+        proxy._reloading = False
+        proxy._last_filename = "/project/models/case.step"
+
+        proxy.onChanged(obj, "FileName")
+
+        self.assertEqual(obj.FileMtime, "123")
 
     def test_create_object_skips_view_provider_in_headless_mode(self):
         class HeadlessObject:

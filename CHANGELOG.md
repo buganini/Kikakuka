@@ -1,3 +1,9 @@
+# 7.3:
+* FreekiCAD
+    * Export FreeCAD Assembly and `App::Link` instances as flattened `.kkkk_asm` placement snapshots
+    * Avoid unnecessary linked-file reloads during Assembly workbench recomputes
+    * Ignore unrelated Assembly workbench edit events in the PCB outline observer
+
 # 7.1:
 * FreekiCAD
     * Add named, material-aware solid stiffeners from annotated `F.Stiffener` and `B.Stiffener` layers, cut by same-side solder-mask openings

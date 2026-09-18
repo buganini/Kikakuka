@@ -29,6 +29,17 @@ PCB_OBJECT_SETTINGS = (
 )
 
 
+class _ExportInstance:
+    """One source object at the placement selected for manifest export."""
+
+    __slots__ = ("source", "placement", "snapshot")
+
+    def __init__(self, source, placement, snapshot=False):
+        self.source = source
+        self.placement = placement
+        self.snapshot = bool(snapshot)
+
+
 def _component(value, lower_name, upper_name):
     if hasattr(value, lower_name):
         return float(getattr(value, lower_name))
@@ -116,7 +127,114 @@ def _object_type(obj):
 
 
 def _is_supported_object(obj):
+    if str(getattr(obj, "TypeId", "") or "") in (
+            "App::Link", "App::LinkElement"):
+        return False
     return _object_type(obj) in ("PcbObject", "StepObject")
+
+
+def _is_link(obj):
+    type_id = str(getattr(obj, "TypeId", "") or "")
+    if type_id in ("App::Link", "App::LinkElement"):
+        return True
+    try:
+        return bool(obj.isDerivedFrom("App::Link"))
+    except (AttributeError, TypeError, RuntimeError):
+        return False
+
+
+def _linked_object(link):
+    target = getattr(link, "LinkedObject", None)
+    if isinstance(target, (tuple, list)):
+        target = target[0] if target else None
+    if target is not None:
+        return target
+    try:
+        return link.getLinkedObject(False)
+    except (AttributeError, TypeError, RuntimeError):
+        try:
+            return link.getLinkedObject()
+        except (AttributeError, TypeError, RuntimeError):
+            return None
+
+
+def _global_placement(obj):
+    try:
+        return obj.getGlobalPlacement()
+    except (AttributeError, TypeError, RuntimeError):
+        return obj.Placement
+
+
+def _mapped_placement(rebase, placement):
+    return placement if rebase is None else rebase.multiply(placement)
+
+
+def _container_children(obj):
+    try:
+        return list(obj.Group)
+    except (AttributeError, TypeError, RuntimeError):
+        return []
+
+
+def _collect_instance_node(obj, instances, rebase=None, path=None):
+    """Flatten links and containers into positioned source instances.
+
+    ``rebase`` maps an object's native document-global placement into the
+    selected link instance.  This is needed when an App::Link points at an
+    Assembly or App::Part whose children live in another hierarchy.
+    """
+    if obj is None:
+        return
+    path = set() if path is None else set(path)
+    identity = id(obj)
+    if identity in path:
+        return
+    path.add(identity)
+
+    if _is_link(obj):
+        target = _linked_object(obj)
+        if target is None:
+            return
+        link_global = _mapped_placement(rebase, _global_placement(obj))
+        if _is_supported_object(target):
+            instances.append(_ExportInstance(target, link_global, True))
+            return
+
+        try:
+            target_rebase = link_global.multiply(
+                _global_placement(target).inverse())
+        except (AttributeError, TypeError, RuntimeError):
+            return
+        _collect_instance_node(
+            target, instances, rebase=target_rebase, path=path)
+        return
+
+    if _is_supported_object(obj):
+        instances.append(_ExportInstance(
+            obj, _mapped_placement(rebase, _global_placement(obj)), True))
+        return
+
+    for child in _container_children(obj):
+        _collect_instance_node(child, instances, rebase=rebase, path=path)
+
+
+def _collect_export_instances(export_list):
+    """Resolve selected sources, links, and assemblies for export.
+
+    Selecting a source object preserves its own Placement and dynamic coupler
+    semantics.  Selecting a link or container creates flattened placement
+    snapshots of the selected instances instead.
+    """
+    instances = []
+    for obj in export_list:
+        if _is_link(obj):
+            _collect_instance_node(obj, instances)
+        elif _is_supported_object(obj):
+            instances.append(_ExportInstance(
+                obj, obj.Placement, snapshot=False))
+        else:
+            _collect_instance_node(obj, instances)
+    return instances
 
 
 def _coupler_poses(obj, coupler_type):
@@ -154,7 +272,8 @@ def _uses_moving_coupler(obj, assembly_objects):
     )
 
 
-def _object_to_json(obj, filename, assembly_objects):
+def _object_to_json(instance, filename, assembly_objects):
+    obj = instance.source
     object_type = _object_type(obj)
     source_path = _resolved_object_path(obj)
     if not source_path:
@@ -172,6 +291,11 @@ def _object_to_json(obj, filename, assembly_objects):
             continue
         value = getattr(obj, name)
         settings[name] = str(value) if name == "WedgeMode" else bool(value)
+    if instance.snapshot and object_type == "PcbObject":
+        # An Assembly/App::Link export is a flattened pose snapshot.  Do not
+        # let coupler positioning overwrite that solved instance placement
+        # when the manifest is imported.
+        settings["SnapToCoupler"] = False
     data = {
         "type": object_type,
         "file": _stored_path(source_path, filename),
@@ -179,22 +303,32 @@ def _object_to_json(obj, filename, assembly_objects):
     }
     # CouplerMoving placement is derived state.  Omitting it avoids briefly
     # restoring a stale transform before the linked boards finish loading.
-    if (object_type == "StepObject"
+    if (instance.snapshot
+            or object_type == "StepObject"
             or not _uses_moving_coupler(obj, assembly_objects)):
-        data["placement"] = _placement_to_json(obj.Placement)
+        data["placement"] = _placement_to_json(instance.placement)
     return data
 
 
 def export(export_list, filename):
-    """Write selected FreekiCAD linked objects to a ``.kkkk_asm`` file."""
-    objects = [obj for obj in export_list if _is_supported_object(obj)]
-    if not objects:
-        raise ValueError("select at least one FreekiCAD linked object to export")
+    """Write selected FreekiCAD sources or instances to a manifest."""
+    instances = _collect_export_instances(export_list)
+    if not instances:
+        raise ValueError(
+            "select a FreekiCAD linked object, App::Link, or Assembly "
+            "containing one to export")
+
+    # Coupler-derived placement omission applies only when source objects are
+    # exported directly.  Flattened link instances always carry an explicit
+    # placement and disable SnapToCoupler in their own manifest entry.
+    assembly_objects = [
+        instance.source for instance in instances if not instance.snapshot
+    ]
 
     data = {
         "objects": [
-            _object_to_json(obj, filename, objects)
-            for obj in objects
+            _object_to_json(instance, filename, assembly_objects)
+            for instance in instances
         ],
     }
     with builtins.open(filename, "w", encoding="utf-8", newline="\n") as stream:

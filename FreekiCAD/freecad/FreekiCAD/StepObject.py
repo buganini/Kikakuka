@@ -42,6 +42,7 @@ class StepObject:
         self.Type = "StepObject"
         self._reloading = False
         self._export_face_colors = None
+        self._last_filename = ""
 
     def onDocumentRestored(self, obj):
         if not hasattr(obj, "AutoReload"):
@@ -56,12 +57,17 @@ class StepObject:
             obj.setPropertyStatus("FileMtime", "Hidden")
         self._reloading = False
         self._export_face_colors = None
+        self._last_filename = _resolved_filename(obj)
 
     def onChanged(self, obj, prop):
         if prop != "FileName" or getattr(self, "_reloading", False):
             return
         if getattr(getattr(obj, "Document", None), "Restoring", False):
             return
+        filename = _resolved_filename(obj)
+        if filename == getattr(self, "_last_filename", None):
+            return
+        self._last_filename = filename
         if obj.FileName:
             obj.Label = os.path.splitext(os.path.basename(obj.FileName))[0]
         if hasattr(obj, "FileMtime"):
@@ -82,11 +88,10 @@ class StepObject:
         return mtime != stored_mtime
 
     def execute(self, obj):
-        if not obj.FileName:
-            return
-        first_load = not str(getattr(obj, "FileMtime", "") or "")
-        if first_load or (obj.AutoReload and self._check_file_changed(obj)):
-            self.reload(obj, force=first_load)
+        # Assembly solving can recompute the document continuously.  External
+        # file loading is intentionally owned by the GUI watcher (or an
+        # explicit headless reload), not by recompute.
+        pass
 
     def reload(self, obj, force=False):
         if getattr(self, "_reloading", False):
@@ -154,8 +159,10 @@ class StepObjectViewProvider:
             return
         if getattr(obj.Document, "Restoring", False) or not obj.FileName:
             return
-        if obj.AutoReload and obj.Proxy._check_file_changed(obj):
-            obj.Proxy.reload(obj)
+        first_load = not str(getattr(obj, "FileMtime", "") or "")
+        if ((first_load or obj.AutoReload)
+                and obj.Proxy._check_file_changed(obj)):
+            obj.Proxy.reload(obj, force=first_load)
 
     def setupContextMenu(self, view_object, menu):
         action = menu.addAction("Reload STEP")

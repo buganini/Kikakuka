@@ -95,6 +95,33 @@ AppImage, use its `--console` mode:
 ./FreeCAD_1.1-Linux-x86_64.AppImage --console kkkk_export.py input.kkkk_asm output.step
 ```
 
+## FreeCAD Assembly Workbench
+
+FreekiCAD `PcbObject` and `StepObject` objects can be inserted as components in
+FreeCAD's built-in Assembly workbench. Assembly creates an `App::Link` for each
+instance, so one linked source may be used multiple times with independent
+placements and joints while source-file reloads continue to update its
+geometry.
+
+When exporting `.kkkk_asm`, the selection determines which placement is
+exported:
+
+- Selecting an original `PcbObject` or `StepObject` exports that source
+  object's own Placement.
+- Selecting an `App::Link` exports its linked source at the instance's final
+  global placement.
+- Selecting an `Assembly::AssemblyObject` recursively expands its direct and
+  nested Links. Multiple Links to the same source are exported as separate
+  manifest entries at their respective final global placements.
+
+An Assembly or Link export is a flattened placement snapshot. The manifest
+does not preserve `App::Link` objects, joints, constraints, remaining degrees
+of freedom, or Assembly hierarchy. Importing it creates independent linked
+objects at the solved positions. For a PCB exported through an `App::Link`,
+the manifest entry sets `SnapToCoupler` to false so coupler alignment cannot
+replace the Assembly placement. This does not change `SnapToCoupler` on the
+source object in the current FreeCAD document.
+
 ## Coupler-Based PCB Alignment
 
 Use the bundled `CouplerFixed` and `CouplerMoving` KiCad footprints to align

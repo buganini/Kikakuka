@@ -2090,8 +2090,16 @@ class _OutlineSketchObserver:
     def slotInEdit(self, vobj):
         """Called when an object enters edit mode (sketch editor opened).
         Note: Gui observer passes the ViewProvider, not the App object."""
-        obj = vobj.Object
-        if getattr(obj.Document, 'Restoring', False):
+        # GUI document observers receive edit events from every workbench.
+        # AssemblyGui.ViewProviderAssembly, for example, has no Object
+        # attribute and is unrelated to the FreekiCAD outline editor.
+        try:
+            obj = vobj.Object
+        except (AttributeError, ReferenceError):
+            return
+        if obj is None:
+            return
+        if getattr(getattr(obj, 'Document', None), 'Restoring', False):
             return
         parent = self._find_linked_parent(obj)
         if parent and hasattr(parent, "Proxy"):
@@ -2280,8 +2288,13 @@ class _OutlineSketchObserver:
     def slotResetEdit(self, vobj):
         """Called when an object exits edit mode (sketch/transform closed).
         Note: Gui observer passes the ViewProvider, not the App object."""
-        obj = vobj.Object
-        if getattr(obj.Document, 'Restoring', False):
+        try:
+            obj = vobj.Object
+        except (AttributeError, ReferenceError):
+            return
+        if obj is None:
+            return
+        if getattr(getattr(obj, 'Document', None), 'Restoring', False):
             return
         pass
 
@@ -2395,6 +2408,11 @@ class PcbObject:
     _SURFACE_RELOAD_DEBOUNCE_MS = 2000
     _COMPONENT_MOVE_DEBOUNCE_MS = 200
     _COMPONENT_SYNC_GRACE_MS = 200
+    _REBEND_PROPERTIES = (
+        "EnableBending", "BuildDebugObjects", "DebugBoard", "WedgeMode")
+    _SURFACE_PROPERTIES = (
+        "ImportOuterCopper", "ImportInnerCopper",
+        "ImportSolderMask", "ImportSilkscreen")
 
 
     def __init__(self, obj):
@@ -2474,6 +2492,8 @@ class PcbObject:
         self.Type = "PcbObject"
         self._board_color = None
         self._export_face_colors = {}
+        self._last_filename = ""
+        self._remember_rebuild_settings(obj)
         self._ensure_rebend_timer_state()
         self._ensure_surface_reload_timer_state()
         self._ensure_component_sync_state()
@@ -2483,6 +2503,8 @@ class PcbObject:
         """Migrate saved coupler markers to the editable property set."""
         self._export_face_colors = {}
         self._ensure_properties(obj)
+        self._last_filename = _resolved_linked_filename(obj)
+        self._remember_rebuild_settings(obj)
         poses = self._coupler_poses(obj)
         for marker in getattr(obj, 'Group', []):
             if not hasattr(marker, 'CouplerType'):
@@ -2508,14 +2530,42 @@ class PcbObject:
             if getattr(marker, 'TypeId', '') == 'Part::FeaturePython':
                 CouplerMarker(marker)
 
+    @staticmethod
+    def _rebuild_setting_value(obj, prop):
+        value = getattr(obj, prop, None)
+        return str(value) if prop == "WedgeMode" else bool(value)
+
+    def _remember_rebuild_settings(self, obj):
+        self._rebuild_setting_values = {
+            prop: self._rebuild_setting_value(obj, prop)
+            for prop in self._REBEND_PROPERTIES + self._SURFACE_PROPERTIES
+            if hasattr(obj, prop)
+        }
+
+    def _rebuild_setting_changed(self, obj, prop):
+        values = getattr(self, '_rebuild_setting_values', None)
+        value = self._rebuild_setting_value(obj, prop)
+        if values is None:
+            self._rebuild_setting_values = {prop: value}
+            return True
+        previous = values.get(prop, object())
+        values[prop] = value
+        return previous != value
+
     def onChanged(self, obj, prop):
-        if prop in ("EnableBending", "BuildDebugObjects", "DebugBoard",
-                    "WedgeMode"):
+        # This only enables or disables placement derived from already-loaded
+        # CouplerPoses.  It does not affect PCB geometry or require a reload.
+        if prop == "SnapToCoupler":
+            return
+        if prop in self._REBEND_PROPERTIES:
+            if not self._rebuild_setting_changed(obj, prop):
+                return
             if not obj.Document.Restoring:
                 self._schedule_rebend(obj)
             return
-        if prop in ("ImportOuterCopper", "ImportInnerCopper",
-                    "ImportSolderMask", "ImportSilkscreen"):
+        if prop in self._SURFACE_PROPERTIES:
+            if not self._rebuild_setting_changed(obj, prop):
+                return
             if not obj.Document.Restoring:
                 self._schedule_surface_reload(obj, property_name=prop)
             return
@@ -2533,6 +2583,10 @@ class PcbObject:
             # Skip during document restore — shapes are already saved
             if obj.Document.Restoring:
                 return
+            filename = _resolved_linked_filename(obj)
+            if filename == getattr(self, '_last_filename', None):
+                return
+            self._last_filename = filename
             if obj.FileName:
                 obj.Label = os.path.splitext(os.path.basename(obj.FileName))[0]
             self._suppress_execute = True
@@ -11875,15 +11929,12 @@ class PcbObject:
                 "App::PropertyBool", "DebugBoard", "LinkedFile",
                 "Show each board piece as a separate child object")
             obj.DebugBoard = False
-        mode_value = self._normalize_wedge_mode_value(
-            getattr(obj, 'WedgeMode', None))
-
         if not hasattr(obj, 'WedgeMode'):
             obj.addProperty(
                 "App::PropertyEnumeration", "WedgeMode", "LinkedFile",
                 "Wedge rendering mode: Smooth or Wireframe")
-        obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
-        obj.WedgeMode = mode_value
+            obj.WedgeMode = list(self._WEDGE_MODE_OPTIONS)
+            obj.WedgeMode = "Smooth"
         # Remove obsolete properties from older saved files.
         for prop in list(obj.PropertiesList):
             if obj.getGroupOfProperty(prop) == "LinkedFile" \

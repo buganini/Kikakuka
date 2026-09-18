@@ -34,6 +34,28 @@ class Placement:
         self.Base = base
         self.Rotation = rotation
 
+    def multiply(self, other):
+        # These hierarchy tests use translation-only placements.  Rotation is
+        # still carried so manifest serialization exercises the real fields.
+        return Placement(
+            Vector(
+                self.Base.x + other.Base.x,
+                self.Base.y + other.Base.y,
+                self.Base.z + other.Base.z,
+            ),
+            self.Rotation,
+        )
+
+    def inverse(self):
+        return Placement(
+            Vector(-self.Base.x, -self.Base.y, -self.Base.z),
+            self.Rotation,
+        )
+
+
+def placement(x=0, y=0, z=0, angle=0):
+    return Placement(Vector(x, y, z), Rotation(Vector(0, 0, 1), angle))
+
 
 class Document:
     def __init__(self, name="Assembly", filename=""):
@@ -53,6 +75,7 @@ class PcbObjectStub:
         self.Label = "控制板"
         self.FileName = filename
         self.Proxy = types.SimpleNamespace(Type="PcbObject")
+        self.TypeId = "Part::FeaturePython"
         self.Placement = Placement(Vector(1, 2, 3), Rotation(Vector(0, 1, 0), 45))
         self.AutoReload = False
         self.SnapToCoupler = True
@@ -74,8 +97,40 @@ class StepObjectStub:
         self.Label = "Enclosure"
         self.FileName = filename
         self.Proxy = types.SimpleNamespace(Type="StepObject")
+        self.TypeId = "Part::FeaturePython"
         self.Placement = Placement(Vector(7, 8, 9), Rotation(Vector(1, 0, 0), 30))
         self.AutoReload = False
+
+
+class LinkStub:
+    TypeId = "App::Link"
+
+    def __init__(self, target, global_placement, name="Link"):
+        self.LinkedObject = target
+        # App::Link may expose properties from its target.  Export must still
+        # classify the selected object as an instance before inspecting Proxy.
+        self.Proxy = getattr(target, "Proxy", None)
+        self.Name = name
+        self.Label = name
+        self.Placement = global_placement
+        self._global_placement = global_placement
+
+    def getGlobalPlacement(self):
+        return self._global_placement
+
+
+class ContainerStub:
+    def __init__(self, children, global_placement=None,
+                 type_id="Assembly::AssemblyObject", name="Assembly"):
+        self.Group = list(children)
+        self.TypeId = type_id
+        self.Name = name
+        self.Label = name
+        self.Placement = global_placement or placement()
+        self._global_placement = self.Placement
+
+    def getGlobalPlacement(self):
+        return self._global_placement
 
 
 def load_assembly_module(fake_freecad):
@@ -189,6 +244,99 @@ class AssemblyTests(unittest.TestCase):
             )
             self.assertEqual(saved["settings"], {"AutoReload": False})
             self.assertEqual(saved["placement"]["base"], [7.0, 8.0, 9.0])
+
+    def test_export_link_uses_instance_global_placement(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "main.kkkk_asm")
+            document = Document("Assembly")
+            step = StepObjectStub(
+                document, os.path.join(root, "models", "enclosure.step"))
+            link = LinkStub(step, placement(40, 50, 60, 25))
+
+            self.assembly.export([link], manifest_path)
+
+            with open(manifest_path, encoding="utf-8") as stream:
+                saved = json.load(stream)["objects"][0]
+            self.assertEqual(saved["type"], "StepObject")
+            self.assertEqual(saved["placement"]["base"], [40.0, 50.0, 60.0])
+            self.assertAlmostEqual(
+                saved["placement"]["rotation"]["angle_degrees"], 25.0)
+
+    def test_exporting_source_ignores_its_other_link_instances(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "main.kkkk_asm")
+            document = Document("Assembly")
+            step = StepObjectStub(
+                document, os.path.join(root, "models", "enclosure.step"))
+            step.InList = [LinkStub(step, placement(40, 50, 60))]
+
+            self.assembly.export([step], manifest_path)
+
+            with open(manifest_path, encoding="utf-8") as stream:
+                saved = json.load(stream)["objects"][0]
+            self.assertEqual(saved["placement"]["base"], [7.0, 8.0, 9.0])
+
+    def test_export_assembly_keeps_multiple_links_to_same_source(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "main.kkkk_asm")
+            document = Document("Assembly")
+            step = StepObjectStub(
+                document, os.path.join(root, "models", "fastener.step"))
+            assembly = ContainerStub([
+                LinkStub(step, placement(10, 0, 0), "Fastener001"),
+                LinkStub(step, placement(20, 0, 0), "Fastener002"),
+            ])
+
+            self.assembly.export([assembly], manifest_path)
+
+            with open(manifest_path, encoding="utf-8") as stream:
+                objects = json.load(stream)["objects"]
+            self.assertEqual(len(objects), 2)
+            self.assertEqual(
+                [item["placement"]["base"] for item in objects],
+                [[10.0, 0.0, 0.0], [20.0, 0.0, 0.0]],
+            )
+            self.assertEqual(objects[0]["file"], objects[1]["file"])
+
+    def test_export_nested_assembly_rebases_leaf_global_placement(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "main.kkkk_asm")
+            document = Document("Assembly")
+            step = StepObjectStub(
+                document, os.path.join(root, "models", "nested.step"))
+            # In its source hierarchy the subassembly begins at X=10 and its
+            # leaf instance is at X=15.  Linking that subassembly at X=100
+            # must therefore place the leaf at X=105.
+            leaf = LinkStub(step, placement(15, 0, 0), "NestedPart")
+            subassembly = ContainerStub(
+                [leaf], global_placement=placement(10, 0, 0),
+                name="Subassembly")
+            outer_link = LinkStub(
+                subassembly, placement(100, 0, 0), "SubassemblyLink")
+
+            self.assembly.export([outer_link], manifest_path)
+
+            with open(manifest_path, encoding="utf-8") as stream:
+                saved = json.load(stream)["objects"][0]
+            self.assertEqual(saved["placement"]["base"], [105.0, 0.0, 0.0])
+
+    def test_export_linked_pcb_saves_pose_and_disables_coupler_snap(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "main.kkkk_asm")
+            document = Document("Assembly")
+            pcb = PcbObjectStub(
+                document, os.path.join(root, "boards", "main.kicad_pcb"))
+            pcb.CouplerPoses = json.dumps(
+                [{"type": "CouplerMoving", "ref": "J1"}])
+            link = LinkStub(pcb, placement(70, 80, 90, 15))
+
+            self.assembly.export([link], manifest_path)
+
+            with open(manifest_path, encoding="utf-8") as stream:
+                saved = json.load(stream)["objects"][0]
+            self.assertFalse(saved["settings"]["SnapToCoupler"])
+            self.assertEqual(saved["placement"]["base"], [70.0, 80.0, 90.0])
+            self.assertTrue(pcb.SnapToCoupler)
 
     def test_insert_resolves_relative_path_and_restores_values(self):
         with tempfile.TemporaryDirectory() as root:
