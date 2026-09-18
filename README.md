@@ -256,7 +256,7 @@ Name=Tail reinforcement
 Material=Polyimide
 Color=#C87518
 Opacity=0.65
-Thickness=250 um
+Thickness=25 um
 ```
 
 `Material` and `Thickness` are required. `Name`, `Color`, and `Opacity` are
