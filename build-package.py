@@ -38,7 +38,12 @@ else:
 # KiKit's footprint library, primarily for mouse bites and fiducials
 pyinstaller_args.extend(["--add-data", f"{os.path.join(kikit_base, 'resources', 'kikit.pretty')}:kikit.pretty"])
 
-pyinstaller_args.extend(["--add-data", f"{os.path.join(PKG_BASE, 'resources', 'kikakuka.pretty')}:kikakuka.pretty"])
+# Internal graphics-free placeholder used by BOM/CPL import.  The user-facing
+# footprints live separately under kicad-addon/.
+pyinstaller_args.extend([
+    "--add-data",
+    f"{os.path.join(PKG_BASE, 'resources', 'kikakuka-internal.pretty')}:kikakuka-internal.pretty",
+])
 
 # pypdfium2 for differ
 pyinstaller_args.extend(["--collect-all=pypdfium2_raw", "--collect-all=pypdfium2"])

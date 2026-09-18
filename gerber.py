@@ -8,12 +8,14 @@ import kikit.common
 from tableloader import TableLoader
 
 PKG_BASE = os.path.dirname(__file__)
-KIKAKUKA_LIB = os.path.join(PKG_BASE, "resources/kikakuka.pretty")
+KIKAKUKA_LIB = os.path.join(
+    PKG_BASE, "resources/kikakuka-internal.pretty")
 
 if getattr(sys, 'frozen', False):
     import kikit.common
     kikit.common.KIKIT_LIB = os.path.join(sys._MEIPASS, "kikit.pretty")
-    KIKAKUKA_LIB = os.path.join(sys._MEIPASS, "kikakuka.pretty")
+    KIKAKUKA_LIB = os.path.join(
+        sys._MEIPASS, "kikakuka-internal.pretty")
 
 
 def get_footprint_field(footprint, name):

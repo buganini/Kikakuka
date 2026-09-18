@@ -1,0 +1,25 @@
+{
+    "$schema": "https://go.kicad.org/pcm/schemas/v2",
+    "name": "Kikakuka Footprints",
+    "description": "Footprints used by Kikakuka for couplers, variables, and string templates.",
+    "description_full": "A KiCad footprint library for Kikakuka workflows. It provides the CouplerFixed, CouplerMoving, and CouplerOrigin footprints used by FreekiCAD assembly alignment, plus Variable and StringTemplate footprints used by the Fabrication Planner.",
+    "identifier": "com.github.buganini.kikakuka-footprints",
+    "type": "library",
+    "author": {
+        "name": "Buganini Chiu",
+        "contact": {
+            "web": "https://github.com/buganini"
+        }
+    },
+    "license": "MIT",
+    "resources": {
+        "homepage": "https://github.com/buganini/Kikakuka"
+    },
+    "versions": [
+        {
+            "version": "7.4",
+            "status": "stable",
+            "kicad_version": "10.0"
+        }
+    ]
+}
