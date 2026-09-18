@@ -1,6 +1,7 @@
 import importlib
 import json
 import math
+import os
 import sys
 import tempfile
 import types
@@ -743,6 +744,50 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertAlmostEqual(color[0], 194 / 255.0)
         self.assertAlmostEqual(color[1], 195 / 255.0)
         self.assertEqual(color[2], 0.0)
+
+    def test_board_color_file_does_not_borrow_silkscreen_color(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
+        board_text = '''(kicad_pcb
+  (setup
+    (stackup
+      (layer "F.Mask" (type "Top Solder Mask"))
+      (layer "B.Silkscreen"
+        (type "Bottom Silk Screen")
+        (color "#808080FF")))))'''
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "board.kicad_pcb")
+            with open(filepath, "w", encoding="utf-8") as board_file:
+                board_file.write(board_text)
+
+            color = linked_object._get_board_color_from_file(filepath)
+
+        self.assertIsNone(color)
+
+    def test_board_color_file_reads_color_from_its_mask_layer_only(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock())
+        board_text = '''(kicad_pcb
+  (setup
+    (stackup
+      (layer "F.Mask"
+        (type "Top Solder Mask")
+        (material "Mask (green)")
+        (color "#123456"))
+      (layer "B.Silkscreen" (color "#808080FF")))))'''
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "board.kicad_pcb")
+            with open(filepath, "w", encoding="utf-8") as board_file:
+                board_file.write(board_text)
+
+            color = linked_object._get_board_color_from_file(filepath)
+
+        self.assertEqual(color, (0x12 / 255.0, 0x34 / 255.0,
+                                 0x56 / 255.0))
 
     def test_coupler_type_prefers_library_entry_name(self):
         linked_object = self._import_linked_object()

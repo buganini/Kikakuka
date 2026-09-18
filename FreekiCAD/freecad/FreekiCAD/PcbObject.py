@@ -1024,6 +1024,40 @@ def _parse_color_string(color_str):
     return None
 
 
+def _parenthesized_block(content, start):
+    """Return the balanced S-expression beginning at *start*.
+
+    Parentheses inside quoted strings are ignored.  ``None`` is returned for
+    an invalid or unterminated block.
+    """
+    if start < 0 or start >= len(content) or content[start] != '(':
+        return None
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(content)):
+        char = content[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == '(':
+            depth += 1
+        elif char == ')':
+            depth -= 1
+            if depth == 0:
+                return content[start:index + 1]
+            if depth < 0:
+                return None
+    return None
+
+
 def _get_board_color_from_file(filepath):
     """Parse the .kicad_pcb file directly and extract the front solder mask
     color from the stackup section.  Returns (r, g, b) 0‑1 or None."""
@@ -1037,30 +1071,36 @@ def _get_board_color_from_file(filepath):
         if not stackup_match:
             return None
 
-        # Find F.Mask layer inside stackup
-        # Use [\s\S]*? to skip nested parens like (type "...")
-        mask_pattern = re.compile(
-            r'\(layer\s+"F\.Mask"[\s\S]*?\(color\s+"([^"]+)"\)',
-        )
-        m = mask_pattern.search(content, stackup_match.start())
-        if m:
-            color = _parse_color_string(m.group(1))
-            if color:
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: Board color from file F.Mask: {m.group(1)} → {color}\n"
-                )
-                return color
+        stackup = _parenthesized_block(content, stackup_match.start())
+        if stackup is None:
+            return None
 
-        # Fallback: any layer with a color in the stackup
-        any_color = re.compile(
-            r'\(layer\s+"[^"]*"[\s\S]*?\(color\s+"([^"]+)"\)',
-        )
-        for cm in any_color.finditer(content, stackup_match.start()):
-            color = _parse_color_string(cm.group(1))
+        # Parse each layer only within its own balanced block.  A regex that
+        # spans arbitrary text can incorrectly assign a later silkscreen
+        # color to an F.Mask layer that has no color of its own.
+        layer_colors = {}
+        for layer_match in re.finditer(
+                r'\(layer\s+"([^"]+)"', stackup):
+            layer_block = _parenthesized_block(
+                stackup, layer_match.start())
+            if layer_block is None:
+                continue
+            color_match = re.search(
+                r'\(color\s+"([^"]+)"\)', layer_block)
+            if color_match is not None:
+                layer_colors[layer_match.group(1)] = color_match.group(1)
+
+        # Prefer the front mask.  A back-mask color is a useful fallback for
+        # boards that specify one common solder-mask color only on that side;
+        # colors from copper, paste, or silkscreen layers are never mask
+        # colors and must not be used.
+        for layer_name in ("F.Mask", "B.Mask"):
+            color_text = layer_colors.get(layer_name)
+            color = _parse_color_string(color_text)
             if color:
                 FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: Board color from file (fallback): {cm.group(1)} → {color}\n"
-                )
+                    f"FreekiCAD: Board color from file {layer_name}: "
+                    f"{color_text} → {color}\n")
                 return color
     except Exception as ex:
         FreeCAD.Console.PrintWarning(
