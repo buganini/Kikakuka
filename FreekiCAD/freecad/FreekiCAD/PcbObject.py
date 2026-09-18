@@ -2055,6 +2055,7 @@ class _OutlineSketchObserver:
         self._constraining = False  # re-entrancy guard
         self._move_timers = {}  # obj.Name → QTimer for debounce
         self._move_timer_parents = {}  # obj.Name → parent.Name
+        self._component_edits = set()
 
     def suppress(self, name):
         self._suppressed.add(name)
@@ -2087,6 +2088,11 @@ class _OutlineSketchObserver:
                 return parent
         return None
 
+    @staticmethod
+    def _component_edit_key(obj):
+        document = getattr(obj, 'Document', None)
+        return (getattr(document, 'Name', None), obj.Name)
+
     def _is_bending_active(self, parent):
         """True when EnableBending is on and at least one bend child
         has Active=True and a non-zero Angle."""
@@ -2106,7 +2112,7 @@ class _OutlineSketchObserver:
                 return proxy._is_component_move_blocked(parent)
             except Exception:
                 pass
-        return self._is_bending_active(parent)
+        return False
 
     def _surface_reload_pending(self, parent):
         proxy = getattr(parent, "Proxy", None)
@@ -2148,6 +2154,38 @@ class _OutlineSketchObserver:
                     f"outline open suppressed during debounce: {obj.Name}")
                 return
             parent.Proxy._on_outline_edit_start(parent)
+            return
+        parent = self._find_component_parent(obj)
+        if parent is not None:
+            self._component_edits.add(self._component_edit_key(obj))
+
+    def _is_component_focused(self, obj, parent):
+        """True when the component is the target of a GUI edit/selection.
+
+        A Placement notification does not say whether it came from a user or
+        a recompute.  Edit mode covers FreeCAD's transform tool; selection
+        covers the property editor and Manipulator.  Nested selections use
+        the PcbObject as the selected object and the component name as the
+        first subelement path segment.
+        """
+        if self._component_edit_key(obj) in self._component_edits:
+            return True
+        if not getattr(FreeCAD, "GuiUp", False):
+            return False
+        try:
+            import FreeCADGui
+            for selected in FreeCADGui.Selection.getSelectionEx():
+                if getattr(selected, 'Object', None) is obj:
+                    return True
+                if getattr(selected, 'Object', None) is not parent:
+                    continue
+                prefix = obj.Name + "."
+                for sub_name in getattr(selected, 'SubElementNames', ()):
+                    if sub_name == obj.Name or sub_name.startswith(prefix):
+                        return True
+        except Exception:
+            return False
+        return False
 
     def slotChangedObject(self, obj, prop):
         try:
@@ -2177,11 +2215,15 @@ class _OutlineSketchObserver:
                 return
             parent = self._find_component_parent(obj)
             if parent is not None:
-                # Skip when bending is active — placement changes are
-                # cosmetic (applied by the bend transform).
+                # Internal reload/rebend placement changes are suppressed by
+                # the parent proxy.  A completed bend is not itself a reason
+                # to block editing: user transforms are mapped back through
+                # the stored bend placement below.
                 if self._is_component_move_blocked(parent):
                     return
-                self._constrain_placement(obj)
+                if not self._is_component_focused(obj, parent):
+                    return
+                self._constrain_placement(obj, parent)
                 if self._is_component_move_blocked(parent):
                     return
                 self._schedule_move_component(obj, parent)
@@ -2214,14 +2256,49 @@ class _OutlineSketchObserver:
                 proxy._on_outline_edit_start(parent)
             proxy._on_outline_changed(parent)
 
-    def _constrain_placement(self, obj):
+    def _flat_component_placement(self, obj, parent):
+        """Return the component placement in the unbent PCB frame.
+
+        Component shapes already contain their KiCad position.  Bending is
+        represented by an additional Placement on the component object.  The
+        hidden bend placement records that transform before the user edits
+        it, allowing a transform on a bent face to be converted back to the
+        flat board coordinates expected by KiCad.
+        """
+        init_p = getattr(obj, 'FreekiCAD_InitPlacement', None)
+        if init_p is None:
+            return None
+        bend_p = getattr(obj, 'FreekiCAD_BendPlacement', None)
+        if bend_p is None:
+            # Old documents may not have the migration property until their
+            # first idle/reload pass.  Flat boards can safely use InitPlacement
+            # as the baseline, but guessing on an already bent board would
+            # produce an incorrect KiCad position.
+            if self._is_bending_active(parent):
+                return None
+            bend_p = init_p
+        bend_transform = bend_p.multiply(init_p.inverse())
+        return bend_transform.inverse().multiply(obj.Placement)
+
+    def _bent_component_placement(self, obj, flat_placement):
+        """Map an unbent component placement back to its displayed frame."""
+        init_p = getattr(obj, 'FreekiCAD_InitPlacement', None)
+        bend_p = getattr(obj, 'FreekiCAD_BendPlacement', None)
+        if init_p is None or bend_p is None:
+            return flat_placement
+        bend_transform = bend_p.multiply(init_p.inverse())
+        return bend_transform.multiply(flat_placement)
+
+    def _constrain_placement(self, obj, parent):
         """Constrain component Placement: allow X/Y move + Z rotation only.
-        Z position, pitch, and roll are locked to the initial placement."""
+        Z position, pitch, and roll are locked in the unbent PCB frame."""
         init_p = getattr(obj, 'FreekiCAD_InitPlacement', None)
         if init_p is None:
             return
 
-        p = obj.Placement
+        p = self._flat_component_placement(obj, parent)
+        if p is None:
+            return
         pos = p.Base
         rot = p.Rotation
 
@@ -2240,9 +2317,11 @@ class _OutlineSketchObserver:
         if needs_fix:
             self._constraining = True
             try:
-                obj.Placement = FreeCAD.Placement(
+                flat_placement = FreeCAD.Placement(
                     FreeCAD.Vector(pos.x, pos.y, init_z),
                     FreeCAD.Rotation(yaw, init_pitch, init_roll))
+                obj.Placement = self._bent_component_placement(
+                    obj, flat_placement)
             finally:
                 self._constraining = False
 
@@ -2294,8 +2373,13 @@ class _OutlineSketchObserver:
             if init_p is None:
                 return
 
-            p = obj.Placement
-            # Compute delta from initial FreeCAD placement
+            p = self._flat_component_placement(obj, parent)
+            if p is None:
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: Cannot map bent component '{ref}' "
+                    "to flat PCB coordinates; reload the PCB and retry\n")
+                return
+            # Compute delta in the unbent PCB frame.
             delta_x = p.Base.x - init_p.Base.x
             delta_y = p.Base.y - init_p.Base.y
             yaw, _, _ = p.Rotation.getYawPitchRoll()
@@ -2336,7 +2420,7 @@ class _OutlineSketchObserver:
             return
         if getattr(getattr(obj, 'Document', None), 'Restoring', False):
             return
-        pass
+        self._component_edits.discard(self._component_edit_key(obj))
 
 
 def _find_obj_by_label(label):
@@ -2666,16 +2750,36 @@ class PcbObject:
 
     def _is_component_move_blocked(self, obj=None):
         self._ensure_component_sync_state()
-        if self._component_sync_suspended or getattr(self, '_bending', False):
-            return True
-        if obj is None or not getattr(obj, 'EnableBending', False):
-            return False
-        for c in getattr(obj, 'Group', []):
-            proxy = getattr(c, 'Proxy', None)
-            if proxy and getattr(proxy, 'Type', None) == 'BendLine':
-                if c.Active and c.Angle.Value != 0:
-                    return True
-        return False
+        return (self._component_sync_suspended
+                or getattr(self, '_bending', False))
+
+    @staticmethod
+    def _set_component_bend_placement(component):
+        """Record the component's displayed placement before user edits."""
+        if not hasattr(component, 'FreekiCAD_BendPlacement'):
+            component.addProperty(
+                "App::PropertyPlacement", "FreekiCAD_BendPlacement",
+                "FreekiCAD", "Placement after flex PCB bending")
+            try:
+                component.setPropertyStatus(
+                    "FreekiCAD_BendPlacement", "Hidden")
+            except Exception:
+                pass
+        try:
+            component.FreekiCAD_BendPlacement = component.Placement.copy()
+        except Exception:
+            component.FreekiCAD_BendPlacement = component.Placement
+
+    def _capture_component_bend_placements(self, obj, missing_only=False):
+        """Capture the bend baseline used to map GUI edits back to KiCad."""
+        for component in getattr(obj, 'Group', []):
+            if (not hasattr(component, 'X')
+                    or hasattr(component, 'CouplerType')):
+                continue
+            if missing_only and hasattr(
+                    component, 'FreekiCAD_BendPlacement'):
+                continue
+            self._set_component_bend_placement(component)
 
     def _suspend_component_move_sync(self, obj=None):
         self._ensure_component_sync_state()
@@ -3402,6 +3506,7 @@ class PcbObject:
                               thickness, enable_bending=enable)
         elif board_obj:
             self._update_conflicts_debug_object(obj, None, thickness)
+        self._capture_component_bend_placements(obj)
         # Cancel any pending rebend timer — bending was already
         # handled by _apply_bends above.
         timer = getattr(self, '_rebend_timer', None)
@@ -4305,6 +4410,7 @@ class PcbObject:
             if enable and active_bends and board_obj:
                 self._apply_bends(obj, board_obj, active_bends,
                                   thickness)
+            self._capture_component_bend_placements(obj)
         finally:
             self._bending = False
             self._resume_component_move_sync()
@@ -12018,6 +12124,10 @@ class PcbObjectViewProvider:
         if obj.Document.Restoring or not obj.FileName:
             return
         proxy = getattr(obj, 'Proxy', None)
+        if proxy is not None and hasattr(
+                proxy, '_capture_component_bend_placements'):
+            proxy._capture_component_bend_placements(
+                obj, missing_only=True)
         if proxy is not None and hasattr(proxy, '_request_coupler_poll'):
             proxy._request_coupler_poll(obj)
 
@@ -12036,6 +12146,9 @@ class PcbObjectViewProvider:
             return
         if not hasattr(obj, "Proxy") or not hasattr(obj.Proxy, "_check_file_changed"):
             return
+        if hasattr(obj.Proxy, '_capture_component_bend_placements'):
+            obj.Proxy._capture_component_bend_placements(
+                obj, missing_only=True)
         # A layer-property change owns the next reload.  Do not let this
         # periodic poll bypass its two-second debounce because FileMtime is
         # already empty or the KiCad file also changed in the meantime.

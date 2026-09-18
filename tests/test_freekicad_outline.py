@@ -100,6 +100,9 @@ class _Rotation2D:
         self.axis = axis
         self.angle = float(angle)
 
+    def getYawPitchRoll(self):
+        return self.angle, 0.0, 0.0
+
 
 class _Placement2D:
     def __init__(self, vector=None, rotation=None):
@@ -126,6 +129,11 @@ class _Placement2D:
         return _Placement2D(
             _Vector2D(x, y, -self.Base.z),
             _Rotation2D(None, -self.angle))
+
+    def copy(self):
+        return _Placement2D(
+            _Vector2D(self.Base.x, self.Base.y, self.Base.z),
+            _Rotation2D(self.axis, self.angle))
 
 
 class OutlineWireOrderTests(unittest.TestCase):
@@ -173,6 +181,97 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertIs(result, obj)
         view_provider.assert_not_called()
         document.recompute.assert_called_once_with()
+
+    def test_active_bend_does_not_permanently_block_component_sync(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        bend = types.SimpleNamespace(
+            Proxy=types.SimpleNamespace(Type="BendLine"),
+            Active=True, Angle=types.SimpleNamespace(Value=45.0))
+        obj = types.SimpleNamespace(EnableBending=True, Group=[bend])
+
+        self.assertFalse(proxy._is_component_move_blocked(obj))
+
+        proxy._component_sync_suspended = True
+        self.assertTrue(proxy._is_component_move_blocked(obj))
+        proxy._component_sync_suspended = False
+        proxy._bending = True
+        self.assertTrue(proxy._is_component_move_blocked(obj))
+
+    def test_bent_component_placement_maps_back_to_flat_pcb_frame(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.GuiUp = False
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+        observer = linked_object._OutlineSketchObserver()
+
+        initial = _Placement2D(
+            _Vector2D(2, 3, 0), _Rotation2D(None, 10))
+        bend = _Placement2D(
+            _Vector2D(20, -5, 4), _Rotation2D(None, 65))
+        moved_flat = _Placement2D(
+            _Vector2D(7, 11, 0), _Rotation2D(None, 25))
+        component = types.SimpleNamespace(
+            FreekiCAD_InitPlacement=initial,
+            FreekiCAD_BendPlacement=bend.multiply(initial),
+            Placement=bend.multiply(moved_flat))
+        parent = types.SimpleNamespace()
+
+        flat = observer._flat_component_placement(component, parent)
+
+        self.assertAlmostEqual(flat.Base.x, moved_flat.Base.x)
+        self.assertAlmostEqual(flat.Base.y, moved_flat.Base.y)
+        self.assertAlmostEqual(flat.Base.z, moved_flat.Base.z)
+        self.assertAlmostEqual(flat.angle, moved_flat.angle)
+
+    def test_component_sync_requires_component_focus(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.GuiUp = True
+        component = types.SimpleNamespace(Name="Board_J1")
+        parent = object()
+        observer = linked_object._OutlineSketchObserver()
+        selection = types.SimpleNamespace(
+            Object=parent, SubElementNames=("Board_J1.Edge1",))
+        fake_gui = types.ModuleType("FreeCADGui")
+        fake_gui.Selection = types.SimpleNamespace(
+            getSelectionEx=mock.Mock(return_value=[selection]))
+
+        with mock.patch.dict(sys.modules, {"FreeCADGui": fake_gui}):
+            self.assertTrue(observer._is_component_focused(
+                component, parent))
+
+        fake_gui.Selection.getSelectionEx.return_value = []
+        with mock.patch.dict(sys.modules, {"FreeCADGui": fake_gui}):
+            self.assertFalse(observer._is_component_focused(
+                component, parent))
+
+    def test_unfocused_placement_change_does_not_schedule_kicad_move(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        parent = types.SimpleNamespace(
+            Name="Board", Proxy=proxy, EnableBending=False, Group=[])
+        proxy.Type = "PcbObject"
+        component = types.SimpleNamespace(
+            Name="Board_J1", Label="Board_J1", TypeId="Part::Feature",
+            Document=types.SimpleNamespace(Restoring=False), InList=[parent])
+        observer = linked_object._OutlineSketchObserver()
+        observer._is_component_focused = mock.Mock(return_value=False)
+        observer._constrain_placement = mock.Mock()
+        observer._schedule_move_component = mock.Mock()
+
+        observer.slotChangedObject(component, "Placement")
+
+        observer._constrain_placement.assert_not_called()
+        observer._schedule_move_component.assert_not_called()
+
+        observer._is_component_focused.return_value = True
+        observer.slotChangedObject(component, "Placement")
+
+        observer._constrain_placement.assert_called_once_with(
+            component, parent)
+        observer._schedule_move_component.assert_called_once_with(
+            component, parent)
 
     def test_pcb_retains_uniform_face_colors_for_headless_export(self):
         linked_object = self._import_linked_object()
