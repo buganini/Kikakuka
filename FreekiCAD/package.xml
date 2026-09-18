@@ -2,7 +2,7 @@
 <package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
     <name>FreekiCAD</name>
     <description>FreeCAD workbench for bidirectional KiCad PCB integration via kipy IPC API.</description>
-    <version>7.3</version>
+    <version>7.4</version>
     <date>2026-09-15</date>
     <freecadmin>1.0.0</freecadmin>
     <pythonmin>3.10</pythonmin>

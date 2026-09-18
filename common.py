@@ -3,7 +3,7 @@ import sys
 import re
 import sexpr
 
-VERSION = "7.3"
+VERSION = "7.4"
 
 WORKSPACE_SUFFIX = ".kkkk"
 PNL_SUFFIX = ".kkkk_fab"

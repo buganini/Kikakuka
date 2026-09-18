@@ -1,3 +1,7 @@
+# 7.4:
+* FreekiCAD
+    * Fix solder-mask color fallback when the stackup has no explicit mask color
+
 # 7.3:
 * FreekiCAD
     * Export FreeCAD Assembly and `App::Link` instances as flattened `.kkkk_asm` placement snapshots

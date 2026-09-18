@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "freecad-freekicad"
-version = "7.3"
+version = "7.4"
 description = "FreeCAD workbench for bidirectional KiCad PCB integration via kipy IPC API."
 readme = "README.md"
 license = "MIT"
