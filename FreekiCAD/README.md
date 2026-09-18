@@ -100,8 +100,16 @@ AppImage, use its `--console` mode:
 FreekiCAD `PcbObject` and `StepObject` objects can be inserted as components in
 FreeCAD's built-in Assembly workbench. Assembly creates an `App::Link` for each
 instance, so one linked source may be used multiple times with independent
-placements and joints while source-file reloads continue to update its
-geometry.
+placements while source-file reloads continue to update its geometry.
+
+FreeCAD Assembly currently cannot resolve faces belonging to child objects
+inside a linked `PcbObject`. The GUI can select a board, component, or connector
+face, but the joint resolver stops at the `App::Link` instead of resolving the
+child and its Placement. Consequently, joints made from PCB child faces,
+including connector faces on bent sections, may not align correctly. This
+limitation does not affect direct `App::Link` placement, Manipulator alignment,
+coupler-based alignment, or flattened `.kkkk_asm` export. `StepObject` geometry
+is stored directly on the linked object and is not subject to this limitation.
 
 When exporting `.kkkk_asm`, the selection determines which placement is
 exported:

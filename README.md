@@ -47,7 +47,7 @@ It creates a few more dimensions for KiCad:
     * Requires FreeCAD 1.0 or later
     * `FreekiCAD` creates linked FreeCAD objects for external `.kicad_pcb` and STEP files; an `.FCStd` document caches generated geometry while retaining the reloadable source paths
     * Import and export lightweight `.kkkk_asm` assembly manifests as JSON; manifests contain no cached geometry, prefer source paths relative to the manifest, and freshly load every external source when imported
-    * Linked objects work with the `Assembly` and `Manipulator` workbenches, as well as FreeCAD's built-in transform tool; exporting selected `App::Link` instances or an Assembly to `.kkkk_asm` flattens their final global placements
+    * Linked objects work with the `Assembly` and `Manipulator` workbenches, as well as FreeCAD's built-in transform tool; FreeCAD Assembly can place `PcbObject` Links but currently cannot resolve their child component or connector faces for joints; exporting selected `App::Link` instances or an Assembly to `.kkkk_asm` flattens their final global placements
     * A sketch is provided for real-time board outline editing in FreeCAD
     * Components moved in FreeCAD are synced to KiCad in real time
     * `AutoReload` is enabled by default for both linked PCB and STEP objects; source-file changes are reloaded automatically, with manual reload also available
