@@ -41,7 +41,7 @@
 			)
 		)
 	)
-	(property "Description" ""
+	(property "Description" "Kikakuka text template. Braced placeholders in Value are replaced with matching footprint properties or build options during export after build-variant fields are applied."
 		(at 0 0 0)
 		(unlocked yes)
 		(layer "F.Fab")

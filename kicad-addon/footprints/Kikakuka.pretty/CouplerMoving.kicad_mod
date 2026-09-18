@@ -41,7 +41,7 @@
 			)
 		)
 	)
-	(property "Description" ""
+	(property "Description" "Moving FreekiCAD alignment plane. Positions this PCB against a CouplerFixed footprint with the same reference; unitless Z defaults to mm, mm/in/mil/um are supported, and Tilt is in degrees."
 		(at 0 0 0)
 		(unlocked yes)
 		(layer "F.Fab")

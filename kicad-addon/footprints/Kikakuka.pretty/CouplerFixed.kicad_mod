@@ -41,7 +41,7 @@
 			)
 		)
 	)
-	(property "Description" ""
+	(property "Description" "Fixed FreekiCAD alignment plane. Matches a CouplerMoving footprint with the same reference; unitless Z defaults to mm, mm/in/mil/um are supported, and Tilt is in degrees."
 		(at 0 0 0)
 		(unlocked yes)
 		(layer "F.Fab")

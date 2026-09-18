@@ -41,7 +41,7 @@
 			)
 		)
 	)
-	(property "Description" ""
+	(property "Description" "Kikakuka build variable. Value#Flag and Value#Option=Choice fields select the displayed value during export."
 		(at 0 0 0)
 		(unlocked yes)
 		(layer "F.Fab")

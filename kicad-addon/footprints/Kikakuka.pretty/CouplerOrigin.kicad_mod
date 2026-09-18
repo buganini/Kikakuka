@@ -42,7 +42,7 @@
 			)
 		)
 	)
-	(property "Description" ""
+	(property "Description" "FreekiCAD alignment plane that positions this PCB at the FreeCAD world origin; unitless Z defaults to mm, mm/in/mil/um are supported, and Tilt is in degrees."
 		(at 0 0 0)
 		(unlocked yes)
 		(layer "F.Fab")
