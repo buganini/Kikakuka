@@ -173,7 +173,7 @@ object. The option can be disabled independently for each object.
     * Restart FreeCAD
 
 * Activate `Preferences -> Plugins -> Enable KiCad API`, then close KiCad (let Kikakuka manage instances).
-* Make sure the Kikakuka Workspace Manager is running.
+* **Keep the Kikakuka Workspace Manager running while using FreekiCAD's KiCad integration.** STEP-only workflows do not require it.
 * FreeCAD
     * Add PCB
         * Switch to the `FreekiCAD` workbench.

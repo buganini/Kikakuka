@@ -5,6 +5,10 @@
 FreekiCAD bridges KiCad and FreeCAD, providing a FreeCAD-based workflow for
 PCB editing and mechanical assembly.
 
+> **Keep the Kikakuka Workspace Manager running while using FreekiCAD's KiCad
+> integration.** It manages the KiCad instances and IPC API sockets used by FreekiCAD.
+> STEP-only workflows do not require it.
+
 All communication with KiCad and the Kikakuka Workspace Manager uses local IPC
 only. FreekiCAD does not send board, assembly, or usage data to third parties.
 
@@ -61,6 +65,9 @@ import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys
 ```
 
 Restart FreeCAD after installation.
+
+Keep the Kikakuka **Workspace Manager** running while using FreekiCAD's KiCad
+integration.
 
 ## Headless Assembly Export
 
