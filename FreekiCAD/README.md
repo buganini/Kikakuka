@@ -115,6 +115,8 @@ including connector faces on bent sections, may not align correctly. This
 limitation does not affect direct `App::Link` placement, Manipulator alignment,
 coupler-based alignment, or flattened `.kkkk_asm` export. `StepObject` geometry
 is stored directly on the linked object and is not subject to this limitation.
+Use the Manipulator workbench when a PCB child or bent-section face cannot be
+aligned with an Assembly joint.
 
 When exporting `.kkkk_asm`, the selection determines which placement is
 exported:
