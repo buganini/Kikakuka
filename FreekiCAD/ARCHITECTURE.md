@@ -344,10 +344,12 @@ Current dispatch behavior:
    diagnostics. These OCC `slice()` results are not inputs to either production
    builder and are skipped during normal bending.
 7. Apply remaining Phase 3 rotations (`piece_plc[pi] * wedge_post_mi_plc[pi]^-1`) to catch rotations that happened after the wedge's own mi.
-   For a translation-only correction, first test the rebuilt wedge at zero
-   correction. If every adjacent rigid piece is already touching within the
-   placement scorer's tolerance, zero is accepted immediately; otherwise the
-   original 0/0.5/1.0 candidate scoring is retained.
+   If the wedge's own mi is the last transform in its chain, a remaining pure
+   translation is known to be only that bend's inset correction. The curved
+   rebuild already spans that correction, so its output placement stays at
+   zero without a BRep distance query. If later bends exist but compose into a
+   pure translation, the original adjacency-based 0/0.5/1.0 candidate scoring
+   is retained.
 
 ### Smooth Hybrid Rebuild
 
@@ -383,6 +385,10 @@ Notes:
 - Solidification first tests the normal `Part.makeShell` result by itself.
   Duplicate `Shell`, compound, sew, and fix candidates are constructed only
   when that primary shell cannot produce a valid, aligned solid.
+- Each solid candidate is validated before the next repair is constructed.
+  A raw-valid solid therefore skips the expensive `fix`, `removeSplitter`, and
+  combined repair copies; they remain available in the same order for invalid
+  candidates.
 - Smooth solid selection now ranks repaired shell candidates by volume error first, then by anchor alignment
 - If collapsed faces, dropped faces, or local triangle fallback were involved, a source-topology solid with high `vol_rel` is rejected outright
 - If every smooth-stage solid attempt fails, the user-facing `Smooth` mode falls back to analytic wireframe for that wedge

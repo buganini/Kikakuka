@@ -8718,60 +8718,71 @@ class PcbObject:
             if shape is None:
                 return None, None, 0.0
 
-            attempts = [("raw", shape)]
-
-            def _add_attempt(label, candidate):
-                if candidate is not None:
-                    attempts.append((label, candidate))
-
             if fix_tol is None:
                 fix_tol = GEOMETRY_TOLERANCE
             if fix_max_tol is None:
                 fix_max_tol = max(
                     GEOMETRY_TOLERANCE, GEOMETRY_TOLERANCE * 10.0)
 
+            def _accept_valid(label, candidate):
+                if candidate is None:
+                    return None
+                try:
+                    vol = float(candidate.Volume)
+                except Exception:
+                    vol = 0.0
+                if abs(vol) <= 1e-9:
+                    return None
+                if vol < 0:
+                    try:
+                        candidate = candidate.reversed()
+                        vol = abs(float(candidate.Volume))
+                    except Exception:
+                        return None
+                try:
+                    valid = candidate.isValid()
+                except Exception:
+                    valid = True
+                if not valid:
+                    return None
+                return candidate, label, vol
+
+            # Repairs are expensive OCC operations.  Validate each candidate
+            # before constructing the next one so the normal raw-valid wedge
+            # path does not pay for fix/removeSplitter copies that are never
+            # inspected.
+            accepted = _accept_valid("raw", shape)
+            if accepted is not None:
+                return accepted
+
             try:
                 fixed = shape.copy()
                 fixed.fix(fix_tol, fix_tol, fix_max_tol)
-                _add_attempt("fix", fixed)
             except Exception:
-                pass
+                fixed = None
+            accepted = _accept_valid("fix", fixed)
+            if accepted is not None:
+                return accepted
 
             try:
                 split = shape.copy().removeSplitter()
-                _add_attempt("removeSplitter", split)
             except Exception:
-                pass
+                split = None
+            accepted = _accept_valid("removeSplitter", split)
+            if accepted is not None:
+                return accepted
 
             try:
                 fixed_split = shape.copy()
                 fixed_split.fix(fix_tol, fix_tol, fix_max_tol)
                 fixed_split = fixed_split.removeSplitter()
                 fixed_split.fix(fix_tol, fix_tol, fix_max_tol)
-                _add_attempt("fix+removeSplitter+fix", fixed_split)
             except Exception:
-                pass
-
-            for label, candidate in attempts:
-                try:
-                    vol = float(candidate.Volume)
-                except Exception:
-                    vol = 0.0
-                if abs(vol) <= 1e-9:
-                    continue
-                if vol < 0:
-                    try:
-                        candidate = candidate.reversed()
-                        vol = abs(float(candidate.Volume))
-                    except Exception:
-                        continue
-                try:
-                    valid = candidate.isValid()
-                except Exception:
-                    valid = True
-                if not valid:
-                    continue
-                return candidate, label, vol
+                fixed_split = None
+            accepted = _accept_valid(
+                "fix+removeSplitter+fix", fixed_split)
+            if accepted is not None:
+                return accepted
             return None, None, 0.0
 
         def _orient_face_outward(face, solid_center):
@@ -9681,6 +9692,14 @@ class PcbObject:
             s_mi = strip_to_mi.get(pi)
             if s_mi is None:
                 continue
+            wedge_chain = piece_mi_list[pi]
+            try:
+                wedge_mi_pos = wedge_chain.index(s_mi)
+            except ValueError:
+                wedge_mi_pos = -1
+            own_correction_only = (
+                wedge_mi_pos >= 0
+                and wedge_mi_pos == len(wedge_chain) - 1)
             wedge_stationary_pi = mi_to_stationary_pi.get(s_mi)
             micro_angle_s = micro_bend_info[s_mi][0]
 
@@ -10258,15 +10277,40 @@ class PcbObject:
                         if ra <= 1e-6 and rb > 1e-6:
                             placement_adaptive_started = \
                                 _time.perf_counter()
+                            # When the wedge's own bend is the last item in
+                            # its transform chain, the remaining translation
+                            # is only that bend's inset correction.  The
+                            # analytic curved rebuild already spans the
+                            # corrected moving edge, so applying the rigid
+                            # correction again would double it.  Select the
+                            # known zero placement without expensive BRep
+                            # distance checks.  Keep adaptive scoring when a
+                            # later bend could have composed into a net
+                            # translation.
+                            if own_correction_only:
+                                applied_plc = FreeCAD.Placement()
+                                applied_frac = 0.0
+                                wedge_adaptive_choices[0.0] = (
+                                    wedge_adaptive_choices.get(0.0, 0) + 1)
+                                if wedge_diag:
+                                    FreeCAD.Console.PrintMessage(
+                                        f"FreekiCAD: wedge pi={pi}"
+                                        f" correction-only translation"
+                                        f" choose=0.00\n")
+                                _record_wedge_stage(
+                                    "placement-adaptive",
+                                    placement_adaptive_started)
+                                placement_adaptive_started = None
                             neighbor_shapes = []
-                            for nbr, _bi, _fi in adjacency[pi]:
-                                if nbr in strip_pieces:
-                                    continue
-                                if nbr < 0 or nbr >= len(piece_shapes):
-                                    continue
-                                neighbor_shapes.append(
-                                    (nbr, piece_shapes[nbr]))
-                            if neighbor_shapes:
+                            if not own_correction_only:
+                                for nbr, _bi, _fi in adjacency[pi]:
+                                    if nbr in strip_pieces:
+                                        continue
+                                    if nbr < 0 or nbr >= len(piece_shapes):
+                                        continue
+                                    neighbor_shapes.append(
+                                        (nbr, piece_shapes[nbr]))
+                            if not own_correction_only and neighbor_shapes:
                                 best_score = None
                                 best_plc = None
                                 best_frac = 1.0
@@ -10397,7 +10441,8 @@ class PcbObject:
                                             f" scores=["
                                             f"{'; '.join(adaptive_scores)}"
                                             f"]\n")
-                            elif is_wireframe_wedge:
+                            elif (not own_correction_only
+                                  and is_wireframe_wedge):
                                 base = remaining_plc.Base
                                 base_len2 = (
                                     base.x * base.x
@@ -10423,9 +10468,10 @@ class PcbObject:
                                             f" center_delta={_fmt_vec(center_delta)}"
                                             f" base={_fmt_vec(base)}"
                                             f" fallback=no-neighbors\n")
-                            _record_wedge_stage(
-                                "placement-adaptive",
-                                placement_adaptive_started)
+                            if placement_adaptive_started is not None:
+                                _record_wedge_stage(
+                                    "placement-adaptive",
+                                    placement_adaptive_started)
                         if (ra > 1e-6
                                 or applied_plc.Base.Length > 1e-6):
                             if ra <= 1e-6 and abs(applied_frac - 1.0) > 1e-9:
