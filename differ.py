@@ -158,6 +158,7 @@ class SchDiffView(PUIView):
         self.state.scale = None
         self.state.splitter_x = 0.5
         self.state.overlap = 0.05
+        self.state.mousepos = None
 
     def autoScale(self, canvas_width, canvas_height):
         mask = os.path.join(self.main.temp_dir, "sch_mask.png")
@@ -371,6 +372,7 @@ class PcbDiffView(PUIView):
         self.state.scale = None
         self.state.splitter_x = 0.5
         self.state.overlap = 0.05
+        self.state.mousepos = None
 
     def autoScale(self, canvas_width, canvas_height):
         page_size = self.main.state.pcb_page_size
@@ -500,6 +502,7 @@ class PcbDiffView(PUIView):
             (canvas.width, canvas.height),
             self.state.scale,
             render_scale,
+            priority_point=self.state.mousepos,
         )
         tile_results = []
         tile_keys = self.main.request_pcb_tiles(
@@ -764,15 +767,17 @@ class DifferUI(Application):
         self.repo_b = None
 
         self.queue = queue.Queue()
-        self.pcb_tile_queue = queue.Queue()
+        self.pcb_tile_queue = queue.PriorityQueue()
         self.pcb_tile_lock = Lock()
+        self.pcb_tile_task_sequence = 0
         self.pcb_tile_generation = 0
         self.pcb_tile_metadata = None
-        self.pcb_tile_pending = set()
+        self.pcb_tile_pending = {}
         self.pcb_tile_results = OrderedDict()
         self.pcb_tile_cache_bytes = 0
         self.pcb_tile_active = set()
         self.pcb_coarse_key = None
+        self.pcb_tile_priority_order = ()
 
         Thread(target=self.bg_looper, daemon=True).start()
         Thread(target=self.pcb_tile_looper, daemon=True).start()
@@ -1066,6 +1071,14 @@ class DifferUI(Application):
             self.pcb_tile_cache_bytes = 0
             self.pcb_tile_active.clear()
             self.pcb_coarse_key = None
+            self.pcb_tile_priority_order = ()
+
+    def queue_pcb_tile(self, task, priority):
+        self.pcb_tile_task_sequence += 1
+        token = self.pcb_tile_task_sequence
+        task["token"] = token
+        self.pcb_tile_pending[task["key"]] = (token, priority)
+        self.pcb_tile_queue.put((priority, token, task))
 
     def prime_pcb_coarse_tile(self, layers):
         with self.pcb_tile_lock:
@@ -1081,8 +1094,7 @@ class DifferUI(Application):
             if (key in self.pcb_tile_results or
                     key in self.pcb_tile_pending):
                 return key
-            self.pcb_tile_pending.add(key)
-            self.pcb_tile_queue.put({
+            task = {
                 "key": key,
                 "generation": generation,
                 "metadata": self.pcb_tile_metadata,
@@ -1092,7 +1104,8 @@ class DifferUI(Application):
                 "layers": layers,
                 "pinned": True,
                 "coarse": True,
-            })
+            }
+            self.queue_pcb_tile(task, -1)
             return key
 
     def request_pcb_tiles(self, render_scale, tile_indices, layers):
@@ -1104,11 +1117,24 @@ class DifferUI(Application):
                 for tile_x, tile_y in tile_indices
             ]
             self.pcb_tile_active = set(keys)
+            priority_order = tuple(keys)
+            if priority_order != self.pcb_tile_priority_order:
+                self.pcb_tile_priority_order = priority_order
+                for pending_key in tuple(self.pcb_tile_pending):
+                    if pending_key != self.pcb_coarse_key:
+                        self.pcb_tile_pending.pop(pending_key, None)
+            for pending_key in tuple(self.pcb_tile_pending):
+                if (pending_key not in self.pcb_tile_active and
+                        pending_key != self.pcb_coarse_key):
+                    self.pcb_tile_pending.pop(pending_key, None)
             if self.pcb_tile_metadata is None:
                 return keys
-            for key, (tile_x, tile_y) in zip(keys, tile_indices):
-                if (key in self.pcb_tile_results or
-                        key in self.pcb_tile_pending):
+            for priority, (key, (tile_x, tile_y)) in enumerate(
+                    zip(keys, tile_indices)):
+                if key in self.pcb_tile_results:
+                    continue
+                pending = self.pcb_tile_pending.get(key)
+                if pending is not None and pending[1] <= priority:
                     continue
                 task = {
                     "key": key,
@@ -1119,8 +1145,7 @@ class DifferUI(Application):
                     "tile_y": tile_y,
                     "layers": layers,
                 }
-                self.pcb_tile_pending.add(key)
-                self.pcb_tile_queue.put(task)
+                self.queue_pcb_tile(task, priority)
             return keys
 
     def get_pcb_tile(self, key):
@@ -1194,13 +1219,16 @@ class DifferUI(Application):
     def pcb_tile_looper(self):
         renderer = PcbTileRenderer()
         while True:
-            task = self.pcb_tile_queue.get()
+            _priority, _sequence, task = self.pcb_tile_queue.get()
             key = task["key"]
             with self.pcb_tile_lock:
+                pending = self.pcb_tile_pending.get(key)
+                if (pending is None or pending[0] != task["token"]):
+                    continue
                 if (task["generation"] != self.pcb_tile_generation or
                         (not task.get("pinned") and
                          key not in self.pcb_tile_active)):
-                    self.pcb_tile_pending.discard(key)
+                    self.pcb_tile_pending.pop(key, None)
                     continue
             try:
                 result = renderer.render_tile(
@@ -1236,8 +1264,10 @@ class DifferUI(Application):
                 result = {"error": str(exc)}
 
             with self.pcb_tile_lock:
-                self.pcb_tile_pending.discard(key)
-                if task["generation"] != self.pcb_tile_generation:
+                self.pcb_tile_pending.pop(key, None)
+                if (task["generation"] != self.pcb_tile_generation or
+                        (not task.get("pinned") and
+                         key not in self.pcb_tile_active)):
                     continue
                 self.cache_pcb_tile(key, result)
             self.state.build_time = time.time()

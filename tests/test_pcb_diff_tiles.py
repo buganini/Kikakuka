@@ -75,7 +75,28 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
             render_scale=1.0,
         )
         self.assertEqual(set(tiles), {(0, 0), (1, 0), (0, 1), (1, 1)})
-        self.assertIn(tiles[0], {(0, 0), (1, 0), (0, 1), (1, 1)})
+        self.assertEqual(tiles[0], (0, 0))
+
+    def test_center_tile_precedes_surrounding_tiles(self):
+        tiles = visible_tile_indices(
+            canvas_size=(1536.0, 1536.0),
+            viewport_size=(1536, 1536),
+            view_transform=(0.0, 0.0, 1.0),
+            render_scale=1.0,
+        )
+
+        self.assertEqual(tiles[0], (1, 1))
+
+    def test_cursor_tile_precedes_viewport_center(self):
+        tiles = visible_tile_indices(
+            canvas_size=(1536.0, 1536.0),
+            viewport_size=(1536, 1536),
+            view_transform=(0.0, 0.0, 1.0),
+            render_scale=1.0,
+            priority_point=(1300.0, 200.0),
+        )
+
+        self.assertEqual(tiles[0], (2, 0))
 
     def test_edge_tile_is_shorter_than_regular_tile(self):
         self.assertEqual(

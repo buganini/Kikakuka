@@ -190,7 +190,8 @@ def choose_coarse_render_scale(canvas_size, tile_size=TILE_SIZE):
 
 
 def visible_tile_indices(canvas_size, viewport_size, view_transform,
-                         render_scale, tile_size=TILE_SIZE):
+                         render_scale, tile_size=TILE_SIZE,
+                         priority_point=None):
     canvas_width, canvas_height = canvas_size
     viewport_width, viewport_height = viewport_size
     offx, offy, view_scale = view_transform
@@ -208,8 +209,14 @@ def visible_tile_indices(canvas_size, viewport_size, view_transform,
     last_x = int(math.floor(math.nextafter(right, -math.inf) / tile_points))
     last_y = int(math.floor(math.nextafter(bottom, -math.inf) / tile_points))
 
-    center_x = (left + right) / (2.0 * tile_points)
-    center_y = (top + bottom) / (2.0 * tile_points)
+    if priority_point is None:
+        center_x = (left + right) / (2.0 * tile_points)
+        center_y = (top + bottom) / (2.0 * tile_points)
+    else:
+        priority_x = (priority_point[0] - offx) / view_scale
+        priority_y = (priority_point[1] - offy) / view_scale
+        center_x = math.floor(priority_x / tile_points) + 0.5
+        center_y = math.floor(priority_y / tile_points) + 0.5
     tiles = [
         (tx, ty)
         for ty in range(first_y, last_y + 1)

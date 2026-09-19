@@ -62,8 +62,14 @@ The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
    paste positions onto one global integer pixel grid for that raster level.
    PDFium crop values are derived from this grid only at the API boundary;
    individual tiles never round PDF-point positions independently.
-5. Split only the visible document area into 512 x 512-pixel tiles and queue
-   tiles nearest the viewport center first.
+5. Split only the visible document area into 512 x 512-pixel tiles and submit
+   them to a priority queue by distance from the mouse cursor's tile. Before
+   the cursor enters the canvas, the viewport center is used. Pending tiles are
+   reprioritized when the cursor crosses into another tile or a later pan or
+   zoom changes the visible ordering;
+   pending tiles that leave the viewport are cancelled immediately, and their
+   superseded queue entries are discarded before rendering. If a tile was
+   already being rendered when it left the viewport, its result is discarded.
 6. In a background worker, crop the required area directly from each vector
    PDF. A 24-pixel gutter is rendered around the tile before mask processing
    and removed afterward, preventing blur seams. Each layer PDF's page handle
