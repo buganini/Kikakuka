@@ -500,12 +500,25 @@ class PcbDiffView(PUIView):
             layer for layer in self.main.state.layers
             if self.main.state.show_layers.get(layer, True)
         )
+        x_left = min(
+            self.diff_width,
+            max(0.0, self.diff_width * (
+                self.state.splitter_x - self.state.overlap
+            )),
+        )
+        x_right = max(
+            0.0,
+            min(self.diff_width, self.diff_width * (
+                self.state.splitter_x + self.state.overlap
+            )),
+        )
         tile_indices = visible_tile_indices(
             (self.diff_width, self.diff_height),
             (canvas.width, canvas.height),
             self.state.scale,
             render_scale,
             priority_point=self.state.mousepos,
+            priority_lines=(x_left, x_right),
         )
         tile_results = []
         tile_keys = self.main.request_pcb_tiles(
@@ -526,19 +539,6 @@ class PcbDiffView(PUIView):
         )
         fallback_results = self.main.get_pcb_fallback_tiles(
             render_scale, layers, viewport_bounds
-        )
-
-        x_left = min(
-            self.diff_width,
-            max(0.0, self.diff_width * (
-                self.state.splitter_x - self.state.overlap
-            )),
-        )
-        x_right = max(
-            0.0,
-            min(self.diff_width, self.diff_width * (
-                self.state.splitter_x + self.state.overlap
-            )),
         )
 
         load_started = time.perf_counter()

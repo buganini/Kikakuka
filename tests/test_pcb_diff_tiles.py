@@ -101,6 +101,35 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
 
         self.assertEqual(tiles[0], (2, 0))
 
+    def test_cursor_neighborhood_then_splitter_then_original_order(self):
+        tiles = visible_tile_indices(
+            canvas_size=(2560.0, 2560.0),
+            viewport_size=(2560, 2560),
+            view_transform=(0.0, 0.0, 1.0),
+            render_scale=1.0,
+            priority_point=(100.0, 100.0),
+            priority_lines=(1800.0,),
+        )
+
+        self.assertEqual(
+            set(tiles[:4]), {(0, 0), (1, 0), (0, 1), (1, 1)}
+        )
+        self.assertEqual(
+            tiles[4:9], [(3, 0), (3, 1), (3, 2), (3, 3), (3, 4)]
+        )
+        self.assertEqual(tiles[9], (2, 0))
+
+    def test_splitter_on_tile_boundary_prioritizes_both_sides(self):
+        tiles = visible_tile_indices(
+            canvas_size=(2048.0, 512.0),
+            viewport_size=(2048, 512),
+            view_transform=(0.0, 0.0, 1.0),
+            render_scale=1.0,
+            priority_lines=(1024.0,),
+        )
+
+        self.assertEqual(set(tiles[:2]), {(1, 0), (2, 0)})
+
     def test_edge_tile_is_shorter_than_regular_tile(self):
         self.assertEqual(
             tile_bounds((600.0, 550.0), 1.0, 1, 1),

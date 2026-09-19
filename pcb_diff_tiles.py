@@ -192,7 +192,7 @@ def choose_coarse_render_scale(canvas_size, tile_size=TILE_SIZE):
 
 def visible_tile_indices(canvas_size, viewport_size, view_transform,
                          render_scale, tile_size=TILE_SIZE,
-                         priority_point=None):
+                         priority_point=None, priority_lines=()):
     canvas_width, canvas_height = canvas_size
     viewport_width, viewport_height = viewport_size
     offx, offy, view_scale = view_transform
@@ -213,20 +213,46 @@ def visible_tile_indices(canvas_size, viewport_size, view_transform,
     if priority_point is None:
         center_x = (left + right) / (2.0 * tile_points)
         center_y = (top + bottom) / (2.0 * tile_points)
+        cursor_tile = None
     else:
         priority_x = (priority_point[0] - offx) / view_scale
         priority_y = (priority_point[1] - offy) / view_scale
         center_x = math.floor(priority_x / tile_points) + 0.5
         center_y = math.floor(priority_y / tile_points) + 0.5
+        cursor_tile = (
+            int(math.floor(priority_x / tile_points)),
+            int(math.floor(priority_y / tile_points)),
+        )
     tiles = [
         (tx, ty)
         for ty in range(first_y, last_y + 1)
         for tx in range(first_x, last_x + 1)
     ]
-    tiles.sort(key=lambda tile: (
-        (tile[0] + 0.5 - center_x) ** 2 +
-        (tile[1] + 0.5 - center_y) ** 2
-    ))
+    line_columns = set()
+    for line_x in priority_lines:
+        if not 0.0 <= line_x <= canvas_width:
+            continue
+        line_columns.add(int(math.floor(line_x / tile_points)))
+        if line_x > 0.0:
+            line_columns.add(int(math.floor(
+                math.nextafter(line_x, -math.inf) / tile_points
+            )))
+
+    def priority(tile):
+        tile_x, tile_y = tile
+        distance = (
+            (tile_x + 0.5 - center_x) ** 2 +
+            (tile_y + 0.5 - center_y) ** 2
+        )
+        if (cursor_tile is not None and
+                abs(tile_x - cursor_tile[0]) <= 1 and
+                abs(tile_y - cursor_tile[1]) <= 1):
+            return 0, distance
+        if tile_x in line_columns:
+            return 1, (tile_y + 0.5 - center_y) ** 2, distance
+        return 2, distance
+
+    tiles.sort(key=priority)
     return tiles
 
 
