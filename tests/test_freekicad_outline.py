@@ -1242,6 +1242,18 @@ class OutlineWireOrderTests(unittest.TestCase):
             signature,
             linked_object._bend_partition_signature(moved_cut, 1.6))
 
+    def test_geometric_adjacency_reuses_piece_cut_incidence(self):
+        linked_object = self._import_linked_object()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+
+        crossings = proxy._build_geometric_adjacency(
+            [object(), object(), object()],
+            [object(), object()],
+            [object(), object()],
+            cut_touching_pieces=[{0, 1}, {1, 2}])
+
+        self.assertEqual(crossings, [(0, 1, 0), (1, 2, 1)])
+
     def test_changed_live_couplers_are_applied(self):
         linked_object = self._import_linked_object()
         proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)

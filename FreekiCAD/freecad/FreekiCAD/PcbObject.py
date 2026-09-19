@@ -4609,6 +4609,8 @@ class PcbObject:
                 '_bend_piece_placements',
                 '_bend_partition_signature',
                 '_bend_partition_piece_slices',
+                '_bend_partition_cut_touching_pieces',
+                '_bend_partition_piece_touching_cuts',
                 '_bend_cached_piece_shapes',
                 '_bend_cached_piece_placement_signatures',
                 '_bend_cached_strip_pieces'):
@@ -5079,6 +5081,61 @@ class PcbObject:
                 FreeCAD.Vector(sp1.x, sp1.y, half_t))
             cut_segments.append(edge_2d)
 
+        # Compute every piece/cut contact once.  Wedge rescue, cut ownership,
+        # adjacency, and diagnostics all consume this same incidence map.
+        _t_incidence = _time.time()
+        cached_cut_touching = getattr(
+            self, '_bend_partition_cut_touching_pieces', None)
+        cached_piece_touching = getattr(
+            self, '_bend_partition_piece_touching_cuts', None)
+        reuse_incidence = (
+            reuse_partition
+            and cached_cut_touching is not None
+            and cached_piece_touching is not None
+            and len(cached_cut_touching) == len(cut_segments)
+            and len(cached_piece_touching) == len(pieces))
+        distance_checks = 0
+        if reuse_incidence:
+            cut_touching_pieces = [
+                set(touching) for touching in cached_cut_touching]
+            piece_touching_cuts = [
+                set(touching) for touching in cached_piece_touching]
+        else:
+            cut_touching_pieces = [set() for _ in cut_segments]
+            piece_touching_cuts = [set() for _ in pieces]
+            for fi, cut_segment in enumerate(cut_segments):
+                cut_bb = cut_segment.BoundBox
+                for pi, piece_slice in enumerate(piece_slices):
+                    piece_bb = piece_slice.BoundBox
+                    if (piece_bb.XMax
+                            < cut_bb.XMin - GEOMETRY_TOLERANCE
+                            or piece_bb.XMin
+                            > cut_bb.XMax + GEOMETRY_TOLERANCE
+                            or piece_bb.YMax
+                            < cut_bb.YMin - GEOMETRY_TOLERANCE
+                            or piece_bb.YMin
+                            > cut_bb.YMax + GEOMETRY_TOLERANCE):
+                        continue
+                    distance_checks += 1
+                    try:
+                        touching = (piece_slice.distToShape(
+                            cut_segment)[0] < GEOMETRY_TOLERANCE)
+                    except Exception:
+                        try:
+                            touching = (pieces[pi].distToShape(
+                                cut_faces[fi])[0] < GEOMETRY_TOLERANCE)
+                        except Exception:
+                            touching = False
+                    if touching:
+                        cut_touching_pieces[fi].add(pi)
+                        piece_touching_cuts[pi].add(fi)
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] piece/cut incidence: "
+            f"{'reused' if reuse_incidence else 'rebuilt'}, "
+            f"checks={distance_checks}/"
+            f"{len(pieces) * len(cut_segments)}, "
+            f"elapsed={_time.time() - _t_incidence:.3f}s\n")
+
         # Build joints.  Each trimmed center segment
         # is one joint containing: the center seg, zero-or-more A
         # faces, zero-or-more B faces, and zero-or-more wedge pieces.
@@ -5268,15 +5325,8 @@ class PcbObject:
             side = face_topo_side.get(fi)
             if side not in ('A', 'B'):
                 continue
-            cut_shape = cut_segments[fi]
-            for pi in range(len(pieces)):
+            for pi in sorted(cut_touching_pieces[fi]):
                 if pi in strip_pieces:
-                    continue
-                try:
-                    d_touch = piece_slices[pi].distToShape(cut_shape)[0]
-                except Exception:
-                    d_touch = float('inf')
-                if d_touch >= GEOMETRY_TOLERANCE:
                     continue
                 bend_touch = piece_bend_touch.setdefault(pi, {})
                 touch = bend_touch.setdefault(bi, {
@@ -5421,7 +5471,6 @@ class PcbObject:
                     f" touch_sides={sorted(touch['sides'])}\n")
 
         if wedge_assign_diag:
-            tol = GEOMETRY_TOLERANCE
             for sid, joint in enumerate(joints):
                 seg_p0, seg_p1 = joint['center']
                 sx = seg_p1.x - seg_p0.x
@@ -5437,15 +5486,7 @@ class PcbObject:
                     piece = pieces[pi]
                     metrics = _piece_segment_debug_metrics(
                         piece, seg_p0, seg_p1)
-                    touch_faces = []
-                    for fi in range(len(cut_faces)):
-                        try:
-                            d_touch = piece_slices[pi].distToShape(
-                                cut_segments[fi])[0]
-                        except Exception:
-                            d_touch = float('inf')
-                        if d_touch < tol:
-                            touch_faces.append(fi)
+                    touch_faces = sorted(piece_touching_cuts[pi])
                     touch_sids = sorted(set(
                         face_to_seg[fi]
                         for fi in touch_faces
@@ -5485,12 +5526,8 @@ class PcbObject:
         # the piece adjacent to that cut, rather than approximating the
         # result from the bend line placement alone.
         cut_owner_piece = {}
-        for fi, cut_seg in enumerate(cut_segments):
-            touching = []
-            for pi in range(len(pieces)):
-                if piece_slices[pi].distToShape(
-                        cut_seg)[0] < GEOMETRY_TOLERANCE:
-                    touching.append(pi)
+        for fi in range(len(cut_segments)):
+            touching = cut_touching_pieces[fi]
             rigid_touching = [pi for pi in touching
                               if pi not in strip_pieces]
             if len(rigid_touching) == 1:
@@ -5525,7 +5562,8 @@ class PcbObject:
             piece_slices=piece_slices,
             cut_segments=cut_segments,
             joints=joints,
-            face_to_seg=face_to_seg)
+            face_to_seg=face_to_seg,
+            cut_touching_pieces=cut_touching_pieces)
 
         # Stationary piece = closest non-wedge piece to board
         # outline center of mass.
@@ -6729,6 +6767,10 @@ class PcbObject:
         self._bend_partition_signature = partition_signature
         self._bend_partition_pieces = pieces
         self._bend_partition_piece_slices = piece_slices
+        self._bend_partition_cut_touching_pieces = [
+            set(touching) for touching in cut_touching_pieces]
+        self._bend_partition_piece_touching_cuts = [
+            set(touching) for touching in piece_touching_cuts]
         self._bend_partition_strip_pieces = set(strip_pieces)
         self._bend_partition_half_t = half_t
         self._bend_child_piece_idx = dict(comp_piece_idx)
@@ -9521,15 +9563,7 @@ class PcbObject:
                     seg_p0_dbg, seg_p1_dbg = joint_dbg['center']
                     metrics_dbg = _piece_segment_debug_metrics(
                         pieces[pi], seg_p0_dbg, seg_p1_dbg)
-                    touch_faces_dbg = []
-                    for fi_dbg in range(len(cut_faces)):
-                        try:
-                            d_touch_dbg = piece_slices[pi].distToShape(
-                                cut_segments[fi_dbg])[0]
-                        except Exception:
-                            d_touch_dbg = float('inf')
-                        if d_touch_dbg < GEOMETRY_TOLERANCE:
-                            touch_faces_dbg.append(fi_dbg)
+                    touch_faces_dbg = sorted(piece_touching_cuts[pi])
                     touch_sids_dbg = sorted(set(
                         face_to_seg[fi_dbg]
                         for fi_dbg in touch_faces_dbg
@@ -11367,7 +11401,8 @@ class PcbObject:
 
     def _build_geometric_adjacency(self, pieces, cut_faces, cut_plan,
                                     piece_slices=None, cut_segments=None,
-                                    joints=None, face_to_seg=None):
+                                    joints=None, face_to_seg=None,
+                                    cut_touching_pieces=None):
         """Build geometric adjacency: which pieces touch and via which cut face.
 
         Returns a list of (i, j, fi) tuples.
@@ -11378,41 +11413,49 @@ class PcbObject:
         generalFuse splits do not disconnect the BFS tree.
 
         When *piece_slices* and *cut_segments* are provided, uses 2D
-        geometry for distance checks instead of 3D solids.
+        geometry for distance checks instead of 3D solids.  A precomputed
+        *cut_touching_pieces* incidence map bypasses those checks entirely.
         """
-        n = len(pieces)
-        tol = GEOMETRY_TOLERANCE
-        shapes = piece_slices if piece_slices is not None else pieces
-
         # Group-based adjacency: for each cut face, find all
         # touching pieces; adjacent pairs share the face.
-        face_pieces = {}  # fi → set of pi
-        matched_faces = set(face_to_seg) if face_to_seg is not None else set()
-        if joints is not None:
-            for grp in joints:
-                for fi in grp['a_faces'] + grp['b_faces']:
-                    cf_shape = (cut_segments[fi]
-                                if cut_segments is not None
-                                else cut_faces[fi])
-                    adj = set()
-                    for pi in range(n):
-                        if shapes[pi].distToShape(cf_shape)[0] < tol:
-                            adj.add(pi)
-                    face_pieces[fi] = adj
-                    matched_faces.add(fi)
+        if cut_touching_pieces is not None:
+            face_pieces = {
+                fi: set(touching)
+                for fi, touching in enumerate(cut_touching_pieces)
+                if len(touching) >= 2
+            }
+        else:
+            n = len(pieces)
+            tol = GEOMETRY_TOLERANCE
+            shapes = piece_slices if piece_slices is not None else pieces
+            face_pieces = {}  # fi → set of pi
+            matched_faces = set(face_to_seg) \
+                if face_to_seg is not None else set()
+            if joints is not None:
+                for grp in joints:
+                    for fi in grp['a_faces'] + grp['b_faces']:
+                        cf_shape = (cut_segments[fi]
+                                    if cut_segments is not None
+                                    else cut_faces[fi])
+                        adj = set()
+                        for pi in range(n):
+                            if shapes[pi].distToShape(cf_shape)[0] < tol:
+                                adj.add(pi)
+                        face_pieces[fi] = adj
+                        matched_faces.add(fi)
 
-        for fi in range(len(cut_faces)):
-            if fi in matched_faces:
-                continue
-            cf_shape = (cut_segments[fi]
-                        if cut_segments is not None
-                        else cut_faces[fi])
-            adj = set()
-            for pi in range(n):
-                if shapes[pi].distToShape(cf_shape)[0] < tol:
-                    adj.add(pi)
-            if len(adj) >= 2:
-                face_pieces[fi] = adj
+            for fi in range(len(cut_faces)):
+                if fi in matched_faces:
+                    continue
+                cf_shape = (cut_segments[fi]
+                            if cut_segments is not None
+                            else cut_faces[fi])
+                adj = set()
+                for pi in range(n):
+                    if shapes[pi].distToShape(cf_shape)[0] < tol:
+                        adj.add(pi)
+                if len(adj) >= 2:
+                    face_pieces[fi] = adj
         # Build crossings: pairs of pieces that share a cut face.
         #
         # Do not pre-filter by center-of-mass side here. Wedge/rigid

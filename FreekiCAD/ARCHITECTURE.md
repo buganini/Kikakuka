@@ -192,21 +192,26 @@ Extrudes each 2D cut segment into a vertical rectangular face spanning the full 
 1. `generalFuse(board, cut_faces)` -> compound solid
 2. Extract `pieces` (solids with volume > 1e-6)
 3. Create `piece_slices` (2D wire at z=half_t) and `cut_segments` (2D edge at z=half_t) for fast distance checks
-4. Build `joints` from trimmed center segments:
+4. Compute the piece/cut incidence matrix once. Bounding boxes reject distant
+   pairs before the remaining candidates use 2D `distToShape`. Both
+   `cut_touching_pieces[fi]` and `piece_touching_cuts[pi]` are retained.
+5. Build `joints` from trimmed center segments:
    - each joint corresponds to one trimmed center segment (`sid`)
    - A/B faces are assigned to the joint by midpoint projection onto that center segment
    - wedge pieces are assigned by center-of-mass distance to the center segment
-5. Build adjacency graph from joints (see below)
-6. Compute `cut_owner_piece` for debug cut visualization
-7. Run a preliminary non-wedge BFS to determine `fi_parent` / stationary-side ownership for each crossing face
+6. Build adjacency graph from the incidence matrix (see below)
+7. Compute `cut_owner_piece` for debug cut visualization from the same matrix
+8. Run a preliminary non-wedge BFS to determine `fi_parent` / stationary-side ownership for each crossing face
 
 ### Adjacency Graph Construction
 
 Produces `(i, j, fi)` crossings from the joint structure:
 
-1. For each cut face `fi` in every joint, find all pieces within `GEOMETRY_TOLERANCE` using 2D `distToShape` → `face_pieces[fi]`
-2. For each pair of pieces touching the same face, apply a **side test**: compute cross-product signed distance of each piece's center of mass relative to the cut segment line. Only connect pieces on opposite sides (`ci * cj < 0`)
-3. Emit deduplicated `(i, j, fi)` crossings
+1. Reuse `cut_touching_pieces[fi]` as `face_pieces[fi]`; no additional
+   distance query is performed.
+2. Emit deduplicated `(i, j, fi)` crossings for pairs touching the same face.
+3. During BFS, apply the local side test against the corresponding bend center
+   segment to reject same-side branch hops.
 
 The **side test** is the key filter — it prevents connecting two pieces that both touch the same face but are on the same side of it rather than separated by it.
 
