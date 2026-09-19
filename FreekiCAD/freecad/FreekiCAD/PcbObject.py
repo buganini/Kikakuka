@@ -500,22 +500,6 @@ def _coupler_pose_signature(poses):
                  for pose in poses)
 
 
-def _coupler_pose_changes_limited_to(previous, current, allowed_fields):
-    """Return true when corresponding poses differ only in allowed fields."""
-    if len(previous) != len(current):
-        return False
-    changed = False
-    allowed = set(allowed_fields)
-    for old_pose, new_pose in zip(previous, current):
-        for field in _COUPLER_POSE_FIELDS:
-            if old_pose.get(field) == new_pose.get(field):
-                continue
-            changed = True
-            if field not in allowed:
-                return False
-    return changed
-
-
 def _nearest_bend_piece(pieces, point, excluded=None):
     """Return the PCB piece nearest to a footprint origin outside the solid.
 
@@ -3626,6 +3610,7 @@ class PcbObject:
             if c.Name.endswith("_Board"):
                 board_obj = c
                 break
+        self._clear_bend_partition_cache()
         if board_obj and enable and active_bends:
             self._apply_bends(obj, board_obj, active_bends,
                               thickness, enable_bending=enable)
@@ -3710,16 +3695,74 @@ class PcbObject:
                 if isinstance(p, dict)
                 and (coupler_type is None or p.get('type') == coupler_type)]
 
+    def _bend_partition_for_xy(self, x, y):
+        """Return the cached flat bend-piece index containing an XY point."""
+        pieces = getattr(self, '_bend_partition_pieces', None)
+        if not pieces:
+            return None
+        half_t = float(getattr(self, '_bend_partition_half_t', 0.0))
+        point = FreeCAD.Vector(float(x), float(y), half_t)
+        for tolerance in (0.01, 0.1, 0.5):
+            for index, piece in enumerate(pieces):
+                try:
+                    if piece.isInside(point, tolerance, True):
+                        return index
+                except Exception:
+                    continue
+        index, _distance = _nearest_bend_piece(
+            pieces, point,
+            excluded=getattr(self, '_bend_partition_strip_pieces', set()))
+        return index
+
+    def _coupler_bend_transform(self, marker, previous_pose, current_pose):
+        """Return the cached bend transform for an updated coupler pose."""
+        try:
+            old_x = float(previous_pose.get('x', 0.0))
+            old_y = float(previous_pose.get('y', 0.0))
+            new_x = float(current_pose.get('x', 0.0))
+            new_y = float(current_pose.get('y', 0.0))
+        except (TypeError, ValueError, AttributeError):
+            return None
+
+        xy_changed = (abs(old_x - new_x) > 1e-12
+                      or abs(old_y - new_y) > 1e-12)
+        piece_indices = getattr(self, '_bend_child_piece_idx', None)
+        new_index = None
+        if not xy_changed and piece_indices is not None:
+            new_index = piece_indices.get(marker.Name)
+        if new_index is None:
+            new_index = self._bend_partition_for_xy(new_x, new_y)
+        transforms = getattr(self, '_bend_piece_placements', None)
+        if (new_index is not None and transforms is not None
+                and 0 <= new_index < len(transforms)):
+            if piece_indices is not None:
+                piece_indices[marker.Name] = new_index
+            try:
+                return transforms[new_index].copy()
+            except Exception:
+                return transforms[new_index]
+
+        # Runtime caches do not survive reopening an FCStd document.  A
+        # non-XY edit can still reuse the transform already carried by the
+        # displayed marker until the next normal board recompute rebuilds the
+        # cache.
+        if not xy_changed:
+            displayed = getattr(marker, 'Placement', None)
+            old_flat = getattr(marker, 'FreekiCAD_InitPlacement', None)
+            if displayed is not None and old_flat is not None:
+                try:
+                    return displayed.multiply(old_flat.inverse())
+                except Exception:
+                    pass
+        return None
+
     def _set_coupler_marker_placement(self, marker, flat_placement,
-                                      preserve_bend=False):
-        """Set a marker's flat pose, optionally retaining its bend transform."""
-        displayed = getattr(marker, 'Placement', None)
-        old_flat = getattr(marker, 'FreekiCAD_InitPlacement', None)
+                                      bend_transform=None):
+        """Set a marker's flat pose and optional cached bend transform."""
         retained = False
         self._updating_coupler_markers = True
         try:
-            if preserve_bend and displayed is not None and old_flat is not None:
-                bend_transform = displayed.multiply(old_flat.inverse())
+            if bend_transform is not None:
                 marker.Placement = bend_transform.multiply(flat_placement)
                 retained = True
             else:
@@ -3751,6 +3794,7 @@ class PcbObject:
         if pose is None:
             return
 
+        previous_pose = dict(pose)
         pose.update({
             'x': _quantity_value(marker.X),
             'y': _quantity_value(marker.Y),
@@ -3763,10 +3807,12 @@ class PcbObject:
                               getattr(marker, 'Offset', 0)))
         obj.CouplerPoses = json.dumps(poses)
         placement = self._coupler_placement(pose)
+        bend_transform = None
+        if hasattr(self, '_unbent_board_shape'):
+            bend_transform = self._coupler_bend_transform(
+                marker, previous_pose, pose)
         retained_bend = self._set_coupler_marker_placement(
-            marker, placement,
-            preserve_bend=(prop == 'Tilt'
-                           and hasattr(self, '_unbent_board_shape')))
+            marker, placement, bend_transform=bend_transform)
 
         if COUPLER_KICAD_SYNC_ENABLED:
             update = {
@@ -4018,8 +4064,9 @@ class PcbObject:
     def _apply_live_coupler_poses(self, obj, poses):
         """Update saved poses and markers, then repeat coupler positioning."""
         previous = self._coupler_poses(obj)
-        tilt_only = _coupler_pose_changes_limited_to(
-            previous, poses, {'tilt'})
+        retain_all_bends = (
+            hasattr(self, '_unbent_board_shape')
+            and len(previous) == len(poses))
         obj.CouplerPoses = json.dumps(poses)
         markers = {}
         for child in getattr(obj, 'Group', []):
@@ -4027,17 +4074,19 @@ class PcbObject:
                 key = (str(child.CouplerType), str(child.Reference))
                 markers.setdefault(key, []).append(child)
 
-        for pose in poses:
+        for pose_index, pose in enumerate(poses):
             key = (str(pose.get('type', '')), str(pose.get('ref', '')))
             matches = markers.get(key, [])
             if not matches:
                 continue
             marker = matches.pop(0)
             placement = self._coupler_placement(pose)
+            bend_transform = None
+            if retain_all_bends:
+                bend_transform = self._coupler_bend_transform(
+                    marker, previous[pose_index], pose)
             retained_bend = self._set_coupler_marker_placement(
-                marker, placement,
-                preserve_bend=(tilt_only
-                               and hasattr(self, '_unbent_board_shape')))
+                marker, placement, bend_transform=bend_transform)
             self._updating_coupler_markers = True
             try:
                 for prop, value in (
@@ -4052,14 +4101,14 @@ class PcbObject:
                         pass
             finally:
                 self._updating_coupler_markers = False
-            if tilt_only and not retained_bend:
-                tilt_only = False
+            if not retained_bend:
+                retain_all_bends = False
 
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Live couplers changed for '{obj.Label}'; "
             "repositioning linked boards\n")
         if hasattr(self, '_unbent_board_shape'):
-            if tilt_only:
+            if retain_all_bends:
                 self._reposition_all_coupled_objects(obj.Document)
             else:
                 self._rebend(obj)
@@ -4528,6 +4577,19 @@ class PcbObject:
         timer = self._surface_reload_timer
         return timer is not None and timer.isActive()
 
+    def _clear_bend_partition_cache(self):
+        """Discard runtime-only flat-piece lookup and transform data."""
+        for name in (
+                '_bend_partition_pieces',
+                '_bend_partition_strip_pieces',
+                '_bend_partition_half_t',
+                '_bend_child_piece_idx',
+                '_bend_piece_placements'):
+            try:
+                delattr(self, name)
+            except AttributeError:
+                pass
+
     def _rebend(self, obj):
         """Re-apply bending after Radius/Angle/Active or EnableBending
         changes on a bend line."""
@@ -4539,6 +4601,7 @@ class PcbObject:
         self._suspend_component_move_sync(obj)
         self._bending = True
         try:
+            self._clear_bend_partition_cache()
             thickness = getattr(self, '_board_thickness',
                                 DEFAULT_PCB_THICKNESS)
 
@@ -4613,6 +4676,7 @@ class PcbObject:
     def _apply_bends(self, obj, board_obj, bend_children, thickness,
                      enable_bending=True):
         """Apply bending deformation to the board shape."""
+        self._clear_bend_partition_cache()
         self._suspend_component_move_sync(obj)
         self._bending = True
         try:
@@ -6557,6 +6621,21 @@ class PcbObject:
                             continue
                         child.Placement.Base = \
                             child.Placement.Base + correction
+
+        # Coupler edits do not alter board geometry.  Retain the flat
+        # partitions and their final rigid transforms so an edited marker can
+        # be moved directly to the appropriate bent partition without running
+        # the bending pipeline again.
+        self._bend_partition_pieces = pieces
+        self._bend_partition_strip_pieces = set(strip_pieces)
+        self._bend_partition_half_t = half_t
+        self._bend_child_piece_idx = dict(comp_piece_idx)
+        self._bend_piece_placements = []
+        for placement in piece_plc:
+            try:
+                self._bend_piece_placements.append(placement.copy())
+            except Exception:
+                self._bend_piece_placements.append(placement)
 
         # Log final positions after all transforms
         for pi in range(len(piece_shapes)):

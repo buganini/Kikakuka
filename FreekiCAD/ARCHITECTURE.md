@@ -96,6 +96,28 @@ containing its flat centroid. Before deformation, its flat area is intersected
 with every active bend span; each non-trivial overlap emits a warning because
 the stiffener itself is not curved through the bend.
 
+## Coupler Pose Updates
+
+Each coupler marker keeps its flat-board pose in
+`FreekiCAD_InitPlacement`, while its displayed `Placement` includes the bend
+transform of the board partition containing the marker. Coupler-linked PCB
+objects are positioned from that displayed marker pose.
+
+The bending pipeline caches the flat partition solids, each marker's partition
+index, and the final rigid transform of every partition. A FreeCAD property
+edit or live KiCad monitor update therefore never needs to rebuild the bent
+board. Z, Offset, Tilt, rotation, and other non-XY changes reuse the current
+partition transform. For an X/Y change, a cheap point-in-solid lookup on the
+cached flat partitions selects the destination partition, whose cached
+transform is then applied to the new flat marker pose. This also handles a
+marker crossing from one partition to another without rebending the body.
+
+These caches are runtime-only. Until an older restored document has recomputed
+the board and populated them, non-XY edits can recover the current transform as
+`displayed * old_flat.inverse()`; an XY edit conservatively falls back to one
+full rebend. Local marker edits are written back to KiCad independently of how
+the displayed transform is obtained.
+
 ---
 
 ## Constants

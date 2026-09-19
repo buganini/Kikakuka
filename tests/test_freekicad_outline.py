@@ -1127,16 +1127,63 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertIsNone(
             linked_object._select_monitored_coupler_poses(monitored, live))
 
-    def test_coupler_pose_change_can_be_limited_to_tilt(self):
+    def test_coupler_xy_move_uses_destination_partition_transform(self):
         linked_object = self._import_linked_object()
-        old_pose = {
-            "ref": "pair", "type": "CouplerFixed", "x": 1, "tilt": 0,
-        }
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
 
-        self.assertTrue(linked_object._coupler_pose_changes_limited_to(
-            [old_pose], [{**old_pose, "tilt": 15}], {"tilt"}))
-        self.assertFalse(linked_object._coupler_pose_changes_limited_to(
-            [old_pose], [{**old_pose, "x": 2, "tilt": 15}], {"tilt"}))
+        class Partition:
+            def __init__(self, min_x, max_x):
+                self.min_x = min_x
+                self.max_x = max_x
+
+            def isInside(self, point, _tolerance, _include_boundary):
+                return self.min_x <= point.x < self.max_x
+
+        old_pose = {
+            "ref": "pair", "type": "CouplerFixed", "x": 2, "y": 3,
+            "board_z": 1.6, "rotation": 0, "z": 1, "offset": 0,
+            "tilt": 0,
+        }
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        old_flat = proxy._coupler_placement(old_pose)
+        old_transform = _Placement2D(
+            _Vector2D(10, 0, 0), _Rotation2D(None, 10))
+        new_transform = _Placement2D(
+            _Vector2D(30, 5, 4), _Rotation2D(None, 70))
+        marker = types.SimpleNamespace(
+            Name="Board_Coupler_pair", CouplerType="CouplerFixed",
+            Reference="pair", X=12, Y=3, Z=1, Offset=0, Tilt=0,
+            Placement=old_transform.multiply(old_flat),
+            FreekiCAD_InitPlacement=old_flat)
+        document = object()
+        obj = types.SimpleNamespace(
+            Label="board", CouplerPoses=json.dumps([old_pose]),
+            Document=document)
+        proxy._unbent_board_shape = object()
+        proxy._unbent_placements = {}
+        proxy._bend_partition_pieces = [
+            Partition(0, 10), Partition(10, 20)]
+        proxy._bend_partition_strip_pieces = set()
+        proxy._bend_partition_half_t = 0.8
+        proxy._bend_child_piece_idx = {marker.Name: 0}
+        proxy._bend_piece_placements = [old_transform, new_transform]
+        proxy._schedule_coupler_update = mock.Mock()
+        proxy._schedule_rebend = mock.Mock()
+        proxy._reposition_all_coupled_objects = mock.Mock()
+
+        proxy._coupler_marker_changed(obj, marker, "X")
+
+        new_pose = json.loads(obj.CouplerPoses)[0]
+        expected = new_transform.multiply(proxy._coupler_placement(new_pose))
+        self.assertAlmostEqual(marker.Placement.Base.x, expected.Base.x)
+        self.assertAlmostEqual(marker.Placement.Base.y, expected.Base.y)
+        self.assertAlmostEqual(marker.Placement.Base.z, expected.Base.z)
+        self.assertAlmostEqual(marker.Placement.angle, expected.angle)
+        self.assertEqual(proxy._bend_child_piece_idx[marker.Name], 1)
+        proxy._schedule_rebend.assert_not_called()
+        proxy._reposition_all_coupled_objects.assert_called_once_with(document)
 
     def test_changed_live_couplers_are_applied(self):
         linked_object = self._import_linked_object()
