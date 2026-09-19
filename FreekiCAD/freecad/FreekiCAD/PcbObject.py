@@ -4038,7 +4038,7 @@ class PcbObject:
             f"FreekiCAD: Coupler monitor unavailable: {message}\n")
 
     def _build_coupler_children(self, obj, couplers):
-        """Create visible child markers for the board's coupler planes."""
+        """Create hidden child markers for the board's coupler planes."""
         doc = obj.Document
         for index, pose in enumerate(couplers):
             coupler_type = pose.get('type', '')
@@ -4120,7 +4120,7 @@ class PcbObject:
                 # CouplerMarker only needs a data proxy; the standard shape
                 # provider gives it normal show/hide behavior in the tree.
                 marker.ViewObject.Proxy = 0
-                marker.ViewObject.Visibility = True
+                marker.ViewObject.Visibility = False
                 marker.ViewObject.LineWidth = 4.0
                 marker.ViewObject.Transparency = 35
                 if coupler_type == COUPLER_FIXED:
