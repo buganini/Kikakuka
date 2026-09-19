@@ -18,6 +18,19 @@ def schematic_page_index(thumbnail_name):
     return int(stem.rsplit("_", 1)[1])
 
 
+def synchronized_page_shift(pages_a, current_a, pages_b, current_b, offset):
+    """Return both shifted pages, or None if either side cannot move."""
+    try:
+        target_a = pages_a.index(current_a) + offset
+        target_b = pages_b.index(current_b) + offset
+    except ValueError:
+        return None
+    if (not 0 <= target_a < len(pages_a) or
+            not 0 <= target_b < len(pages_b)):
+        return None
+    return pages_a[target_a], pages_b[target_b]
+
+
 def pdf_page_size(path, page_index):
     document = pdfium.PdfDocument(path)
     try:

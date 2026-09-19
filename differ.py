@@ -33,6 +33,7 @@ from pdf_tile_scheduler import PdfTileScheduler
 from sch_diff_tiles import (
     SchematicTileRenderer,
     build_schematic_pair_metadata,
+    synchronized_page_shift,
 )
 
 
@@ -729,6 +730,15 @@ class DifferUI(Application):
                     elif self.state.file_a and self.state.file_a:
                             if os.path.splitext(self.state.file_a)[1].lower() == SCH_SUFFIX:
                                 Button("PCB Diff").click(self.pcb_diff)
+                                if os.path.splitext(
+                                        self.state.file_b
+                                )[1].lower() == SCH_SUFFIX:
+                                    Button("◀").click(
+                                        lambda e: self.shift_sch_pages(-1)
+                                    )
+                                    Button("▶").click(
+                                        lambda e: self.shift_sch_pages(1)
+                                    )
                             elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
                                 Button("SCH Diff").click(self.sch_diff)
                             Label("Ctrl+Wheel to adjust overlap").layout(weight=1)
@@ -889,6 +899,30 @@ class DifferUI(Application):
 
     def select_page_b(self, png):
         self.state.page_b = png
+        self.build()
+
+    def shift_sch_pages(self, offset):
+        if not self.state.cached_file_a or not self.state.cached_file_b:
+            return
+        try:
+            pages_a = sorted(os.listdir(os.path.join(
+                self.state.cached_file_a, "sch"
+            )))
+            pages_b = sorted(os.listdir(os.path.join(
+                self.state.cached_file_b, "sch"
+            )))
+        except OSError:
+            return
+        shifted = synchronized_page_shift(
+            pages_a,
+            self.state.page_a,
+            pages_b,
+            self.state.page_b,
+            offset,
+        )
+        if shifted is None:
+            return
+        self.state.page_a, self.state.page_b = shifted
         self.build()
 
     def select_commit_a(self):

@@ -3,13 +3,45 @@ from unittest import mock
 
 import numpy as np
 
-from sch_diff_tiles import SchematicTileRenderer, schematic_page_index
+from sch_diff_tiles import (
+    SchematicTileRenderer,
+    schematic_page_index,
+    synchronized_page_shift,
+)
 
 
 class SchematicTileRendererTests(unittest.TestCase):
     def test_thumbnail_name_carries_pdf_page_index(self):
         self.assertEqual(schematic_page_index("sch_00.png"), 0)
         self.assertEqual(schematic_page_index("sch_12.png"), 12)
+
+    def test_synchronized_page_shift_moves_both_sides(self):
+        self.assertEqual(
+            synchronized_page_shift(
+                ["a0", "a1", "a2"], "a1",
+                ["b0", "b1", "b2"], "b1", 1,
+            ),
+            ("a2", "b2"),
+        )
+
+    def test_synchronized_page_shift_preserves_page_offset(self):
+        self.assertEqual(
+            synchronized_page_shift(
+                ["a0", "a1", "a2"], "a0",
+                ["b0", "b1", "b2", "b3"], "b1", 1,
+            ),
+            ("a1", "b2"),
+        )
+
+    def test_synchronized_page_shift_stops_if_either_side_is_at_edge(self):
+        self.assertIsNone(synchronized_page_shift(
+            ["a0", "a1", "a2"], "a1",
+            ["b0", "b1"], "b1", 1,
+        ))
+        self.assertIsNone(synchronized_page_shift(
+            ["a0", "a1"], "a0",
+            ["b0", "b1", "b2"], "b1", -1,
+        ))
 
     def test_tile_builds_darker_image_and_highlight_mask(self):
         renderer = SchematicTileRenderer()
