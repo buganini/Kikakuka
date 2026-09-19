@@ -329,8 +329,8 @@ def _footprint_field_value(footprint, field_name, default=None):
     return default
 
 
-def _set_footprint_field_value(footprint, field_name, value):
-    """Set a named custom footprint field through the KiCad API wrapper."""
+def _set_footprint_field_value(footprint, field_name, value, create=False):
+    """Set, and optionally create, a custom footprint field via KiCad IPC."""
     try:
         fields = footprint.texts_and_fields
     except Exception:
@@ -353,7 +353,40 @@ def _set_footprint_field_value(footprint, field_name, value):
                 return True
             except Exception:
                 continue
-    return False
+    if not create:
+        return False
+
+    # kicad-python exposes Footprint.add_item(), but does not provide a
+    # convenience constructor for custom fields.  Clone the existing Z field
+    # so the new hidden field inherits the footprint position, layer, text
+    # style, and parent.  Assign both IDs explicitly to avoid duplicating the
+    # source field's identifiers when the footprint is packed for update.
+    try:
+        import uuid
+        from kipy.board_types import Field
+
+        definition = footprint.definition
+        fields = [item for item in definition.items
+                  if isinstance(item, Field)]
+        template = next(
+            (field for field in fields if field.name == 'Z'),
+            fields[0] if fields else None)
+        if template is None:
+            return False
+
+        proto = template.proto.__class__()
+        proto.CopyFrom(template.proto)
+        proto.id.id = max(
+            [int(field.field_id) for field in fields] + [3]) + 1
+        proto.text.id.value = str(uuid.uuid4())
+        new_field = Field(proto=proto)
+        new_field.name = field_name
+        new_field.text.value = str(value)
+        new_field.visible = False
+        definition.add_item(new_field)
+        return True
+    except Exception:
+        return False
 
 
 def _quantity_value(value):
@@ -366,6 +399,13 @@ def _parse_coupler_z(value):
     if value is None:
         return 0.0
     return parse_length_mm(value, "Z")
+
+
+def _parse_coupler_offset(value):
+    """Parse the in-plane coupler offset in millimetres."""
+    if value is None:
+        return 0.0
+    return parse_length_mm(value, "Offset")
 
 
 def _parse_coupler_at_coordinate(value, field_name):
@@ -410,6 +450,9 @@ def _coupler_pose_from_footprint(footprint, thickness):
         'is_back': is_back,
         'z': (0.0 if coupler_type == COUPLER_AT else _parse_coupler_z(
             _footprint_field_value(footprint, 'Z', 0))),
+        'offset': (0.0 if coupler_type == COUPLER_AT
+                   else _parse_coupler_offset(
+                       _footprint_field_value(footprint, 'Offset', 0))),
         'tilt': _parse_coupler_tilt(
             _footprint_field_value(footprint, 'Tilt', 0)),
         'rotation': _coupler_rotation_degrees(footprint),
@@ -449,9 +492,44 @@ def _select_monitored_coupler_poses(monitored, live):
 def _coupler_pose_signature(poses):
     """Return the live fields which affect coupler placement."""
     fields = (
-        'ref', 'type', 'x', 'y', 'board_z', 'is_back', 'z', 'tilt',
+        'ref', 'type', 'x', 'y', 'board_z', 'is_back', 'z', 'offset', 'tilt',
         'rotation', 'target_x', 'target_y', 'target_z')
     return tuple(tuple(pose.get(field) for field in fields) for pose in poses)
+
+
+def _nearest_bend_piece(pieces, point, excluded=None):
+    """Return the PCB piece nearest to a footprint origin outside the solid.
+
+    A connector or coupler origin can lie in a slot, a drill hole, or beyond
+    the board edge.  It still has to inherit the bend transform of the nearest
+    rigid PCB piece.  Prefer non-strip pieces because a bend strip is not a
+    stable mounting surface.
+    """
+    excluded = set(excluded or ())
+    try:
+        point_shape = Part.Vertex(point)
+    except Exception:
+        return None, None
+
+    def _closest(skip_excluded):
+        best_index = None
+        best_distance = None
+        for index, piece in enumerate(pieces):
+            if skip_excluded and index in excluded:
+                continue
+            try:
+                distance = float(piece.distToShape(point_shape)[0])
+            except Exception:
+                continue
+            if best_distance is None or distance < best_distance:
+                best_index = index
+                best_distance = distance
+        return best_index, best_distance
+
+    result = _closest(bool(excluded))
+    if result[0] is None and excluded:
+        result = _closest(False)
+    return result
 
 
 def _signed_line_side_2d(point, seg_p0, seg_p1):
@@ -1574,6 +1652,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                         f"FreekiCAD:   {ref}: found {coupler_type} "
                         f"surfaceZ={couplers_data[-1]['board_z']:.4g}mm "
                         f"Z={couplers_data[-1]['z']:.4g}mm "
+                        f"Offset={couplers_data[-1]['offset']:.4g}mm "
                         f"Tilt={couplers_data[-1]['tilt']:.4g}deg\n")
                 except Exception as ex:
                     FreeCAD.Console.PrintWarning(
@@ -2029,7 +2108,7 @@ class CouplerMarker:
         pass
 
     def onChanged(self, obj, prop):
-        if prop not in ("X", "Y", "Z", "Tilt"):
+        if prop not in ("X", "Y", "Z", "Offset", "Tilt"):
             return
         try:
             if obj.Document.Restoring:
@@ -2049,8 +2128,9 @@ class CouplerMarker:
         return None
 
     def onDocumentRestored(self, obj):
-        # Z and Tilt used to be read-only.  Keep restored documents editable.
-        for prop in ("Z", "Tilt"):
+        # Plane properties used to be read-only.  Keep restored documents
+        # editable; the parent proxy adds Offset to older markers first.
+        for prop in ("Z", "Offset", "Tilt"):
             try:
                 obj.setPropertyStatus(prop, "-ReadOnly")
             except Exception:
@@ -2212,7 +2292,7 @@ class _OutlineSketchObserver:
 
         # Also covers coupler markers restored from older documents, where
         # the child was a plain Part::Feature without a Python proxy.
-        if prop in ("X", "Y", "Z", "Tilt") \
+        if prop in ("X", "Y", "Z", "Offset", "Tilt") \
                 and hasattr(obj, 'CouplerType') \
                 and getattr(getattr(obj, 'Proxy', None), 'Type', None) \
                 != 'CouplerMarker':
@@ -2661,7 +2741,13 @@ class PcbObject:
                     marker.addProperty(
                         'App::PropertyDistance', name, 'Coupler', description)
                 setattr(marker, name, float(pose.get(name.lower(), 0)))
-            for name in ('Z', 'Tilt'):
+            if coupler_type != COUPLER_AT and not hasattr(marker, 'Offset'):
+                marker.addProperty(
+                    'App::PropertyDistance', 'Offset', 'Coupler',
+                    'Offset along the triangle direction on the PCB surface')
+            if coupler_type != COUPLER_AT:
+                marker.Offset = float(pose.get('offset', 0))
+            for name in ('Z', 'Offset', 'Tilt'):
                 try:
                     marker.setPropertyStatus(name, '-ReadOnly')
                 except Exception:
@@ -3629,6 +3715,9 @@ class PcbObject:
         })
         pose['z'] = (0.0 if coupler_type == COUPLER_AT
                      else _quantity_value(marker.Z))
+        pose['offset'] = (0.0 if coupler_type == COUPLER_AT
+                          else _quantity_value(
+                              getattr(marker, 'Offset', 0)))
         obj.CouplerPoses = json.dumps(poses)
         placement = self._coupler_placement(pose)
         self._updating_coupler_markers = True
@@ -3650,6 +3739,7 @@ class PcbObject:
                 'x': pose['x'],
                 'y': pose['y'],
                 'z': pose['z'],
+                'offset': pose['offset'],
                 'tilt': pose['tilt'],
             }
             self._pending_coupler_updates[reference] = update
@@ -3750,6 +3840,12 @@ class PcbObject:
             if not _set_footprint_field_value(
                     target_fp, 'Z', f"{update['z']:.12g} mm"):
                 raise ValueError("could not update coupler field Z")
+            offset_written = _set_footprint_field_value(
+                target_fp, 'Offset',
+                f"{float(update.get('offset', 0)):.12g} mm", create=True)
+            if not offset_written and abs(float(
+                    update.get('offset', 0))) > 1e-12:
+                raise ValueError("could not update coupler field Offset")
         if not _set_footprint_field_value(
                 target_fp, 'Tilt', f"{update['tilt']:.12g} deg"):
             raise ValueError("could not update coupler field Tilt")
@@ -3902,6 +3998,7 @@ class PcbObject:
                         ('X', float(pose.get('x', 0))),
                         ('Y', float(pose.get('y', 0))),
                         ('Z', float(pose.get('z', 0))),
+                        ('Offset', float(pose.get('offset', 0))),
                         ('Tilt', float(pose.get('tilt', 0)))):
                     try:
                         setattr(marker, prop, value)
@@ -3970,6 +4067,9 @@ class PcbObject:
                 marker.addProperty(
                     "App::PropertyDistance", "Z", "Coupler",
                     "Coupler-plane displacement")
+                marker.addProperty(
+                    "App::PropertyDistance", "Offset", "Coupler",
+                    "Offset along the triangle direction on the PCB surface")
             marker.addProperty(
                 "App::PropertyAngle", "Tilt", "Coupler",
                 "Coupler-plane tilt around footprint-local X")
@@ -3979,6 +4079,7 @@ class PcbObject:
             marker.Y = float(pose.get('y', 0))
             if coupler_type != COUPLER_AT:
                 marker.Z = z
+                marker.Offset = float(pose.get('offset', 0))
             marker.Tilt = float(pose.get('tilt', 0))
             for prop in ('CouplerType', 'Reference'):
                 try:
@@ -4046,14 +4147,23 @@ class PcbObject:
                 FreeCAD.Vector(0, 0, 0),
                 FreeCAD.Rotation(FreeCAD.Vector(1, 0, 0), 180))
             placement = placement.multiply(back_side)
+        # KiCad's original local +Y points downward on the canvas and is the
+        # direction indicated by the coupler triangle.  FreeCAD's converted
+        # footprint frame reverses Y, so a positive Offset is local -Y here.
+        in_plane_offset = FreeCAD.Placement(
+            FreeCAD.Vector(0, -float(pose.get('offset', 0)), 0),
+            FreeCAD.Rotation())
         z_offset = FreeCAD.Placement(
             FreeCAD.Vector(0, 0, float(pose.get('z', 0))),
             FreeCAD.Rotation())
-        placement = placement.multiply(z_offset)
+        placement = placement.multiply(in_plane_offset).multiply(z_offset)
         tilt = FreeCAD.Placement(
             FreeCAD.Vector(0, 0, 0),
             FreeCAD.Rotation(
                 FreeCAD.Vector(1, 0, 0), float(pose.get('tilt', 0))))
+        # Z is measured along the PCB surface normal.  Tilt changes only the
+        # plane orientation around the footprint-local X axis; it must not
+        # rotate the Z displacement away from the board normal.
         return placement.multiply(tilt)
 
     def _coupler_local_placement(self, obj, pose):
@@ -5701,17 +5811,40 @@ class PcbObject:
                     matched_tolerance = tolerance
                     break
             matched_piece = matches[0] if matches else None
+            fallback_distance = None
+            if matched_piece is None:
+                matched_piece, fallback_distance = _nearest_bend_piece(
+                    pieces, pt, excluded=strip_pieces)
             if matched_piece is not None:
                 comp_piece_idx[child.Name] = matched_piece
+            if fallback_distance is not None:
+                child_kind = (str(child.CouplerType)
+                              if hasattr(child, 'CouplerType')
+                              else "component")
+                child_label = (str(child.Reference)
+                               if hasattr(child, 'CouplerType')
+                               else str(child.Label))
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: Nearest bend-piece fallback "
+                    f"'{obj.Label}/{child_label}' type={child_kind} "
+                    f"xy=({child_x:.6f},{child_y:.6f}) "
+                    f"distance={fallback_distance:.6f}mm "
+                    f"piece={matched_piece}\n")
             if hasattr(child, 'CouplerType'):
                 piece_text = (str(matched_piece)
                               if matched_piece is not None else "NONE")
+                if matched_tolerance is not None:
+                    match_text = f"inside:{matched_tolerance}mm"
+                elif fallback_distance is not None:
+                    match_text = f"nearest:{fallback_distance:.6f}mm"
+                else:
+                    match_text = "none"
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: Coupler bend-piece mapping "
                     f"'{obj.Label}/{child.Reference}' "
                     f"type={child.CouplerType} "
                     f"xy=({child_x:.6f},{child_y:.6f}) "
-                    f"tolerance={matched_tolerance}mm "
+                    f"match={match_text} "
                     f"candidates={matches} "
                     f"piece={piece_text}\n")
 

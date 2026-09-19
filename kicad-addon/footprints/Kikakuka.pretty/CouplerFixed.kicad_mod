@@ -41,7 +41,7 @@
 			)
 		)
 	)
-	(property "Description" "Fixed FreekiCAD alignment plane. Matches a CouplerMoving footprint with the same reference; unitless Z defaults to mm, mm/in/mil/um are supported, and Tilt is in degrees."
+	(property "Description" "Fixed FreekiCAD alignment plane. Matches a CouplerMoving footprint with the same reference. Z moves along the PCB surface normal; positive Offset moves on the PCB surface in the triangle direction; Tilt rotates around local X. Unitless lengths default to mm; mm/in/mil/um are supported."
 		(at 0 0 0)
 		(unlocked yes)
 		(layer "F.Fab")
@@ -60,6 +60,19 @@
 		(layer "F.Fab")
 		(hide yes)
 		(uuid "415875f9-79ca-4c58-9762-ca2a72217b8a")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Offset" "0 mm"
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "974c1a70-0e02-41a9-9c93-4553ec791802")
 		(effects
 			(font
 				(size 1 1)

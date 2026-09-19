@@ -42,7 +42,7 @@
 			)
 		)
 	)
-	(property "Description" "FreekiCAD alignment plane that positions this PCB at absolute FreeCAD world TargetX/TargetY/TargetZ coordinates. Place it on B.Cu for the usual behavior so the PCB bottom surface is positioned at TargetZ; use F.Cu only to reference the top surface. Unitless lengths default to mm; mm/in/mil/um are supported, and Tilt is in degrees."
+	(property "Description" "FreekiCAD alignment plane that positions this PCB at absolute FreeCAD world TargetX/TargetY/TargetZ coordinates. Place it on B.Cu for the usual behavior so the PCB bottom surface is positioned at TargetZ; use F.Cu only to reference the top surface. Unitless lengths default to mm; mm/in/mil/um are supported, and Tilt rotates around the local X axis on the PCB surface."
 		(at 0 0 0)
 		(unlocked yes)
 		(layer "F.Fab")

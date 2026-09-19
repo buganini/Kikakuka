@@ -182,6 +182,42 @@ class OutlineWireOrderTests(unittest.TestCase):
         view_provider.assert_not_called()
         document.recompute.assert_called_once_with()
 
+    def test_nearest_bend_piece_prefers_rigid_piece_over_strip(self):
+        linked_object = self._import_linked_object()
+        linked_object.Part.Vertex = lambda point: point
+
+        class Piece:
+            def __init__(self, distance):
+                self.distance = distance
+
+            def distToShape(self, point):
+                return self.distance, [], []
+
+        index, distance = linked_object._nearest_bend_piece(
+            [Piece(0.1), Piece(0.4), Piece(0.8)],
+            _Vector2D(), excluded={0})
+
+        self.assertEqual(index, 1)
+        self.assertAlmostEqual(distance, 0.4)
+
+    def test_nearest_bend_piece_uses_strip_if_no_rigid_shape_is_valid(self):
+        linked_object = self._import_linked_object()
+        linked_object.Part.Vertex = lambda point: point
+
+        class BrokenPiece:
+            def distToShape(self, point):
+                raise RuntimeError("invalid shape")
+
+        class StripPiece:
+            def distToShape(self, point):
+                return 0.25, [], []
+
+        index, distance = linked_object._nearest_bend_piece(
+            [StripPiece(), BrokenPiece()], _Vector2D(), excluded={0})
+
+        self.assertEqual(index, 0)
+        self.assertAlmostEqual(distance, 0.25)
+
     def test_active_bend_does_not_permanently_block_component_sync(self):
         linked_object = self._import_linked_object()
         proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
@@ -927,6 +963,14 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(linked_object._parse_coupler_z("250 um"), 0.25)
         self.assertEqual(linked_object._parse_coupler_z("250 µm"), 0.25)
 
+    def test_coupler_offset_uses_length_units(self):
+        linked_object = self._import_linked_object()
+
+        self.assertEqual(linked_object._parse_coupler_offset("2.4"), 2.4)
+        self.assertEqual(linked_object._parse_coupler_offset("1 in"), 25.4)
+        self.assertEqual(linked_object._parse_coupler_offset("10 mil"), 0.254)
+        self.assertEqual(linked_object._parse_coupler_offset("250 um"), 0.25)
+
     def test_coupler_tilt_reads_custom_field_in_degrees(self):
         linked_object = self._import_linked_object()
         footprint = _NamedFootprint("CouplerMoving")
@@ -956,6 +1000,37 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(field.text.text.value, "2.5 mm")
 
+    def test_missing_coupler_offset_field_can_be_created(self):
+        linked_object = self._import_linked_object()
+        from kipy.board_types import Field, FootprintInstance
+
+        footprint = FootprintInstance()
+        z_field = Field()
+        z_field.name = "Z"
+        z_field.proto.id.id = 4
+        z_field.proto.text.id.value = "source-text-id"
+        z_field.text.value = "0 mm"
+        footprint.definition.add_item(z_field)
+
+        changed = linked_object._set_footprint_field_value(
+            footprint, "Offset", "2.5 mm", create=True)
+
+        self.assertTrue(changed)
+        offset = next(field for field in footprint.definition.items
+                      if isinstance(field, Field)
+                      and field.name == "Offset")
+        self.assertEqual(offset.text.value, "2.5 mm")
+        self.assertEqual(offset.field_id, 5)
+        self.assertNotEqual(
+            offset.proto.text.id.value, z_field.proto.text.id.value)
+        self.assertFalse(offset.visible)
+
+        packed = FootprintInstance(proto=footprint.proto)
+        packed_offset = next(
+            field for field in packed.definition.items
+            if isinstance(field, Field) and field.name == "Offset")
+        self.assertEqual(packed_offset.text.value, "2.5 mm")
+
     def test_live_coupler_pose_contains_all_positioning_properties(self):
         linked_object = self._import_linked_object()
         from kipy.proto.board.board_types_pb2 import BoardLayer
@@ -969,6 +1044,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         footprint.orientation = _Angle(27)
         footprint.texts_and_fields = [
             _CustomField("Z", "2.4 mm"),
+            _CustomField("Offset", "1.25 mm"),
             _CustomField("Tilt", "-12.5 deg"),
         ]
 
@@ -977,7 +1053,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(pose, {
             "ref": "pair", "type": "CouplerMoving",
             "x": 12.5, "y": 7.25, "board_z": 1.6,
-            "is_back": False, "z": 2.4, "tilt": -12.5,
+            "is_back": False, "z": 2.4, "offset": 1.25,
+            "tilt": -12.5,
             "rotation": 27,
         })
 
@@ -1004,6 +1081,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(pose["target_y"], 25.4)
         self.assertEqual(pose["target_z"], 6.35)
         self.assertEqual(pose["z"], 0)
+        self.assertEqual(pose["offset"], 0)
 
     def test_stored_coupler_poses_are_loaded_from_json(self):
         linked_object = self._import_linked_object()
@@ -1114,6 +1192,7 @@ class OutlineWireOrderTests(unittest.TestCase):
             X = 0
             Y = 0
             Z = 0
+            Offset = 0
             Tilt = 0
             Placement = None
             FreekiCAD_InitPlacement = None
@@ -1132,7 +1211,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy._reposition_all_coupled_objects = mock.Mock()
         pose = {
             "ref": "pair", "type": "CouplerFixed", "x": 10,
-            "y": 20, "z": 3, "tilt": 12, "rotation": 30,
+            "y": 20, "z": 3, "offset": 1.5,
+            "tilt": 12, "rotation": 30,
         }
 
         proxy._apply_live_coupler_poses(obj, [pose])
@@ -1141,6 +1221,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(marker.X, 10)
         self.assertEqual(marker.Y, 20)
         self.assertEqual(marker.Z, 3)
+        self.assertEqual(marker.Offset, 1.5)
         self.assertEqual(marker.Tilt, 12)
         self.assertIs(marker.Placement, placement)
         self.assertIs(marker.FreekiCAD_InitPlacement, placement)
@@ -1154,7 +1235,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         document = object()
         marker = types.SimpleNamespace(
             Name="Board_Coupler_pair", CouplerType="CouplerFixed",
-            Reference="pair", X=12.5, Y=7.25, Z=2.4, Tilt=-12.5,
+            Reference="pair", X=12.5, Y=7.25, Z=2.4, Offset=1.25,
+            Tilt=-12.5,
             Placement=None, FreekiCAD_InitPlacement=None)
         obj = types.SimpleNamespace(
             Label="board", CouplerPoses=json.dumps([{
@@ -1169,11 +1251,13 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         pose = json.loads(obj.CouplerPoses)[0]
         self.assertEqual(
-            (pose["x"], pose["y"], pose["z"], pose["tilt"]),
-            (12.5, 7.25, 2.4, -12.5))
+            (pose["x"], pose["y"], pose["z"], pose["offset"],
+             pose["tilt"]),
+            (12.5, 7.25, 2.4, 1.25, -12.5))
         self.assertEqual(proxy._pending_coupler_updates["pair"], {
             "ref": "pair", "type": "CouplerFixed",
-            "x": 12.5, "y": 7.25, "z": 2.4, "tilt": -12.5,
+            "x": 12.5, "y": 7.25, "z": 2.4, "offset": 1.25,
+            "tilt": -12.5,
         })
         proxy._schedule_coupler_update.assert_called_once_with(obj, "pair")
         proxy._reposition_all_coupled_objects.assert_called_once_with(document)
@@ -1188,8 +1272,9 @@ class OutlineWireOrderTests(unittest.TestCase):
             text=types.SimpleNamespace(value="pair"))
         footprint.position = None
         z_field = _CustomField("Z", "0 mm")
+        offset_field = _CustomField("Offset", "0 mm")
         tilt_field = _CustomField("Tilt", "0 deg")
-        footprint.texts_and_fields = [z_field, tilt_field]
+        footprint.texts_and_fields = [z_field, offset_field, tilt_field]
         board = types.SimpleNamespace(
             get_footprints=mock.Mock(return_value=[footprint]),
             begin_commit=mock.Mock(return_value="commit"),
@@ -1201,7 +1286,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
         proxy._coupler_updates_in_flight = {"pair": {
             "ref": "pair", "type": "CouplerFixed",
-            "x": 12.5, "y": 7.25, "z": 2.4, "tilt": -12.5,
+            "x": 12.5, "y": 7.25, "z": 2.4, "offset": 1.25,
+            "tilt": -12.5,
         }}
         proxy._pending_coupler_updates = {}
         proxy._coupler_update_timers = {}
@@ -1219,6 +1305,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         self.assertEqual(footprint.position, (12.5, -7.25))
         self.assertEqual(z_field.text.text.value, "2.4 mm")
+        self.assertEqual(offset_field.text.text.value, "1.25 mm")
         self.assertEqual(tilt_field.text.text.value, "-12.5 deg")
         board.update_items.assert_called_once_with([footprint])
         board.push_commit.assert_called_once_with(
@@ -1892,6 +1979,52 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         self.assertEqual(placement.angle, 40)
 
+    def test_coupler_z_stays_along_board_normal_when_tilted(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+
+        class TrackingPlacement:
+            created = 0
+
+            def __init__(self, vector=None, rotation=None, steps=None):
+                if steps is not None:
+                    self.steps = steps
+                else:
+                    labels = (
+                        "surface", "in-plane-offset", "z-offset", "tilt")
+                    self.steps = [labels[TrackingPlacement.created]]
+                    TrackingPlacement.created += 1
+
+            def multiply(self, other):
+                return TrackingPlacement(steps=self.steps + other.steps)
+
+        linked_object.FreeCAD.Placement = TrackingPlacement
+
+        placement = linked_object.PcbObject._coupler_placement({
+            "x": 0, "y": 0, "rotation": 0,
+            "board_z": 1.6, "z": 2.4, "offset": 3.2, "tilt": 10,
+        })
+
+        self.assertEqual(
+            placement.steps,
+            ["surface", "in-plane-offset", "z-offset", "tilt"])
+
+    def test_positive_coupler_offset_follows_triangle_direction(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+
+        placement = linked_object.PcbObject._coupler_placement({
+            "x": 0, "y": 0, "rotation": 0,
+            "board_z": 1.6, "z": 2.4, "offset": 3.2, "tilt": 0,
+        })
+
+        self.assertAlmostEqual(placement.Base.x, 0)
+        self.assertAlmostEqual(placement.Base.y, -3.2)
+        self.assertAlmostEqual(placement.Base.z, 4.0)
+
     def test_back_coupler_flips_the_footprint_frame(self):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Vector = _Vector2D
@@ -1939,12 +2072,13 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy._build_coupler_children(obj, [{
             "ref": "mcu", "type": "CouplerFixed",
             "x": 10, "y": 20, "board_z": 1.6,
-            "z": 4.5, "rotation": 30, "tilt": 10,
+            "z": 4.5, "offset": 2.5, "rotation": 30, "tilt": 10,
         }])
 
         self.assertEqual(len(children), 1)
         self.assertEqual(children[0].Label, "CouplerFixed mcu")
         self.assertEqual(children[0].Z, 4.5)
+        self.assertEqual(children[0].Offset, 2.5)
         self.assertEqual(children[0].Tilt, 10)
         self.assertEqual(children[0].Placement.Base.z, 6.1)
         self.assertIs(

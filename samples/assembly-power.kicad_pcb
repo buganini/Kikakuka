@@ -927,6 +927,19 @@
 				)
 			)
 		)
+		(property "Offset" "0 mm"
+			(at 0 0 90)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "854e5435-52d5-4c9f-b367-f84428c58f4f")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+			)
+		)
 		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_line
@@ -1022,6 +1035,19 @@
 			(layer "F.Fab")
 			(hide yes)
 			(uuid "52c62c65-7c44-402e-8520-206507ad77fd")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+			)
+		)
+		(property "Offset" "0 mm"
+			(at 0 0 153)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "c2448bd5-ed12-4ead-ab58-69b4a19cfc68")
 			(effects
 				(font
 					(size 1 1)
@@ -1512,6 +1538,20 @@
 			(layer "B.Fab")
 			(hide yes)
 			(uuid "530ffa06-021b-442e-8e89-7dff2fdc8fc8")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
+		(property "Offset" "0 mm"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "B.Fab")
+			(hide yes)
+			(uuid "86b01c22-0cf1-41fc-a535-be9043d0241c")
 			(effects
 				(font
 					(size 1 1)

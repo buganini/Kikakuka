@@ -203,6 +203,20 @@
 				(justify mirror)
 			)
 		)
+		(property "Offset" "0 mm"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "B.Fab")
+			(hide yes)
+			(uuid "05b9e65a-0d58-4f18-a4e8-f085bb98be7d")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+				(justify mirror)
+			)
+		)
 		(property "Tilt" "-90"
 			(at 0 0 0)
 			(unlocked yes)

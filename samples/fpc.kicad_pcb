@@ -352,15 +352,15 @@
 			)
 		)
 	)
-	(footprint "Kikakuka:CouplerFixed"
+	(footprint "PCM_Kikakuka:CouplerFixed"
 		(layer "F.Cu")
 		(uuid "64731423-3202-48fe-8fd7-bd9e6e60c7a0")
-		(at 90.54 97.33 -90)
+		(at 91.79 97.33 -90)
 		(property "Reference" "conn"
 			(at 0 0 270)
 			(unlocked yes)
 			(layer "Dwgs.User")
-			(uuid "68ffa58e-e387-469b-adda-db448319c6d2")
+			(uuid "834ab3c5-854a-4267-b3d6-de6e2b21fbc8")
 			(effects
 				(font
 					(size 1 1)
@@ -373,7 +373,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "789ad8ea-052a-4a33-bb55-79056ddc40ad")
+			(uuid "ee24b17f-5130-4727-94ee-ed5c0ba978c4")
 			(effects
 				(font
 					(size 1 1)
@@ -386,7 +386,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "6d68dfc1-5d94-488b-a893-b51370e4e658")
+			(uuid "dbb9b806-dde7-4f90-92a7-eb8ee89333e4")
 			(effects
 				(font
 					(size 1 1)
@@ -394,12 +394,12 @@
 				)
 			)
 		)
-		(property "Description" ""
+		(property "Description" "Fixed FreekiCAD alignment plane. Matches a CouplerMoving footprint with the same reference. Z moves along the PCB surface normal; positive Offset moves on the PCB surface in the triangle direction; Tilt rotates around local X. Unitless lengths default to mm; mm/in/mil/um are supported."
 			(at 0 0 270)
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "1b30d859-936e-49de-bb84-491a32e29a9f")
+			(uuid "766d69b4-a9ce-4be9-a9f9-5ba4865c26ec")
 			(effects
 				(font
 					(size 1 1)
@@ -408,6 +408,19 @@
 			)
 		)
 		(property "Z" "0.64 mm"
+			(at 0 0 270)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "a05a16cd-d357-4f27-9b56-a8744955ca97")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+			)
+		)
+		(property "Offset" "1.8 mm"
 			(at 0 0 270)
 			(unlocked yes)
 			(layer "F.Fab")
@@ -446,6 +459,26 @@
 			(uuid "e15bdf58-f855-4253-86a0-ff19c3b15136")
 		)
 		(fp_line
+			(start -0.25 -0.25)
+			(end 0.25 -0.25)
+			(stroke
+				(width 0.1)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "ae216a37-1926-4dce-b869-5a6b7b686f93")
+		)
+		(fp_line
+			(start 0 -0.5)
+			(end 0 0)
+			(stroke
+				(width 0.1)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "32d7dea1-0a1f-4b8a-a392-045c3a0df5e8")
+		)
+		(fp_line
 			(start -1 -1)
 			(end 1 -1)
 			(stroke
@@ -467,7 +500,7 @@
 		)
 		(embedded_fonts no)
 	)
-	(footprint "Kikakuka:CouplerOrigin"
+	(footprint "PCM_Kikakuka:CouplerAt"
 		(layer "F.Cu")
 		(uuid "6c2e1acb-0c08-4983-aa24-13b030d4724f")
 		(at 97.917 89.662)
@@ -484,7 +517,7 @@
 				)
 			)
 		)
-		(property "Value" "CouplerOrigin"
+		(property "Value" "CouplerAt"
 			(at 0 1 0)
 			(unlocked yes)
 			(layer "F.Fab")
@@ -510,7 +543,7 @@
 				)
 			)
 		)
-		(property "Description" ""
+		(property "Description" "FreekiCAD alignment plane that positions this PCB at absolute FreeCAD world TargetX/TargetY/TargetZ coordinates. Place it on B.Cu for the usual behavior so the PCB bottom surface is positioned at TargetZ; use F.Cu only to reference the top surface. Unitless lengths default to mm; mm/in/mil/um are supported, and Tilt is in degrees."
 			(at 0 0 0)
 			(unlocked yes)
 			(layer "F.Fab")
@@ -523,12 +556,38 @@
 				)
 			)
 		)
-		(property "Z" "0 mm"
+		(property "TargetX" "0 mm"
 			(at 0 0 0)
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
 			(uuid "9cf49253-9dbb-46dd-8f4a-6d83514bbcac")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+			)
+		)
+		(property "TargetY" "0 mm"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "f1aad39f-20a9-40c6-bf15-1dc1066480b7")
+			(effects
+				(font
+					(size 1 1)
+					(thickness 0.15)
+				)
+			)
+		)
+		(property "TargetZ" "0 mm"
+			(at 0 0 0)
+			(unlocked yes)
+			(layer "F.Fab")
+			(hide yes)
+			(uuid "fa4f3cfe-9b1b-4421-bb40-27b983484ba7")
 			(effects
 				(font
 					(size 1 1)
@@ -2106,261 +2165,261 @@
 		(start 90.5 83.5)
 		(end 105.5 83.5)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "1192cabf-60f9-4ed4-b5b7-03dc199313bd")
+		(uuid "e07f7268-d84d-4fe7-86a1-810036f84eef")
 	)
 	(gr_line
 		(start 90.55 98.49)
 		(end 90.5 83.5)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "930d67f4-68a9-4eb5-abbc-5219f71f2cb6")
+		(uuid "23ee86f0-5ed6-47a3-976d-a2748e5cf697")
 	)
 	(gr_line
 		(start 93.68 96.85)
 		(end 93.68 98.49)
 		(stroke
-			(width 0.05)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "99015318-fcff-4a86-aff5-d00d3a92b70d")
+		(uuid "d12f76b6-e6ed-45cf-84a8-544c4aad2ade")
 	)
 	(gr_line
 		(start 93.68 98.49)
 		(end 90.55 98.49)
 		(stroke
-			(width 0.05)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "8bc8f04d-51b9-4ba0-8fa7-9b4ad8e4705d")
+		(uuid "bcaeaff8-dac6-4ae2-9ebb-103949c1a190")
 	)
 	(gr_line
 		(start 99.01 90.01)
 		(end 99.01 91.05)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "89a5e34e-e2f1-438c-9321-2b295d1c960d")
+		(uuid "10a9265d-eb32-49e0-b217-080da0f3a085")
 	)
 	(gr_line
 		(start 99.01 91.05)
 		(end 100.12 91.01)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "faeebd45-511d-40d2-8bc6-c2b2f941b07e")
+		(uuid "2da27f8f-3ff6-4fef-b2f9-a25093942de0")
 	)
 	(gr_line
 		(start 100.11 93.15)
 		(end 100.12 93.81)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "5ecab70b-c4bf-4d53-946d-bcd762ee702c")
+		(uuid "ef5faf30-c7f0-4ddc-8f03-e30cb51c623a")
 	)
 	(gr_line
 		(start 100.12 91.01)
 		(end 100.12 92.86)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "b56cb633-4fb2-45db-8b88-d7925fbd2c0b")
+		(uuid "c3312f82-7c0a-462b-841e-de585a0e5e7f")
 	)
 	(gr_line
 		(start 100.12 92.86)
 		(end 100.64 92.86)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "fa8be7bb-25d6-40ce-bee2-2cdd3856ac3a")
+		(uuid "645b7d69-aa6f-459d-ad5c-24c5f7efdcf2")
 	)
 	(gr_line
 		(start 100.12 93.81)
 		(end 100.74 93.81)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "79a9c56f-72b8-4892-9c00-6bf310e8340e")
+		(uuid "dae8812e-49f2-42fd-b0f3-e8db1229aeec")
 	)
 	(gr_line
 		(start 100.64 92.86)
 		(end 100.64 93.15)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "994ac0dd-b549-41e7-b2dc-250b5ae510dd")
+		(uuid "b426547e-6475-4889-9087-d24d33b2ae4b")
 	)
 	(gr_line
 		(start 100.64 93.15)
 		(end 100.11 93.15)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "60117d7d-d68f-4e24-980f-73d9b2a6c1a4")
+		(uuid "21a497d5-d832-4168-ac6c-7551714e416c")
 	)
 	(gr_line
 		(start 100.74 90.72)
 		(end 102.88 90.64)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "1927424f-47d5-4bc5-8ea4-e31ec192bd73")
+		(uuid "32abd232-4ae4-4018-bc29-7dc35f58a84b")
 	)
 	(gr_line
 		(start 100.74 91.96)
 		(end 100.74 90.72)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "8c8a94ed-a6e0-4e3c-9610-1291d9e8a230")
+		(uuid "035485a9-b008-4be8-8dda-632c8a939615")
 	)
 	(gr_line
 		(start 100.74 92.45)
 		(end 102.05 92.45)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "ddc7d483-5a9c-4a6f-acab-6a447e9a4448")
+		(uuid "5859fb89-12fc-4cb3-ba9e-7731fb41e860")
 	)
 	(gr_line
 		(start 100.74 93.81)
 		(end 100.74 92.45)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "a50a9dde-73dc-445f-8b1f-660285f159f7")
+		(uuid "6f3ac2d6-193d-4ac8-9d19-3491c79389c5")
 	)
 	(gr_line
 		(start 100.9 91.01)
 		(end 100.9 91.29)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "e462d484-6e83-4b92-8cd1-3bb579a67fb2")
+		(uuid "777aa908-b1da-4315-81d2-57774b91ce9b")
 	)
 	(gr_line
 		(start 100.9 91.29)
 		(end 105.61 91.01)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "827e2e8c-00e0-4ef8-a5eb-d0fde8f13ce2")
+		(uuid "ad012183-e084-490b-981d-edc188bad42c")
 	)
 	(gr_line
 		(start 102.05 91.96)
 		(end 100.74 91.96)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "ea196c06-7473-4194-a43c-7482f9b8889d")
+		(uuid "9007a917-dd37-4e82-9ae2-5461ad01f2a8")
 	)
 	(gr_line
 		(start 102.05 92.45)
 		(end 102.05 91.96)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "46e66521-79d5-4590-bb5d-24066a023b0b")
+		(uuid "355c4eff-bc19-4a37-b47e-0fb5409cd981")
 	)
 	(gr_line
 		(start 102.88 90.64)
 		(end 102.88 90.96)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "e170938d-4ab5-4970-b7bc-f9f888d57380")
+		(uuid "836635b6-39c8-4ef5-915f-37a9c9f32291")
 	)
 	(gr_line
 		(start 102.88 90.96)
 		(end 100.9 91.01)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "f011dee9-d100-41d3-a1d7-6c4dbbb28597")
+		(uuid "0ece48b5-d497-455f-b986-b56e80ae302a")
 	)
 	(gr_line
 		(start 105.5 83.5)
 		(end 105.5 90.01)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "924428b5-46cc-40d9-a2a1-606b10edda19")
+		(uuid "14276163-0206-4482-a944-df0bb638c577")
 	)
 	(gr_line
 		(start 105.5 90.01)
 		(end 99.01 90.01)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "bbf9476e-05af-45c6-acca-3780c8895441")
+		(uuid "8ee6dcea-5999-43a9-9056-ba098e4dd996")
 	)
 	(gr_line
 		(start 105.5 96.75)
 		(end 93.68 96.85)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "80e8f152-73bf-4ebd-b8e3-d4af8ccb7bc8")
+		(uuid "d9fd67f8-38ee-4ffb-b94e-bdfec8081480")
 	)
 	(gr_line
 		(start 105.61 91.01)
 		(end 105.5 96.75)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
 		(layer "Edge.Cuts")
-		(uuid "5348852b-0b0d-4047-8532-6a039cf103a1")
+		(uuid "7d9b60e6-57a6-4ab0-a516-86c26e5bba66")
 	)
 	(gr_poly
 		(pts

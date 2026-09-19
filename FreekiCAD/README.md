@@ -154,12 +154,17 @@ The plane is defined by the footprint position, board side, rotation, and
 custom footprint properties:
 
 - `CouplerFixed` and `CouplerMoving` use `Z` to offset the plane origin along
-  its local Z axis. It defaults to `0 mm`; unitless values are millimetres,
-  and `mm`, `in`, `mil` (`0.001 in`), and `um` are supported. The origin
-  starts at the PCB surface, including board thickness on the front side, and
-  local Z is reversed on the back side.
+  the PCB surface normal. The origin starts at the PCB surface, including
+  board thickness on the front side, and the direction is reversed on the
+  back side.
+- `Offset` moves the plane origin on the PCB surface in the direction shown by
+  the footprint triangle. Both `Z` and `Offset` default to `0 mm`; unitless
+  values are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and `um` are
+  supported.
 - `Tilt` rotates the plane around its local X axis, in degrees, and defaults
-  to `0`. It does not change the Z-offset origin.
+  to `0`. Placement applies the footprint pose, `Offset`, `Z`, then `Tilt`;
+  the tilt axis passes through the offset origin and does not redirect either
+  displacement.
 
 `CouplerAt` also has `TargetX`, `TargetY`, and `TargetZ` properties for its
 absolute FreeCAD world target. All three default to `0 mm`; unitless values
@@ -168,9 +173,11 @@ It has no local `Z` property. B.Cu is recommended for the usual bottom-surface
 placement at `TargetZ`; use F.Cu only to reference the top surface.
 
 Each coupler is represented by a visible FreeCAD child object. Its
-footprint-position and local-plane properties are
+footprint-position and `Z`/`Offset`/`Tilt` properties are
 editable in FreeCAD; edits update alignment immediately and are written back
-to the live KiCad footprint. FreekiCAD also checks the live KiCad document
+to the live KiCad footprint. Older footprints without `Offset` load with a
+zero offset; the field is created automatically when `Offset` is first edited
+in FreeCAD. FreekiCAD also checks the live KiCad document
 every second, so unsaved position, side, rotation, and plane-property edits
 update the marker
 and alignment; `CouplerAt` target edits update its absolute alignment as well.
