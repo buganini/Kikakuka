@@ -162,6 +162,51 @@ class HeadlessExportTests(unittest.TestCase):
                 legacy=False, keepPlacement=True)
             self.freecad.closeDocument.assert_called_once_with(document.Name)
 
+    def test_export_accepts_kicad_pcb_as_single_linked_object(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = os.path.join(root, "board.kicad_pcb")
+            target = os.path.join(root, "board.step")
+            with open(source, "w", encoding="utf-8") as stream:
+                stream.write("(kicad_pcb)")
+            document = FakeDocument()
+            self.freecad.newDocument = mock.Mock(return_value=document)
+            self.freecad.closeDocument = mock.Mock()
+            board = _linked_object(None, "Board_Board", FakeShape())
+            placement = object()
+            board.getGlobalPlacement = mock.Mock(return_value=placement)
+            pcb = _linked_object("PcbObject", "Board", group=[board])
+            create_pcb_object = mock.Mock(return_value=pcb)
+            fake_pcb_module = types.ModuleType(
+                "FreekiCAD.freecad.FreekiCAD.PcbObject")
+            fake_pcb_module.create_pcb_object = create_pcb_object
+
+            with mock.patch.dict(sys.modules, {
+                    "FreekiCAD.freecad.FreekiCAD.PcbObject":
+                    fake_pcb_module}):
+                with mock.patch.object(
+                        self.module, "_load_all_objects") as load_all:
+                    self.module.export_assembly(source, target)
+
+            create_pcb_object.assert_called_once_with(
+                filename=source, document=document, recompute=False)
+            load_all.assert_called_once_with([pcb], document)
+            flat = document.objects[0]
+            self.assertIs(flat.Shape.Placement, placement)
+            self.part.export.assert_called_once_with(
+                [flat], target, legacy=False, keepPlacement=True)
+            self.freecad.closeDocument.assert_called_once_with(document.Name)
+
+    def test_export_rejects_unsupported_input_extension(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = os.path.join(root, "board.FCStd")
+            target = os.path.join(root, "board.step")
+            with open(source, "w", encoding="utf-8") as stream:
+                stream.write("")
+
+            with self.assertRaisesRegex(
+                    ValueError, r"\.kkkk_asm or \.kicad_pcb"):
+                self.module.export_assembly(source, target)
+
 
 class FakeSignal:
     def connect(self, callback):

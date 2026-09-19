@@ -1,4 +1,4 @@
-"""Headless ``.kkkk_asm`` to STEP export support."""
+"""Headless FreekiCAD assembly or KiCad PCB to STEP export support."""
 
 import os
 import sys
@@ -134,26 +134,39 @@ def _flatten_export_items(sources, document):
     return export_items
 
 
+def _insert_source_objects(source, document):
+    """Create linked objects for a supported headless input file."""
+    lower_source = source.lower()
+    if lower_source.endswith(".kkkk_asm"):
+        # Do not recompute here: that would trigger an implicit linked-file
+        # load before the explicit synchronous loading pass below.
+        return Assembly.insert(source, document.Name, recompute=False)
+    if lower_source.endswith(".kicad_pcb"):
+        from .PcbObject import create_pcb_object
+
+        return [create_pcb_object(
+            filename=source, document=document, recompute=False)]
+    raise ValueError("input must be a .kkkk_asm or .kicad_pcb file")
+
+
 def export_assembly(source, target):
-    """Freshly load *source* and export the complete assembly to *target*."""
+    """Freshly load *source* and export its complete geometry to *target*."""
     source = os.path.abspath(os.path.expanduser(source))
     target = os.path.abspath(os.path.expanduser(target))
     if not os.path.isfile(source):
         raise FileNotFoundError(source)
-    if not source.lower().endswith(".kkkk_asm"):
-        raise ValueError("input must be a .kkkk_asm file")
+    if not source.lower().endswith((".kkkk_asm", ".kicad_pcb")):
+        raise ValueError("input must be a .kkkk_asm or .kicad_pcb file")
     if not target.lower().endswith((".step", ".stp")):
         raise ValueError("output must be a .step or .stp file")
 
     document = FreeCAD.newDocument("FreekiCADExport")
     try:
-        # Do not recompute here: that would trigger an implicit STEP load
-        # before the explicit synchronous loading pass below.
-        objects = Assembly.insert(source, document.Name, recompute=False)
+        objects = _insert_source_objects(source, document)
         _load_all_objects(objects, document)
         export_sources = _collect_export_sources(objects)
         if not export_sources:
-            raise RuntimeError("assembly produced no exportable geometry")
+            raise RuntimeError("input produced no exportable geometry")
         export_items = _flatten_export_items(export_sources, document)
 
         output_directory = os.path.dirname(target)
@@ -173,7 +186,7 @@ def main(argv=None):
     if len(argv) < 3:
         FreeCAD.Console.PrintError(
             "Usage: freecadcmd scripts/kkkk_export.py "
-            "input.kkkk_asm output.step\n")
+            "input.kkkk_asm|input.kicad_pcb output.step\n")
         return 2
     source, target = argv[-2:]
     try:

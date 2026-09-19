@@ -191,7 +191,7 @@ object. The option can be disabled independently for each object.
         * Selecting an original `PcbObject` or `StepObject` exports its own Placement. Selecting one or more `App::Link` instances exports each linked source at that instance's final global placement. Selecting an `Assembly::AssemblyObject` recursively expands its direct and nested Links, including multiple instances of the same source.
         * Assembly and Link exports are flattened placement snapshots; `.kkkk_asm` does not store Links, joints, constraints, remaining degrees of freedom, or the Assembly hierarchy. A linked PCB snapshot is exported with `SnapToCoupler` disabled in the manifest so coupler alignment cannot overwrite its solved Assembly placement; the source `PcbObject` in the current FreeCAD document is not modified.
         * When original PCB source objects are selected directly, Placement is omitted for a `CouplerMoving` board if the same export contains its matching `CouplerFixed` board; coupler alignment recalculates that placement after import.
-        * Headless STEP export: `freecadcmd scripts/kkkk_export.py input.kkkk_asm output.step`. See [Headless Assembly Export](FreekiCAD/README.md#headless-assembly-export) for platform-specific paths and requirements.
+        * Headless STEP export: `freecadcmd scripts/kkkk_export.py input.kkkk_asm output.step`; the input may also be a single `.kicad_pcb`. See [Headless STEP Export](FreekiCAD/README.md#headless-step-export) for platform-specific paths and requirements.
     * Edit Board Shape
         * Expand the object's children.
         * Open the sketch with the `_Outline` suffix.

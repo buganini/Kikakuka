@@ -1,3 +1,12 @@
+# 7.5.1:
+* FreekiCAD
+    * Accept a single `.kicad_pcb` as direct input to `kkkk_export.py`
+    * Allow custom stiffener materials with a warning and Polyimide color/opacity defaults
+    * Update coupler placements from cached bend-partition transforms without rebending the board
+    * Greatly improve initial bending and rebending performance through 2D partitioning, reusable geometry caches, and optimized wedge construction
+    * Fix bend traversal across adjacent wedge pieces
+    * Prepare package metadata, icons, scripts, screenshots, and documentation for FreeCAD Addon Manager submission
+
 # 7.5:
 * FreekiCAD
     * Add `CouplerAt` for absolute FreeCAD world positioning with `TargetX`, `TargetY`, and `TargetZ`, replacing `CouplerOrigin`
