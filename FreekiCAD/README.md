@@ -167,8 +167,8 @@ are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and `um` are supported.
 It has no local `Z` property. B.Cu is recommended for the usual bottom-surface
 placement at `TargetZ`; use F.Cu only to reference the top surface.
 
-Each coupler is represented by a FreeCAD child object whose plane marker is
-hidden by default. Its footprint-position and local-plane properties are
+Each coupler is represented by a visible FreeCAD child object. Its
+footprint-position and local-plane properties are
 editable in FreeCAD; edits update alignment immediately and are written back
 to the live KiCad footprint. FreekiCAD also checks the live KiCad document
 every second, so unsaved position, side, rotation, and plane-property edits

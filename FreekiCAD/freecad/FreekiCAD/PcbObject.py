@@ -2668,6 +2668,11 @@ class PcbObject:
                     pass
             if getattr(marker, 'TypeId', '') == 'Part::FeaturePython':
                 CouplerMarker(marker)
+                view_object = getattr(marker, 'ViewObject', None)
+                if view_object is not None:
+                    # Use FreeCAD's standard shape view provider so tree
+                    # visibility can be toggled normally.
+                    view_object.Proxy = 0
 
     @staticmethod
     def _rebuild_setting_value(obj, prop):
@@ -4010,7 +4015,11 @@ class PcbObject:
             CouplerMarker(marker)
 
             try:
-                marker.ViewObject.Visibility = False
+                # Part::FeaturePython starts with a Python view provider.
+                # CouplerMarker only needs a data proxy; the standard shape
+                # provider gives it normal show/hide behavior in the tree.
+                marker.ViewObject.Proxy = 0
+                marker.ViewObject.Visibility = True
                 marker.ViewObject.LineWidth = 4.0
                 marker.ViewObject.Transparency = 35
                 if coupler_type == COUPLER_FIXED:

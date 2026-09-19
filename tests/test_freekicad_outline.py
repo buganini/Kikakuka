@@ -1905,7 +1905,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         self.assertEqual(placement.angle, 220)
 
-    def test_couplers_are_created_as_hidden_group_children(self):
+    def test_couplers_are_created_as_visible_group_children(self):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Vector = _Vector2D
         linked_object.FreeCAD.Rotation = _Rotation2D
@@ -1949,7 +1949,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(children[0].Placement.Base.z, 6.1)
         self.assertIs(
             children[0].FreekiCAD_InitPlacement, children[0].Placement)
-        self.assertFalse(children[0].ViewObject.Visibility)
+        self.assertTrue(children[0].ViewObject.Visibility)
+        self.assertEqual(children[0].ViewObject.Proxy, 0)
         self.assertEqual(children[0].Shape[0], "face")
         polygon_points = children[0].Shape[1][1]
         self.assertEqual(polygon_points[0].y, 1)
