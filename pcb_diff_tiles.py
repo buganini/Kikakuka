@@ -7,6 +7,12 @@ import cv2
 import numpy as np
 import pypdfium2 as pdfium
 
+from pdf_tile_scheduler import (
+    choose_coarse_render_scale,
+    choose_fallback_scale,
+    select_fallback_results,
+)
+
 
 TILE_SIZE = 512
 TILE_GUTTER = 24
@@ -155,41 +161,6 @@ def choose_render_scale(view_scale, pixel_density=1.0):
     return RENDER_SCALES[-1]
 
 
-def choose_fallback_scale(available_scales, render_scale):
-    available_scales = tuple(available_scales)
-    if not available_scales:
-        return None
-    return min(
-        available_scales,
-        key=lambda scale: abs(math.log2(scale / render_scale)),
-    )
-
-
-def select_fallback_results(coarse_results, candidates_by_scale,
-                            render_scale):
-    results = list(coarse_results)
-    fallback_scale = choose_fallback_scale(
-        candidates_by_scale, render_scale
-    )
-    if fallback_scale is not None:
-        results.extend(candidates_by_scale[fallback_scale])
-    return results
-
-
-def choose_coarse_render_scale(canvas_size, tile_size=TILE_SIZE):
-    width, height = canvas_size
-    if width <= 0 or height <= 0:
-        raise ValueError("PCB canvas must have a positive size")
-    fit_scale = min(tile_size / width, tile_size / height)
-    standard_scales = [
-        scale for scale in RENDER_SCALES
-        if scale <= 0.5 and scale <= fit_scale
-    ]
-    if standard_scales:
-        return standard_scales[-1]
-    return min(0.5, fit_scale * (1.0 - 1e-9))
-
-
 def visible_tile_indices(canvas_size, viewport_size, view_transform,
                          render_scale, tile_size=TILE_SIZE,
                          priority_point=None, priority_lines=()):
@@ -278,7 +249,7 @@ def tile_pixel_bounds(canvas_size, render_scale, tile_x, tile_y,
     pixel_width = min(tile_size, canvas_pixel_width - pixel_x)
     pixel_height = min(tile_size, canvas_pixel_height - pixel_y)
     if pixel_width <= 0 or pixel_height <= 0:
-        raise ValueError("Tile lies outside the PCB canvas")
+        raise ValueError("Tile lies outside the PDF canvas")
     return pixel_x, pixel_y, pixel_width, pixel_height
 
 

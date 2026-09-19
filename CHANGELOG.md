@@ -8,6 +8,7 @@
     * Prepare package metadata, icons, scripts, screenshots, and documentation for FreeCAD Addon Manager submission
 * Differ
     * Replace full-page raster artifacts with cached, adaptively prioritized viewport tiles, coarse previews, grayscale compositing, and direct QImage buffers; equal-resolution full-page builds are roughly 5x faster, while the documented visible-area benchmark is about 16x faster
+    * Reuse the PDF tile scheduler for schematic diffs, rendering selected vector PDF pages through reusable PDFium buffers instead of fixed-resolution full-page intermediates
 
 # 7.5:
 * FreekiCAD

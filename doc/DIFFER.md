@@ -1,12 +1,13 @@
-# PCB Differ Rendering
+# Differ Rendering
 
 The PCB differ starts from KiCad's per-layer vector PDFs. Two renderer blocks
 are intentionally kept in the repository: the legacy full-page renderer is a
 stable comparison reference, while the viewport renderer is used by the
 application.
 
-The schematic differ is not covered here and continues to use its full-page
-raster pipeline.
+The schematic differ uses the same viewport scheduler and drawing pipeline.
+Its renderer consumes the colored multi-page schematic PDF directly instead
+of KiCad's separate black-and-white PCB layer PDFs.
 
 ## Common input
 
@@ -47,7 +48,24 @@ This block preserves legacy details for regression tests, including the old
 alpha-blind grayscale comparison and one-sided-layer mask behavior. It is not
 imported by the application.
 
-## Viewport tile renderer
+## Shared viewport scheduler
+
+`PdfTileScheduler` in `pdf_tile_scheduler.py` is shared by PCB and schematic
+diffs. It owns the background priority queue, generation changes, cancellation,
+result LRU, pinned coarse tile, retained low-resolution cache, and nearest-LOD
+fallback selection. Renderers receive a tile task and return the same A, B,
+overlap, and highlight-mask result shape; the scheduler does not depend on PCB
+layers or PUI. A renderer generation change closes the previous pair's cached
+PDF pages and documents before loading the new pair.
+
+The common `PdfTileDiffView` maps those results to the canvas. Both differ
+modes therefore use physical-pixel LOD selection, visible-area requests,
+cursor and splitter priority, viewport cancellation, progressive redraw, and
+coarse/nearest cached fallbacks. PCB includes the visible-layer tuple in its
+cache key; schematic tiles use an empty variant because each selected PDF page
+is already composited.
+
+## PCB viewport tile renderer
 
 The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
 
@@ -133,6 +151,33 @@ from the current diff's memory cache. The UI may draw it as the initial
 placeholder, and it remains available for zoom or pan before another LOD has
 sufficient coverage.
 
+## Schematic viewport tile renderer
+
+`kicad-cli sch export pdf` produces one colored multi-page vector PDF per
+revision. `convert_sch()` also makes small page thumbnails for the page
+selectors, but those PNGs are not used by the main comparison canvas.
+
+For each selected page pair, `SchematicTileRenderer` in `sch_diff_tiles.py`:
+
+1. Caches the PDF documents and selected page handles.
+2. Centers differently sized pages on a common PDF-point canvas using the same
+   global integer pixel-grid rules as PCB tiles.
+3. Renders only the requested tile plus a 24-pixel mask gutter. PDFium's
+   `bitmap_maker` writes BGRx pixels directly into reusable A/B buffers when
+   the crop fills the requested tile. Centered partial-page edge crops use a
+   temporary PDFium bitmap and copy only their intersection.
+4. Builds the overlap with `cv2.min`, computes the color difference and
+   red highlight mask in reusable OpenCV destination buffers, removes the
+   gutter, and copies the three base images and mask into QImage-owned tile
+   buffers. Tiles with no difference skip both Gaussian blurs and do not retain
+   a mask image.
+5. Publishes the same result structure consumed by `PdfTileDiffView`, so page
+   changes reset one scheduler generation and immediately queue a pinned
+   complete-page coarse preview before detailed viewport tiles.
+
+This removes the former fixed scale-7 full-page schematic raster, complete-page
+rescaling on every zoom, and full-page A/B/overlap/mask PNG intermediates.
+
 ## Intentional differences
 
 | Behavior | Legacy | Viewport |
@@ -147,11 +192,14 @@ sufficient coverage.
 
 ## Unit-test blocks
 
-Both renderers are independent of PUI and can be imported directly:
+The renderer and scheduler blocks are independent of PUI and can be imported
+directly:
 
 ```python
 from legacy_pcb_diff import PcbLegacyRenderer
 from pcb_diff_tiles import PcbTileRenderer
+from pdf_tile_scheduler import PdfTileScheduler
+from sch_diff_tiles import SchematicTileRenderer
 ```
 
 The smaller processing blocks are also public where their legacy semantics
@@ -170,7 +218,10 @@ matter:
 Run their unit tests from the repository workdir:
 
 ```sh
-env/bin/python -m unittest tests.test_pcb_diff_tiles
+env/bin/python -m unittest \
+  tests.test_pcb_diff_tiles \
+  tests.test_pdf_tile_scheduler \
+  tests.test_sch_diff_tiles
 ```
 
 The tests use small in-memory arrays and mocked PDF rendering, so they do not
