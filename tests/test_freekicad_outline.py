@@ -1270,7 +1270,10 @@ class OutlineWireOrderTests(unittest.TestCase):
             def extrude(self, direction):
                 return Solid(self.Area * direction.z)
 
-        faces = [FlatFace(4, 3), FlatFace(6, 1)]
+        # Model the small accumulated OCCT area error seen when a complex
+        # polygon is split into hundreds of faces.  The relative error is
+        # below the partition tolerance and must not force a 3D fallback.
+        faces = [FlatFace(4, 3), FlatFace(6.000005, 1)]
 
         class Profile:
             Area = 10
@@ -1300,7 +1303,7 @@ class OutlineWireOrderTests(unittest.TestCase):
             pieces = linked_object._split_prismatic_board_2d(
                 unbent, cut_plan, 0.8)
 
-        self.assertAlmostEqual(pieces[0].Volume, 7.2)
+        self.assertAlmostEqual(pieces[0].Volume, 7.200006)
         self.assertAlmostEqual(pieces[1].Volume, 4.8)
         split_api.slice.assert_called_once()
 

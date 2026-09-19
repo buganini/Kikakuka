@@ -196,8 +196,12 @@ partition requires the 3D compatibility fallback.
    including outline cutouts and drill holes.
 2. Split that face with the cut edges using `BOPTools.SplitAPI.slice`.
 3. Validate total area, extrude each partition face across the board body's
-   actual Z range, and validate the resulting total volume. This avoids a 3D
-   solid/face boolean on the normal path.
+   actual Z range, and validate the resulting total volume. The area and
+   volume conservation checks catch missing fragments, duplicate fragments,
+   and positive-area overlaps before they become body pieces. They use a
+   `1e-6` relative tolerance to accommodate accumulated OCCT split error while
+   retaining the safety check. This avoids a 3D solid/face boolean on the
+   normal path.
 4. If the planar topology is invalid or validation fails, fall back to
    `generalFuse(board, cut_faces)` and extract its solids.
 5. Create `piece_slices` (2D wire at z=half_t) for fast distance checks.

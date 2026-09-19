@@ -18,6 +18,7 @@ from .Units import parse_length_mm
 
 DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
+PARTITION_RELATIVE_TOLERANCE = 1e-6
 BEND_ANNOTATION_POSITION_TOLERANCE = 0.1  # mm
 DEBUG_BENDING_BFS = True
 STEP_IMPORTER_REVISION = 1
@@ -769,7 +770,8 @@ def _split_prismatic_board_2d(unbent, cut_plan, plane_z):
 
     profile_area = abs(float(profile.Area))
     fragments_area = sum(abs(float(face.Area)) for face in faces)
-    area_tolerance = max(1e-6, profile_area * 1e-7)
+    area_tolerance = max(
+        1e-6, profile_area * PARTITION_RELATIVE_TOLERANCE)
     if abs(fragments_area - profile_area) > area_tolerance:
         raise ValueError(
             "2D partition area mismatch: "
@@ -790,7 +792,8 @@ def _split_prismatic_board_2d(unbent, cut_plan, plane_z):
 
     source_volume = abs(float(unbent.Volume))
     pieces_volume = sum(abs(float(piece.Volume)) for piece in pieces)
-    volume_tolerance = max(1e-6, source_volume * 1e-7)
+    volume_tolerance = max(
+        1e-6, source_volume * PARTITION_RELATIVE_TOLERANCE)
     if abs(pieces_volume - source_volume) > volume_tolerance:
         raise ValueError(
             "2D partition volume mismatch: "
