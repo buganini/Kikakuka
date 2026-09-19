@@ -13,7 +13,9 @@ maintainers = [
     { name = "Buganini Chiu", email = "buganini@b612.tw" },
 ]
 requires-python = ">=3.10"
-dependencies = ["kicad-python==0.8.0"]
+
+[project.optional-dependencies]
+kicad = ["kicad-python>=0.8,<0.9", "shapely>=2.0.7"]
 
 [project.urls]
 Repository = "https://github.com/buganini/FreekiCAD"

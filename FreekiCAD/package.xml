@@ -8,12 +8,12 @@
     <pythonmin>3.10</pythonmin>
     <maintainer email="buganini@b612.tw">Buganini Chiu</maintainer>
     <license file="LICENSE">MIT</license>
-    <icon>freecad/FreekiCAD/resources/icons/FreekiCAD.png</icon>
+    <icon>freecad/FreekiCAD/resources/icons/FreekiCAD.svg</icon>
     <url type="repository" branch="main">https://github.com/buganini/FreekiCAD</url>
     <url type="bugtracker">https://github.com/buganini/FreekiCAD/issues</url>
     <url type="readme">https://github.com/buganini/FreekiCAD/raw/main/README.md</url>
-    <depend type="python" version_eq="0.8.0">kicad-python</depend>
-    <depend type="python" version_eq="2.0.7">shapely</depend>
+    <depend type="python" optional="true" version_gte="0.8.0" version_lt="0.9.0">kicad-python</depend>
+    <depend type="python" optional="true" version_gte="2.0.7">shapely</depend>
     <content>
         <workbench>
             <classname>FreekiCADWorkbench</classname>

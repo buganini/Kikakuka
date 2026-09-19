@@ -1,9 +1,12 @@
 # FreekiCAD
 
-<img src="freecad/FreekiCAD/resources/icons/FreekiCAD.png" alt="Logo" width="64" height="64">
+<img src="freecad/FreekiCAD/resources/icons/FreekiCAD.svg" alt="Logo" width="64" height="64">
 
 FreekiCAD bridges KiCad and FreeCAD, providing a FreeCAD-based workflow for
 PCB editing and mechanical assembly.
+
+All communication with KiCad and the Kikakuka Workspace Manager uses local IPC
+only. FreekiCAD does not send board, assembly, or usage data to third parties.
 
 ![Bending+Assembly](https://github.com/buganini/Kikakuka/raw/main/screenshots/freekicad_bending_assembly.png)
 
@@ -44,14 +47,17 @@ linked STEP object is wanted.
 FreekiCAD requires FreeCAD 1.0 or later. Importing STEP files and working with
 `.kkkk_asm` assemblies that contain only STEP objects require no additional
 Python dependencies. KiCad PCB integration requires KiCad 9.0 or later plus
-`kicad-python` and `shapely`.
+`kicad-python>=0.8,<0.9` and `shapely>=2.0.7`. These dependencies are optional
+because they are not used by the STEP-only workflow. When FreekiCAD is
+installed through the FreeCAD Addon Manager, compatible versions are selected
+from FreeCAD's Python package allow list and constraints.
 
 After copying the `FreekiCAD` folder into FreeCAD's `Mod` folder, open **View >
 Panels > Python Console** and paste this single line if you need KiCad
 integration. It waits for pip to finish, then prints its output:
 
 ```python
-import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
+import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
 ```
 
 Restart FreeCAD after installation.
@@ -62,7 +68,7 @@ Use `kkkk_export.py` with FreeCAD's command-line executable to convert a
 `.kkkk_asm` assembly to STEP without opening the FreeCAD GUI:
 
 ```text
-freecadcmd kkkk_export.py input.kkkk_asm output.step
+freecadcmd scripts/kkkk_export.py input.kkkk_asm output.step
 ```
 
 The exporter synchronously loads every object and component model before it
@@ -71,20 +77,20 @@ Python dependencies. For assemblies containing KiCad PCB objects, install
 `kicad-python` and `shapely` and keep the Kikakuka Workspace Manager running;
 it resolves or starts the matching KiCad instance and waits for its IPC API.
 
-Run the command from the directory containing `kkkk_export.py`. The actual
-FreeCAD user-data directory can be printed from FreeCAD's Python console with
+Run `scripts/kkkk_export.py` from the FreekiCAD directory. The actual FreeCAD
+user-data directory can be printed from FreeCAD's Python console with
 `print(App.getUserAppDataDir())`.
 
 ### macOS
 
 ```sh
-"/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd" kkkk_export.py input.kkkk_asm output.step
+"/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd" scripts/kkkk_export.py input.kkkk_asm output.step
 ```
 
 ### Windows PowerShell
 
 ```powershell
-& "C:\Program Files\FreeCAD 1.1\bin\FreeCADCmd.exe" kkkk_export.py input.kkkk_asm output.step
+& "C:\Program Files\FreeCAD 1.1\bin\FreeCADCmd.exe" scripts/kkkk_export.py input.kkkk_asm output.step
 ```
 
 For `cmd.exe`, use the same command without the leading `&`.
@@ -92,14 +98,14 @@ For `cmd.exe`, use the same command without the leading `&`.
 ### Linux
 
 ```sh
-/usr/bin/freecadcmd kkkk_export.py input.kkkk_asm output.step
+/usr/bin/freecadcmd scripts/kkkk_export.py input.kkkk_asm output.step
 ```
 
 When `freecadcmd` is already in `PATH`, its full path can be omitted. For an
 AppImage, use its `--console` mode:
 
 ```sh
-./FreeCAD_1.1-Linux-x86_64.AppImage --console kkkk_export.py input.kkkk_asm output.step
+./FreeCAD_1.1-Linux-x86_64.AppImage --console scripts/kkkk_export.py input.kkkk_asm output.step
 ```
 
 ## FreeCAD Assembly Workbench

@@ -5,7 +5,7 @@ import FreeCADGui
 
 WORKBENCH_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKBENCH_ICON = os.path.join(
-    WORKBENCH_DIR, "resources", "icons", "FreekiCAD.png")
+    WORKBENCH_DIR, "resources", "icons", "FreekiCAD.svg")
 
 
 class CreatePcbObjectCommand:

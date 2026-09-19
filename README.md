@@ -143,7 +143,13 @@ Drag inside the PCB for moving selected tab, drag outside the PCB for changing t
 Requires **FreeCAD 1.0** or later. Importing STEP files and working with
 `.kkkk_asm` assemblies that contain only STEP objects require no additional
 Python dependencies. KiCad PCB integration requires **KiCad 9.0** or later,
-`kicad-python`, and `shapely`.
+`kicad-python>=0.8,<0.9`, and `shapely>=2.0.7`. These dependencies are optional
+because they are not used by the STEP-only workflow. When FreekiCAD is
+installed through the FreeCAD Addon Manager, compatible versions are selected
+from FreeCAD's Python package allow list and constraints.
+
+All communication with KiCad and the Kikakuka Workspace Manager uses local IPC
+only. FreekiCAD does not send board, assembly, or usage data to third parties.
 
 KiCad `.kicad_pcb` boards and STEP models remain external files referenced by
 path. When saved as `.FCStd`, the FreeCAD document caches their generated
@@ -162,7 +168,7 @@ object. The option can be disabled independently for each object.
     * Copy the FreekiCAD folder into the `Mod` folder
     * If you need KiCad integration, install `kicad-python` and `shapely` into FreeCAD by executing the following command in the Python console. The command waits for pip to finish, then prints its output.
     ```
-    import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
+    import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
     ```
     * Restart FreeCAD
 
@@ -185,7 +191,7 @@ object. The option can be disabled independently for each object.
         * Selecting an original `PcbObject` or `StepObject` exports its own Placement. Selecting one or more `App::Link` instances exports each linked source at that instance's final global placement. Selecting an `Assembly::AssemblyObject` recursively expands its direct and nested Links, including multiple instances of the same source.
         * Assembly and Link exports are flattened placement snapshots; `.kkkk_asm` does not store Links, joints, constraints, remaining degrees of freedom, or the Assembly hierarchy. A linked PCB snapshot is exported with `SnapToCoupler` disabled in the manifest so coupler alignment cannot overwrite its solved Assembly placement; the source `PcbObject` in the current FreeCAD document is not modified.
         * When original PCB source objects are selected directly, Placement is omitted for a `CouplerMoving` board if the same export contains its matching `CouplerFixed` board; coupler alignment recalculates that placement after import.
-        * Headless STEP export: `freecadcmd kkkk_export.py input.kkkk_asm output.step`. See [Headless Assembly Export](FreekiCAD/README.md#headless-assembly-export) for platform-specific paths and requirements.
+        * Headless STEP export: `freecadcmd scripts/kkkk_export.py input.kkkk_asm output.step`. See [Headless Assembly Export](FreekiCAD/README.md#headless-assembly-export) for platform-specific paths and requirements.
     * Edit Board Shape
         * Expand the object's children.
         * Open the sketch with the `_Outline` suffix.

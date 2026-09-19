@@ -172,7 +172,8 @@ def main(argv=None):
     argv = list(sys.argv if argv is None else argv)
     if len(argv) < 3:
         FreeCAD.Console.PrintError(
-            "Usage: freecadcmd kkkk_export.py input.kkkk_asm output.step\n")
+            "Usage: freecadcmd scripts/kkkk_export.py "
+            "input.kkkk_asm output.step\n")
         return 2
     source, target = argv[-2:]
     try:
