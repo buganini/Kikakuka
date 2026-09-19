@@ -8598,6 +8598,18 @@ class PcbObject:
                     tol_cfg.get('close', GEOMETRY_TOLERANCE))
             point_tol = max(close_tol * 0.5, 1e-7)
             line_tol = max(close_tol * 2.0, point_tol * 2.0)
+            if wedge_ctx is not None:
+                # Non-collinear transformed source vertices prove that the
+                # bent boundary cannot collapse. Only ambiguous collinear
+                # endpoints need the expensive dense edge sampling below.
+                vertex_points = [
+                    _bend_wedge_point(vertex.Point, wedge_ctx)
+                    for vertex in getattr(source_wire, 'Vertexes', [])]
+                if (len(vertex_points) >= 3
+                        and not _points_collapse_to_line(
+                            vertex_points, point_tol,
+                            line_tol=line_tol)):
+                    return False
             bent_pts = []
             for source_edge in getattr(source_wire, 'Edges', []):
                 bent_edge = _lookup_bent_wedge_edge(

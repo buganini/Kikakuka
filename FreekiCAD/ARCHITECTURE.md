@@ -115,6 +115,14 @@ Curved wedge pieces are always rebuilt because their geometry depends on bend
 sweep and radius even when a neighboring rigid transform is unchanged.
 Display-layer fragments are currently rebuilt from their flat profiles.
 
+### Performance Regression Baseline
+
+The cached `main` comparison baseline was built from commit
+`76c86d2232bfd117c82c70314e5d0e01fa94a274`. Its unit-test results and
+benchmarks for `maze_radius.kicad_pcb`, `maze_radius_fan.kicad_pcb`,
+`maze_radius_skewed.kicad_pcb`, `fpc.kicad_pcb`, and `fpc2.kicad_pcb` may be
+reused until the `main` commit changes; rebuild the baseline after it changes.
+
 ## Coupler Pose Updates
 
 Each coupler marker keeps its flat-board pose in
@@ -383,7 +391,9 @@ The smooth wedge builder uses a local frame for each wedge:
 Notes:
 
 - Top or bottom caps can collapse to a line after bending; these are reported as `collapsed-to-line`
-- Cap collapse is detected from sampled bent boundary points, not just by counting distinct end vertices
+- Cap collapse first uses transformed source vertices as a safe negative test:
+  non-collinear vertices prove the cap remains a surface. Ambiguous collinear
+  endpoints retain the dense bent-boundary sampling check.
 - `collapsed-to-line` and `dropped` are different outcomes:
   `collapsed-to-line` means the cap legitimately degenerates to a line and is omitted from the shell
   `dropped` means no acceptable rebuilt face or local triangle fallback could be produced
