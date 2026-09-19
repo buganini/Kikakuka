@@ -950,8 +950,9 @@ def _clip_segment_to_linear_outline(p0, p1, outline_data):
     return clipped
 
 
-def _split_prismatic_board_2d(unbent, cut_plan, plane_z):
-    """Split a prismatic board in 2D and extrude its partition faces."""
+def _split_prismatic_board_2d(
+        unbent, cut_plan, plane_z, return_slices=False):
+    """Split a prismatic board and optionally return its partition wires."""
     z_min = float(unbent.BoundBox.ZMin)
     z_max = float(unbent.BoundBox.ZMax)
     body_height = z_max - z_min
@@ -1003,7 +1004,10 @@ def _split_prismatic_board_2d(unbent, cut_plan, plane_z):
         round(float(face.CenterOfMass.y), 10),
         round(float(face.Area), 10)))
     pieces = []
+    piece_slices = []
     for face in faces:
+        if return_slices:
+            piece_slices.append(Part.Compound(list(face.Wires)))
         flat_piece = face.copy()
         flat_piece.translate(FreeCAD.Vector(0, 0, z_min - plane_z))
         piece = flat_piece.extrude(FreeCAD.Vector(0, 0, body_height))
@@ -1019,6 +1023,8 @@ def _split_prismatic_board_2d(unbent, cut_plan, plane_z):
         raise ValueError(
             "2D partition volume mismatch: "
             f"board={source_volume:.9f}, pieces={pieces_volume:.9f}")
+    if return_slices:
+        return pieces, piece_slices
     return pieces
 
 
@@ -5298,6 +5304,7 @@ class PcbObject:
         # --- Phase 2c: cut board, assign stationary/moving ---
         _t_phase2c = _time.time()
         _t_fuse = _time.time()
+        partition_piece_slices = None
         reuse_partition = (
             getattr(self, '_bend_partition_signature', None)
             == partition_signature
@@ -5309,8 +5316,10 @@ class PcbObject:
             partition_method = "cached pieces"
         else:
             try:
-                pieces = _split_prismatic_board_2d(
-                    unbent, cut_plan, half_t)
+                pieces, partition_piece_slices = \
+                    _split_prismatic_board_2d(
+                        unbent, cut_plan, half_t,
+                        return_slices=True)
                 partition_method = "2D split + extrusion"
             except Exception as ex:
                 FreeCAD.Console.PrintWarning(
@@ -5338,6 +5347,8 @@ class PcbObject:
         _t_slices = _time.time()
         if reuse_partition:
             piece_slices = self._bend_partition_piece_slices
+        elif partition_piece_slices is not None:
+            piece_slices = partition_piece_slices
         else:
             piece_slices = []
             for piece in pieces:

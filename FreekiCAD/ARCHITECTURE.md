@@ -212,7 +212,9 @@ partition requires the 3D compatibility fallback.
    normal path.
 4. If the planar topology is invalid or validation fails, fall back to
    `generalFuse(board, cut_faces)` and extract its solids.
-5. Create `piece_slices` (2D wire at z=half_t) for fast distance checks.
+5. Reuse each partition face's boundary wires as `piece_slices` at z=half_t
+   for fast distance checks. The 3D fallback alone slices the resulting solids
+   because it has no retained planar partition faces.
 6. Compute the piece/cut incidence matrix once. Bounding boxes reject distant
    pairs before the remaining candidates use 2D `distToShape`. Both
    `cut_touching_pieces[fi]` and `piece_touching_cuts[pi]` are retained.

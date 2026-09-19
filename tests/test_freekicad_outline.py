@@ -1357,6 +1357,7 @@ class OutlineWireOrderTests(unittest.TestCase):
             def __init__(self, area, x):
                 self.Area = area
                 self.CenterOfMass = _Vector2D(x, 0, 1)
+                self.Wires = [f"wire-{x}"]
 
             def copy(self):
                 return self
@@ -1384,6 +1385,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         profile = Profile()
         linked_object.Part.Face = mock.Mock(return_value=profile)
         linked_object.Part.makeLine = mock.Mock(return_value=object())
+        linked_object.Part.Compound = mock.Mock(
+            side_effect=lambda wires: tuple(wires))
         split_api = types.SimpleNamespace(
             slice=mock.Mock(return_value=types.SimpleNamespace(Faces=faces)))
         bop_tools = types.ModuleType("BOPTools")
@@ -1397,11 +1400,12 @@ class OutlineWireOrderTests(unittest.TestCase):
         ]
 
         with mock.patch.dict(sys.modules, {"BOPTools": bop_tools}):
-            pieces = linked_object._split_prismatic_board_2d(
-                unbent, cut_plan, 0.8)
+            pieces, piece_slices = linked_object._split_prismatic_board_2d(
+                unbent, cut_plan, 0.8, return_slices=True)
 
         self.assertAlmostEqual(pieces[0].Volume, 7.200006)
         self.assertAlmostEqual(pieces[1].Volume, 4.8)
+        self.assertEqual(piece_slices, [("wire-1",), ("wire-3",)])
         split_api.slice.assert_called_once()
 
     def test_geometric_adjacency_reuses_piece_cut_incidence(self):
