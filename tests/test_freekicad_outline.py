@@ -94,6 +94,18 @@ class _Vector2D:
         self.y = y
         self.z = z
 
+    def __add__(self, other):
+        return _Vector2D(
+            self.x + other.x, self.y + other.y, self.z + other.z)
+
+    def __sub__(self, other):
+        return _Vector2D(
+            self.x - other.x, self.y - other.y, self.z - other.z)
+
+    def __mul__(self, value):
+        return _Vector2D(
+            self.x * value, self.y * value, self.z * value)
+
 
 class _Rotation2D:
     def __init__(self, axis=None, angle=0):
@@ -215,6 +227,66 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         self.assertEqual(index, 1)
         self.assertAlmostEqual(distance, 0.4)
+
+    def test_linear_outline_clips_segment_without_brep_boolean(self):
+        linked_object = self._import_linked_object()
+        boundary = [
+            (0.0, 0.0, 4.0, 0.0),
+            (4.0, 0.0, 4.0, 4.0),
+            (4.0, 4.0, 0.0, 4.0),
+            (0.0, 4.0, 0.0, 0.0),
+        ]
+
+        clipped = linked_object._clip_segment_to_linear_outline(
+            _Vector2D(-1.0, 2.0), _Vector2D(5.0, 2.0),
+            (boundary, boundary))
+
+        self.assertEqual(len(clipped), 1)
+        self.assertAlmostEqual(clipped[0][0].x, -0.001)
+        self.assertAlmostEqual(clipped[0][0].y, 2.0)
+        self.assertAlmostEqual(clipped[0][1].x, 4.001)
+        self.assertAlmostEqual(clipped[0][1].y, 2.0)
+
+    def test_linear_outline_uses_brep_fallback_for_coincident_cut(self):
+        linked_object = self._import_linked_object()
+        boundary = [
+            (0.0, 0.0, 4.0, 0.0),
+            (4.0, 0.0, 4.0, 4.0),
+            (4.0, 4.0, 0.0, 4.0),
+            (0.0, 4.0, 0.0, 0.0),
+        ]
+
+        clipped = linked_object._clip_segment_to_linear_outline(
+            _Vector2D(0.0, 0.0), _Vector2D(4.0, 0.0),
+            (boundary, boundary))
+
+        self.assertIsNone(clipped)
+
+    def test_self_crossing_outline_is_not_eligible_for_linear_clipping(self):
+        linked_object = self._import_linked_object()
+
+        class Line:
+            pass
+
+        class Edge:
+            def __init__(self, start, end):
+                self.Curve = Line()
+                self.Vertexes = [
+                    types.SimpleNamespace(Point=_Vector2D(*start)),
+                    types.SimpleNamespace(Point=_Vector2D(*end)),
+                ]
+
+        class Wire:
+            def __init__(self, points):
+                self.Edges = [
+                    Edge(points[index], points[(index + 1) % len(points)])
+                    for index in range(len(points))
+                ]
+
+        crossed = Wire(((0, 0), (2, 2), (0, 2), (2, 0)))
+        face = types.SimpleNamespace(Wires=[crossed], OuterWire=crossed)
+
+        self.assertIsNone(linked_object._linear_outline_data(face))
 
     def test_nearest_bend_piece_uses_strip_if_no_rigid_shape_is_valid(self):
         linked_object = self._import_linked_object()

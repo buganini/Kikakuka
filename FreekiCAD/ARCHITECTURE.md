@@ -170,6 +170,12 @@ For each bend, creates cut line segments offset from the center line by +/- inse
 2. Offset each segment by -inset (A-side) and +inset (B-side)
 3. Trim offset lines to board outline independently
 
+Straight-edged simple outlines are cached as 2D boundary segments and clipped
+with line intersections plus an even/odd interior test. Curved, degenerate, or
+self-intersecting outlines retain the exact OCC BRep path. An individual cut
+that overlaps an outline edge also falls back to OCC because a point-in-polygon
+test cannot reproduce the kernel's coincident-boundary intervals reliably.
+
 ### Output
 
 - `cut_plan[]` = (sp0, sp1, side, bi, angle_rad, radius, p0, normal, bend_obj, moving_normal)

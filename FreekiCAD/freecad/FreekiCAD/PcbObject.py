@@ -742,6 +742,215 @@ def _single_planar_face(shape):
         "planar boolean produced {} faces; expected one".format(len(faces)))
 
 
+def _linear_outline_data(face):
+    """Return cached XY boundary segments when every outline edge is linear."""
+    try:
+        wires = list(face.Wires)
+        outer = face.OuterWire
+    except Exception:
+        return None
+    if not wires:
+        return None
+
+    def _wire_segments(wire):
+        result = []
+        endpoint_counts = {}
+        for edge in wire.Edges:
+            curve_name = type(getattr(edge, 'Curve', None)).__name__
+            if curve_name not in ('Line', 'LineSegment'):
+                return None
+            vertices = list(getattr(edge, 'Vertexes', []))
+            if len(vertices) != 2:
+                return None
+            p0 = vertices[0].Point
+            p1 = vertices[1].Point
+            if math.hypot(p1.x - p0.x, p1.y - p0.y) <= 1e-12:
+                continue
+            for point in (p0, p1):
+                key = (round(float(point.x), 9),
+                       round(float(point.y), 9))
+                endpoint_counts[key] = endpoint_counts.get(key, 0) + 1
+            result.append((
+                float(p0.x), float(p0.y),
+                float(p1.x), float(p1.y)))
+        # A simple closed ring visits every geometric vertex exactly once.
+        # Maze-like outlines can legally touch or retrace themselves in OCC;
+        # their common() result may contain overlapping intervals that an
+        # even/odd polygon clip would discard.  Keep those on the exact BRep
+        # fallback instead of changing the cut topology.
+        if any(count != 2 for count in endpoint_counts.values()):
+            return None
+        return result
+
+    all_segments = []
+    for wire in wires:
+        segments = _wire_segments(wire)
+        if segments is None:
+            return None
+        all_segments.extend(segments)
+
+    # A wire may cross itself without exposing an OCC vertex at the crossing.
+    # Reject any boundary contact other than one shared endpoint so the
+    # even/odd clipper is reserved for ordinary simple rings.  The quadratic
+    # check runs once per bend rebuild and remains much cheaper than dozens of
+    # BRep common() operations for the eligible outlines.
+    def _same_point(ax, ay, bx, by):
+        return abs(ax - bx) <= 1e-9 and abs(ay - by) <= 1e-9
+
+    def _orientation(ax, ay, bx, by, cx, cy):
+        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+    def _on_segment(ax, ay, bx, by, px, py):
+        return (min(ax, bx) - 1e-9 <= px <= max(ax, bx) + 1e-9
+                and min(ay, by) - 1e-9 <= py <= max(ay, by) + 1e-9
+                and abs(_orientation(ax, ay, bx, by, px, py)) <= 1e-9)
+
+    for index, first in enumerate(all_segments):
+        ax, ay, bx, by = first
+        for second in all_segments[index + 1:]:
+            cx, cy, dx, dy = second
+            if (max(ax, bx) < min(cx, dx) - 1e-9
+                    or max(cx, dx) < min(ax, bx) - 1e-9
+                    or max(ay, by) < min(cy, dy) - 1e-9
+                    or max(cy, dy) < min(ay, by) - 1e-9):
+                continue
+            shared_endpoints = sum((
+                _same_point(ax, ay, cx, cy),
+                _same_point(ax, ay, dx, dy),
+                _same_point(bx, by, cx, cy),
+                _same_point(bx, by, dx, dy),
+            ))
+            o1 = _orientation(ax, ay, bx, by, cx, cy)
+            o2 = _orientation(ax, ay, bx, by, dx, dy)
+            o3 = _orientation(cx, cy, dx, dy, ax, ay)
+            o4 = _orientation(cx, cy, dx, dy, bx, by)
+            contacts = (
+                _on_segment(ax, ay, bx, by, cx, cy)
+                or _on_segment(ax, ay, bx, by, dx, dy)
+                or _on_segment(cx, cy, dx, dy, ax, ay)
+                or _on_segment(cx, cy, dx, dy, bx, by)
+                or ((o1 > 1e-9 and o2 < -1e-9
+                     or o1 < -1e-9 and o2 > 1e-9)
+                    and (o3 > 1e-9 and o4 < -1e-9
+                         or o3 < -1e-9 and o4 > 1e-9)))
+            collinear_overlap = False
+            if (abs(o1) <= 1e-9 and abs(o2) <= 1e-9
+                    and abs(o3) <= 1e-9 and abs(o4) <= 1e-9):
+                if abs(bx - ax) >= abs(by - ay):
+                    overlap = (min(max(ax, bx), max(cx, dx))
+                               - max(min(ax, bx), min(cx, dx)))
+                else:
+                    overlap = (min(max(ay, by), max(cy, dy))
+                               - max(min(ay, by), min(cy, dy)))
+                collinear_overlap = overlap > 1e-9
+            if contacts and (shared_endpoints != 1 or collinear_overlap):
+                return None
+    outer_segments = _wire_segments(outer)
+    if not all_segments or not outer_segments:
+        return None
+    return all_segments, outer_segments
+
+
+def _clip_segment_to_linear_outline(p0, p1, outline_data):
+    """Clip a finite XY segment, or return None to request BRep fallback."""
+    all_segments, outer_segments = outline_data
+    rx = float(p1.x - p0.x)
+    ry = float(p1.y - p0.y)
+    rr = rx * rx + ry * ry
+    if rr <= 1e-18:
+        return []
+
+    def _cross(ax, ay, bx, by):
+        return ax * by - ay * bx
+
+    cut_values = [0.0, 1.0]
+    for x0, y0, x1, y1 in all_segments:
+        sx = x1 - x0
+        sy = y1 - y0
+        qx = x0 - p0.x
+        qy = y0 - p0.y
+        denominator = _cross(rx, ry, sx, sy)
+        if abs(denominator) <= 1e-12:
+            if abs(_cross(qx, qy, rx, ry)) > 1e-9:
+                continue
+            ta = (qx * rx + qy * ry) / rr
+            tb = ((x1 - p0.x) * rx + (y1 - p0.y) * ry) / rr
+            overlap_start = max(0.0, min(ta, tb))
+            overlap_end = min(1.0, max(ta, tb))
+            if overlap_end - overlap_start > 1e-10:
+                # Point-in-polygon is ambiguous when the requested cut lies
+                # on the boundary.  OCC preserves those coincident intervals,
+                # so let the caller use the exact BRep fallback for this line.
+                return None
+            for value in (ta, tb):
+                if -1e-12 <= value <= 1.0 + 1e-12:
+                    cut_values.append(max(0.0, min(1.0, value)))
+            continue
+        t_value = _cross(qx, qy, sx, sy) / denominator
+        u_value = _cross(qx, qy, rx, ry) / denominator
+        if (-1e-12 <= t_value <= 1.0 + 1e-12
+                and -1e-12 <= u_value <= 1.0 + 1e-12):
+            cut_values.append(max(0.0, min(1.0, t_value)))
+
+    cut_values.sort()
+    deduped = []
+    for value in cut_values:
+        if not deduped or value - deduped[-1] > 1e-10:
+            deduped.append(value)
+
+    def _inside(x, y):
+        inside = False
+        for x0, y0, x1, y1 in all_segments:
+            if (y0 > y) == (y1 > y):
+                continue
+            crossing_x = x0 + (y - y0) * (x1 - x0) / (y1 - y0)
+            if x < crossing_x:
+                inside = not inside
+        return inside
+
+    def _distance_sq_to_segment(x, y, segment):
+        x0, y0, x1, y1 = segment
+        dx = x1 - x0
+        dy = y1 - y0
+        length_sq = dx * dx + dy * dy
+        if length_sq <= 1e-18:
+            return (x - x0) ** 2 + (y - y0) ** 2
+        fraction = ((x - x0) * dx + (y - y0) * dy) / length_sq
+        fraction = max(0.0, min(1.0, fraction))
+        px = x0 + fraction * dx
+        py = y0 + fraction * dy
+        return (x - px) ** 2 + (y - py) ** 2
+
+    direction = p1 - p0
+    direction_length = math.sqrt(rr)
+    extension = direction * (GEOMETRY_TOLERANCE / direction_length)
+    boundary_limit_sq = 0.1 * 0.1
+    clipped = []
+    for index in range(len(deduped) - 1):
+        start_t = deduped[index]
+        end_t = deduped[index + 1]
+        if end_t - start_t <= 1e-12:
+            continue
+        mid_t = (start_t + end_t) * 0.5
+        mid_x = p0.x + rx * mid_t
+        mid_y = p0.y + ry * mid_t
+        if not _inside(mid_x, mid_y):
+            continue
+        start = p0 + direction * start_t
+        end = p0 + direction * end_t
+        start_boundary = min(
+            _distance_sq_to_segment(start.x, start.y, segment)
+            for segment in outer_segments)
+        end_boundary = min(
+            _distance_sq_to_segment(end.x, end.y, segment)
+            for segment in outer_segments)
+        if (start_boundary >= boundary_limit_sq
+                or end_boundary >= boundary_limit_sq):
+            continue
+        clipped.append((start - extension, end + extension))
+    return clipped
+
+
 def _split_prismatic_board_2d(unbent, cut_plan, plane_z):
     """Split a prismatic board in 2D and extrude its partition faces."""
     z_min = float(unbent.BoundBox.ZMin)
@@ -4972,6 +5181,7 @@ class PcbObject:
         #          p0, normal, bend_obj, moving_normal)
         cut_plan = []
         trimmed_bend_segs = []  # per bend: list of (sp0, sp1)
+        linear_outline = _linear_outline_data(board_face)
 
         def _project_point_to_segment_xy(pt, seg_p0, seg_p1):
             sx = seg_p1.x - seg_p0.x
@@ -4996,7 +5206,7 @@ class PcbObject:
                  angle_rad, radius) in enumerate(bend_info):
             ins = insets[bi]
             bl_segs = self._trim_line_to_outline(
-                p0, p1, board_face)
+                p0, p1, board_face, linear_outline)
             if not bl_segs:
                 bl_segs = [(p0, p1)]
             trimmed_bend_segs.append(bl_segs)
@@ -5007,11 +5217,11 @@ class PcbObject:
             b_p0 = p0 + normal * ins
             b_p1 = p1 + normal * ins
             a_segs = self._trim_line_to_outline(
-                a_p0, a_p1, board_face)
+                a_p0, a_p1, board_face, linear_outline)
             if not a_segs:
                 a_segs = [(a_p0, a_p1)]
             b_segs = self._trim_line_to_outline(
-                b_p0, b_p1, board_face)
+                b_p0, b_p1, board_face, linear_outline)
             if not b_segs:
                 b_segs = [(b_p0, b_p1)]
             for sp0, sp1 in a_segs:
@@ -11423,7 +11633,8 @@ class PcbObject:
         except Exception:
             pass
 
-    def _trim_line_to_outline(self, p0, p1, board_face):
+    def _trim_line_to_outline(
+            self, p0, p1, board_face, linear_outline=None):
         """Trim a 2D line to the board face using BRep section.
 
         Uses FreeCAD's geometry kernel to compute exact intersection
@@ -11440,6 +11651,12 @@ class PcbObject:
 
         if board_face is None:
             return []
+
+        if linear_outline is not None:
+            clipped = _clip_segment_to_linear_outline(
+                p0, p1, linear_outline)
+            if clipped is not None:
+                return clipped
 
         # Create an edge from p0 to p1 at z=0
         edge = Part.makeLine(
