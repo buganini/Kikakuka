@@ -216,6 +216,8 @@ The footprints are available in Kikakuka's
 
 ## Flexible PCB Stiffener
 
+![Stiffener](https://github.com/buganini/Kikakuka/raw/main/screenshots/freekicad_stiffener.png)
+
 Rename KiCad user layers to `F.Stiffener` and/or `B.Stiffener`
 (case-insensitive). Each closed rectangle, circle, polygon, or connected
 line/arc outline is imported as one stiffener area, regardless of its KiCad

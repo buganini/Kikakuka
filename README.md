@@ -252,6 +252,7 @@ object. The option can be disabled independently for each object.
 Coupler plane markers are available as child objects in FreeCAD and are hidden by default.
 
 ## Flexible PCB Stiffener
+![FreekiCAD-Stiffener](screenshots/freekicad_stiffener.png)
 
 Rename KiCad user layers to `F.Stiffener` and/or `B.Stiffener`
 (case-insensitive). Each closed rectangle, circle, polygon, or connected
