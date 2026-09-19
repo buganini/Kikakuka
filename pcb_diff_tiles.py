@@ -330,9 +330,14 @@ def binary_layer_difference(image_a, image_b,
     return cv2.bitwise_xor(occupancy_a, occupancy_b)
 
 
-def finish_merged_mask(binary_mask):
+def finish_merged_mask(binary_mask, scratch=None):
     if binary_mask is None:
         return None
+    if scratch is not None:
+        cv2.GaussianBlur(binary_mask, (21, 21), 10, dst=scratch)
+        cv2.threshold(scratch, 0, 255, cv2.THRESH_BINARY, dst=binary_mask)
+        cv2.GaussianBlur(binary_mask, (21, 21), 10, dst=scratch)
+        return scratch
     blurred = cv2.GaussianBlur(binary_mask, (21, 21), 10)
     _, extended_mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY)
     return cv2.GaussianBlur(extended_mask, (21, 21), 10)
@@ -345,9 +350,55 @@ def _divide_packed_pairs_by_255(value):
     return (value >> 8) & np.uint32(0x00FF00FF)
 
 
-def _accumulate_coverage(destination, grayscale, color, opacity=1.0):
+def _divide_packed_pairs_by_255_inplace(value, scratch):
+    """In-place variant using a caller-owned uint32 scratch array."""
+    value += np.uint32(0x00800080)
+    np.right_shift(value, 8, out=scratch)
+    np.bitwise_and(scratch, np.uint32(0x00FF00FF), out=scratch)
+    value += scratch
+    np.right_shift(value, 8, out=value)
+    np.bitwise_and(value, np.uint32(0x00FF00FF), out=value)
+
+
+def _accumulate_coverage(destination, grayscale, color, opacity=1.0,
+                         work_buffers=None):
     """Source-over colored coverage in packed premultiplied BGRA uint32."""
     opacity_alpha = np.uint32(round(min(1.0, max(0.0, opacity)) * 255.0))
+    if work_buffers is not None:
+        source_alpha, inverse_source_alpha, output_br, output_ga, temp, shift = (
+            work_buffers
+        )
+        np.subtract(255, grayscale, out=source_alpha, casting="unsafe")
+        source_alpha *= opacity_alpha
+        source_alpha += 127
+        source_alpha //= 255
+        np.subtract(255, source_alpha, out=inverse_source_alpha)
+
+        blue, green, red = color
+        source_br = np.uint32(blue | (red << 16))
+        source_ga = np.uint32(green | (255 << 16))
+        np.bitwise_and(
+            destination, np.uint32(0x00FF00FF), out=output_br
+        )
+        np.right_shift(destination, 8, out=output_ga)
+        np.bitwise_and(
+            output_ga, np.uint32(0x00FF00FF), out=output_ga
+        )
+
+        output_br *= inverse_source_alpha
+        np.multiply(source_alpha, source_br, out=temp)
+        output_br += temp
+        _divide_packed_pairs_by_255_inplace(output_br, shift)
+
+        output_ga *= inverse_source_alpha
+        np.multiply(source_alpha, source_ga, out=temp)
+        output_ga += temp
+        _divide_packed_pairs_by_255_inplace(output_ga, shift)
+
+        np.left_shift(output_ga, 8, out=temp)
+        np.bitwise_or(output_br, temp, out=destination)
+        return
+
     source_alpha = 255 - grayscale.astype(np.uint32)
     source_alpha *= opacity_alpha
     source_alpha += 127
@@ -368,18 +419,61 @@ def _accumulate_coverage(destination, grayscale, color, opacity=1.0):
     destination[:] = output_br | (output_ga << 8)
 
 
-def _accumulate_bounded_coverage(destination, grayscale, color,
-                                 opacity=1.0):
-    """Composite only the bounding rectangle containing non-white pixels."""
-    coverage = cv2.bitwise_not(grayscale)
-    x, y, width, height = cv2.boundingRect(coverage)
+def _coverage_bounds(grayscale, scratch=None):
+    """Return the bounding rectangle containing non-white pixels."""
+    if scratch is None:
+        coverage = cv2.bitwise_not(grayscale)
+    else:
+        cv2.bitwise_not(grayscale, dst=scratch)
+        coverage = scratch
+    return cv2.boundingRect(coverage)
+
+
+def _union_bounds(bounds_a, bounds_b):
+    """Return the smallest rectangle containing both non-empty bounds."""
+    x_a, y_a, width_a, height_a = bounds_a
+    x_b, y_b, width_b, height_b = bounds_b
+    if width_a == 0 or height_a == 0:
+        return bounds_b
+    if width_b == 0 or height_b == 0:
+        return bounds_a
+    left = min(x_a, x_b)
+    top = min(y_a, y_b)
+    right = max(x_a + width_a, x_b + width_b)
+    bottom = max(y_a + height_a, y_b + height_b)
+    return left, top, right - left, bottom - top
+
+
+def _accumulate_coverage_bounds(destination, grayscale, color, opacity,
+                                bounds, work_buffers=None):
+    x, y, width, height = bounds
     if width == 0 or height == 0:
         return
+    bounded_work_buffers = None
+    if work_buffers is not None:
+        pixel_count = width * height
+        bounded_work_buffers = tuple(
+            buffer.reshape(-1)[:pixel_count].reshape(height, width)
+            for buffer in work_buffers
+        )
     _accumulate_coverage(
         destination[y:y + height, x:x + width],
         grayscale[y:y + height, x:x + width],
         color,
         opacity,
+        bounded_work_buffers,
+    )
+
+
+def _accumulate_bounded_coverage(destination, grayscale, color,
+                                 opacity=1.0):
+    """Composite only the bounding rectangle containing non-white pixels."""
+    _accumulate_coverage_bounds(
+        destination,
+        grayscale,
+        color,
+        opacity,
+        _coverage_bounds(grayscale),
     )
 
 
@@ -406,6 +500,36 @@ class PcbTileRenderer:
     def __init__(self):
         self._documents = {}
         self._pages = {}
+        self._uint8_workspace = None
+        self._uint32_workspace = None
+
+    def _uint8_buffers(self, count, height, width):
+        """Borrow reusable contiguous uint8 image buffers for one tile."""
+        pixel_count = height * width
+        if (self._uint8_workspace is None or
+                self._uint8_workspace.shape[0] < count or
+                self._uint8_workspace.shape[1] < pixel_count):
+            self._uint8_workspace = np.empty(
+                (count, pixel_count), dtype=np.uint8
+            )
+        return tuple(
+            self._uint8_workspace[index, :pixel_count].reshape(height, width)
+            for index in range(count)
+        )
+
+    def _uint32_buffers(self, count, height, width):
+        """Borrow reusable contiguous uint32 compositing work buffers."""
+        pixel_count = height * width
+        if (self._uint32_workspace is None or
+                self._uint32_workspace.shape[0] < count or
+                self._uint32_workspace.shape[1] < pixel_count):
+            self._uint32_workspace = np.empty(
+                (count, pixel_count), dtype=np.uint32
+            )
+        return tuple(
+            self._uint32_workspace[index, :pixel_count].reshape(height, width)
+            for index in range(count)
+        )
 
     def close(self):
         for page in self._pages.values():
@@ -414,6 +538,8 @@ class PcbTileRenderer:
         for document in self._documents.values():
             document.close()
         self._documents.clear()
+        self._uint8_workspace = None
+        self._uint32_workspace = None
 
     def _document(self, path):
         document = self._documents.get(path)
@@ -495,7 +621,9 @@ class PcbTileRenderer:
         copy_height = min(bitmap.shape[0], pixel_height - target_y)
         if (target_x == 0 and target_y == 0 and
                 copy_width == pixel_width and copy_height == pixel_height):
-            return bitmap[:copy_height, :copy_width].copy()
+            # pypdfium2's NumPy view retains the bitmap buffer owner. Borrow it
+            # until this layer has been composited instead of copying the crop.
+            return bitmap[:copy_height, :copy_width]
 
         output = self._blank(pixel_width, pixel_height, grayscale)
         if copy_width > 0 and copy_height > 0:
@@ -555,8 +683,17 @@ class PcbTileRenderer:
                 )
                 for name in ("a", "b", "darker")
             }
-        merged_binary_mask = None
+        (darker_buffer, occupancy_a, occupancy_b, merged_binary_mask,
+         mask_scratch, coverage_scratch) = self._uint8_buffers(
+            6, extended_pixel_height, extended_pixel_width
+        )
+        composite_work_buffers = self._uint32_buffers(
+            6, extended_pixel_height, extended_pixel_width
+        )
+        merged_binary_mask.fill(0)
+        has_layers = False
         for layer in reversed(layers):
+            has_layers = True
             path_a, path_b = metadata["layer_pdfs"].get(
                 layer, (None, None)
             )
@@ -574,20 +711,27 @@ class PcbTileRenderer:
                 extended_bounds,
                 render_scale,
             )
-            darker, binary_mask = combine_layer_images(image_a, image_b)
+            cv2.min(image_a, image_b, dst=darker_buffer)
+            threshold = 254 - LAYER_ALPHA_THRESHOLD
+            cv2.threshold(
+                image_a, threshold, 255, cv2.THRESH_BINARY_INV,
+                dst=occupancy_a
+            )
+            cv2.threshold(
+                image_b, threshold, 255, cv2.THRESH_BINARY_INV,
+                dst=occupancy_b
+            )
+            cv2.bitwise_xor(occupancy_a, occupancy_b, dst=occupancy_a)
+            cv2.max(
+                merged_binary_mask, occupancy_a, dst=merged_binary_mask
+            )
             color, layer_opacity = metadata.get("layer_styles", {}).get(
                 layer, standard_layer_style(layer)
             )
-            if merged_binary_mask is None:
-                merged_binary_mask = binary_mask
-            else:
-                merged_binary_mask = cv2.max(
-                    merged_binary_mask, binary_mask
-                )
             opacity = 0.8 * layer_opacity
             composite_a = image_a
             composite_b = image_b
-            composite_darker = darker
+            composite_darker = darker_buffer
             if external_composites:
                 composite_a = composite_a[
                     crop_y:crop_y + crop_height,
@@ -601,16 +745,28 @@ class PcbTileRenderer:
                     crop_y:crop_y + crop_height,
                     crop_x:crop_x + crop_width,
                 ]
-            _accumulate_bounded_coverage(
-                composites["a"], composite_a, color, opacity=opacity
+            bounds_scratch = coverage_scratch.reshape(-1)[
+                :composite_a.size
+            ].reshape(composite_a.shape)
+            bounds_a = _coverage_bounds(composite_a, bounds_scratch)
+            bounds_b = _coverage_bounds(composite_b, bounds_scratch)
+            # min(A, B) is non-white wherever either A or B is non-white.
+            bounds_darker = _union_bounds(bounds_a, bounds_b)
+            _accumulate_coverage_bounds(
+                composites["a"], composite_a, color, opacity, bounds_a,
+                composite_work_buffers,
             )
-            _accumulate_bounded_coverage(
-                composites["b"], composite_b, color, opacity=opacity
+            _accumulate_coverage_bounds(
+                composites["b"], composite_b, color, opacity, bounds_b,
+                composite_work_buffers,
             )
-            _accumulate_bounded_coverage(
-                composites["darker"], composite_darker, color,
-                opacity=opacity
+            _accumulate_coverage_bounds(
+                composites["darker"], composite_darker, color, opacity,
+                bounds_darker, composite_work_buffers,
             )
+
+        if not has_layers:
+            merged_binary_mask = None
 
         image_paths = {}
         image_data = {}
@@ -630,7 +786,7 @@ class PcbTileRenderer:
                     image_paths[name] = path
 
         mask_path = None
-        mask = finish_merged_mask(merged_binary_mask)
+        mask = finish_merged_mask(merged_binary_mask, mask_scratch)
         if mask is not None:
             mask = mask[
                 crop_y:crop_y + crop_height,

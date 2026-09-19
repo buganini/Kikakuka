@@ -74,7 +74,8 @@ The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
    PDF. A 24-pixel gutter is rendered around the tile before mask processing
    and removed afterward, preventing blur seams. Each layer PDF's page handle
    is cached by path and reused for every tile crop, then closed before its
-   owning document when the renderer shuts down.
+   owning document when the renderer shuts down. A crop that already fills the
+   requested tile borrows PDFium's NumPy buffer instead of copying it.
 7. Alpha-composite the selected layers into one A image, one B image, and one
    overlap image per tile. PDFium renders opaque one-channel grayscale; white
    is converted to zero coverage and black to full coverage. KiCad's standard
@@ -85,7 +86,10 @@ The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
    exposes their owned pixel buffers as uint32 NumPy views, and composites only
    each layer's non-white bounding region directly into those buffers. This
    avoids final-array allocation, straight-alpha conversion, and QImage pixel
-   copies. The independent renderer can still convert to straight BGRA and
+   copies. Reusable uint8 and uint32 work buffers, NumPy `out`, and OpenCV
+   `dst` operations also avoid allocating darker, occupancy, merged-mask,
+   blur, and alpha-compositing arrays for every layer and tile. The independent
+   renderer can still convert to straight BGRA and
    write PNG artifacts for tests and benchmarks. The standard color table is
    built in and does not depend on the user's KiCad theme files.
 8. Merge raw binary differences from all visible layers, then run the

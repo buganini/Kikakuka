@@ -48,7 +48,6 @@ def premultiplied_image_resource(width, height):
     )
     if qimage.isNull():
         raise RuntimeError("Could not create PCB tile QImage")
-    qimage.fill(0)
     pixels_per_line = qimage.bytesPerLine() // np.dtype(np.uint32).itemsize
     buffer = np.frombuffer(
         qimage.bits(),

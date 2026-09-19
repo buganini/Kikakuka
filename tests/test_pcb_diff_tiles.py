@@ -14,7 +14,9 @@ from pcb_diff_tiles import (
     PcbTileRenderer,
     _accumulate_coverage,
     _accumulate_bounded_coverage,
+    _coverage_bounds,
     _finish_coverage,
+    _union_bounds,
     binary_layer_occupancy,
     choose_coarse_render_scale,
     choose_render_scale,
@@ -180,6 +182,44 @@ class PcbDiffTileImageTests(unittest.TestCase):
 
         np.testing.assert_array_equal(actual, expected)
 
+    def test_reused_compositing_work_buffers_match_allocating_path(self):
+        random = np.random.default_rng(7)
+        expected = random.integers(
+            0, np.iinfo(np.uint32).max, (8, 9), dtype=np.uint32
+        )
+        actual = expected.copy()
+        work_buffers = tuple(
+            np.empty((8, 9), dtype=np.uint32) for _index in range(6)
+        )
+
+        for opacity in (0.25, 0.8, 1.0):
+            grayscale = random.integers(
+                0, 256, (8, 9), dtype=np.uint8
+            )
+            _accumulate_coverage(
+                expected, grayscale, (10, 120, 240), opacity
+            )
+            _accumulate_coverage(
+                actual, grayscale, (10, 120, 240), opacity, work_buffers
+            )
+
+        np.testing.assert_array_equal(actual, expected)
+
+    def test_darker_bounds_are_union_of_source_bounds(self):
+        image_a = np.full((8, 8), 255, dtype=np.uint8)
+        image_b = image_a.copy()
+        image_a[1:3, 2:4] = 0
+        image_b[5:7, 4:7] = 0
+        darker = np.minimum(image_a, image_b)
+        scratch = np.empty_like(image_a)
+
+        bounds = _union_bounds(
+            _coverage_bounds(image_a, scratch),
+            _coverage_bounds(image_b, scratch),
+        )
+
+        self.assertEqual(bounds, _coverage_bounds(darker, scratch))
+
     def test_standard_theme_uses_canonical_layer_colors(self):
         self.assertEqual(standard_layer_style("F.Cu"), ((52, 52, 200), 1.0))
         self.assertEqual(
@@ -224,6 +264,17 @@ class PcbDiffTileImageTests(unittest.TestCase):
 
         self.assertEqual(mask.shape, binary_mask.shape)
         self.assertGreater(np.count_nonzero(mask), 1)
+
+    def test_merged_mask_can_reuse_scratch_buffer(self):
+        binary_mask = np.zeros((64, 64), dtype=np.uint8)
+        binary_mask[32, 32] = 255
+        expected = finish_merged_mask(binary_mask.copy())
+        scratch = np.empty_like(binary_mask)
+
+        actual = finish_merged_mask(binary_mask.copy(), scratch)
+
+        self.assertIs(actual, scratch)
+        np.testing.assert_array_equal(actual, expected)
 
 
 class PcbDiffRendererBlockTests(unittest.TestCase):
@@ -367,6 +418,20 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
         pdf_document.assert_called_once_with("board.pdf")
         document.__getitem__.assert_called_once_with(0)
         self.assertEqual(close_order, ["page", "document"])
+
+    def test_full_pdf_crop_borrows_pdfium_numpy_buffer(self):
+        renderer = PcbTileRenderer()
+        bitmap = np.full((4, 4), 255, dtype=np.uint8)
+        page = mock.MagicMock()
+        page.render.return_value.to_numpy.return_value = bitmap
+        renderer._page = mock.Mock(return_value=page)
+
+        result = renderer._render_layer(
+            "board.pdf", (4.0, 4.0), (4.0, 4.0),
+            (0.0, 0.0, 4.0, 4.0), 1.0,
+        )
+
+        self.assertTrue(np.shares_memory(result, bitmap))
 
     def test_legacy_block_preserves_alpha_blind_difference(self):
         transparent = np.array([[[255, 255, 255, 0]]], dtype=np.uint8)
