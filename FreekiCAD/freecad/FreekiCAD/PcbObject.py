@@ -489,12 +489,31 @@ def _select_monitored_coupler_poses(monitored, live):
     return selected
 
 
+_COUPLER_POSE_FIELDS = (
+    'ref', 'type', 'x', 'y', 'board_z', 'is_back', 'z', 'offset', 'tilt',
+    'rotation', 'target_x', 'target_y', 'target_z')
+
+
 def _coupler_pose_signature(poses):
     """Return the live fields which affect coupler placement."""
-    fields = (
-        'ref', 'type', 'x', 'y', 'board_z', 'is_back', 'z', 'offset', 'tilt',
-        'rotation', 'target_x', 'target_y', 'target_z')
-    return tuple(tuple(pose.get(field) for field in fields) for pose in poses)
+    return tuple(tuple(pose.get(field) for field in _COUPLER_POSE_FIELDS)
+                 for pose in poses)
+
+
+def _coupler_pose_changes_limited_to(previous, current, allowed_fields):
+    """Return true when corresponding poses differ only in allowed fields."""
+    if len(previous) != len(current):
+        return False
+    changed = False
+    allowed = set(allowed_fields)
+    for old_pose, new_pose in zip(previous, current):
+        for field in _COUPLER_POSE_FIELDS:
+            if old_pose.get(field) == new_pose.get(field):
+                continue
+            changed = True
+            if field not in allowed:
+                return False
+    return changed
 
 
 def _nearest_bend_piece(pieces, point, excluded=None):
@@ -2118,7 +2137,7 @@ class CouplerMarker:
         for parent in getattr(obj, 'InList', []):
             proxy = getattr(parent, "Proxy", None)
             if proxy and getattr(proxy, 'Type', None) in PCB_OBJECT_TYPES:
-                proxy._coupler_marker_changed(parent, obj)
+                proxy._coupler_marker_changed(parent, obj, prop)
                 break
 
     def dumps(self):
@@ -2298,7 +2317,7 @@ class _OutlineSketchObserver:
                 != 'CouplerMarker':
             parent = self._find_component_parent(obj)
             if parent is not None:
-                parent.Proxy._coupler_marker_changed(parent, obj)
+                parent.Proxy._coupler_marker_changed(parent, obj, prop)
             return
 
         # Constrain component Placement: only X/Y move + Z rotation
@@ -3691,7 +3710,31 @@ class PcbObject:
                 if isinstance(p, dict)
                 and (coupler_type is None or p.get('type') == coupler_type)]
 
-    def _coupler_marker_changed(self, obj, marker):
+    def _set_coupler_marker_placement(self, marker, flat_placement,
+                                      preserve_bend=False):
+        """Set a marker's flat pose, optionally retaining its bend transform."""
+        displayed = getattr(marker, 'Placement', None)
+        old_flat = getattr(marker, 'FreekiCAD_InitPlacement', None)
+        retained = False
+        self._updating_coupler_markers = True
+        try:
+            if preserve_bend and displayed is not None and old_flat is not None:
+                bend_transform = displayed.multiply(old_flat.inverse())
+                marker.Placement = bend_transform.multiply(flat_placement)
+                retained = True
+            else:
+                marker.Placement = flat_placement
+            marker.FreekiCAD_InitPlacement = flat_placement
+        finally:
+            self._updating_coupler_markers = False
+        if hasattr(self, '_unbent_placements'):
+            try:
+                self._unbent_placements[marker.Name] = flat_placement.copy()
+            except Exception:
+                self._unbent_placements[marker.Name] = flat_placement
+        return retained
+
+    def _coupler_marker_changed(self, obj, marker, prop=None):
         """Apply an edited marker locally and debounce its KiCad update."""
         if (getattr(self, '_updating_coupler_markers', False)
                 or getattr(self, '_reloading', False)
@@ -3720,17 +3763,10 @@ class PcbObject:
                               getattr(marker, 'Offset', 0)))
         obj.CouplerPoses = json.dumps(poses)
         placement = self._coupler_placement(pose)
-        self._updating_coupler_markers = True
-        try:
-            marker.Placement = placement
-            marker.FreekiCAD_InitPlacement = placement
-        finally:
-            self._updating_coupler_markers = False
-        if hasattr(self, '_unbent_placements'):
-            try:
-                self._unbent_placements[marker.Name] = placement.copy()
-            except Exception:
-                self._unbent_placements[marker.Name] = placement
+        retained_bend = self._set_coupler_marker_placement(
+            marker, placement,
+            preserve_bend=(prop == 'Tilt'
+                           and hasattr(self, '_unbent_board_shape')))
 
         if COUPLER_KICAD_SYNC_ENABLED:
             update = {
@@ -3748,7 +3784,10 @@ class PcbObject:
             self._schedule_coupler_update(obj, reference)
 
         if hasattr(self, '_unbent_board_shape'):
-            self._schedule_rebend(obj)
+            if retained_bend:
+                self._reposition_all_coupled_objects(obj.Document)
+            else:
+                self._schedule_rebend(obj)
         else:
             self._reposition_all_coupled_objects(obj.Document)
 
@@ -3978,6 +4017,9 @@ class PcbObject:
 
     def _apply_live_coupler_poses(self, obj, poses):
         """Update saved poses and markers, then repeat coupler positioning."""
+        previous = self._coupler_poses(obj)
+        tilt_only = _coupler_pose_changes_limited_to(
+            previous, poses, {'tilt'})
         obj.CouplerPoses = json.dumps(poses)
         markers = {}
         for child in getattr(obj, 'Group', []):
@@ -3992,6 +4034,10 @@ class PcbObject:
                 continue
             marker = matches.pop(0)
             placement = self._coupler_placement(pose)
+            retained_bend = self._set_coupler_marker_placement(
+                marker, placement,
+                preserve_bend=(tilt_only
+                               and hasattr(self, '_unbent_board_shape')))
             self._updating_coupler_markers = True
             try:
                 for prop, value in (
@@ -4004,21 +4050,19 @@ class PcbObject:
                         setattr(marker, prop, value)
                     except Exception:
                         pass
-                marker.Placement = placement
-                marker.FreekiCAD_InitPlacement = placement
             finally:
                 self._updating_coupler_markers = False
-            if hasattr(self, '_unbent_placements'):
-                try:
-                    self._unbent_placements[marker.Name] = placement.copy()
-                except Exception:
-                    self._unbent_placements[marker.Name] = placement
+            if tilt_only and not retained_bend:
+                tilt_only = False
 
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Live couplers changed for '{obj.Label}'; "
             "repositioning linked boards\n")
         if hasattr(self, '_unbent_board_shape'):
-            self._rebend(obj)
+            if tilt_only:
+                self._reposition_all_coupled_objects(obj.Document)
+            else:
+                self._rebend(obj)
         else:
             self._reposition_all_coupled_objects(obj.Document)
 

@@ -1127,6 +1127,17 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertIsNone(
             linked_object._select_monitored_coupler_poses(monitored, live))
 
+    def test_coupler_pose_change_can_be_limited_to_tilt(self):
+        linked_object = self._import_linked_object()
+        old_pose = {
+            "ref": "pair", "type": "CouplerFixed", "x": 1, "tilt": 0,
+        }
+
+        self.assertTrue(linked_object._coupler_pose_changes_limited_to(
+            [old_pose], [{**old_pose, "tilt": 15}], {"tilt"}))
+        self.assertFalse(linked_object._coupler_pose_changes_limited_to(
+            [old_pose], [{**old_pose, "x": 2, "tilt": 15}], {"tilt"}))
+
     def test_changed_live_couplers_are_applied(self):
         linked_object = self._import_linked_object()
         proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
@@ -1227,6 +1238,48 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertIs(marker.FreekiCAD_InitPlacement, placement)
         proxy._reposition_all_coupled_objects.assert_called_once_with(document)
 
+    def test_live_tilt_only_update_does_not_rebend_board(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock())
+        old_pose = {
+            "ref": "pair", "type": "CouplerFixed", "x": 4, "y": 6,
+            "board_z": 1.6, "rotation": 10, "z": 1, "offset": 0.5,
+            "tilt": 0,
+        }
+        new_pose = {**old_pose, "tilt": 22}
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        old_flat = proxy._coupler_placement(old_pose)
+        bend_transform = _Placement2D(
+            _Vector2D(-8, 13, 2), _Rotation2D(None, -25))
+        marker = types.SimpleNamespace(
+            Name="Board_Coupler_pair", CouplerType="CouplerFixed",
+            Reference="pair", X=4, Y=6, Z=1, Offset=0.5, Tilt=0,
+            Placement=bend_transform.multiply(old_flat),
+            FreekiCAD_InitPlacement=old_flat)
+        document = object()
+        obj = types.SimpleNamespace(
+            Label="board", CouplerPoses=json.dumps([old_pose]),
+            Group=[marker], Document=document)
+        proxy._unbent_board_shape = object()
+        proxy._unbent_placements = {}
+        proxy._rebend = mock.Mock()
+        proxy._reposition_all_coupled_objects = mock.Mock()
+
+        proxy._apply_live_coupler_poses(obj, [new_pose])
+
+        expected = bend_transform.multiply(proxy._coupler_placement(new_pose))
+        self.assertAlmostEqual(marker.Placement.Base.x, expected.Base.x)
+        self.assertAlmostEqual(marker.Placement.Base.y, expected.Base.y)
+        self.assertAlmostEqual(marker.Placement.Base.z, expected.Base.z)
+        self.assertAlmostEqual(marker.Placement.angle, expected.angle)
+        self.assertEqual(marker.Tilt, 22)
+        proxy._rebend.assert_not_called()
+        proxy._reposition_all_coupled_objects.assert_called_once_with(document)
+
     def test_editing_coupler_fields_updates_pose_and_schedules_kicad_sync(self):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Vector = _Vector2D
@@ -1260,6 +1313,48 @@ class OutlineWireOrderTests(unittest.TestCase):
             "tilt": -12.5,
         })
         proxy._schedule_coupler_update.assert_called_once_with(obj, "pair")
+        proxy._reposition_all_coupled_objects.assert_called_once_with(document)
+
+    def test_editing_only_coupler_tilt_reuses_existing_bend_transform(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+        linked_object.FreeCAD.Rotation = _Rotation2D
+        linked_object.FreeCAD.Placement = _Placement2D
+        document = object()
+        old_pose = {
+            "ref": "pair", "type": "CouplerFixed", "x": 12.5,
+            "y": 7.25, "board_z": 1.6, "rotation": 27,
+            "z": 2.4, "offset": 1.25, "tilt": 0,
+        }
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        old_flat = proxy._coupler_placement(old_pose)
+        bend_transform = _Placement2D(
+            _Vector2D(20, -5, 3), _Rotation2D(None, 35))
+        old_displayed = bend_transform.multiply(old_flat)
+        marker = types.SimpleNamespace(
+            Name="Board_Coupler_pair", CouplerType="CouplerFixed",
+            Reference="pair", X=12.5, Y=7.25, Z=2.4, Offset=1.25,
+            Tilt=18, Placement=old_displayed,
+            FreekiCAD_InitPlacement=old_flat)
+        obj = types.SimpleNamespace(
+            Label="board", CouplerPoses=json.dumps([old_pose]),
+            Document=document)
+        proxy._unbent_board_shape = object()
+        proxy._unbent_placements = {}
+        proxy._schedule_coupler_update = mock.Mock()
+        proxy._schedule_rebend = mock.Mock()
+        proxy._reposition_all_coupled_objects = mock.Mock()
+
+        proxy._coupler_marker_changed(obj, marker, "Tilt")
+
+        new_pose = json.loads(obj.CouplerPoses)[0]
+        new_flat = proxy._coupler_placement(new_pose)
+        expected = bend_transform.multiply(new_flat)
+        self.assertAlmostEqual(marker.Placement.Base.x, expected.Base.x)
+        self.assertAlmostEqual(marker.Placement.Base.y, expected.Base.y)
+        self.assertAlmostEqual(marker.Placement.Base.z, expected.Base.z)
+        self.assertAlmostEqual(marker.Placement.angle, expected.angle)
+        proxy._schedule_rebend.assert_not_called()
         proxy._reposition_all_coupled_objects.assert_called_once_with(document)
 
     def test_coupler_update_writes_xy_z_and_tilt_to_kicad(self):
