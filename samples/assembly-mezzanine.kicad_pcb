@@ -380,7 +380,7 @@
 			)
 		)
 	)
-	(footprint "Kikakuka:CouplerMoving"
+	(footprint "PCM_Kikakuka:CouplerMoving"
 		(layer "B.Cu")
 		(uuid "d7376c41-76fb-4ce0-91ef-5bca196dac47")
 		(at 142.97 96.42 180)
@@ -424,7 +424,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Description" ""
+		(property "Description" "Moving FreekiCAD alignment plane. Positions this PCB against a CouplerFixed footprint with the same reference. Z moves along the PCB surface normal; positive Offset moves on the PCB surface in the triangle direction; Tilt rotates around local X. Unitless lengths default to mm; mm/in/mil/um are supported."
 			(at 0 0 0)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -438,7 +438,7 @@
 				(justify mirror)
 			)
 		)
-		(property "Z" "2mm"
+		(property "Z" "2 mm"
 			(at 0 0 0)
 			(unlocked yes)
 			(layer "B.Fab")
@@ -493,6 +493,36 @@
 			(uuid "0922bbfa-c752-4505-8edf-10139f62b1e4")
 		)
 		(fp_line
+			(start 0.25 0.75)
+			(end 0 0.5)
+			(stroke
+				(width 0.1)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "2d40b387-d47b-4aa2-9f63-e76607a588a1")
+		)
+		(fp_line
+			(start 0 1)
+			(end 0 0.5)
+			(stroke
+				(width 0.1)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "1efdebab-128b-4d31-bb0c-e45161856439")
+		)
+		(fp_line
+			(start 0 0.5)
+			(end -0.25 0.75)
+			(stroke
+				(width 0.1)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "2b50a236-a7d1-4566-8cc2-1305a6b57885")
+		)
+		(fp_line
 			(start 0 0)
 			(end -1 1)
 			(stroke
@@ -501,6 +531,16 @@
 			)
 			(layer "Cmts.User")
 			(uuid "6c64e317-cdbd-4ee3-898e-6fee2bcdcb77")
+		)
+		(fp_line
+			(start -0.25 0.75)
+			(end 0 0.5)
+			(stroke
+				(width 0.1)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "df1e499c-565a-4722-96ad-2416af131f54")
 		)
 		(fp_line
 			(start -1 1)
@@ -514,16 +554,45 @@
 		)
 		(embedded_fonts no)
 	)
-	(gr_rect
+	(gr_line
 		(start 138.24 93.86)
-		(end 147.72 105.05)
+		(end 138.24 105.05)
 		(stroke
-			(width 0.1)
+			(width 0)
 			(type default)
 		)
-		(fill no)
 		(layer "Edge.Cuts")
-		(uuid "79f9f288-680b-4032-a687-d3c0df7e70a7")
+		(uuid "45dc6d1a-22a5-4f02-9a34-01f6d3d4251a")
+	)
+	(gr_line
+		(start 138.24 105.05)
+		(end 147.72 105.05)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(layer "Edge.Cuts")
+		(uuid "8f0d8894-b748-4f10-8f81-6e2a64832e5a")
+	)
+	(gr_line
+		(start 147.72 93.86)
+		(end 138.24 93.86)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(layer "Edge.Cuts")
+		(uuid "8a3bca4d-213a-43f9-a38d-7a7f59bf4d7d")
+	)
+	(gr_line
+		(start 147.72 105.05)
+		(end 147.72 93.86)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(layer "Edge.Cuts")
+		(uuid "7dafc36b-65aa-4461-b686-1ee4e5b2cd33")
 	)
 	(embedded_fonts no)
 )
