@@ -5,6 +5,8 @@
 FreekiCAD bridges KiCad and FreeCAD, providing a FreeCAD-based workflow for
 PCB editing and mechanical assembly.
 
+![Bending+Assembly](https://github.com/buganini/Kikakuka/raw/main/screenshots/freekicad_bending_assembly.png)
+
 ## Features
 
 - Opening, importing, or dragging external `.kicad_pcb` files as linked PCB objects
