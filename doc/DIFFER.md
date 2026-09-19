@@ -81,11 +81,13 @@ The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
    theme color is then applied from the layer's canonical name, so a custom
    name such as `F.Stiffener` retains its underlying `User.1` color. Each
    output uses one uint32 array whose four 8-bit lanes contain premultiplied
-   BGRA, and converts to straight BGRA only at the final image boundary. The
-   application copies that result directly into a `QImage`; the independent
-   renderer can still write PNG artifacts for tests and benchmarks. The
-   standard color table is built in and does not depend on the user's KiCad
-   theme files.
+   BGRA. The application allocates `Format_ARGB32_Premultiplied` QImages first,
+   exposes their owned pixel buffers as uint32 NumPy views, and composites only
+   each layer's non-white bounding region directly into those buffers. This
+   avoids final-array allocation, straight-alpha conversion, and QImage pixel
+   copies. The independent renderer can still convert to straight BGRA and
+   write PNG artifacts for tests and benchmarks. The standard color table is
+   built in and does not depend on the user's KiCad theme files.
 8. Merge raw binary differences from all visible layers, then run the
    threshold/blur sequence once for the tile.
 9. Cache results by diff generation, raster level, tile coordinate, and the
@@ -94,12 +96,14 @@ The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
    low-resolution cache retains recently used tiles at LOD 1 or below so
    high-resolution tiles cannot evict every fallback. Queued work outside the
    latest viewport is skipped.
-10. The worker creates independently owned `QImage` resources and sends them
-    to the UI in memory, avoiding PNG encoding, filesystem traffic, and PNG
-    decoding in the application path. The path-based compatibility loader uses
-    a short time budget instead of loading exactly one image per paint. The
-    painter returns `True` while work or path loading remains, requesting an
-    immediate redraw without performing PDF or OpenCV work on the UI thread.
+10. The worker writes through `QImage.bits()` before publishing independently
+    owned image resources to the UI. Once published, the images are immutable
+    and PUI only reads them. This avoids PNG encoding, filesystem traffic, PNG
+    decoding, and an extra memory copy in the application path. The path-based
+    compatibility loader uses a short time budget instead of loading exactly
+    one image per paint. The painter returns `True` while work or path loading
+    remains, requesting an immediate redraw without performing PDF or OpenCV
+    work on the UI thread.
 11. Map every complete tile to one fixed destination rectangle. Moving the
     comparison cursor changes only a QPainter screen-space clip rectangle; it
     never recalculates a cropped source rectangle or resamples the tile.

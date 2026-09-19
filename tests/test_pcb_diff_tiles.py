@@ -13,6 +13,7 @@ from legacy_pcb_diff import (
 from pcb_diff_tiles import (
     PcbTileRenderer,
     _accumulate_coverage,
+    _accumulate_bounded_coverage,
     _finish_coverage,
     binary_layer_occupancy,
     choose_coarse_render_scale,
@@ -163,6 +164,22 @@ class PcbDiffTileImageTests(unittest.TestCase):
             output[:, :, 3], np.array([[0, 204]], dtype=np.uint8)
         )
 
+    def test_bounded_compositing_matches_full_array(self):
+        grayscale = np.full((8, 8), 255, dtype=np.uint8)
+        grayscale[2:6, 3:5] = np.array(
+            [[0, 64], [128, 192], [32, 96], [160, 224]],
+            dtype=np.uint8,
+        )
+        expected = np.zeros((8, 8), dtype=np.uint32)
+        actual = expected.copy()
+
+        _accumulate_coverage(expected, grayscale, (10, 20, 30), 0.8)
+        _accumulate_bounded_coverage(
+            actual, grayscale, (10, 20, 30), 0.8
+        )
+
+        np.testing.assert_array_equal(actual, expected)
+
     def test_standard_theme_uses_canonical_layer_colors(self):
         self.assertEqual(standard_layer_style("F.Cu"), ((52, 52, 200), 1.0))
         self.assertEqual(
@@ -286,6 +303,50 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
         for image in result["image_data"].values():
             self.assertEqual(image.shape, (4, 4, 4))
         self.assertEqual(result["mask_data"].shape, (4, 4, 4))
+
+    def test_viewport_block_can_composite_into_owned_buffers(self):
+        renderer = PcbTileRenderer()
+        renderer._render_layer = mock.Mock(
+            side_effect=lambda path, *_args: (
+                self.image_a.copy() if path == "a.pdf"
+                else self.image_b.copy()
+            )
+        )
+        composite_buffers = {
+            name: np.empty((4, 4), dtype=np.uint32)
+            for name in ("a", "b", "darker")
+        }
+        mask_buffer = np.empty((4, 4, 4), dtype=np.uint8)
+
+        expected = renderer.render_tile(
+            self.metadata,
+            ["F.Cu"],
+            1.0,
+            0,
+            0,
+            return_image_data=True,
+        )
+        result = renderer.render_tile(
+            self.metadata,
+            ["F.Cu"],
+            1.0,
+            0,
+            0,
+            composite_buffers=composite_buffers,
+            mask_buffer=mask_buffer,
+        )
+
+        self.assertTrue(result["has_mask"])
+        self.assertEqual(result["images"], {})
+        self.assertIsNone(result["mask"])
+        self.assertGreater(np.count_nonzero(composite_buffers["b"]), 0)
+        self.assertGreater(np.count_nonzero(mask_buffer), 0)
+        for name, buffer in composite_buffers.items():
+            np.testing.assert_array_equal(
+                _finish_coverage(buffer),
+                expected["image_data"][name],
+            )
+        np.testing.assert_array_equal(mask_buffer, expected["mask_data"])
 
     def test_viewport_renderer_reuses_and_closes_pdf_page(self):
         renderer = PcbTileRenderer()

@@ -368,6 +368,21 @@ def _accumulate_coverage(destination, grayscale, color, opacity=1.0):
     destination[:] = output_br | (output_ga << 8)
 
 
+def _accumulate_bounded_coverage(destination, grayscale, color,
+                                 opacity=1.0):
+    """Composite only the bounding rectangle containing non-white pixels."""
+    coverage = cv2.bitwise_not(grayscale)
+    x, y, width, height = cv2.boundingRect(coverage)
+    if width == 0 or height == 0:
+        return
+    _accumulate_coverage(
+        destination[y:y + height, x:x + width],
+        grayscale[y:y + height, x:x + width],
+        color,
+        opacity,
+    )
+
+
 def _finish_coverage(premultiplied):
     """Convert fixed-point colored coverage to a straight-alpha BGRA image."""
     output = np.empty((*premultiplied.shape, 4), dtype=np.uint8)
@@ -492,7 +507,8 @@ class PcbTileRenderer:
 
     def render_tile(self, metadata, layers, render_scale, tile_x, tile_y,
                     output_root=None, gutter=TILE_GUTTER,
-                    return_image_data=False):
+                    return_image_data=False, composite_buffers=None,
+                    mask_buffer=None):
         canvas_size = metadata["canvas_size"]
         pixel_x, pixel_y, pixel_width, pixel_height = tile_pixel_bounds(
             canvas_size, render_scale, tile_x, tile_y
@@ -526,13 +542,19 @@ class PcbTileRenderer:
             os.makedirs(output_root, exist_ok=True)
         extended_pixel_width = extended_pixel_right - extended_pixel_x
         extended_pixel_height = extended_pixel_bottom - extended_pixel_y
-        composites = {
-            name: np.zeros(
-                (extended_pixel_height, extended_pixel_width),
-                dtype=np.uint32,
-            )
-            for name in ("a", "b", "darker")
-        }
+        external_composites = composite_buffers is not None
+        if external_composites:
+            composites = composite_buffers
+            for accumulator in composites.values():
+                accumulator.fill(0)
+        else:
+            composites = {
+                name: np.zeros(
+                    (extended_pixel_height, extended_pixel_width),
+                    dtype=np.uint32,
+                )
+                for name in ("a", "b", "darker")
+            }
         merged_binary_mask = None
         for layer in reversed(layers):
             path_a, path_b = metadata["layer_pdfs"].get(
@@ -563,31 +585,49 @@ class PcbTileRenderer:
                     merged_binary_mask, binary_mask
                 )
             opacity = 0.8 * layer_opacity
-            _accumulate_coverage(
-                composites["a"], image_a, color, opacity=opacity
+            composite_a = image_a
+            composite_b = image_b
+            composite_darker = darker
+            if external_composites:
+                composite_a = composite_a[
+                    crop_y:crop_y + crop_height,
+                    crop_x:crop_x + crop_width,
+                ]
+                composite_b = composite_b[
+                    crop_y:crop_y + crop_height,
+                    crop_x:crop_x + crop_width,
+                ]
+                composite_darker = composite_darker[
+                    crop_y:crop_y + crop_height,
+                    crop_x:crop_x + crop_width,
+                ]
+            _accumulate_bounded_coverage(
+                composites["a"], composite_a, color, opacity=opacity
             )
-            _accumulate_coverage(
-                composites["b"], image_b, color, opacity=opacity
+            _accumulate_bounded_coverage(
+                composites["b"], composite_b, color, opacity=opacity
             )
-            _accumulate_coverage(
-                composites["darker"], darker, color, opacity=opacity
+            _accumulate_bounded_coverage(
+                composites["darker"], composite_darker, color,
+                opacity=opacity
             )
 
         image_paths = {}
         image_data = {}
-        for name, accumulator in composites.items():
-            image = _finish_coverage(accumulator)
-            image = image[
-                crop_y:crop_y + crop_height,
-                crop_x:crop_x + crop_width,
-            ]
-            if return_image_data:
-                image_data[name] = image
-            if output_root is not None:
-                path = os.path.join(output_root, f"{name}.png")
-                if not cv2.imwrite(path, image):
-                    raise RuntimeError(f"Could not write PCB tile {path}")
-                image_paths[name] = path
+        if not external_composites:
+            for name, accumulator in composites.items():
+                accumulator = accumulator[
+                    crop_y:crop_y + crop_height,
+                    crop_x:crop_x + crop_width,
+                ]
+                image = _finish_coverage(accumulator)
+                if return_image_data:
+                    image_data[name] = image
+                if output_root is not None:
+                    path = os.path.join(output_root, f"{name}.png")
+                    if not cv2.imwrite(path, image):
+                        raise RuntimeError(f"Could not write PCB tile {path}")
+                    image_paths[name] = path
 
         mask_path = None
         mask = finish_merged_mask(merged_binary_mask)
@@ -596,11 +636,16 @@ class PcbTileRenderer:
                 crop_y:crop_y + crop_height,
                 crop_x:crop_x + crop_width,
             ]
-            mask = cv2.merge([mask, mask, mask, mask])
-            if output_root is not None:
-                mask_path = os.path.join(output_root, "mask.png")
-                if not cv2.imwrite(mask_path, mask):
-                    raise RuntimeError(f"Could not write PCB tile {mask_path}")
+            if mask_buffer is not None:
+                mask_buffer[:] = mask[:, :, np.newaxis]
+            else:
+                mask = cv2.merge([mask, mask, mask, mask])
+                if output_root is not None:
+                    mask_path = os.path.join(output_root, "mask.png")
+                    if not cv2.imwrite(mask_path, mask):
+                        raise RuntimeError(
+                            f"Could not write PCB tile {mask_path}"
+                        )
 
         result = {
             "bounds": (
@@ -612,6 +657,7 @@ class PcbTileRenderer:
             "pixel_size": (crop_width, crop_height),
             "images": image_paths,
             "mask": mask_path,
+            "has_mask": mask is not None,
         }
         if return_image_data:
             result["image_data"] = image_data

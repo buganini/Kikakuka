@@ -28,6 +28,7 @@ from pcb_diff_tiles import (
     choose_render_scale,
     clipped_tile_geometry,
     select_fallback_results,
+    tile_pixel_bounds,
     visible_tile_indices,
 )
 
@@ -38,22 +39,25 @@ PCB_TILE_LOW_RES_CACHE_BYTES = 64 * 1024 * 1024
 PCB_TILE_LOW_RES_MAX_SCALE = 1.0
 
 
-def image_resource_from_bgra(image):
-    """Copy an OpenCV BGRA array into an independently owned QImage."""
-    image = np.ascontiguousarray(image)
-    height, width = image.shape[:2]
+def premultiplied_image_resource(width, height):
+    """Create a QImage and expose its owned premultiplied pixels to NumPy."""
     qimage = QtGui.QImage(
-        image.data,
         width,
         height,
-        image.strides[0],
-        QtGui.QImage.Format.Format_ARGB32,
-    ).copy()
+        QtGui.QImage.Format.Format_ARGB32_Premultiplied,
+    )
     if qimage.isNull():
         raise RuntimeError("Could not create PCB tile QImage")
+    qimage.fill(0)
+    pixels_per_line = qimage.bytesPerLine() // np.dtype(np.uint32).itemsize
+    buffer = np.frombuffer(
+        qimage.bits(),
+        dtype=np.uint32,
+        count=pixels_per_line * height,
+    ).reshape(height, pixels_per_line)[:, :width]
     resource = ImageResource()
     resource.qimage = qimage
-    return resource
+    return resource, buffer
 
 if platform.system() == "Darwin":
     kicad_cli = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
@@ -1231,23 +1235,42 @@ class DifferUI(Application):
                     self.pcb_tile_pending.pop(key, None)
                     continue
             try:
+                _pixel_x, _pixel_y, pixel_width, pixel_height = (
+                    tile_pixel_bounds(
+                        task["metadata"]["canvas_size"],
+                        task["render_scale"],
+                        task["tile_x"],
+                        task["tile_y"],
+                    )
+                )
+                image_resources = {}
+                composite_buffers = {}
+                for name in ("a", "b", "darker"):
+                    resource, buffer = premultiplied_image_resource(
+                        pixel_width, pixel_height
+                    )
+                    image_resources[name] = resource
+                    composite_buffers[name] = buffer
+                mask_resource, mask_packed_buffer = (
+                    premultiplied_image_resource(
+                        pixel_width, pixel_height
+                    )
+                )
+                mask_buffer = mask_packed_buffer.view(np.uint8).reshape(
+                    pixel_height, pixel_width, 4
+                )
                 result = renderer.render_tile(
                     task["metadata"],
                     task["layers"],
                     task["render_scale"],
                     task["tile_x"],
                     task["tile_y"],
-                    return_image_data=True,
+                    composite_buffers=composite_buffers,
+                    mask_buffer=mask_buffer,
                 )
-                image_data = result.pop("image_data")
-                result["images"] = {
-                    name: image_resource_from_bgra(image)
-                    for name, image in image_data.items()
-                }
-                mask_data = result.pop("mask_data")
+                result["images"] = image_resources
                 result["mask"] = (
-                    image_resource_from_bgra(mask_data)
-                    if mask_data is not None else None
+                    mask_resource if result.pop("has_mask") else None
                 )
                 resources = list(result["images"].values())
                 if result["mask"] is not None:
