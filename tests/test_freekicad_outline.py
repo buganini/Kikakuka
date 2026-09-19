@@ -210,6 +210,17 @@ class OutlineWireOrderTests(unittest.TestCase):
         view_provider.assert_not_called()
         document.recompute.assert_called_once_with()
 
+    def test_bending_debug_messages_follow_build_debug_state(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock())
+
+        linked_object._log_bending_bfs("hidden", False)
+        linked_object._log_bending_bfs("visible", True)
+
+        linked_object.FreeCAD.Console.PrintMessage.assert_called_once_with(
+            "visible")
+
     def test_nearest_bend_piece_prefers_rigid_piece_over_strip(self):
         linked_object = self._import_linked_object()
         linked_object.Part.Vertex = lambda point: point

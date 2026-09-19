@@ -220,8 +220,9 @@ partition requires the 3D compatibility fallback.
    - each joint corresponds to one trimmed center segment (`sid`)
    - A/B faces are assigned to the joint by midpoint projection onto that center segment
    - wedge pieces are assigned by center-of-mass distance to the center segment
-   - each flat piece's center, vertices, and bounding box are read from OCCT
-     once, then reused by all segment tests as 2D XY data
+   - each flat piece's center and bounding box are read from OCCT once; a
+     conservative segment-band box test rejects distant pieces before their
+     vertices are loaded lazily and reused by the remaining 2D tests
 8. Build adjacency graph from the incidence matrix (see below)
 9. Compute `cut_owner_piece` for debug cut visualization from the same matrix
 10. Run a preliminary non-wedge BFS to determine `fi_parent` / stationary-side ownership for each crossing face
@@ -296,6 +297,13 @@ After the preliminary parent search:
 ---
 
 ## Phase 3: Apply Bends Sequentially
+
+Rigid-piece transforms are accumulated as placements without copying or
+mutating the flat partition solids. Each result solid is copied only when its
+final transform is materialized; unchanged results may instead reuse the
+previous rebend cache. Per-piece validity, volume, and final-position
+diagnostics, along with BFS paths and micro-bend transforms, run only when
+`BuildDebugObjects` is enabled.
 
 Iterates chain positions; at each position collects distinct mi's across all pieces and processes each. For each `(step_pos, mi)`:
 

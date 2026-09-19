@@ -20,7 +20,6 @@ DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
 PARTITION_RELATIVE_TOLERANCE = 1e-6
 BEND_ANNOTATION_POSITION_TOLERANCE = 0.1  # mm
-DEBUG_BENDING_BFS = True
 STEP_IMPORTER_REVISION = 1
 COPPER_STRAIN_WARNING = 0.05
 
@@ -182,8 +181,8 @@ def _stiffener_object_name(is_front, name, material, index):
     return prefix + suffix
 
 
-def _log_bending_bfs(message):
-    if DEBUG_BENDING_BFS:
+def _log_bending_bfs(message, enabled):
+    if enabled:
         FreeCAD.Console.PrintMessage(message)
 
 
@@ -5359,14 +5358,22 @@ class PcbObject:
         _t_joint_seed = _time.time()
         piece_metric_data = []
         for piece in pieces:
+            bbox = piece.BoundBox
             piece_metric_data.append((
                 piece.CenterOfMass,
-                tuple(vertex.Point for vertex in piece.Vertexes),
-                piece.BoundBox,
+                None,
+                bbox,
+                (float(bbox.XMin), float(bbox.YMin),
+                 float(bbox.XMax), float(bbox.YMax)),
             ))
 
         def _piece_segment_debug_metrics(pi, seg_p0, seg_p1):
-            cm, vertex_points, bbox = piece_metric_data[pi]
+            cm, vertex_points, bbox, bbox_xy = piece_metric_data[pi]
+            if vertex_points is None:
+                vertex_points = tuple(
+                    vertex.Point for vertex in pieces[pi].Vertexes)
+                piece_metric_data[pi] = (
+                    cm, vertex_points, bbox, bbox_xy)
             cm_t_raw, cm_t, cm_d = _project_point_to_segment_xy(
                 cm, seg_p0, seg_p1)
             vertex_line_d = []
@@ -5397,6 +5404,31 @@ class PcbObject:
                 'd_max': max(vertex_d) if vertex_d else float('nan'),
                 'bbox': bbox,
             }
+
+        def _bbox_may_overlap_segment_band(
+                bbox_xy, seg_p0, seg_p1, band_limit, tol_t):
+            """Conservatively reject boxes outside a segment-aligned band."""
+            x_min, y_min, x_max, y_max = bbox_xy
+            sx = seg_p1.x - seg_p0.x
+            sy = seg_p1.y - seg_p0.y
+            sl2 = sx * sx + sy * sy
+            if sl2 < 1e-12:
+                return True
+            seg_len = math.sqrt(sl2)
+            t_values = []
+            line_values = []
+            for x, y in (
+                    (x_min, y_min), (x_min, y_max),
+                    (x_max, y_min), (x_max, y_max)):
+                dx = x - seg_p0.x
+                dy = y - seg_p0.y
+                t_values.append((dx * sx + dy * sy) / sl2)
+                line_values.append((sx * dy - sy * dx) / seg_len)
+            if max(t_values) < -tol_t or min(t_values) > 1.0 + tol_t:
+                return False
+            return not (
+                min(line_values) > band_limit
+                or max(line_values) < -band_limit)
 
         # Build 2D cut segments for adjacency face matching.
         cut_segments = []
@@ -5532,6 +5564,11 @@ class PcbObject:
                 tol_t = seed_tol / seg_len
                 for pi, piece in enumerate(pieces):
                     if pi in strip_pieces:
+                        continue
+                    if not _bbox_may_overlap_segment_band(
+                            piece_metric_data[pi][3],
+                            bl_sp0, bl_sp1,
+                            ins + seed_tol, tol_t):
                         continue
                     metrics = _piece_segment_debug_metrics(
                         pi, bl_sp0, bl_sp1)
@@ -6074,12 +6111,13 @@ class PcbObject:
             bend_seg_mids.setdefault(bi, []).append(
                 FreeCAD.Vector(cut_mid))
             bend_s_mis.setdefault(bi, []).append(mi)
-            FreeCAD.Console.PrintMessage(
+            _log_bending_bfs(
                 f"FreekiCAD: mi={mi} bend={bi}"
                 f" seg={seg_idx}"
                 f" angle={math.degrees(angle_rad):.1f}°"
                 f" normal=({normal_ref.x:.3f},{normal_ref.y:.3f},{normal_ref.z:.3f})"
-                f"\n")
+                f"\n",
+                wedge_assign_diag)
 
         # BFS with stationary/moving labels
         FreeCAD.Console.PrintMessage(
@@ -6092,6 +6130,7 @@ class PcbObject:
             self._classify_pieces_bfs(
                 pieces, cut_faces, face_to_bend, mass_center,
                 half_t, bend_info, cut_plan, micro_bend_info,
+                log=wedge_assign_diag,
                 mi_seg_idx=mi_seg_idx,
                 cached_geo_crossings=geo_crossings,
                 strip_pieces=strip_pieces,
@@ -6482,22 +6521,27 @@ class PcbObject:
                 bendline_bend_sets[child.Name] = fb
 
         # Log bend line piece assignments
-        for child in obj.Group:
-            if (getattr(getattr(child, 'Proxy', None),
-                        'Type', None) != 'BendLine'):
-                continue
-            bl_pi = bendline_piece_idx.get(child.Name)
-            bl_set = bendline_bend_sets.get(child.Name, set())
-            if bl_pi is not None:
-                FreeCAD.Console.PrintMessage(
-                    f"FreekiCAD: bendline {child.Name}"
-                    f" in piece {bl_pi}"
-                    f" set={sorted(bl_set)}\n")
+        if wedge_assign_diag:
+            for child in obj.Group:
+                if (getattr(getattr(child, 'Proxy', None),
+                            'Type', None) != 'BendLine'):
+                    continue
+                bl_pi = bendline_piece_idx.get(child.Name)
+                bl_set = bendline_bend_sets.get(child.Name, set())
+                if bl_pi is not None:
+                    _log_bending_bfs(
+                        f"FreekiCAD: bendline {child.Name}"
+                        f" in piece {bl_pi}"
+                        f" set={sorted(bl_set)}\n",
+                        True)
 
         # --- Phase 3: apply bends sequentially using pre-cut pieces ---
         _t_phase3 = _time.time()
         up = FreeCAD.Vector(0, 0, 1)
-        piece_shapes = [p.copy() for p in pieces]
+        # Phase 3 accumulates placements without mutating geometry. Allocate
+        # result slots now and copy each source solid only once when its final
+        # transform is materialized below.
+        piece_shapes = [None] * len(pieces)
         wedge_diag = getattr(obj, 'BuildDebugObjects', False)
 
         # strip_pieces and strip_to_bend already computed before BFS.
@@ -6717,14 +6761,17 @@ class PcbObject:
                     else:
                         piece_mi_list[wpi] = parent_chain + [mi_w]
 
-        for pi in range(len(pieces)):
-            angles = [f"{math.degrees(micro_bend_info[mi][0]):.1f}°"
-                      for mi in piece_mi_list[pi]]
-            _log_bending_bfs(
-                f"FreekiCAD: piece_mi_list[{pi}]"
-                f" = {piece_mi_list[pi]}"
-                f" angles={angles}"
-                f" strip={pi in strip_pieces}\n")
+        if wedge_diag:
+            for pi in range(len(pieces)):
+                angles = [
+                    f"{math.degrees(micro_bend_info[mi][0]):.1f}°"
+                    for mi in piece_mi_list[pi]]
+                _log_bending_bfs(
+                    f"FreekiCAD: piece_mi_list[{pi}]"
+                    f" = {piece_mi_list[pi]}"
+                    f" angles={angles}"
+                    f" strip={pi in strip_pieces}\n",
+                    True)
 
         # Helper: does piece pi rotate at this step?
         def _at_step(pi, step_pos, mi):
@@ -6767,21 +6814,24 @@ class PcbObject:
             return path
 
         # Log piece_mi_list for neighbours of stationary piece
-        for pi in range(len(pieces)):
-            entry = bfs_tree.get(pi)
-            if entry is not None and entry[0] == stationary_idx:
-                _log_bending_bfs(
-                    f"FreekiCAD: piece_mi_list[{pi}]"
-                    f" (neighbour of fixed p{stationary_idx})"
-                    f" = {piece_mi_list[pi]}"
-                    f" strip={pi in strip_pieces}\n")
-            # Also log if entry[2] is wedge that connects to fixed
-            if (entry is not None and entry[2] is not None
-                    and entry[0] == stationary_idx):
-                _log_bending_bfs(
-                    f"FreekiCAD: p{pi} reaches fixed"
-                    f" via wedge p{entry[2]}"
-                    f" crossed={sorted(entry[1])}\n")
+        if wedge_diag:
+            for pi in range(len(pieces)):
+                entry = bfs_tree.get(pi)
+                if entry is not None and entry[0] == stationary_idx:
+                    _log_bending_bfs(
+                        f"FreekiCAD: piece_mi_list[{pi}]"
+                        f" (neighbour of fixed p{stationary_idx})"
+                        f" = {piece_mi_list[pi]}"
+                        f" strip={pi in strip_pieces}\n",
+                        True)
+                # Also log if entry[2] is wedge that connects to fixed
+                if (entry is not None and entry[2] is not None
+                        and entry[0] == stationary_idx):
+                    _log_bending_bfs(
+                        f"FreekiCAD: p{pi} reaches fixed"
+                        f" via wedge p{entry[2]}"
+                        f" crossed={sorted(entry[1])}\n",
+                        True)
 
         # Track accumulated transform per piece (for virtual_plc).
         piece_plc = [FreeCAD.Placement() for _ in range(len(pieces))]
@@ -6852,10 +6902,12 @@ class PcbObject:
             bend_sign = -1.0 if micro_angle > 0 else 1.0
             stat_edge_mid = cur_p0 + cur_up * half_t
             pivot = stat_edge_mid + cur_up * (r_eff_bi * bend_sign)
-            _log_bending_bfs(
-                f"FreekiCAD: mi {mi} CoC:"
-                f" pivot=({pivot.x:.4f},{pivot.y:.4f},"
-                f"{pivot.z:.4f})\n")
+            if wedge_diag:
+                _log_bending_bfs(
+                    f"FreekiCAD: mi {mi} CoC:"
+                    f" pivot=({pivot.x:.4f},{pivot.y:.4f},"
+                    f"{pivot.z:.4f})\n",
+                    True)
 
             # Save pivot data for wedge loft (first occurrence only)
             if first_mi_occurrence:
@@ -6882,41 +6934,49 @@ class PcbObject:
                         wedge_pre_shapes[wpi] = pre_shape
                         wedge_pre_plc[wpi] = pre_plc
 
-            _log_bending_bfs(
-                f"FreekiCAD: micro {mi}:"
-                f" angle={math.degrees(micro_angle):.1f}°,"
-                f" orig_bi={orig_bi},"
-                f" pivot={pivot}, axis={bend_axis}\n")
+            if wedge_diag:
+                _log_bending_bfs(
+                    f"FreekiCAD: micro {mi}:"
+                    f" angle={math.degrees(micro_angle):.1f}°,"
+                    f" orig_bi={orig_bi},"
+                    f" pivot={pivot}, axis={bend_axis}\n",
+                    True)
 
             # Rotate pieces by full angle around CoC.
             rot = FreeCAD.Rotation(
                 bend_axis, math.degrees(micro_angle))
             plc_rot = FreeCAD.Placement(
                 FreeCAD.Vector(0, 0, 0), rot, pivot)
-            rotated_pis = []
+            rotated_pis = [] if wedge_diag else None
             for pi in range(len(piece_shapes)):
                 if not _at_step(pi, step_pos, mi):
                     continue
-                pre_cm = piece_plc[pi].multVec(
-                    pieces[pi].CenterOfMass)
+                entry_dbg = bfs_tree.get(pi) if wedge_diag else None
+                log_fixed_neighbor = (
+                    entry_dbg is not None
+                    and entry_dbg[0] == stationary_idx)
+                if log_fixed_neighbor:
+                    pre_cm = piece_plc[pi].multVec(
+                        pieces[pi].CenterOfMass)
                 piece_plc[pi] = plc_rot.multiply(piece_plc[pi])
-                post_cm = piece_plc[pi].multVec(
-                    pieces[pi].CenterOfMass)
-                rotated_pis.append(pi)
-                # Log z-change for pieces near fixed
-                entry_dbg = bfs_tree.get(pi)
-                if (entry_dbg is not None
-                        and entry_dbg[0] == stationary_idx):
+                if wedge_diag:
+                    rotated_pis.append(pi)
+                if log_fixed_neighbor:
+                    post_cm = piece_plc[pi].multVec(
+                        pieces[pi].CenterOfMass)
                     _log_bending_bfs(
                         f"FreekiCAD:   mi {mi} rotated"
                         f" p{pi} (fixed-nbr):"
                         f" z {pre_cm.z:.4f}"
-                        f" → {post_cm.z:.4f}\n")
-            _log_bending_bfs(
-                f"FreekiCAD:   mi {mi} rotated"
-                f" {len(rotated_pis)} pieces:"
-                f" {rotated_pis[:10]}"
-                f"{'...' if len(rotated_pis) > 10 else ''}\n")
+                        f" → {post_cm.z:.4f}\n",
+                        True)
+            if wedge_diag:
+                _log_bending_bfs(
+                    f"FreekiCAD:   mi {mi} rotated"
+                    f" {len(rotated_pis)} pieces:"
+                    f" {rotated_pis[:10]}"
+                    f"{'...' if len(rotated_pis) > 10 else ''}\n",
+                    True)
 
             # Save wedge's piece_plc right after its own mi rotation
             # (only on first occurrence of this mi)
@@ -6994,18 +7054,20 @@ class PcbObject:
                 correction = mid_expected - mid_actual
 
                 if correction.Length > 1e-6:
-                    _log_bending_bfs(
-                        f"FreekiCAD: correction mi {mi}"
-                        f" (bend {orig_bi}):"
-                        f" ins={ins_bi:.4f}"
-                        f" r_eff={r_eff_corr:.4f}"
-                        f" angle="
-                        f"{math.degrees(mi_angle_corr):.1f}°"
-                        f" |corr|="
-                        f"{correction.Length:.4f}"
-                        f" vec=({correction.x:.4f},"
-                        f"{correction.y:.4f},"
-                        f"{correction.z:.4f})\n")
+                    if wedge_diag:
+                        _log_bending_bfs(
+                            f"FreekiCAD: correction mi {mi}"
+                            f" (bend {orig_bi}):"
+                            f" ins={ins_bi:.4f}"
+                            f" r_eff={r_eff_corr:.4f}"
+                            f" angle="
+                            f"{math.degrees(mi_angle_corr):.1f}°"
+                            f" |corr|="
+                            f"{correction.Length:.4f}"
+                            f" vec=({correction.x:.4f},"
+                            f"{correction.y:.4f},"
+                            f"{correction.z:.4f})\n",
+                            True)
 
                     corr_plc = FreeCAD.Placement(
                         correction, FreeCAD.Rotation())
@@ -7120,19 +7182,22 @@ class PcbObject:
             except Exception:
                 self._bend_piece_placements.append(placement)
 
-        # Log final positions after all transforms
-        for pi in range(len(piece_shapes)):
-            s = piece_shapes[pi]
-            if s.isValid() and s.Volume > 1e-6:
-                orig = pieces[pi].CenterOfMass
-                final = s.CenterOfMass
-                dist = orig.distanceToPoint(final)
-                if dist > GEOMETRY_TOLERANCE:
-                    FreeCAD.Console.PrintMessage(
-                        f"FreekiCAD: piece {pi} moved"
-                        f" {dist:.3f}mm to"
-                        f" ({final.x:.2f},{final.y:.2f},"
-                        f"{final.z:.2f})\n")
+        # Final-position diagnostics require validity, volume, and center-of-
+        # mass queries for every result solid. Keep that OCCT work behind the
+        # existing debug switch instead of slowing normal rebuilds.
+        if wedge_diag:
+            for pi in range(len(piece_shapes)):
+                s = piece_shapes[pi]
+                if s.isValid() and s.Volume > 1e-6:
+                    orig = pieces[pi].CenterOfMass
+                    final = s.CenterOfMass
+                    dist = orig.distanceToPoint(final)
+                    if dist > GEOMETRY_TOLERANCE:
+                        FreeCAD.Console.PrintMessage(
+                            f"FreekiCAD: piece {pi} moved"
+                            f" {dist:.3f}mm to"
+                            f" ({final.x:.2f},{final.y:.2f},"
+                            f"{final.z:.2f})\n")
 
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 3 (rotation): "
@@ -10864,12 +10929,13 @@ class PcbObject:
                 final_center = (final_p0 + final_p1) * 0.5
             else:
                 final_center = final_plc.Base
-            FreeCAD.Console.PrintMessage(
+            _log_bending_bfs(
                 f"FreekiCAD: bendline {bl_obj.Name} (mi={first_mi})"
                 f" center=({final_center.x:.2f},{final_center.y:.2f},"
                 f"{final_center.z:.2f})"
                 f" off=({visual_off.x:.3f},{visual_off.y:.3f},"
-                f"{visual_off.z:.3f})\n")
+                f"{visual_off.z:.3f})\n",
+                wedge_diag)
 
         # Draw debug visualizations if enabled
         show_debug = getattr(obj, 'BuildDebugObjects', False)
@@ -11993,7 +12059,7 @@ class PcbObject:
 
     def _classify_pieces_bfs(self, pieces, cut_faces, face_to_bend,
                              mass_center, half_t, bend_info, cut_plan,
-                             micro_bend_info=None, log=True,
+                             micro_bend_info=None, log=False,
                              mi_seg_idx=None,
                              cached_geo_crossings=None,
                              piece_slices=None, cut_segments=None,
@@ -12072,7 +12138,8 @@ class PcbObject:
                 if crossings:
                     _log_bending_bfs(
                         f"FreekiCAD: adjacent {pi} → "
-                        f"{', '.join(crossings)}\n")
+                        f"{', '.join(crossings)}\n",
+                        log)
 
         # BFS: strict first-visit, all crossings add the bend.
         # No re-visiting, no re-queuing — first path wins.
@@ -12207,7 +12274,8 @@ class PcbObject:
                                 f"FreekiCAD: BFS p{cur} → "
                                 f"wedge p{nbr} "
                                 f"(entry={_crossing_label(bi)})"
-                                f"\n")
+                                f"\n",
+                                log)
                         for nbr2, bi2, fi2 in _ordered_wedge_neighbors(
                                 cur, nbr, fi):
                             if piece_bend_sets[nbr2] is not None:
@@ -12229,7 +12297,8 @@ class PcbObject:
                                         f"fi={fi}) "
                                         f"(entry="
                                         f"{_crossing_label(bi)}"
-                                        f")\n")
+                                        f")\n",
+                                        log)
                                 queue.append(nbr2)
                                 continue
                             bend_idx2 = _get_bend_idx(bi2)
@@ -12255,7 +12324,8 @@ class PcbObject:
                                     f"p{cur} →[{_crossing_label(bi)}"
                                     f"]→ p{nbr}(W) →["
                                     f"{_crossing_label(sbi2)}]→ "
-                                    f"p{nbr2}\n")
+                                    f"p{nbr2}\n",
+                                    log)
                             queue.append(nbr2)
                     else:
                         # Regular piece (no wedge) — positive mi.
@@ -12269,7 +12339,8 @@ class PcbObject:
                                     f"p{cur}, p{nbr}, "
                                     f"fi={fi}) FAIL "
                                     f"(cut="
-                                    f"{_crossing_label(bi)})\n")
+                                    f"{_crossing_label(bi)})\n",
+                                    log)
                             continue
                         piece_bend_sets[nbr] = \
                             piece_bend_sets[cur] | (
@@ -12280,7 +12351,8 @@ class PcbObject:
                             _log_bending_bfs(
                                 f"FreekiCAD: BFS p{cur} →"
                                 f"[{_crossing_label(bi)}]→ "
-                                f"p{nbr}\n")
+                                f"p{nbr}\n",
+                                log)
                         queue.append(nbr)
 
         else:
@@ -12326,17 +12398,19 @@ class PcbObject:
                     f" parent={parent}"
                     f" mis_crossed=[{labels}]"
                     f" raw={raw}"
-                    f" wedge={wedge_pi}\n")
+                    f" wedge={wedge_pi}\n",
+                    log)
 
         classified_count = sum(
             1 for bends in piece_bend_sets if bends is not None)
         crossed_count = sum(
             1 for bends in piece_bend_sets if bends)
-        FreeCAD.Console.PrintMessage(
+        _log_bending_bfs(
             f"FreekiCAD: BFS summary"
             f" classified={classified_count}/{n}"
             f" crossed={crossed_count}/{n}"
-            f" root={stationary_idx}\n")
+            f" root={stationary_idx}\n",
+            log)
 
         return piece_bend_sets, bfs_tree, adjacency, cached_geo_crossings
 
