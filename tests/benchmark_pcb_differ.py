@@ -61,6 +61,7 @@ def export_layer_pdfs(kicad_cli, board_path, layers, cache_dir):
         kicad_cli,
         "pcb", "export", "pdf",
         "--mode-separate",
+        "--black-and-white",
         "--layers", ",".join(layers),
         "-o", output_dir,
         str(board_path),

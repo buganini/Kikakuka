@@ -13,6 +13,78 @@ RENDER_SCALES = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
 LAYER_ALPHA_THRESHOLD = 127
 
 
+# KiCad's built-in default board theme, stored as OpenCV BGR plus alpha.
+_STANDARD_COPPER_RGB = (
+    (200, 52, 52), (127, 200, 127), (206, 125, 44),
+    (79, 203, 203), (219, 98, 139), (167, 165, 198),
+    (40, 204, 217), (232, 178, 167), (242, 237, 161),
+    (141, 203, 129), (237, 124, 51), (91, 195, 235),
+    (247, 111, 142), (167, 165, 198), (40, 204, 217),
+    (232, 178, 167), (242, 237, 161), (237, 124, 51),
+    (91, 195, 235), (247, 111, 142), (167, 165, 198),
+    (40, 204, 217), (232, 178, 167), (242, 237, 161),
+    (237, 124, 51), (91, 195, 235), (247, 111, 142),
+    (167, 165, 198), (40, 204, 217), (232, 178, 167),
+    (242, 237, 161),
+)
+_STANDARD_LAYER_RGB = {
+    "F.Cu": (200, 52, 52),
+    "B.Cu": (77, 127, 196),
+    "F.Adhesive": (132, 0, 132),
+    "B.Adhesive": (0, 0, 132),
+    "F.Paste": (180, 160, 154),
+    "B.Paste": (0, 194, 194),
+    "F.Silkscreen": (242, 237, 161),
+    "B.Silkscreen": (232, 178, 167),
+    "F.Mask": (216, 100, 255),
+    "B.Mask": (2, 255, 238),
+    "User.Drawings": (194, 194, 194),
+    "User.Comments": (89, 148, 220),
+    "User.Eco1": (180, 219, 210),
+    "User.Eco2": (216, 200, 82),
+    "Edge.Cuts": (208, 210, 205),
+    "Margin": (255, 38, 226),
+    "F.Courtyard": (255, 38, 226),
+    "B.Courtyard": (38, 233, 255),
+    "F.Fab": (175, 175, 175),
+    "B.Fab": (88, 93, 132),
+}
+_STANDARD_LAYER_ALPHA = {
+    "F.Paste": 0.902,
+    "B.Paste": 0.902,
+    "F.Mask": 0.4,
+    "B.Mask": 0.4,
+}
+_STANDARD_USER_RGB = (
+    (194, 194, 194),
+    (89, 148, 220),
+    (180, 219, 210),
+    (216, 200, 82),
+)
+
+
+def standard_layer_style(layer):
+    """Return KiCad's standard theme color as (BGR, alpha)."""
+    rgb = _STANDARD_LAYER_RGB.get(layer)
+    if rgb is None and layer.startswith("In") and layer.endswith(".Cu"):
+        try:
+            index = int(layer[2:-3])
+        except ValueError:
+            index = 0
+        if 1 <= index <= len(_STANDARD_COPPER_RGB):
+            rgb = _STANDARD_COPPER_RGB[index]
+    if rgb is None and layer.startswith("User."):
+        try:
+            index = int(layer[5:])
+        except ValueError:
+            index = 0
+        if index > 0:
+            rgb = _STANDARD_USER_RGB[(index - 1) % len(_STANDARD_USER_RGB)]
+    if rgb is None:
+        rgb = (194, 194, 194)
+    return (rgb[2], rgb[1], rgb[0]), _STANDARD_LAYER_ALPHA.get(layer, 1.0)
+
+
 def find_layer_pdf(cache_dir, layer):
     pattern = os.path.join(
         cache_dir,
@@ -34,7 +106,8 @@ def pdf_page_size(path):
         document.close()
 
 
-def build_pair_metadata(cache_a, cache_b, layers):
+def build_pair_metadata(cache_a, cache_b, layers, canonical_layers=None):
+    canonical_layers = canonical_layers or {}
     layer_pdfs = {}
     page_size_a = None
     page_size_b = None
@@ -64,6 +137,10 @@ def build_pair_metadata(cache_a, cache_b, layers):
         "page_size_a": page_size_a,
         "page_size_b": page_size_b,
         "layer_pdfs": layer_pdfs,
+        "layer_styles": {
+            layer: standard_layer_style(canonical_layers.get(layer, layer))
+            for layer in layers
+        },
     }
 
 
@@ -229,14 +306,12 @@ def combine_layer_images(image_a, image_b):
 
 
 def darker_layer_image(image_a, image_b):
-    darker = cv2.min(image_a, image_b)
-    darker[:, :, 3] = cv2.max(image_a[:, :, 3], image_b[:, :, 3])
-    return darker
+    return cv2.min(image_a, image_b)
 
 
 def binary_layer_occupancy(image, alpha_threshold=LAYER_ALPHA_THRESHOLD):
     _, occupancy = cv2.threshold(
-        image[:, :, 3], alpha_threshold, 255, cv2.THRESH_BINARY
+        image, 254 - alpha_threshold, 255, cv2.THRESH_BINARY_INV
     )
     return occupancy
 
@@ -256,47 +331,52 @@ def finish_merged_mask(binary_mask):
     return cv2.GaussianBlur(extended_mask, (21, 21), 10)
 
 
-def alpha_composite(destination, source, opacity=1.0):
-    """Composite straight-alpha BGRA images, matching QPainter source-over."""
-    destination_alpha = destination[:, :, 3:4].astype(np.uint32)
-    premultiplied = (
-        destination[:, :, :3].astype(np.uint32) * destination_alpha
-    )
-    _accumulate_alpha(premultiplied, destination_alpha, source, opacity)
-    return _finish_alpha(premultiplied, destination_alpha)
+def _divide_packed_pairs_by_255(value):
+    """Round and divide two independent uint16 lanes packed in uint32."""
+    value += np.uint32(0x00800080)
+    value += (value >> 8) & np.uint32(0x00FF00FF)
+    return (value >> 8) & np.uint32(0x00FF00FF)
 
 
-def _accumulate_alpha(premultiplied, destination_alpha, source,
-                      opacity=1.0):
+def _accumulate_coverage(destination, grayscale, color, opacity=1.0):
+    """Source-over colored coverage in packed premultiplied BGRA uint32."""
     opacity_alpha = np.uint32(round(min(1.0, max(0.0, opacity)) * 255.0))
-    source_alpha = source[:, :, 3:4].astype(np.uint32)
+    source_alpha = 255 - grayscale.astype(np.uint32)
     source_alpha *= opacity_alpha
     source_alpha += 127
     source_alpha //= 255
     inverse_source_alpha = 255 - source_alpha
 
-    premultiplied *= inverse_source_alpha
-    premultiplied += 127
-    premultiplied //= 255
-    premultiplied += source[:, :, :3].astype(np.uint32) * source_alpha
-
-    destination_alpha *= inverse_source_alpha
-    destination_alpha += 127
-    destination_alpha //= 255
-    destination_alpha += source_alpha
-
-
-def _finish_alpha(premultiplied, alpha):
-    output = np.empty((*alpha.shape[:2], 4), dtype=np.uint8)
-    straight = np.full_like(premultiplied, 255, dtype=np.uint32)
-    np.floor_divide(
-        premultiplied,
-        alpha,
-        out=straight,
-        where=alpha > 0,
+    blue, green, red = color
+    source_br = np.uint32(blue | (red << 16))
+    source_ga = np.uint32(green | (255 << 16))
+    destination_br = destination & np.uint32(0x00FF00FF)
+    destination_ga = (destination >> 8) & np.uint32(0x00FF00FF)
+    output_br = _divide_packed_pairs_by_255(
+        destination_br * inverse_source_alpha + source_br * source_alpha
     )
-    output[:, :, :3] = straight.clip(0, 255).astype(np.uint8)
-    output[:, :, 3] = alpha[:, :, 0].clip(0, 255).astype(np.uint8)
+    output_ga = _divide_packed_pairs_by_255(
+        destination_ga * inverse_source_alpha + source_ga * source_alpha
+    )
+    destination[:] = output_br | (output_ga << 8)
+
+
+def _finish_coverage(premultiplied):
+    """Convert fixed-point colored coverage to a straight-alpha BGRA image."""
+    output = np.empty((*premultiplied.shape, 4), dtype=np.uint8)
+    alpha = premultiplied >> 24
+    nonzero = alpha > 0
+    for channel, shift in enumerate((0, 8, 16)):
+        value = (premultiplied >> shift) & 255
+        straight = np.zeros_like(value, dtype=np.uint32)
+        np.floor_divide(
+            value * 255,
+            alpha,
+            out=straight,
+            where=nonzero,
+        )
+        output[:, :, channel] = straight.clip(0, 255).astype(np.uint8)
+    output[:, :, 3] = alpha.astype(np.uint8)
     return output
 
 
@@ -328,13 +408,15 @@ class PcbTileRenderer:
         return page
 
     @staticmethod
-    def _blank(width, height):
+    def _blank(width, height, grayscale=True):
+        if grayscale:
+            return np.full((height, width), 255, dtype=np.uint8)
         image = np.zeros((height, width, 4), dtype=np.uint8)
         image[:, :, :3] = 255
         return image
 
     def _render_layer(self, path, page_size, canvas_size, bounds,
-                      render_scale):
+                      render_scale, grayscale=True):
         x, y, width, height = bounds
         request_left = int(round(x * render_scale))
         request_top = int(round(y * render_scale))
@@ -342,9 +424,8 @@ class PcbTileRenderer:
         request_bottom = int(round((y + height) * render_scale))
         pixel_width = max(1, request_right - request_left)
         pixel_height = max(1, request_bottom - request_top)
-        output = self._blank(pixel_width, pixel_height)
         if not path:
-            return output
+            return self._blank(pixel_width, pixel_height, grayscale)
 
         page_width, page_height = page_size
         _canvas_pixel_size, page_pixel_size, page_offset = (
@@ -360,7 +441,7 @@ class PcbTileRenderer:
         intersection_bottom = min(request_bottom, page_bottom)
         if (intersection_right <= intersection_left or
                 intersection_bottom <= intersection_top):
-            return output
+            return self._blank(pixel_width, pixel_height, grayscale)
 
         local_left = intersection_left - page_left
         local_top = intersection_top - page_top
@@ -372,17 +453,29 @@ class PcbTileRenderer:
             max(0.0, page_width - local_right / render_scale),
             local_top / render_scale,
         )
-        bitmap = self._page(path).render(
-            fill_color=(255, 255, 255, 0),
-            scale=render_scale,
-            rotation=0,
-            crop=crop,
-        ).to_numpy()
+        render_options = {
+            "scale": render_scale,
+            "rotation": 0,
+            "crop": crop,
+        }
+        if grayscale:
+            render_options.update({
+                "fill_color": (255, 255, 255, 255),
+                "grayscale": True,
+            })
+        else:
+            render_options["fill_color"] = (255, 255, 255, 0)
+        bitmap = self._page(path).render(**render_options).to_numpy()
 
         target_x = intersection_left - request_left
         target_y = intersection_top - request_top
-        copy_width = min(bitmap.shape[1], output.shape[1] - target_x)
-        copy_height = min(bitmap.shape[0], output.shape[0] - target_y)
+        copy_width = min(bitmap.shape[1], pixel_width - target_x)
+        copy_height = min(bitmap.shape[0], pixel_height - target_y)
+        if (target_x == 0 and target_y == 0 and
+                copy_width == pixel_width and copy_height == pixel_height):
+            return bitmap[:copy_height, :copy_width].copy()
+
+        output = self._blank(pixel_width, pixel_height, grayscale)
         if copy_width > 0 and copy_height > 0:
             output[
                 target_y:target_y + copy_height,
@@ -425,15 +518,9 @@ class PcbTileRenderer:
         extended_pixel_width = extended_pixel_right - extended_pixel_x
         extended_pixel_height = extended_pixel_bottom - extended_pixel_y
         composites = {
-            name: (
-                np.zeros(
-                    (extended_pixel_height, extended_pixel_width, 3),
-                    dtype=np.uint32,
-                ),
-                np.zeros(
-                    (extended_pixel_height, extended_pixel_width, 1),
-                    dtype=np.uint32,
-                ),
+            name: np.zeros(
+                (extended_pixel_height, extended_pixel_width),
+                dtype=np.uint32,
             )
             for name in ("a", "b", "darker")
         }
@@ -457,21 +544,29 @@ class PcbTileRenderer:
                 render_scale,
             )
             darker, binary_mask = combine_layer_images(image_a, image_b)
+            color, layer_opacity = metadata.get("layer_styles", {}).get(
+                layer, standard_layer_style(layer)
+            )
             if merged_binary_mask is None:
                 merged_binary_mask = binary_mask
             else:
                 merged_binary_mask = cv2.max(
                     merged_binary_mask, binary_mask
                 )
-            _accumulate_alpha(*composites["a"], image_a, opacity=0.8)
-            _accumulate_alpha(*composites["b"], image_b, opacity=0.8)
-            _accumulate_alpha(
-                *composites["darker"], darker, opacity=0.8
+            opacity = 0.8 * layer_opacity
+            _accumulate_coverage(
+                composites["a"], image_a, color, opacity=opacity
+            )
+            _accumulate_coverage(
+                composites["b"], image_b, color, opacity=opacity
+            )
+            _accumulate_coverage(
+                composites["darker"], darker, color, opacity=opacity
             )
 
         image_paths = {}
         for name, accumulator in composites.items():
-            image = _finish_alpha(*accumulator)
+            image = _finish_coverage(accumulator)
             path = os.path.join(output_root, f"{name}.png")
             image = image[
                 crop_y:crop_y + crop_height,

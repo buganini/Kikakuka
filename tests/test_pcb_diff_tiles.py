@@ -12,9 +12,9 @@ from legacy_pcb_diff import (
 )
 from pcb_diff_tiles import (
     PcbTileRenderer,
-    _accumulate_alpha,
-    _finish_alpha,
-    alpha_composite,
+    _accumulate_coverage,
+    _finish_coverage,
+    binary_layer_occupancy,
     choose_coarse_render_scale,
     choose_render_scale,
     choose_fallback_scale,
@@ -23,6 +23,7 @@ from pcb_diff_tiles import (
     finish_merged_mask,
     pixel_aligned_page_layout,
     select_fallback_results,
+    standard_layer_style,
     tile_bounds,
     visible_tile_indices,
 )
@@ -123,46 +124,59 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
 
 
 class PcbDiffTileImageTests(unittest.TestCase):
-    def test_uint32_accumulator_composites_without_float_buffers(self):
-        premultiplied = np.zeros((1, 1, 3), dtype=np.uint32)
-        alpha = np.zeros((1, 1, 1), dtype=np.uint32)
-        source = np.array([[[10, 20, 30, 255]]], dtype=np.uint8)
+    def test_grayscale_coverage_reapplies_color_with_uint32(self):
+        premultiplied = np.zeros((1, 2), dtype=np.uint32)
+        grayscale = np.array([[255, 0]], dtype=np.uint8)
 
-        _accumulate_alpha(premultiplied, alpha, source, opacity=0.8)
-        output = _finish_alpha(premultiplied, alpha)
+        _accumulate_coverage(
+            premultiplied, grayscale, (10, 20, 30), opacity=0.8
+        )
+        output = _finish_coverage(premultiplied)
 
         self.assertEqual(premultiplied.dtype, np.uint32)
-        self.assertEqual(alpha.dtype, np.uint32)
-        np.testing.assert_array_equal(output[:, :, :3], source[:, :, :3])
-        self.assertEqual(int(output[0, 0, 3]), 204)
+        np.testing.assert_array_equal(
+            output[:, :, :3],
+            np.array([[[0, 0, 0], [10, 20, 30]]], dtype=np.uint8),
+        )
+        np.testing.assert_array_equal(
+            output[:, :, 3], np.array([[0, 204]], dtype=np.uint8)
+        )
 
-    def test_alpha_composite_applies_layer_opacity(self):
-        destination = np.array([[[255, 255, 255, 0]]], dtype=np.uint8)
-        source = np.array([[[10, 20, 30, 255]]], dtype=np.uint8)
+    def test_standard_theme_uses_canonical_layer_colors(self):
+        self.assertEqual(standard_layer_style("F.Cu"), ((52, 52, 200), 1.0))
+        self.assertEqual(
+            standard_layer_style("F.Mask"), ((255, 100, 216), 0.4)
+        )
+        self.assertEqual(
+            standard_layer_style("User.2"), ((220, 148, 89), 1.0)
+        )
 
-        output = alpha_composite(destination, source, opacity=0.8)
-
-        np.testing.assert_array_equal(output[:, :, :3], source[:, :, :3])
-        self.assertEqual(int(output[0, 0, 3]), 204)
-
-    def test_darker_uses_minimum_color_and_maximum_alpha(self):
-        image_a = np.array([[[10, 80, 30, 0]]], dtype=np.uint8)
-        image_b = np.array([[[20, 40, 60, 255]]], dtype=np.uint8)
+    def test_darker_uses_minimum_grayscale_coverage(self):
+        image_a = np.array([[10]], dtype=np.uint8)
+        image_b = np.array([[20]], dtype=np.uint8)
 
         darker, binary_mask = combine_layer_images(image_a, image_b)
 
-        np.testing.assert_array_equal(
-            darker, np.array([[[10, 40, 30, 255]]], dtype=np.uint8)
-        )
-        self.assertEqual(int(binary_mask[0, 0]), 255)
+        np.testing.assert_array_equal(darker, np.array([[10]], dtype=np.uint8))
+        self.assertEqual(int(binary_mask[0, 0]), 0)
 
     def test_alpha_only_difference_is_detected(self):
-        image_a = np.array([[[255, 255, 255, 0]]], dtype=np.uint8)
-        image_b = np.array([[[255, 255, 255, 255]]], dtype=np.uint8)
+        image_a = np.array([[255]], dtype=np.uint8)
+        image_b = np.array([[0]], dtype=np.uint8)
 
         _, binary_mask = combine_layer_images(image_a, image_b)
 
         self.assertEqual(int(binary_mask[0, 0]), 255)
+
+    def test_binary_coverage_matches_the_former_alpha_threshold(self):
+        grayscale = np.array([[126, 127, 128, 129]], dtype=np.uint8)
+
+        occupancy = binary_layer_occupancy(grayscale)
+
+        np.testing.assert_array_equal(
+            occupancy,
+            np.array([[255, 255, 0, 0]], dtype=np.uint8),
+        )
 
     def test_merged_mask_keeps_shape_and_expands_change(self):
         binary_mask = np.zeros((64, 64), dtype=np.uint8)
@@ -176,10 +190,13 @@ class PcbDiffTileImageTests(unittest.TestCase):
 
 class PcbDiffRendererBlockTests(unittest.TestCase):
     def setUp(self):
-        self.image_a = np.zeros((4, 4, 4), dtype=np.uint8)
-        self.image_a[:, :, :3] = 255
+        self.legacy_image_a = np.zeros((4, 4, 4), dtype=np.uint8)
+        self.legacy_image_a[:, :, :3] = 255
+        self.legacy_image_b = self.legacy_image_a.copy()
+        self.legacy_image_b[1, 1] = [10, 20, 30, 255]
+        self.image_a = np.full((4, 4), 255, dtype=np.uint8)
         self.image_b = self.image_a.copy()
-        self.image_b[1, 1] = [10, 20, 30, 255]
+        self.image_b[1, 1] = 0
         self.metadata = {
             "canvas_size": (4.0, 4.0),
             "page_size_a": (4.0, 4.0),
@@ -191,8 +208,8 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
         renderer = PcbLegacyRenderer()
         renderer._render_layer = mock.Mock(
             side_effect=lambda path, *_args: (
-                self.image_a.copy() if path == "a.pdf"
-                else self.image_b.copy()
+                self.legacy_image_a.copy() if path == "a.pdf"
+                else self.legacy_image_b.copy()
             )
         )
         with tempfile.TemporaryDirectory() as output_root:

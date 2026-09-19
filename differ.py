@@ -84,13 +84,29 @@ def get_pcb_layers(path):
     board = pcbnew.LoadBoard(path)
     return [board.GetLayerName(layer) for layer in board.GetEnabledLayers().Seq()]
 
+
+def get_pcb_canonical_layers(path):
+    board = pcbnew.LoadBoard(path)
+    return {
+        board.GetLayerName(layer): pcbnew.LayerName(layer)
+        for layer in board.GetEnabledLayers().Seq()
+    }
+
 def convert_pcb(path, outpath):
     os.makedirs(outpath, exist_ok=True)
 
     pdfpath = os.path.join(outpath, f"pcb_pdf")
     if not os.path.exists(pdfpath):
         yield f"Exporting PDF for {os.path.basename(path)}..."
-        cmd = [kicad_cli, "pcb", "export", "pdf", "--mode-separate", "--layers", ",".join(get_pcb_layers(path)), "-o", pdfpath, path]
+        cmd = [
+            kicad_cli,
+            "pcb", "export", "pdf",
+            "--mode-separate",
+            "--black-and-white",
+            "--layers", ",".join(get_pcb_layers(path)),
+            "-o", pdfpath,
+            path,
+        ]
         kwargs = {}
         if platform.system() == "Windows":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -1355,6 +1371,10 @@ class DifferUI(Application):
                                 self.state.cached_file_a,
                                 self.state.cached_file_b,
                                 layers,
+                                {
+                                    **get_pcb_canonical_layers(file_a),
+                                    **get_pcb_canonical_layers(file_b),
+                                },
                             )
                             if self.state.layers != layers:
                                 self.state.show_layers = {

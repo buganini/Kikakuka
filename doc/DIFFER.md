@@ -10,8 +10,10 @@ raster pipeline.
 
 ## Common input
 
-`kicad-cli pcb export pdf --mode-separate` produces one vector PDF for every
-enabled PCB layer. PDF export is shared by both renderers and should be timed
+`kicad-cli pcb export pdf --mode-separate --black-and-white` produces one
+vector PDF for every enabled PCB layer. Each layer is geometry rather than
+display color, so the viewport renderer rasterizes it directly to one-channel
+grayscale coverage. PDF export is shared by both renderers and should be timed
 separately when comparing them.
 
 The pair metadata contains:
@@ -68,9 +70,14 @@ The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
    is cached by path and reused for every tile crop, then closed before its
    owning document when the renderer shuts down.
 7. Alpha-composite the selected layers into one A image, one B image, and one
-   overlap image per tile. A uint32 fixed-point accumulator stores alpha in
-   the range 0 through 255 and premultiplied color as `channel * alpha`; it
-   converts back to straight-alpha uint8 only once per completed tile.
+   overlap image per tile. PDFium renders opaque one-channel grayscale; white
+   is converted to zero coverage and black to full coverage. KiCad's standard
+   theme color is then applied from the layer's canonical name, so a custom
+   name such as `F.Stiffener` retains its underlying `User.1` color. Each
+   output uses one uint32 array whose four 8-bit lanes contain premultiplied
+   BGRA, and converts to straight BGRA only at the final PNG boundary required
+   by the current painter. The standard color table is built in and does not
+   depend on the user's KiCad theme files.
 8. Merge raw binary differences from all visible layers, then run the
    threshold/blur sequence once for the tile.
 9. Cache results by diff generation, raster level, tile coordinate, and the

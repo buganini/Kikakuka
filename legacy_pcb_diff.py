@@ -40,6 +40,17 @@ def legacy_finish_layer_mask(binary_mask):
 class PcbLegacyRenderer(PcbTileRenderer):
     """Reference implementation of the full-page PCB differ pipeline."""
 
+    def _render_layer(self, path, page_size, canvas_size, bounds,
+                      render_scale):
+        return super()._render_layer(
+            path,
+            page_size,
+            canvas_size,
+            bounds,
+            render_scale,
+            grayscale=False,
+        )
+
     def render_full_page(self, metadata, layers, output_root,
                          render_scale=7.0):
         canvas_width, canvas_height = metadata["canvas_size"]
