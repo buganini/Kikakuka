@@ -135,6 +135,22 @@ class _Placement2D:
             _Vector2D(self.Base.x, self.Base.y, self.Base.z),
             _Rotation2D(self.axis, self.angle))
 
+    def toMatrix(self):
+        radians = math.radians(self.angle)
+        values = (
+            (math.cos(radians), -math.sin(radians), 0.0, self.Base.x),
+            (math.sin(radians), math.cos(radians), 0.0, self.Base.y),
+            (0.0, 0.0, 1.0, self.Base.z),
+            (0.0, 0.0, 0.0, 1.0),
+        )
+        matrix = types.SimpleNamespace()
+        for row in range(4):
+            for column in range(4):
+                setattr(
+                    matrix, f"A{row + 1}{column + 1}",
+                    values[row][column])
+        return matrix
+
 
 class OutlineWireOrderTests(unittest.TestCase):
     def _import_linked_object(self):
@@ -1184,6 +1200,47 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(proxy._bend_child_piece_idx[marker.Name], 1)
         proxy._schedule_rebend.assert_not_called()
         proxy._reposition_all_coupled_objects.assert_called_once_with(document)
+
+    def test_bend_piece_placement_signature_uses_final_matrix(self):
+        linked_object = self._import_linked_object()
+        first = _Placement2D(
+            _Vector2D(10, 20, 30), _Rotation2D(None, 45))
+        within_tolerance = _Placement2D(
+            _Vector2D(10 + 1e-12, 20, 30), _Rotation2D(None, 45))
+        moved = _Placement2D(
+            _Vector2D(10.001, 20, 30), _Rotation2D(None, 45))
+
+        signature = linked_object._placement_matrix_signature(first)
+
+        self.assertEqual(
+            signature,
+            linked_object._placement_matrix_signature(within_tolerance))
+        self.assertNotEqual(
+            signature,
+            linked_object._placement_matrix_signature(moved))
+
+    def test_bend_partition_signature_depends_on_cut_geometry(self):
+        linked_object = self._import_linked_object()
+        base = [
+            (_Vector2D(1, 2), _Vector2D(3, 4), "A", 0, 0.5, 1.0),
+            (_Vector2D(5, 6), _Vector2D(7, 8), "B", 0, 0.5, 1.0),
+        ]
+        same_cuts_new_angle = [
+            (*entry[:4], -entry[4], entry[5]) for entry in base]
+        moved_cut = list(base)
+        moved_cut[1] = (
+            _Vector2D(5, 6), _Vector2D(7.1, 8),
+            *base[1][2:])
+
+        signature = linked_object._bend_partition_signature(base, 1.6)
+
+        self.assertEqual(
+            signature,
+            linked_object._bend_partition_signature(
+                same_cuts_new_angle, 1.6))
+        self.assertNotEqual(
+            signature,
+            linked_object._bend_partition_signature(moved_cut, 1.6))
 
     def test_changed_live_couplers_are_applied(self):
         linked_object = self._import_linked_object()

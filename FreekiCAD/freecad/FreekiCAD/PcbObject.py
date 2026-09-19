@@ -535,6 +535,28 @@ def _nearest_bend_piece(pieces, point, excluded=None):
     return result
 
 
+def _placement_matrix_signature(placement, digits=10):
+    """Return a tolerance-stable signature for a FreeCAD Placement."""
+    matrix = placement.toMatrix()
+    return tuple(
+        round(float(getattr(matrix, f'A{row}{column}')), digits)
+        for row in range(1, 5)
+        for column in range(1, 5))
+
+
+def _bend_partition_signature(cut_plan, thickness, digits=10):
+    """Identify flat body partitions from their physical cut geometry."""
+    return (
+        round(float(thickness), digits),
+        tuple(
+            (entry[2], int(entry[3]),
+             round(float(entry[0].x), digits),
+             round(float(entry[0].y), digits),
+             round(float(entry[1].x), digits),
+             round(float(entry[1].y), digits))
+            for entry in cut_plan))
+
+
 def _signed_line_side_2d(point, seg_p0, seg_p1):
     """Signed 2D side value of *point* relative to line *seg_p0*→*seg_p1*."""
     return ((seg_p1.x - seg_p0.x) * (point.y - seg_p0.y)
@@ -4584,7 +4606,12 @@ class PcbObject:
                 '_bend_partition_strip_pieces',
                 '_bend_partition_half_t',
                 '_bend_child_piece_idx',
-                '_bend_piece_placements'):
+                '_bend_piece_placements',
+                '_bend_partition_signature',
+                '_bend_partition_piece_slices',
+                '_bend_cached_piece_shapes',
+                '_bend_cached_piece_placement_signatures',
+                '_bend_cached_strip_pieces'):
             try:
                 delattr(self, name)
             except AttributeError:
@@ -4601,7 +4628,6 @@ class PcbObject:
         self._suspend_component_move_sync(obj)
         self._bending = True
         try:
-            self._clear_bend_partition_cache()
             thickness = getattr(self, '_board_thickness',
                                 DEFAULT_PCB_THICKNESS)
 
@@ -4664,6 +4690,8 @@ class PcbObject:
             if enable and active_bends and board_obj:
                 self._apply_bends(obj, board_obj, active_bends,
                                   thickness)
+            else:
+                self._clear_bend_partition_cache()
             self._capture_component_bend_placements(obj)
         finally:
             self._bending = False
@@ -4676,7 +4704,6 @@ class PcbObject:
     def _apply_bends(self, obj, board_obj, bend_children, thickness,
                      enable_bending=True):
         """Apply bending deformation to the board shape."""
-        self._clear_bend_partition_cache()
         self._suspend_component_move_sync(obj)
         self._bending = True
         try:
@@ -4691,6 +4718,14 @@ class PcbObject:
         import time as _time
         _t0_total = _time.time()
         unbent = getattr(self, '_unbent_board_shape', board_obj.Shape)
+        previous_partition_signature = getattr(
+            self, '_bend_partition_signature', None)
+        previous_piece_shapes = getattr(
+            self, '_bend_cached_piece_shapes', None)
+        previous_placement_signatures = getattr(
+            self, '_bend_cached_piece_placement_signatures', None)
+        previous_strip_pieces = getattr(
+            self, '_bend_cached_strip_pieces', set())
         # Use the bounding box center as the reference point for
         # bend normal orientation and stationary piece selection.
         # BoundBox.Center is always well-defined, even for shapes
@@ -4725,6 +4760,7 @@ class PcbObject:
                               math.radians(angle_deg), radius))
 
         if not bend_info:
+            self._clear_bend_partition_cache()
             self._update_conflicts_debug_object(obj, None, thickness)
             return
 
@@ -4827,6 +4863,7 @@ class PcbObject:
                     conflict_shape = conflict_shapes[0]
             self._clear_bend_debug_artifacts(
                 obj, board_obj=board_obj)
+            self._clear_bend_partition_cache()
             self._update_conflicts_debug_object(
                 obj, conflict_shape, thickness)
             state = "disabling bending" if enable_bending \
@@ -4901,6 +4938,8 @@ class PcbObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 2a (2D cut plan): "
             f"{_time.time() - _t_phase2a:.3f}s\n")
+        partition_signature = _bend_partition_signature(
+            cut_plan, thickness)
         # --- Phase 2b: create 3D cutting faces from 2D plan ---
         _t_phase2b = _time.time()
         # Each stationary-side cut segment → independent micro-bend.
@@ -4950,35 +4989,48 @@ class PcbObject:
         # --- Phase 2c: cut board, assign stationary/moving ---
         _t_phase2c = _time.time()
         _t_fuse = _time.time()
-        try:
-            # NOTE: generalFuse returns a map of input→output face
-            # images, but we don't use it for adjacency because:
-            # (1) the map only tracks faces, missing edge/vertex
-            #     adjacency between pieces;
-            # (2) pieces filtered by Volume don't correspond 1:1
-            #     to compound solids, making face ownership fragile.
-            # Instead we slice pieces to 2D and use distToShape on
-            # the lightweight 2D wires.
-            fused, _map = unbent.generalFuse(cut_faces)
-            pieces = [s for s in fused.Solids if s.Volume > 1e-6]
-        except Exception:
-            pieces = []
+        reuse_partition = (
+            getattr(self, '_bend_partition_signature', None)
+            == partition_signature
+            and bool(getattr(self, '_bend_partition_pieces', None))
+            and bool(getattr(
+                self, '_bend_partition_piece_slices', None)))
+        if reuse_partition:
+            pieces = self._bend_partition_pieces
+        else:
+            try:
+                # NOTE: generalFuse returns a map of input→output face
+                # images, but we don't use it for adjacency because:
+                # (1) the map only tracks faces, missing edge/vertex
+                #     adjacency between pieces;
+                # (2) pieces filtered by Volume don't correspond 1:1
+                #     to compound solids, making face ownership fragile.
+                # Instead we slice pieces to 2D and use distToShape on
+                # the lightweight 2D wires.
+                fused, _map = unbent.generalFuse(cut_faces)
+                pieces = [s for s in fused.Solids if s.Volume > 1e-6]
+            except Exception:
+                pieces = []
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] generalFuse: "
             f"{_time.time() - _t_fuse:.3f}s "
-            f"({len(pieces)} pieces)\n")
+            f"({len(pieces)} pieces, "
+            f"{'reused' if reuse_partition else 'rebuilt'})\n")
 
         # Build 2D slices of pieces for fast adjacency checks.
         # The board is flat — slicing at z=half_t gives 2D wires
         # that are orders of magnitude cheaper than 3D distToShape.
         _t_slices = _time.time()
-        piece_slices = []
-        for piece in pieces:
-            wires = piece.slice(FreeCAD.Vector(0, 0, 1), half_t)
-            if wires:
-                piece_slices.append(Part.Compound(wires))
-            else:
-                piece_slices.append(piece)  # fallback to 3D
+        if reuse_partition:
+            piece_slices = self._bend_partition_piece_slices
+        else:
+            piece_slices = []
+            for piece in pieces:
+                wires = piece.slice(FreeCAD.Vector(0, 0, 1), half_t)
+                if wires:
+                    piece_slices.append(Part.Compound(wires))
+                else:
+                    piece_slices.append(piece)  # fallback to 3D
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] 2D piece slices: "
             f"{_time.time() - _t_slices:.3f}s\n")
@@ -6464,11 +6516,19 @@ class PcbObject:
             for pi in range(len(piece_shapes)):
                 if not _at_step(pi, step_pos, mi):
                     continue
-                pre_cm = piece_shapes[pi].CenterOfMass
-                piece_shapes[pi].transformShape(
-                    plc_rot.toMatrix())
+                if pi in strip_pieces:
+                    pre_cm = piece_shapes[pi].CenterOfMass
+                    piece_shapes[pi].transformShape(
+                        plc_rot.toMatrix())
+                else:
+                    pre_cm = piece_plc[pi].multVec(
+                        pieces[pi].CenterOfMass)
                 piece_plc[pi] = plc_rot.multiply(piece_plc[pi])
-                post_cm = piece_shapes[pi].CenterOfMass
+                if pi in strip_pieces:
+                    post_cm = piece_shapes[pi].CenterOfMass
+                else:
+                    post_cm = piece_plc[pi].multVec(
+                        pieces[pi].CenterOfMass)
                 rotated_pis.append(pi)
                 # Log z-change for pieces near fixed
                 entry_dbg = bfs_tree.get(pi)
@@ -6588,7 +6648,8 @@ class PcbObject:
                         # translation, the remaining_plc applied after
                         # loft reconstruction will carry the same
                         # correction back onto the rebuilt wedge.
-                        piece_shapes[pi].translate(correction)
+                        if pi in strip_pieces:
+                            piece_shapes[pi].translate(correction)
                         piece_plc[pi] = corr_plc.multiply(
                             piece_plc[pi])
 
@@ -6622,11 +6683,52 @@ class PcbObject:
                         child.Placement.Base = \
                             child.Placement.Base + correction
 
-        # Coupler edits do not alter board geometry.  Retain the flat
-        # partitions and their final rigid transforms so an edited marker can
-        # be moved directly to the appropriate bent partition without running
-        # the bending pipeline again.
+        piece_placement_signatures = [
+            _placement_matrix_signature(placement)
+            for placement in piece_plc]
+        reused_rigid_pieces = 0
+        can_reuse_rigid_shapes = (
+            previous_partition_signature == partition_signature
+            and previous_piece_shapes is not None
+            and previous_placement_signatures is not None
+            and len(previous_piece_shapes) == len(piece_shapes)
+            and len(previous_placement_signatures) == len(piece_shapes))
+        for pi in range(len(piece_shapes)):
+            if pi in strip_pieces:
+                continue
+            if (can_reuse_rigid_shapes
+                    and pi not in previous_strip_pieces
+                    and previous_placement_signatures[pi]
+                    == piece_placement_signatures[pi]
+                    and previous_piece_shapes[pi] is not None):
+                try:
+                    piece_shapes[pi] = previous_piece_shapes[pi].copy()
+                except Exception:
+                    piece_shapes[pi] = previous_piece_shapes[pi]
+                reused_rigid_pieces += 1
+                continue
+            piece_shapes[pi] = pieces[pi].copy()
+            piece_shapes[pi].transformShape(piece_plc[pi].toMatrix())
+
+        FreeCAD.Console.PrintMessage(
+            f"FreekiCAD: [profile] rigid body pieces: "
+            f"reused={reused_rigid_pieces}, "
+            f"rebuilt={len(piece_shapes) - len(strip_pieces) - reused_rigid_pieces}\n")
+
+        # Retain flat partitions, slices, and final rigid transforms.  They
+        # support both incremental rebending and coupler marker updates.
+        if previous_partition_signature != partition_signature:
+            for cache_name in (
+                    '_bend_cached_piece_shapes',
+                    '_bend_cached_piece_placement_signatures',
+                    '_bend_cached_strip_pieces'):
+                try:
+                    delattr(self, cache_name)
+                except AttributeError:
+                    pass
+        self._bend_partition_signature = partition_signature
         self._bend_partition_pieces = pieces
+        self._bend_partition_piece_slices = piece_slices
         self._bend_partition_strip_pieces = set(strip_pieces)
         self._bend_partition_half_t = half_t
         self._bend_child_piece_idx = dict(comp_piece_idx)
@@ -10640,6 +10742,16 @@ class PcbObject:
                 _repair_piece_shape_for_display(s, pi)
                 for pi, s in enumerate(piece_shapes)
             ]
+            self._bend_cached_piece_shapes = []
+            for shape in piece_shapes:
+                try:
+                    self._bend_cached_piece_shapes.append(
+                        shape.copy() if shape is not None else None)
+                except Exception:
+                    self._bend_cached_piece_shapes.append(shape)
+            self._bend_cached_piece_placement_signatures = list(
+                piece_placement_signatures)
+            self._bend_cached_strip_pieces = set(strip_pieces)
             board_obj.Shape = Part.makeCompound(
                 [s for s in piece_shapes if _shape_should_display(s)])
 

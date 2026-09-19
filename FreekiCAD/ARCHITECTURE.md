@@ -96,6 +96,23 @@ containing its flat centroid. Before deformation, its flat area is intersected
 with every active bend span; each non-trivial overlap emits a warning because
 the stiffener itself is not curved through the bend.
 
+## Incremental Rebending
+
+The runtime cache identifies a flat partition layout by board thickness and
+the ordered, trimmed A/B cut segments. When this signature is unchanged, a
+subsequent rebend reuses the existing flat body pieces and their 2D slices,
+skipping `generalFuse` and slice reconstruction. A source-board reload, an
+inactive bending state, or conflicting bend spans invalidates the cache.
+
+During Phase 3, rigid pieces accumulate only a `piece_plc`; their BRep is not
+transformed repeatedly at every bend step. After all transforms and inset
+corrections are known, the final placement matrix is compared with the prior
+run. An unchanged rigid piece reuses its previous bent shape, while a changed
+piece is copied from its cached flat partition and transformed once. Curved
+wedge pieces are always rebuilt because their geometry depends on bend sweep
+and radius even when a neighboring rigid transform is unchanged. Display-layer
+fragments are currently rebuilt from their flat profiles.
+
 ## Coupler Pose Updates
 
 Each coupler marker keeps its flat-board pose in
