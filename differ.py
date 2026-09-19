@@ -160,7 +160,7 @@ class SchDiffView(PUIView):
         self.state = State()
         self.state.scale = None
         self.state.splitter_x = 0.5
-        self.state.overlap = 0.05
+        self.state.overlap = 0.0005
         self.state.mousepos = None
 
     def autoScale(self, canvas_width, canvas_height):
@@ -254,7 +254,7 @@ class SchDiffView(PUIView):
         if e.modifiers & KeyModifier.CTRL:
             zoom_factor = 1.7  # Factor for smoother zooming
             noverlap = self.state.overlap * (zoom_factor ** (e.v_delta / 120))
-            self.state.overlap = max(0.0001, min(0.1, noverlap))
+            self.state.overlap = max(0.0005, min(0.1, noverlap))
             return
 
         if self.state.scale is None:
@@ -374,7 +374,7 @@ class PcbDiffView(PUIView):
         self.state = State()
         self.state.scale = None
         self.state.splitter_x = 0.5
-        self.state.overlap = 0.05
+        self.state.overlap = 0.0005
         self.state.mousepos = None
 
     def autoScale(self, canvas_width, canvas_height):
@@ -461,7 +461,7 @@ class PcbDiffView(PUIView):
         if e.modifiers & KeyModifier.CTRL:
             zoom_factor = 1.7  # Factor for smoother zooming
             noverlap = self.state.overlap * (zoom_factor ** (e.v_delta / 120))
-            self.state.overlap = max(0.0001, min(0.1, noverlap))
+            self.state.overlap = max(0.0005, min(0.1, noverlap))
             return
 
         if self.state.scale is None:
