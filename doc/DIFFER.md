@@ -75,16 +75,25 @@ The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
    theme color is then applied from the layer's canonical name, so a custom
    name such as `F.Stiffener` retains its underlying `User.1` color. Each
    output uses one uint32 array whose four 8-bit lanes contain premultiplied
-   BGRA, and converts to straight BGRA only at the final PNG boundary required
-   by the current painter. The standard color table is built in and does not
-   depend on the user's KiCad theme files.
+   BGRA, and converts to straight BGRA only at the final image boundary. The
+   application copies that result directly into a `QImage`; the independent
+   renderer can still write PNG artifacts for tests and benchmarks. The
+   standard color table is built in and does not depend on the user's KiCad
+   theme files.
 8. Merge raw binary differences from all visible layers, then run the
    threshold/blur sequence once for the tile.
 9. Cache results by diff generation, raster level, tile coordinate, and the
-   visible-layer tuple. Queued work outside the latest viewport is skipped.
-10. On the UI thread, load at most one completed tile image per paint. The
-   painter returns `True` while work or image loading remains, requesting an
-   immediate redraw without performing PDF or OpenCV work on the UI thread.
+   visible-layer tuple. The memory cache uses a byte limit rather than an
+   image-count limit. The complete-page coarse tile is pinned, and a reserved
+   low-resolution cache retains recently used tiles at LOD 1 or below so
+   high-resolution tiles cannot evict every fallback. Queued work outside the
+   latest viewport is skipped.
+10. The worker creates independently owned `QImage` resources and sends them
+    to the UI in memory, avoiding PNG encoding, filesystem traffic, and PNG
+    decoding in the application path. The path-based compatibility loader uses
+    a short time budget instead of loading exactly one image per paint. The
+    painter returns `True` while work or path loading remains, requesting an
+    immediate redraw without performing PDF or OpenCV work on the UI thread.
 11. Map every complete tile to one fixed destination rectangle. Moving the
     comparison cursor changes only a QPainter screen-space clip rectangle; it
     never recalculates a cropped source rectangle or resamples the tile.
@@ -102,9 +111,10 @@ visible tiles.
 Immediately after pair metadata is ready, the worker renders one pinned coarse
 tile covering the complete page. It uses at most scale 0.5 and automatically
 selects a lower scale when necessary to keep the entire page inside 512 x 512
-pixels. This task cannot be cancelled by the first viewport request. The UI may
-load it as the initial placeholder, and it remains available for the first
-zoom or pan before another LOD has sufficient coverage.
+pixels. This task cannot be cancelled by the first viewport request or evicted
+from the current diff's memory cache. The UI may draw it as the initial
+placeholder, and it remains available for zoom or pan before another LOD has
+sufficient coverage.
 
 ## Intentional differences
 
@@ -112,11 +122,11 @@ zoom or pan before another LOD has sufficient coverage.
 | --- | --- | --- |
 | Raster area | Complete page and every layer | Current visible tiles and visible layers |
 | Raster resolution | Fixed scale 7 | Ceiling physical-pixel viewport LOD, scale 0.25 through 8 |
-| Layer images on disk | Three full-page images per layer | Four composited images per tile |
+| Layer images on disk | Three full-page images per layer | None in the application; four composited PNGs per tile in test/benchmark mode |
 | Mask processing | Blur every layer, then merge | Merge binary layers, then blur once |
 | Alpha-only changes | Ignored by grayscale conversion | Included in the binary difference |
 | Layer visibility | Changes display only | Changes both display and difference mask |
-| UI work | Loads and rescales full pages | Incrementally loads completed tile images |
+| UI work | Loads and rescales full pages | Draws worker-produced in-memory tile images |
 
 ## Unit-test blocks
 

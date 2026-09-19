@@ -11,6 +11,7 @@ import queue
 import glob
 import pypdfium2 as pdfium
 import cv2
+import numpy as np
 import tempfile
 import atexit
 import shutil
@@ -29,6 +30,30 @@ from pcb_diff_tiles import (
     select_fallback_results,
     visible_tile_indices,
 )
+
+
+PCB_TILE_IMAGE_LOAD_BUDGET_SECONDS = 0.004
+PCB_TILE_CACHE_BYTES = 384 * 1024 * 1024
+PCB_TILE_LOW_RES_CACHE_BYTES = 64 * 1024 * 1024
+PCB_TILE_LOW_RES_MAX_SCALE = 1.0
+
+
+def image_resource_from_bgra(image):
+    """Copy an OpenCV BGRA array into an independently owned QImage."""
+    image = np.ascontiguousarray(image)
+    height, width = image.shape[:2]
+    qimage = QtGui.QImage(
+        image.data,
+        width,
+        height,
+        image.strides[0],
+        QtGui.QImage.Format.Format_ARGB32,
+    ).copy()
+    if qimage.isNull():
+        raise RuntimeError("Could not create PCB tile QImage")
+    resource = ImageResource()
+    resource.qimage = qimage
+    return resource
 
 if platform.system() == "Darwin":
     kicad_cli = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
@@ -510,17 +535,25 @@ class PcbDiffView(PUIView):
             )),
         )
 
-        load_budget = [1]
+        load_started = time.perf_counter()
+        loaded_images = [0]
 
-        def load_image(path, allow_load=True):
+        def load_image(source, allow_load=True):
             nonlocal immediate
+            if source is None:
+                return None
+            if not isinstance(source, (str, bytes, os.PathLike)):
+                return source
+            path = os.fspath(source)
             image = self.tile_images.get(path)
             if image is not None:
                 self.tile_images.move_to_end(path)
                 return image
             if not allow_load:
                 return None
-            if load_budget[0] <= 0:
+            if (loaded_images[0] and
+                    time.perf_counter() - load_started >=
+                    PCB_TILE_IMAGE_LOAD_BUDGET_SECONDS):
                 immediate = True
                 return None
             try:
@@ -528,11 +561,18 @@ class PcbDiffView(PUIView):
             except Exception:
                 return None
             self.tile_images[path] = image
-            load_budget[0] -= 1
+            loaded_images[0] += 1
             immediate = True
             while len(self.tile_images) > 384:
                 self.tile_images.popitem(last=False)
             return image
+
+        def image_is_loaded(source):
+            if source is None:
+                return False
+            if isinstance(source, (str, bytes, os.PathLike)):
+                return os.fspath(source) in self.tile_images
+            return True
 
         def draw_region(image, bounds, region_left, region_right,
                         pixel_size, opacity=0.8, exclude_region=None):
@@ -627,8 +667,8 @@ class PcbDiffView(PUIView):
                 visible_images.append((
                     image_paths["darker"], x_left, x_right
                 ))
-            for path, region_left, region_right in visible_images:
-                if path not in self.tile_images:
+            for source, region_left, region_right in visible_images:
+                if not image_is_loaded(source):
                     continue
                 geometry = clipped_tile_geometry(
                     bounds,
@@ -729,7 +769,8 @@ class DifferUI(Application):
         self.pcb_tile_generation = 0
         self.pcb_tile_metadata = None
         self.pcb_tile_pending = set()
-        self.pcb_tile_results = {}
+        self.pcb_tile_results = OrderedDict()
+        self.pcb_tile_cache_bytes = 0
         self.pcb_tile_active = set()
         self.pcb_coarse_key = None
 
@@ -1022,6 +1063,7 @@ class DifferUI(Application):
             self.pcb_tile_metadata = metadata
             self.pcb_tile_pending.clear()
             self.pcb_tile_results.clear()
+            self.pcb_tile_cache_bytes = 0
             self.pcb_tile_active.clear()
             self.pcb_coarse_key = None
 
@@ -1083,7 +1125,44 @@ class DifferUI(Application):
 
     def get_pcb_tile(self, key):
         with self.pcb_tile_lock:
-            return self.pcb_tile_results.get(key)
+            result = self.pcb_tile_results.get(key)
+            if result is not None:
+                self.pcb_tile_results.move_to_end(key)
+            return result
+
+    def cache_pcb_tile(self, key, result):
+        previous = self.pcb_tile_results.pop(key, None)
+        if previous is not None:
+            self.pcb_tile_cache_bytes -= previous.get("memory_bytes", 0)
+        self.pcb_tile_results[key] = result
+        self.pcb_tile_cache_bytes += result.get("memory_bytes", 0)
+
+        protected = set(self.pcb_tile_active)
+        if self.pcb_coarse_key is not None:
+            protected.add(self.pcb_coarse_key)
+
+        low_res_bytes = 0
+        for cached_key, cached_result in reversed(
+                self.pcb_tile_results.items()):
+            _generation, scale, _tile_x, _tile_y, _layers = cached_key
+            if scale > PCB_TILE_LOW_RES_MAX_SCALE:
+                continue
+            size = cached_result.get("memory_bytes", 0)
+            if low_res_bytes + size > PCB_TILE_LOW_RES_CACHE_BYTES:
+                continue
+            protected.add(cached_key)
+            low_res_bytes += size
+
+        while self.pcb_tile_cache_bytes > PCB_TILE_CACHE_BYTES:
+            victim = next(
+                (cached_key for cached_key in self.pcb_tile_results
+                 if cached_key not in protected),
+                None,
+            )
+            if victim is None:
+                break
+            removed = self.pcb_tile_results.pop(victim)
+            self.pcb_tile_cache_bytes -= removed.get("memory_bytes", 0)
 
     def get_pcb_fallback_tiles(self, render_scale, layers,
                                viewport_bounds):
@@ -1124,22 +1203,30 @@ class DifferUI(Application):
                     self.pcb_tile_pending.discard(key)
                     continue
             try:
-                tile_hash = hashlib.sha256(
-                    repr(key).encode("utf-8")
-                ).hexdigest()[:24]
-                output_root = os.path.join(
-                    self.temp_dir,
-                    "pcb_tiles",
-                    str(task["generation"]),
-                    tile_hash,
-                )
                 result = renderer.render_tile(
                     task["metadata"],
                     task["layers"],
                     task["render_scale"],
                     task["tile_x"],
                     task["tile_y"],
-                    output_root,
+                    return_image_data=True,
+                )
+                image_data = result.pop("image_data")
+                result["images"] = {
+                    name: image_resource_from_bgra(image)
+                    for name, image in image_data.items()
+                }
+                mask_data = result.pop("mask_data")
+                result["mask"] = (
+                    image_resource_from_bgra(mask_data)
+                    if mask_data is not None else None
+                )
+                resources = list(result["images"].values())
+                if result["mask"] is not None:
+                    resources.append(result["mask"])
+                result["memory_bytes"] = sum(
+                    resource.qimage.sizeInBytes()
+                    for resource in resources
                 )
                 if task.get("coarse"):
                     result["coarse"] = True
@@ -1152,7 +1239,7 @@ class DifferUI(Application):
                 self.pcb_tile_pending.discard(key)
                 if task["generation"] != self.pcb_tile_generation:
                     continue
-                self.pcb_tile_results[key] = result
+                self.cache_pcb_tile(key, result)
             self.state.build_time = time.time()
 
     def pad_to_same_size(self, image_a, image_b):

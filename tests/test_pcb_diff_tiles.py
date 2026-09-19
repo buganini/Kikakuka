@@ -241,6 +241,31 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
             for path in result["images"].values():
                 self.assertTrue(os.path.exists(path))
 
+    def test_viewport_block_can_return_images_without_disk_artifacts(self):
+        renderer = PcbTileRenderer()
+        renderer._render_layer = mock.Mock(
+            side_effect=lambda path, *_args: (
+                self.image_a.copy() if path == "a.pdf"
+                else self.image_b.copy()
+            )
+        )
+
+        result = renderer.render_tile(
+            self.metadata,
+            ["F.Cu"],
+            1.0,
+            0,
+            0,
+            return_image_data=True,
+        )
+
+        self.assertEqual(result["images"], {})
+        self.assertIsNone(result["mask"])
+        self.assertEqual(set(result["image_data"]), {"a", "b", "darker"})
+        for image in result["image_data"].values():
+            self.assertEqual(image.shape, (4, 4, 4))
+        self.assertEqual(result["mask_data"].shape, (4, 4, 4))
+
     def test_viewport_renderer_reuses_and_closes_pdf_page(self):
         renderer = PcbTileRenderer()
         document = mock.MagicMock()

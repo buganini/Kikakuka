@@ -484,7 +484,8 @@ class PcbTileRenderer:
         return output
 
     def render_tile(self, metadata, layers, render_scale, tile_x, tile_y,
-                    output_root, gutter=TILE_GUTTER):
+                    output_root=None, gutter=TILE_GUTTER,
+                    return_image_data=False):
         canvas_size = metadata["canvas_size"]
         pixel_x, pixel_y, pixel_width, pixel_height = tile_pixel_bounds(
             canvas_size, render_scale, tile_x, tile_y
@@ -514,7 +515,8 @@ class PcbTileRenderer:
         crop_width = pixel_width
         crop_height = pixel_height
 
-        os.makedirs(output_root, exist_ok=True)
+        if output_root is not None:
+            os.makedirs(output_root, exist_ok=True)
         extended_pixel_width = extended_pixel_right - extended_pixel_x
         extended_pixel_height = extended_pixel_bottom - extended_pixel_y
         composites = {
@@ -565,16 +567,20 @@ class PcbTileRenderer:
             )
 
         image_paths = {}
+        image_data = {}
         for name, accumulator in composites.items():
             image = _finish_coverage(accumulator)
-            path = os.path.join(output_root, f"{name}.png")
             image = image[
                 crop_y:crop_y + crop_height,
                 crop_x:crop_x + crop_width,
             ]
-            if not cv2.imwrite(path, image):
-                raise RuntimeError(f"Could not write PCB tile {path}")
-            image_paths[name] = path
+            if return_image_data:
+                image_data[name] = image
+            if output_root is not None:
+                path = os.path.join(output_root, f"{name}.png")
+                if not cv2.imwrite(path, image):
+                    raise RuntimeError(f"Could not write PCB tile {path}")
+                image_paths[name] = path
 
         mask_path = None
         mask = finish_merged_mask(merged_binary_mask)
@@ -584,11 +590,12 @@ class PcbTileRenderer:
                 crop_x:crop_x + crop_width,
             ]
             mask = cv2.merge([mask, mask, mask, mask])
-            mask_path = os.path.join(output_root, "mask.png")
-            if not cv2.imwrite(mask_path, mask):
-                raise RuntimeError(f"Could not write PCB tile {mask_path}")
+            if output_root is not None:
+                mask_path = os.path.join(output_root, "mask.png")
+                if not cv2.imwrite(mask_path, mask):
+                    raise RuntimeError(f"Could not write PCB tile {mask_path}")
 
-        return {
+        result = {
             "bounds": (
                 pixel_x / render_scale,
                 pixel_y / render_scale,
@@ -599,3 +606,7 @@ class PcbTileRenderer:
             "images": image_paths,
             "mask": mask_path,
         }
+        if return_image_data:
+            result["image_data"] = image_data
+            result["mask_data"] = mask
+        return result
