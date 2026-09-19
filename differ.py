@@ -5,7 +5,7 @@ from common import *
 import json
 import platform
 import subprocess
-from threading import Thread
+from threading import Lock, Thread
 import hashlib
 import queue
 import glob
@@ -16,6 +16,19 @@ import atexit
 import shutil
 import githelper
 import pcbnew
+import time
+from collections import OrderedDict
+from PySide6 import QtCore, QtGui
+
+from pcb_diff_tiles import (
+    PcbTileRenderer,
+    build_pair_metadata,
+    choose_coarse_render_scale,
+    choose_render_scale,
+    clipped_tile_geometry,
+    select_fallback_results,
+    visible_tile_indices,
+)
 
 if platform.system() == "Darwin":
     kicad_cli = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
@@ -82,21 +95,6 @@ def convert_pcb(path, outpath):
         if platform.system() == "Windows":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         subprocess.run(cmd, **kwargs)
-
-    if os.path.isdir(pdfpath):
-        os.makedirs(os.path.join(outpath, "pcb"), exist_ok=True)
-        for layer in get_pcb_layers(path):
-            png_path = os.path.join(outpath, "pcb", f"{layer}.png")
-            layerpdfpath = glob.glob(os.path.join(pdfpath, f"*{layer.replace('.', '_')}.pdf"))
-            if layerpdfpath:
-                yield f"Exporting {layer} to PNG for {os.path.basename(path)}..."
-                pdf = pdfium.PdfDocument(layerpdfpath[0])
-                opencv_image = pdf[0].render(
-                    fill_color=(255, 255, 255, 0),
-                    scale=7,  # 72*x DPI is the default PDF resolution
-                    rotation=0
-                ).to_numpy()
-                cv2.imwrite(png_path, opencv_image)
 
 
 class SchDiffView(PUIView):
@@ -319,24 +317,13 @@ class PcbDiffView(PUIView):
     def __init__(self, main):
         super().__init__()
         self.main = main
-        self.path_a = Prop()
-        self.path_b = Prop()
-        self.mask_mtime = Prop()
-        self.darker_mtime = Prop()
         self.canvas_width = None
         self.canvas_height = None
         self.diff_width = None
         self.diff_height = None
-        self.image_a = {}
-        self.image_b = {}
-        self.darker = {}
-        self.mask = None
-        self.scaled_mask = None
-        self.scaled_darker = {}
-        self.scaled_image_a = {}
-        self.scaled_image_b = {}
+        self.generation = None
+        self.tile_images = OrderedDict()
         self.mousehold = False
-        self.scaled_params = Prop()
 
     def setup(self):
         self.state = State()
@@ -345,25 +332,16 @@ class PcbDiffView(PUIView):
         self.state.overlap = 0.05
 
     def autoScale(self, canvas_width, canvas_height):
-        mask = os.path.join(self.main.temp_dir, "pcb_mask.png")
-        if not os.path.exists(mask):
-            return
+        page_size = self.main.state.pcb_page_size
+        if not page_size:
+            return False
 
-        try:
-            mask = cv2.imread(mask, cv2.IMREAD_UNCHANGED)  # IMREAD_UNCHANGED preserves alpha if present
-            if mask is None:  # OpenCV returns None if image loading fails
-                return
-
-            # In OpenCV, shape is (height, width, channels) or (height, width) for grayscale
-            # So we need to swap compared to PIL's size which is (width, height)
-            dh, dw = mask.shape[:2]  # Get first two dimensions (height, width)
-        except:
-            return
+        dw, dh = page_size
         self.diff_width, self.diff_height = dw, dh
         self.canvas_width, self.canvas_height = canvas_width, canvas_height
 
         if dw == 0 or dh == 0:
-            return
+            return False
 
         cw = canvas_width
         ch = canvas_height
@@ -374,6 +352,7 @@ class PcbDiffView(PUIView):
         offx = (cw - (dw) * scale) / 2
         offy = (ch - (dh) * scale) / 2
         self.state.scale = (offx, offy, scale)
+        return True
 
     def toCanvas(self, x, y):
         """
@@ -457,152 +436,242 @@ class PcbDiffView(PUIView):
         self.state.scale = offx, offy, nscale
 
     def painter(self, canvas):
+        generation = self.main.pcb_tile_generation
+        if self.generation != generation:
+            self.generation = generation
+            self.tile_images.clear()
+            self.state.scale = None
+            self.canvas_width = None
+            self.canvas_height = None
+
         if self.state.scale is None or (self.canvas_width, self.canvas_height) != (canvas.width, canvas.height):
-            self.autoScale(canvas.width, canvas.height)
-            return
+            return self.autoScale(canvas.width, canvas.height)
 
         immediate = False
-
-        layers = self.main.state.layers
-
-        mtime = [os.path.getmtime(fn) for fn in [os.path.join(self.main.temp_dir, "pcb_darker", f"{layer}.png") for layer in layers] if os.path.exists(fn)]
-        if mtime and self.darker_mtime.set(max(mtime)):
-            self.darker = {}
-        if self.path_a.set(self.main.state.cached_file_a):
-            self.image_a = {}
-        if self.path_b.set(self.main.state.cached_file_b):
-            self.image_b = {}
-        path = os.path.join(self.main.temp_dir, "pcb_mask.png")
-        if self.mask_mtime.set(os.path.getmtime(path)):
-            self.mask = None
-
-        if self.mask is None:
-            try:
-                self.mask = canvas.loadImage(path)
-                self.scaled_mask = None
-                immediate = True
-            except:
-                self.mask = False
-
-        for layer in layers:
-            if not self.main.state.show_layers.get(layer, True):
-                continue
-
-            if not layer in self.darker:
-                try:
-                    self.darker[layer] = canvas.loadImage(os.path.join(self.main.temp_dir, "pcb_darker", f"{layer}.png"))
-                    self.scaled_darker.pop(layer, None)
-                    immediate = True
-                    break
-                except:
-                    self.darker[layer] = False
-
-            if not layer in self.image_a:
-                try:
-                    self.image_a[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_a, "pcb", f"{layer}.png"))
-                    self.scaled_image_a.pop(layer, None)
-                    immediate = True
-                    break
-                except:
-                    self.image_a[layer] = False
-
-            if not layer in self.image_b:
-                try:
-                    self.image_b[layer] = canvas.loadImage(os.path.join(self.main.state.cached_file_b, "pcb", f"{layer}.png"))
-                    self.scaled_image_b.pop(layer, None)
-                    immediate = True
-                    break
-                except:
-                    self.image_b[layer] = False
-
         offx, offy, scale = self.state.scale
+        render_scale = choose_render_scale(scale, canvas.pixel_density)
+        layers = tuple(
+            layer for layer in self.main.state.layers
+            if self.main.state.show_layers.get(layer, True)
+        )
+        tile_indices = visible_tile_indices(
+            (self.diff_width, self.diff_height),
+            (canvas.width, canvas.height),
+            self.state.scale,
+            render_scale,
+        )
+        tile_results = []
+        tile_keys = self.main.request_pcb_tiles(
+            render_scale, tile_indices, layers
+        )
+        for key in tile_keys:
+            result = self.main.get_pcb_tile(key)
+            if result is None:
+                immediate = True
+            elif "error" not in result:
+                tile_results.append(result)
 
-        scaled_diff_width = round(self.diff_width * scale)
-        scaled_diff_height = round(self.diff_height * scale)
+        viewport_bounds = (
+            max(0.0, (0.0 - offx) / scale),
+            max(0.0, (0.0 - offy) / scale),
+            min(self.diff_width, (canvas.width - offx) / scale),
+            min(self.diff_height, (canvas.height - offy) / scale),
+        )
+        fallback_results = self.main.get_pcb_fallback_tiles(
+            render_scale, layers, viewport_bounds
+        )
 
-        if self.scaled_params.set(scale):
-            self.scaled_image_a = {}
-            self.scaled_image_b = {}
-            self.scaled_darker = {}
-            self.scaled_mask = None
+        x_left = min(
+            self.diff_width,
+            max(0.0, self.diff_width * (
+                self.state.splitter_x - self.state.overlap
+            )),
+        )
+        x_right = max(
+            0.0,
+            min(self.diff_width, self.diff_width * (
+                self.state.splitter_x + self.state.overlap
+            )),
+        )
 
-        if not self.scaled_mask:
-            self.scaled_mask = self.mask.scale(scaled_diff_width, scaled_diff_height, True, 1)
+        load_budget = [1]
 
-        incompleted = False
-        for layer in layers:
-            if not self.main.state.show_layers.get(layer, True):
+        def load_image(path, allow_load=True):
+            nonlocal immediate
+            image = self.tile_images.get(path)
+            if image is not None:
+                self.tile_images.move_to_end(path)
+                return image
+            if not allow_load:
+                return None
+            if load_budget[0] <= 0:
+                immediate = True
+                return None
+            try:
+                image = canvas.loadImage(path)
+            except Exception:
+                return None
+            self.tile_images[path] = image
+            load_budget[0] -= 1
+            immediate = True
+            while len(self.tile_images) > 384:
+                self.tile_images.popitem(last=False)
+            return image
+
+        def draw_region(image, bounds, region_left, region_right,
+                        pixel_size, opacity=0.8, exclude_region=None):
+            if image is None:
+                return
+            geometry = clipped_tile_geometry(
+                bounds,
+                pixel_size,
+                self.state.scale,
+                region_left,
+                region_right,
+            )
+            if geometry is None:
+                return
+            dest_x, dest_y, dest_width, dest_height = geometry["destination"]
+            src_x, src_y, src_width, src_height = geometry["source"]
+            clip_x, clip_y, clip_width, clip_height = geometry["clip"]
+            clip_region = QtGui.QRegion(QtCore.QRect(
+                clip_x, clip_y, clip_width, clip_height
+            ))
+            if exclude_region is not None:
+                clip_region = clip_region.subtracted(exclude_region)
+            if clip_region.isEmpty():
+                return
+            canvas.qpainter.save()
+            try:
+                canvas.qpainter.setClipRegion(
+                    clip_region,
+                    QtCore.Qt.ClipOperation.IntersectClip,
+                )
+                canvas.drawImage(
+                    image,
+                    dest_x,
+                    dest_y,
+                    width=dest_width,
+                    height=dest_height,
+                    src_x=src_x,
+                    src_y=src_y,
+                    src_width=src_width,
+                    src_height=src_height,
+                    opacity=opacity,
+                )
+            finally:
+                canvas.qpainter.restore()
+
+        def draw_result(result, allow_load, draw_mask,
+                        exclude_region=None):
+            bounds = result["bounds"]
+            pixel_size = result["pixel_size"]
+            image_paths = result["images"]
+            if bounds[0] < x_left:
+                draw_region(
+                    load_image(image_paths["a"], allow_load),
+                    bounds, 0.0, x_left, pixel_size, opacity=1.0,
+                    exclude_region=exclude_region,
+                )
+            if bounds[0] + bounds[2] > x_right:
+                draw_region(
+                    load_image(image_paths["b"], allow_load),
+                    bounds, x_right, self.diff_width, pixel_size,
+                    opacity=1.0,
+                    exclude_region=exclude_region,
+                )
+            if bounds[0] < x_right and bounds[0] + bounds[2] > x_left:
+                draw_region(
+                    load_image(image_paths["darker"], allow_load),
+                    bounds, x_left, x_right, pixel_size, opacity=1.0,
+                    exclude_region=exclude_region,
+                )
+
+            if (draw_mask and self.main.state.highlight_changes and
+                    result["mask"]):
+                draw_region(
+                    load_image(result["mask"], allow_load),
+                    bounds, 0.0, self.diff_width, pixel_size, opacity=0.3,
+                    exclude_region=exclude_region,
+                )
+
+        def loaded_base_region(result):
+            bounds = result["bounds"]
+            pixel_size = result["pixel_size"]
+            image_paths = result["images"]
+            region = QtGui.QRegion()
+            visible_images = []
+            if bounds[0] < x_left:
+                visible_images.append((image_paths["a"], 0.0, x_left))
+            if bounds[0] + bounds[2] > x_right:
+                visible_images.append((
+                    image_paths["b"], x_right, self.diff_width
+                ))
+            if bounds[0] < x_right and bounds[0] + bounds[2] > x_left:
+                visible_images.append((
+                    image_paths["darker"], x_left, x_right
+                ))
+            for path, region_left, region_right in visible_images:
+                if path not in self.tile_images:
+                    continue
+                geometry = clipped_tile_geometry(
+                    bounds,
+                    pixel_size,
+                    self.state.scale,
+                    region_left,
+                    region_right,
+                )
+                if geometry is not None:
+                    region = region.united(QtGui.QRegion(
+                        QtCore.QRect(*geometry["clip"])
+                    ))
+            return region
+
+        exact_coverage = QtGui.QRegion()
+        for result in tile_results:
+            exact_coverage = exact_coverage.united(
+                loaded_base_region(result)
+            )
+
+        detailed_fallbacks = [
+            result for result in fallback_results
+            if not result.get("coarse")
+        ]
+        detailed_coverage = QtGui.QRegion(exact_coverage)
+        for result in detailed_fallbacks:
+            detailed_coverage = detailed_coverage.united(
+                loaded_base_region(result)
+            )
+
+        for result in fallback_results:
+            if not result.get("coarse"):
                 continue
+            draw_result(
+                result,
+                allow_load=True,
+                draw_mask=False,
+                exclude_region=detailed_coverage,
+            )
+        for result in detailed_fallbacks:
+            draw_result(
+                result,
+                allow_load=False,
+                draw_mask=False,
+                exclude_region=exact_coverage,
+            )
+        for result in tile_results:
+            draw_result(result, allow_load=True, draw_mask=True)
 
-            if not layer in self.scaled_darker and self.darker.get(layer):
-                self.scaled_darker[layer] = self.darker[layer].scale(scaled_diff_width, scaled_diff_height, True, 1)
-                incompleted = True
-
-            if not layer in self.scaled_image_a and self.image_a.get(layer):
-                self.scaled_image_a[layer] = self.image_a[layer].scale(scaled_diff_width, scaled_diff_height, True, 1)
-                incompleted = True
-
-            if not layer in self.scaled_image_b and self.image_b.get(layer):
-                self.scaled_image_b[layer] = self.image_b[layer].scale(scaled_diff_width, scaled_diff_height, True, 1)
-                incompleted = True
-
-            if incompleted:
-                break
-
-        xL = round(min(scaled_diff_width, max(0, scaled_diff_width*(self.state.splitter_x - self.state.overlap))))
-        xR = round(max(0, min(scaled_diff_width, scaled_diff_width*(self.state.splitter_x + self.state.overlap))))
-
-        offx = round(offx)
-        offy = round(offy)
-
-        for layer in layers[::-1]:
-            if not self.main.state.show_layers.get(layer, True):
-                continue
-
-            # A
-            x1, y1 = 0, 0
-            x2, y2 = xL, self.diff_height
-            if layer in self.scaled_image_a:
-                canvas.drawImage(self.scaled_image_a[layer],
-                                x1+offx, y1+offy, width=(x2-x1 + 1), height=(y2-y1 + 1),
-                                src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.8)
-            else:
-                immediate = True
-
-            # B
-            x1, y1 = xR, 0
-            x2, y2 = self.diff_width, self.diff_height
-            if layer in self.scaled_image_b:
-                canvas.drawImage(self.scaled_image_b[layer],
-                                x1+offx, y1+offy, width=(x2-x1 + 1), height=(y2-y1 + 1),
-                                src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.8)
-            else:
-                immediate = True
-
-            # Darker
-            x1, y1 = xL, 0
-            x2, y2 = xR, self.diff_height
-            if layer in self.scaled_darker:
-                canvas.drawImage(self.scaled_darker[layer],
-                                x1+offx, y1+offy, width=(x2-x1 + 1), height=(y2-y1 + 1),
-                                src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.8)
-            else:
-                immediate = True
-
-        # Mask
-        if self.main.state.highlight_changes:
-            x1, y1 = 0, 0
-            x2, y2 = self.diff_width, self.diff_height
-            if self.scaled_mask:
-                canvas.drawImage(self.scaled_mask,
-                                    x1+offx, y1+offy, width=(x2-x1 + 1), height=(y2-y1 + 1),
-                                    src_x=x1, src_y=y1, src_width=(x2-x1 + 1), src_height=(y2-y1 + 1), opacity=0.3)
-            else:
-                immediate = True
-
-        # Overlap cursor
-        canvas.drawLine(xL+offx, 0, xL+offx, canvas.height, color=0x7e8792, width=1)
-        canvas.drawLine(xR+offx, 0, xR+offx, canvas.height, color=0x7e8792, width=1)
+        cursor_left = round(offx + x_left * scale)
+        cursor_right = round(offx + x_right * scale)
+        canvas.drawLine(
+            cursor_left, 0, cursor_left, canvas.height,
+            color=0x7e8792, width=1,
+        )
+        canvas.drawLine(
+            cursor_right, 0, cursor_right, canvas.height,
+            color=0x7e8792, width=1,
+        )
 
         return immediate
 
@@ -633,13 +702,23 @@ class DifferUI(Application):
         self.state.use_workspace = False
         self.state.cached_file_a = ""
         self.state.cached_file_b = ""
+        self.state.pcb_page_size = None
         self.state.message = ""
         self.repo_a = None
         self.repo_b = None
 
         self.queue = queue.Queue()
+        self.pcb_tile_queue = queue.Queue()
+        self.pcb_tile_lock = Lock()
+        self.pcb_tile_generation = 0
+        self.pcb_tile_metadata = None
+        self.pcb_tile_pending = set()
+        self.pcb_tile_results = {}
+        self.pcb_tile_active = set()
+        self.pcb_coarse_key = None
 
         Thread(target=self.bg_looper, daemon=True).start()
+        Thread(target=self.pcb_tile_looper, daemon=True).start()
 
         if len(argv) == 1:
             filepath = argv[0]
@@ -921,6 +1000,145 @@ class DifferUI(Application):
     def build(self):
         self.queue.put(1)
 
+    def reset_pcb_tiles(self, metadata):
+        with self.pcb_tile_lock:
+            self.pcb_tile_generation += 1
+            self.pcb_tile_metadata = metadata
+            self.pcb_tile_pending.clear()
+            self.pcb_tile_results.clear()
+            self.pcb_tile_active.clear()
+            self.pcb_coarse_key = None
+
+    def prime_pcb_coarse_tile(self, layers):
+        with self.pcb_tile_lock:
+            if self.pcb_tile_metadata is None:
+                return None
+            generation = self.pcb_tile_generation
+            render_scale = choose_coarse_render_scale(
+                self.pcb_tile_metadata["canvas_size"]
+            )
+            layers = tuple(layers)
+            key = (generation, render_scale, 0, 0, layers)
+            self.pcb_coarse_key = key
+            if (key in self.pcb_tile_results or
+                    key in self.pcb_tile_pending):
+                return key
+            self.pcb_tile_pending.add(key)
+            self.pcb_tile_queue.put({
+                "key": key,
+                "generation": generation,
+                "metadata": self.pcb_tile_metadata,
+                "render_scale": render_scale,
+                "tile_x": 0,
+                "tile_y": 0,
+                "layers": layers,
+                "pinned": True,
+                "coarse": True,
+            })
+            return key
+
+    def request_pcb_tiles(self, render_scale, tile_indices, layers):
+        with self.pcb_tile_lock:
+            generation = self.pcb_tile_generation
+            layers = tuple(layers)
+            keys = [
+                (generation, render_scale, tile_x, tile_y, layers)
+                for tile_x, tile_y in tile_indices
+            ]
+            self.pcb_tile_active = set(keys)
+            if self.pcb_tile_metadata is None:
+                return keys
+            for key, (tile_x, tile_y) in zip(keys, tile_indices):
+                if (key in self.pcb_tile_results or
+                        key in self.pcb_tile_pending):
+                    continue
+                task = {
+                    "key": key,
+                    "generation": generation,
+                    "metadata": self.pcb_tile_metadata,
+                    "render_scale": render_scale,
+                    "tile_x": tile_x,
+                    "tile_y": tile_y,
+                    "layers": layers,
+                }
+                self.pcb_tile_pending.add(key)
+                self.pcb_tile_queue.put(task)
+            return keys
+
+    def get_pcb_tile(self, key):
+        with self.pcb_tile_lock:
+            return self.pcb_tile_results.get(key)
+
+    def get_pcb_fallback_tiles(self, render_scale, layers,
+                               viewport_bounds):
+        generation = self.pcb_tile_generation
+        layers = tuple(layers)
+        left, top, right, bottom = viewport_bounds
+        with self.pcb_tile_lock:
+            coarse_results = []
+            candidates = {}
+            for key, result in self.pcb_tile_results.items():
+                key_generation, key_scale, _tile_x, _tile_y, key_layers = key
+                if (key_generation != generation or
+                        key_scale == render_scale or
+                        key_layers != layers or
+                        "error" in result):
+                    continue
+                x, y, width, height = result["bounds"]
+                if (x >= right or x + width <= left or
+                        y >= bottom or y + height <= top):
+                    continue
+                if result.get("coarse"):
+                    coarse_results.append(result)
+                else:
+                    candidates.setdefault(key_scale, []).append(result)
+            return select_fallback_results(
+                coarse_results, candidates, render_scale
+            )
+
+    def pcb_tile_looper(self):
+        renderer = PcbTileRenderer()
+        while True:
+            task = self.pcb_tile_queue.get()
+            key = task["key"]
+            with self.pcb_tile_lock:
+                if (task["generation"] != self.pcb_tile_generation or
+                        (not task.get("pinned") and
+                         key not in self.pcb_tile_active)):
+                    self.pcb_tile_pending.discard(key)
+                    continue
+            try:
+                tile_hash = hashlib.sha256(
+                    repr(key).encode("utf-8")
+                ).hexdigest()[:24]
+                output_root = os.path.join(
+                    self.temp_dir,
+                    "pcb_tiles",
+                    str(task["generation"]),
+                    tile_hash,
+                )
+                result = renderer.render_tile(
+                    task["metadata"],
+                    task["layers"],
+                    task["render_scale"],
+                    task["tile_x"],
+                    task["tile_y"],
+                    output_root,
+                )
+                if task.get("coarse"):
+                    result["coarse"] = True
+            except Exception as exc:
+                import traceback
+                traceback.print_exc()
+                result = {"error": str(exc)}
+
+            with self.pcb_tile_lock:
+                self.pcb_tile_pending.discard(key)
+                if task["generation"] != self.pcb_tile_generation:
+                    continue
+                self.pcb_tile_results[key] = result
+            self.state.build_time = time.time()
+
     def pad_to_same_size(self, image_a, image_b):
         # Get dimensions - in OpenCV shape is (height, width, channels)
         height_a, width_a = image_a.shape[:2]
@@ -1125,91 +1343,28 @@ class DifferUI(Application):
                     elif file_a.lower().endswith(PCB_SUFFIX):
                         diff_pair = (self.state.cached_file_a, self.state.cached_file_b)
                         if self.state.diff_pair != diff_pair:
-                            merged_mask = None
-
-                            os.makedirs(os.path.join(self.temp_dir, "pcb_darker"), exist_ok=True)
-
-                            layers = []
-                            for layer in get_pcb_layers(file_a):
-                                png_a = os.path.join(self.state.cached_file_a, "pcb", f"{layer}.png")
-                                png_b = os.path.join(self.state.cached_file_b, "pcb", f"{layer}.png")
-
-                                if not os.path.exists(png_a) and not os.path.exists(png_b):
-                                    continue
-
-                                self.state.loading_diff = layer
-                                layers.append(layer)
-                                darker_png = os.path.join(self.temp_dir, "pcb_darker", f"{layer}.png")
-
-                                if not os.path.exists(png_a):
-                                    shutil.copy(png_b, darker_png)
-                                    diff = cv2.imread(png_b, cv2.IMREAD_GRAYSCALE)
-                                elif not os.path.exists(png_b):
-                                    shutil.copy(png_a, darker_png)
-                                    diff = cv2.imread(png_a, cv2.IMREAD_GRAYSCALE)
-                                else:
-                                    # Load images with alpha channel
-                                    a = cv2.imread(png_a, cv2.IMREAD_UNCHANGED)
-                                    b = cv2.imread(png_b, cv2.IMREAD_UNCHANGED)
-
-                                    a, b = self.pad_to_same_size(a, b)
-
-                                    # Ensure both images have 4 channels (BGRA)
-                                    if len(a.shape) == 2:  # Grayscale
-                                        a = cv2.cvtColor(a, cv2.COLOR_GRAY2BGRA)
-                                    elif a.shape[2] == 3:  # BGR without alpha
-                                        a = cv2.cvtColor(a, cv2.COLOR_BGR2BGRA)
-
-                                    if len(b.shape) == 2:  # Grayscale
-                                        b = cv2.cvtColor(b, cv2.COLOR_GRAY2BGRA)
-                                    elif b.shape[2] == 3:  # BGR without alpha
-                                        b = cv2.cvtColor(b, cv2.COLOR_BGR2BGRA)
-
-                                    # Split channels
-                                    b_a, g_a, r_a, alpha_a = cv2.split(a)
-                                    b_b, g_b, r_b, alpha_b = cv2.split(b)
-
-                                    # Apply darker operation to RGB channels and lighter to alpha
-                                    darker_b = cv2.min(b_a, b_b)
-                                    darker_g = cv2.min(g_a, g_b)
-                                    darker_r = cv2.min(r_a, r_b)
-                                    darker_alpha = cv2.max(alpha_a, alpha_b)  # Lighter for alpha
-
-                                    # Merge channels
-                                    darker = cv2.merge([darker_b, darker_g, darker_r, darker_alpha])
-                                    cv2.imwrite(darker_png, darker)
-
-                                    # Calculate difference
-                                    diff = cv2.absdiff(a, b)
-                                    if len(diff.shape) > 2:
-                                        diff = cv2.cvtColor(diff, cv2.COLOR_BGRA2GRAY)
-
-                                # Create mask from difference with gaussian blur operations
-                                _, binary_mask = cv2.threshold(diff, 0, 255, cv2.THRESH_BINARY)
-                                blurred = cv2.GaussianBlur(binary_mask, (21, 21), 10)
-                                _, extended_mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY)
-                                mask = cv2.GaussianBlur(extended_mask, (21, 21), 10)
-
-                                # Merge masks using "lighter" (max) operation
-                                if merged_mask is None:
-                                    merged_mask = mask
-                                else:
-                                    merged_mask = cv2.max(merged_mask, mask)
-
-                            # Update layer state
-                            layers_changed = False
+                            self.state.loading_diff = True
+                            layers_a = get_pcb_layers(file_a)
+                            layers_b = get_pcb_layers(file_b)
+                            layers = list(layers_a)
+                            layers.extend(
+                                layer for layer in layers_b
+                                if layer not in layers
+                            )
+                            metadata = build_pair_metadata(
+                                self.state.cached_file_a,
+                                self.state.cached_file_b,
+                                layers,
+                            )
                             if self.state.layers != layers:
-                                layers_changed = True
-                            if layers_changed:
-                                self.state.show_layers = {layer: True for layer in layers}
+                                self.state.show_layers = {
+                                    layer: True for layer in layers
+                                }
                             self.state.layers = layers
-
-                            # Convert merged mask to RGBA
-                            merged_mask_rgba = cv2.merge([merged_mask, merged_mask, merged_mask, merged_mask])
-                            cv2.imwrite(os.path.join(self.temp_dir, "pcb_mask.png"), merged_mask_rgba)
-
+                            self.state.pcb_page_size = metadata["canvas_size"]
+                            self.reset_pcb_tiles(metadata)
+                            self.prime_pcb_coarse_tile(layers)
                             self.state.diff_pair = diff_pair
-
                             self.state.loading_diff = False
 
                 if file_a == file_b and page_a == page_b and page_a and page_b:
