@@ -5,10 +5,6 @@
 FreekiCAD bridges KiCad and FreeCAD, providing a FreeCAD-based workflow for
 PCB editing and mechanical assembly.
 
-> **Keep the Kikakuka Workspace Manager running while using FreekiCAD's KiCad
-> integration.** It manages the KiCad instances and IPC API sockets used by FreekiCAD.
-> STEP-only workflows do not require it.
-
 All communication with KiCad and the Kikakuka Workspace Manager uses local IPC
 only. FreekiCAD does not send board, assembly, or usage data to third parties.
 
@@ -41,6 +37,11 @@ models without KiCad.
 The [FPC assembly example][fpc-assembly-example] shows a `.kkkk_asm` manifest
 containing linked KiCad PCB files.
 
+> [!IMPORTANT]
+> Keep the Kikakuka Workspace Manager running while using FreekiCAD's KiCad
+> integration. It manages the KiCad instances and IPC API sockets used by
+> FreekiCAD. STEP-only workflows do not require it.
+
 FreeCAD's Open and Import commands and drag-and-drop all create the same linked
 `PcbObject` as **FreekiCAD > Add KiCad PCB**. STEP extensions remain assigned to
 FreeCAD's built-in STEP importer; use **FreekiCAD > Add STEP** when a reloadable
@@ -65,9 +66,6 @@ import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys
 ```
 
 Restart FreeCAD after installation.
-
-Keep the Kikakuka **Workspace Manager** running while using FreekiCAD's KiCad
-integration.
 
 ## Headless Assembly Export
 
@@ -153,6 +151,12 @@ replace the Assembly placement. This does not change `SnapToCoupler` on the
 source object in the current FreeCAD document.
 
 ## Coupler-Based PCB Alignment
+
+The following video demonstrates coupler-based alignment:
+
+https://github.com/user-attachments/assets/c20a8d80-be67-4816-9a69-82f348ab255e
+
+See the [coupler-alignment screenshots][coupler-screenshots] for the key steps.
 
 Use the bundled `CouplerFixed` and `CouplerMoving` KiCad footprints to align
 two linked PCBs. Place `CouplerFixed` on the reference board and
@@ -260,6 +264,8 @@ an area are also errors; unannotated areas are skipped with a warning. The
 
 ## Flexible PCB Bending
 
+![Flexible PCB bending](https://github.com/buganini/Kikakuka/raw/main/screenshots/freekicad_fpc.png)
+
 Rename an unused KiCad user layer to `FreekiCAD` (case-insensitive). This is
 the layer name used for flexible-PCB bending. Draw each bend as a line segment
 on that layer, then add parameter text on the same layer within `0.1 mm` of
@@ -297,5 +303,6 @@ This repository is a release mirror. Development takes place in the
 
 [upstream]: https://github.com/buganini/Kikakuka/tree/main/FreekiCAD
 [coupler-library]: https://github.com/buganini/Kikakuka/tree/main/kicad-addon
+[coupler-screenshots]: https://github.com/buganini/Kikakuka/tree/main#coupler-based-pcb-alignment
 [fpc-assembly-example]: https://github.com/buganini/Kikakuka/blob/main/samples/fpc-assembly.kkkk_asm
 [fpc-sample]: https://github.com/buganini/Kikakuka/blob/main/samples/fpc.kicad_pcb
