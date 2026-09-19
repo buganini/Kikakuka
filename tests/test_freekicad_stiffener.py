@@ -98,13 +98,26 @@ class StiffenerTests(unittest.TestCase):
 
         self.assertAlmostEqual(spec.thickness, 0.254)
 
+    def test_unknown_material_uses_polyimide_defaults_with_warning(self):
+        stiffener = self._import_stiffener()
+        warnings = []
+
+        spec = stiffener.parse_stiffener_annotation(
+            "Material=PEEK/Thickness=0.1mm", warn=warnings.append)
+
+        self.assertEqual(spec.material, "PEEK")
+        self.assertEqual(spec.color, (0xC8 / 255, 0x75 / 255, 0x18 / 255))
+        self.assertEqual(spec.opacity, 0.65)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("PEEK", warnings[0])
+        self.assertIn("Polyimide defaults", warnings[0])
+
     def test_required_and_bounded_values_are_validated(self):
         stiffener = self._import_stiffener()
 
         for annotation in (
                 "Thickness=1mm",
                 "Material=FR4",
-                "Material=wood/Thickness=1mm",
                 "Material=FR4/Thickness=0mm",
                 "Material=FR4/Opacity=1.1/Thickness=1mm",
                 "Material=FR4/Color=red/Thickness=1mm"):
@@ -165,7 +178,7 @@ class StiffenerTests(unittest.TestCase):
         self.assertEqual(warnings,
                          ["Ignoring unannotated area on F.Stiffener"])
 
-    def test_invalid_annotation_is_reported_as_error(self):
+    def test_unknown_material_is_reported_as_warning_and_imported(self):
         stiffener = self._import_stiffener()
         warnings = []
         errors = []
@@ -180,11 +193,13 @@ class StiffenerTests(unittest.TestCase):
             [area], [text], [(10, "F.Stiffener", True)], 1.6,
             warn=warnings.append, error=errors.append)
 
-        self.assertEqual(result, [])
-        self.assertEqual(warnings, [])
-        self.assertEqual(len(errors), 1)
-        self.assertIn("Ignoring invalid F.Stiffener area", errors[0])
-        self.assertIn("Polymide", errors[0])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["material"], "Polymide")
+        self.assertEqual(result[0]["opacity"], 0.65)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Polymide", warnings[0])
+        self.assertIn("Polyimide defaults", warnings[0])
 
     def test_closed_line_chain_builds_stiffener_area(self):
         stiffener = self._import_stiffener()

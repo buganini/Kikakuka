@@ -289,6 +289,10 @@ with a warning.
 | `tesa8854` | `#EEE8D8` | `0.45` |
 | `3M9077` | `#DDE8EE` | `0.30` |
 
+Other material names are accepted with a warning. When `Color` or `Opacity`
+is omitted for an unlisted material, the corresponding `Polyimide` default is
+used.
+
 Front stiffeners extend outward from the front silkscreen plane; back
 stiffeners extend outward from the back silkscreen plane. They remain rigid
 during flex bending. Pad, via, and explicit mask-graphic openings on `F.Mask`

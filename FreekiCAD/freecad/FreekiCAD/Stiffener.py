@@ -47,7 +47,7 @@ def _parse_color(value):
                  for index in (1, 3, 5))
 
 
-def parse_stiffener_annotation(value):
+def parse_stiffener_annotation(value, warn=None):
     """Parse a slash- or newline-separated stiffener annotation."""
     properties = {}
     for field in re.split(r"[/\r\n]+", str(value or "")):
@@ -63,20 +63,28 @@ def parse_stiffener_annotation(value):
             raise ValueError(f"duplicate stiffener property {key!r}")
         properties[key] = field_value.strip()
 
-    material_value = properties.get("material")
-    material = _MATERIAL_NAMES.get(str(material_value or "").lower())
-    if material is None:
+    material_value = str(properties.get("material") or "").strip()
+    if not material_value:
         choices = ", ".join(MATERIAL_DEFAULTS)
         raise ValueError(
             f"invalid or missing Material {material_value!r}; expected {choices}"
         )
+    material = _MATERIAL_NAMES.get(material_value.lower())
+    if material is None:
+        material = material_value
+        default_color, default_opacity = MATERIAL_DEFAULTS["Polyimide"]
+        if warn:
+            warn(
+                f"Unknown stiffener Material {material_value!r}; using "
+                "Polyimide defaults for missing Color and Opacity")
+    else:
+        default_color, default_opacity = MATERIAL_DEFAULTS[material]
     if "thickness" not in properties:
         raise ValueError("missing Thickness; expected mm, in, mil, or um")
     thickness = parse_length_mm(properties["thickness"], "Thickness")
     if thickness <= 0:
         raise ValueError("Thickness must be greater than zero")
 
-    default_color, default_opacity = MATERIAL_DEFAULTS[material]
     color = (_parse_color(properties["color"])
              if "color" in properties else default_color)
     if "opacity" in properties:
@@ -230,7 +238,7 @@ def build_stiffener_layers(board_shapes, board_text, layers,
                         f"Ignoring {layer_name} area with multiple annotations")
                 continue
             try:
-                spec = parse_stiffener_annotation(annotations[0])
+                spec = parse_stiffener_annotation(annotations[0], warn=warn)
                 cut_area = area.copy()
                 side_openings = list(
                     (mask_openings or {}).get(is_front, []))
