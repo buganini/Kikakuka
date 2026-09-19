@@ -3,9 +3,11 @@
     * Accept a single `.kicad_pcb` as direct input to `kkkk_export.py`
     * Allow custom stiffener materials with a warning and Polyimide color/opacity defaults
     * Update coupler placements from cached bend-partition transforms without rebending the board
-    * Greatly improve initial bending and rebending performance through 2D partitioning, reusable geometry caches, and optimized wedge construction
+    * Improve initial bending and rebending performance by roughly 7-12x on representative multi-bend FPC benchmarks through 2D partitioning, reusable geometry caches, and optimized wedge construction
     * Fix bend traversal across adjacent wedge pieces
     * Prepare package metadata, icons, scripts, screenshots, and documentation for FreeCAD Addon Manager submission
+* Differ
+    * Replace full-page raster artifacts with cached, adaptively prioritized viewport tiles, coarse previews, grayscale compositing, and direct QImage buffers; equal-resolution full-page builds are roughly 5x faster, while the documented visible-area benchmark is about 16x faster
 
 # 7.5:
 * FreekiCAD
