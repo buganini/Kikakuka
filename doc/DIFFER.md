@@ -68,9 +68,9 @@ The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
    is cached by path and reused for every tile crop, then closed before its
    owning document when the renderer shuts down.
 7. Alpha-composite the selected layers into one A image, one B image, and one
-   overlap image per tile. The premultiplied float32 accumulator performs only
-   vector multiply/add operations per layer and converts back to straight
-   alpha once per completed tile.
+   overlap image per tile. A uint32 fixed-point accumulator stores alpha in
+   the range 0 through 255 and premultiplied color as `channel * alpha`; it
+   converts back to straight-alpha uint8 only once per completed tile.
 8. Merge raw binary differences from all visible layers, then run the
    threshold/blur sequence once for the tile.
 9. Cache results by diff generation, raster level, tile coordinate, and the

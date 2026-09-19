@@ -258,11 +258,9 @@ def finish_merged_mask(binary_mask):
 
 def alpha_composite(destination, source, opacity=1.0):
     """Composite straight-alpha BGRA images, matching QPainter source-over."""
-    destination_alpha = (
-        destination[:, :, 3:4].astype(np.float32) / 255.0
-    )
+    destination_alpha = destination[:, :, 3:4].astype(np.uint32)
     premultiplied = (
-        destination[:, :, :3].astype(np.float32) * destination_alpha
+        destination[:, :, :3].astype(np.uint32) * destination_alpha
     )
     _accumulate_alpha(premultiplied, destination_alpha, source, opacity)
     return _finish_alpha(premultiplied, destination_alpha)
@@ -270,27 +268,35 @@ def alpha_composite(destination, source, opacity=1.0):
 
 def _accumulate_alpha(premultiplied, destination_alpha, source,
                       opacity=1.0):
-    source_alpha = (
-        source[:, :, 3:4].astype(np.float32) * (opacity / 255.0)
-    )
-    inverse_source_alpha = 1.0 - source_alpha
+    opacity_alpha = np.uint32(round(min(1.0, max(0.0, opacity)) * 255.0))
+    source_alpha = source[:, :, 3:4].astype(np.uint32)
+    source_alpha *= opacity_alpha
+    source_alpha += 127
+    source_alpha //= 255
+    inverse_source_alpha = 255 - source_alpha
+
     premultiplied *= inverse_source_alpha
-    premultiplied += source[:, :, :3].astype(np.float32) * source_alpha
+    premultiplied += 127
+    premultiplied //= 255
+    premultiplied += source[:, :, :3].astype(np.uint32) * source_alpha
+
     destination_alpha *= inverse_source_alpha
+    destination_alpha += 127
+    destination_alpha //= 255
     destination_alpha += source_alpha
 
 
 def _finish_alpha(premultiplied, alpha):
     output = np.empty((*alpha.shape[:2], 4), dtype=np.uint8)
-    output[:, :, :3] = np.divide(
+    straight = np.full_like(premultiplied, 255, dtype=np.uint32)
+    np.floor_divide(
         premultiplied,
         alpha,
-        out=np.full_like(premultiplied, 255.0),
+        out=straight,
         where=alpha > 0,
-    ).clip(0, 255).astype(np.uint8)
-    output[:, :, 3] = (
-        alpha[:, :, 0] * 255.0
-    ).clip(0, 255).astype(np.uint8)
+    )
+    output[:, :, :3] = straight.clip(0, 255).astype(np.uint8)
+    output[:, :, 3] = alpha[:, :, 0].clip(0, 255).astype(np.uint8)
     return output
 
 
@@ -422,11 +428,11 @@ class PcbTileRenderer:
             name: (
                 np.zeros(
                     (extended_pixel_height, extended_pixel_width, 3),
-                    dtype=np.float32,
+                    dtype=np.uint32,
                 ),
                 np.zeros(
                     (extended_pixel_height, extended_pixel_width, 1),
-                    dtype=np.float32,
+                    dtype=np.uint32,
                 ),
             )
             for name in ("a", "b", "darker")

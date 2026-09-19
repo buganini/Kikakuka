@@ -12,6 +12,8 @@ from legacy_pcb_diff import (
 )
 from pcb_diff_tiles import (
     PcbTileRenderer,
+    _accumulate_alpha,
+    _finish_alpha,
     alpha_composite,
     choose_coarse_render_scale,
     choose_render_scale,
@@ -121,6 +123,19 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
 
 
 class PcbDiffTileImageTests(unittest.TestCase):
+    def test_uint32_accumulator_composites_without_float_buffers(self):
+        premultiplied = np.zeros((1, 1, 3), dtype=np.uint32)
+        alpha = np.zeros((1, 1, 1), dtype=np.uint32)
+        source = np.array([[[10, 20, 30, 255]]], dtype=np.uint8)
+
+        _accumulate_alpha(premultiplied, alpha, source, opacity=0.8)
+        output = _finish_alpha(premultiplied, alpha)
+
+        self.assertEqual(premultiplied.dtype, np.uint32)
+        self.assertEqual(alpha.dtype, np.uint32)
+        np.testing.assert_array_equal(output[:, :, :3], source[:, :, :3])
+        self.assertEqual(int(output[0, 0, 3]), 204)
+
     def test_alpha_composite_applies_layer_opacity(self):
         destination = np.array([[[255, 255, 255, 0]]], dtype=np.uint8)
         source = np.array([[[10, 20, 30, 255]]], dtype=np.uint8)
