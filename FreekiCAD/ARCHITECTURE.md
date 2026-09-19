@@ -117,11 +117,31 @@ Display-layer fragments are currently rebuilt from their flat profiles.
 
 ### Performance Regression Baseline
 
-The cached `main` comparison baseline was built from commit
-`76c86d2232bfd117c82c70314e5d0e01fa94a274`. Its unit-test results and
-benchmarks for `maze_radius.kicad_pcb`, `maze_radius_fan.kicad_pcb`,
-`maze_radius_skewed.kicad_pcb`, `fpc.kicad_pcb`, and `fpc2.kicad_pcb` may be
-reused until the `main` commit changes; rebuild the baseline after it changes.
+The cached comparison groups are:
+
+- legacy baseline:
+  `76c86d2232bfd117c82c70314e5d0e01fa94a274`
+- fast baseline:
+  `1454ae9cc2eeb06c2e89de4ab7c95c0ea82ff715`
+
+Each group records its unit-test results and benchmarks for
+`fpc2.kicad_pcb`, `fpc.kicad_pcb`, `maze_radius_skewed.kicad_pcb`,
+`maze_radius.kicad_pcb`, and `maze_radius_fan.kicad_pcb`, ordered from fastest
+to slowest using the fast baseline.
+
+The comparison checks record:
+
+- unit-test passed/total counts and runtime
+- PCB load and model-build time, starting only after the Workspace Manager has
+  returned a ready KiCad IPC socket
+- active bend-line and generated wedge-piece counts
+- shape validity and solid, face, edge, and vertex counts
+- total volume and area, volume-weighted center of mass, and bounding box
+- a SHA-256 fingerprint of sorted per-solid volumes, centers, face counts, and
+  bounding boxes
+
+Results may be reused while the corresponding reference commit is unchanged;
+rebuild a baseline after its reference changes.
 
 ## Coupler Pose Updates
 
