@@ -315,7 +315,7 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
     def test_viewport_block_renders_composited_tile_artifacts(self):
         renderer = PcbTileRenderer()
         renderer._render_layer = mock.Mock(
-            side_effect=lambda path, *_args: (
+            side_effect=lambda path, *_args, **_kwargs: (
                 self.image_a.copy() if path == "a.pdf"
                 else self.image_b.copy()
             )
@@ -333,7 +333,7 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
     def test_viewport_block_can_return_images_without_disk_artifacts(self):
         renderer = PcbTileRenderer()
         renderer._render_layer = mock.Mock(
-            side_effect=lambda path, *_args: (
+            side_effect=lambda path, *_args, **_kwargs: (
                 self.image_a.copy() if path == "a.pdf"
                 else self.image_b.copy()
             )
@@ -358,7 +358,7 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
     def test_viewport_block_can_composite_into_owned_buffers(self):
         renderer = PcbTileRenderer()
         renderer._render_layer = mock.Mock(
-            side_effect=lambda path, *_args: (
+            side_effect=lambda path, *_args, **_kwargs: (
                 self.image_a.copy() if path == "a.pdf"
                 else self.image_b.copy()
             )
@@ -432,6 +432,47 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
         )
 
         self.assertTrue(np.shares_memory(result, bitmap))
+
+    def test_full_pdf_crop_renders_into_caller_buffer(self):
+        renderer = PcbTileRenderer()
+        output = np.empty((4, 4), dtype=np.uint8)
+        page = mock.MagicMock()
+
+        def render(**options):
+            bitmap = options["bitmap_maker"](4, 4, 1, False)
+            bitmap.to_numpy()[:] = 42
+            return bitmap
+
+        page.render.side_effect = render
+        renderer._page = mock.Mock(return_value=page)
+
+        result = renderer._render_layer(
+            "board.pdf", (4.0, 4.0), (4.0, 4.0),
+            (0.0, 0.0, 4.0, 4.0), 1.0, output=output,
+        )
+
+        self.assertIs(result, output)
+        np.testing.assert_array_equal(
+            result, np.full((4, 4), 42, dtype=np.uint8)
+        )
+
+    def test_partial_pdf_crop_is_copied_into_caller_buffer(self):
+        renderer = PcbTileRenderer()
+        output = np.empty((4, 4), dtype=np.uint8)
+        bitmap = np.full((2, 2), 42, dtype=np.uint8)
+        page = mock.MagicMock()
+        page.render.return_value.to_numpy.return_value = bitmap
+        renderer._page = mock.Mock(return_value=page)
+
+        result = renderer._render_layer(
+            "board.pdf", (2.0, 2.0), (4.0, 4.0),
+            (0.0, 0.0, 4.0, 4.0), 1.0, output=output,
+        )
+
+        expected = np.full((4, 4), 255, dtype=np.uint8)
+        expected[1:3, 1:3] = 42
+        self.assertIs(result, output)
+        np.testing.assert_array_equal(result, expected)
 
     def test_legacy_block_preserves_alpha_blind_difference(self):
         transparent = np.array([[[255, 255, 255, 0]]], dtype=np.uint8)

@@ -1,3 +1,4 @@
+import ctypes
 import glob
 import math
 import os
@@ -564,7 +565,7 @@ class PcbTileRenderer:
         return image
 
     def _render_layer(self, path, page_size, canvas_size, bounds,
-                      render_scale, grayscale=True):
+                      render_scale, grayscale=True, output=None):
         x, y, width, height = bounds
         request_left = int(round(x * render_scale))
         request_top = int(round(y * render_scale))
@@ -572,8 +573,16 @@ class PcbTileRenderer:
         request_bottom = int(round((y + height) * render_scale))
         pixel_width = max(1, request_right - request_left)
         pixel_height = max(1, request_bottom - request_top)
+        if output is not None:
+            if not grayscale:
+                raise ValueError("Direct PDF rendering requires grayscale")
+            if output.shape != (pixel_height, pixel_width):
+                raise ValueError("PDF render buffer has the wrong shape")
         if not path:
-            return self._blank(pixel_width, pixel_height, grayscale)
+            if output is None:
+                return self._blank(pixel_width, pixel_height, grayscale)
+            output.fill(255)
+            return output
 
         page_width, page_height = page_size
         _canvas_pixel_size, page_pixel_size, page_offset = (
@@ -589,7 +598,10 @@ class PcbTileRenderer:
         intersection_bottom = min(request_bottom, page_bottom)
         if (intersection_right <= intersection_left or
                 intersection_bottom <= intersection_top):
-            return self._blank(pixel_width, pixel_height, grayscale)
+            if output is None:
+                return self._blank(pixel_width, pixel_height, grayscale)
+            output.fill(255)
+            return output
 
         local_left = intersection_left - page_left
         local_top = intersection_top - page_top
@@ -613,10 +625,35 @@ class PcbTileRenderer:
             })
         else:
             render_options["fill_color"] = (255, 255, 255, 0)
-        bitmap = self._page(path).render(**render_options).to_numpy()
 
         target_x = intersection_left - request_left
         target_y = intersection_top - request_top
+        render_width = intersection_right - intersection_left
+        render_height = intersection_bottom - intersection_top
+        if (output is not None and target_x == 0 and target_y == 0 and
+                render_width == pixel_width and render_height == pixel_height):
+            ctypes_buffer = (ctypes.c_ubyte * output.nbytes).from_buffer(
+                output
+            )
+
+            def bitmap_maker(width, height, format, rev_byteorder=False):
+                if width != pixel_width or height != pixel_height:
+                    raise ValueError("PDFium requested an unexpected bitmap")
+                return pdfium.PdfBitmap.new_native(
+                    width,
+                    height,
+                    format,
+                    rev_byteorder,
+                    buffer=ctypes_buffer,
+                    stride=output.strides[0],
+                )
+
+            self._page(path).render(
+                bitmap_maker=bitmap_maker, **render_options
+            )
+            return output
+
+        bitmap = self._page(path).render(**render_options).to_numpy()
         copy_width = min(bitmap.shape[1], pixel_width - target_x)
         copy_height = min(bitmap.shape[0], pixel_height - target_y)
         if (target_x == 0 and target_y == 0 and
@@ -625,7 +662,13 @@ class PcbTileRenderer:
             # until this layer has been composited instead of copying the crop.
             return bitmap[:copy_height, :copy_width]
 
-        output = self._blank(pixel_width, pixel_height, grayscale)
+        if output is None:
+            output = self._blank(pixel_width, pixel_height, grayscale)
+        elif grayscale:
+            output.fill(255)
+        else:
+            output.fill(0)
+            output[:, :, :3] = 255
         if copy_width > 0 and copy_height > 0:
             output[
                 target_y:target_y + copy_height,
@@ -683,7 +726,7 @@ class PcbTileRenderer:
                 )
                 for name in ("a", "b", "darker")
             }
-        (darker_buffer, occupancy_a, occupancy_b, merged_binary_mask,
+        (image_a_buffer, image_b_buffer, darker_buffer, merged_binary_mask,
          mask_scratch, coverage_scratch) = self._uint8_buffers(
             6, extended_pixel_height, extended_pixel_width
         )
@@ -703,6 +746,7 @@ class PcbTileRenderer:
                 canvas_size,
                 extended_bounds,
                 render_scale,
+                output=image_a_buffer,
             )
             image_b = self._render_layer(
                 path_b,
@@ -710,21 +754,9 @@ class PcbTileRenderer:
                 canvas_size,
                 extended_bounds,
                 render_scale,
+                output=image_b_buffer,
             )
             cv2.min(image_a, image_b, dst=darker_buffer)
-            threshold = 254 - LAYER_ALPHA_THRESHOLD
-            cv2.threshold(
-                image_a, threshold, 255, cv2.THRESH_BINARY_INV,
-                dst=occupancy_a
-            )
-            cv2.threshold(
-                image_b, threshold, 255, cv2.THRESH_BINARY_INV,
-                dst=occupancy_b
-            )
-            cv2.bitwise_xor(occupancy_a, occupancy_b, dst=occupancy_a)
-            cv2.max(
-                merged_binary_mask, occupancy_a, dst=merged_binary_mask
-            )
             color, layer_opacity = metadata.get("layer_styles", {}).get(
                 layer, standard_layer_style(layer)
             )
@@ -763,6 +795,19 @@ class PcbTileRenderer:
             _accumulate_coverage_bounds(
                 composites["darker"], composite_darker, color, opacity,
                 bounds_darker, composite_work_buffers,
+            )
+            threshold = 254 - LAYER_ALPHA_THRESHOLD
+            cv2.threshold(
+                image_a, threshold, 255, cv2.THRESH_BINARY_INV,
+                dst=image_a
+            )
+            cv2.threshold(
+                image_b, threshold, 255, cv2.THRESH_BINARY_INV,
+                dst=image_b
+            )
+            cv2.bitwise_xor(image_a, image_b, dst=image_a)
+            cv2.max(
+                merged_binary_mask, image_a, dst=merged_binary_mask
             )
 
         if not has_layers:

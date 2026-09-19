@@ -74,8 +74,9 @@ The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
    PDF. A 24-pixel gutter is rendered around the tile before mask processing
    and removed afterward, preventing blur seams. Each layer PDF's page handle
    is cached by path and reused for every tile crop, then closed before its
-   owning document when the renderer shuts down. A crop that already fills the
-   requested tile borrows PDFium's NumPy buffer instead of copying it.
+   owning document when the renderer shuts down. For a crop that fills its
+   requested tile, PDFium's `bitmap_maker` writes directly into reusable A/B
+   grayscale work buffers. Padded edge crops retain the temporary fallback.
 7. Alpha-composite the selected layers into one A image, one B image, and one
    overlap image per tile. PDFium renders opaque one-channel grayscale; white
    is converted to zero coverage and black to full coverage. KiCad's standard
