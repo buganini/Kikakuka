@@ -728,6 +728,76 @@ def _single_planar_face(shape):
         "planar boolean produced {} faces; expected one".format(len(faces)))
 
 
+def _split_prismatic_board_2d(unbent, cut_plan, plane_z):
+    """Split a prismatic board in 2D and extrude its partition faces."""
+    z_min = float(unbent.BoundBox.ZMin)
+    z_max = float(unbent.BoundBox.ZMax)
+    body_height = z_max - z_min
+    if body_height <= 1e-9:
+        raise ValueError("board body has no extrusion height")
+
+    wires = list(unbent.slice(FreeCAD.Vector(0, 0, 1), plane_z))
+    if not wires:
+        raise ValueError("board mid-plane slice produced no wires")
+    wire_order = _outline_wire_order(wires)
+    wires = [wires[index] for index in wire_order]
+    if len(wires) == 1:
+        profile = Part.Face(wires[0])
+    else:
+        profile = Part.Face(wires, "Part::FaceMakerBullseye")
+    if profile.isNull() or not profile.isValid():
+        raise ValueError("board mid-plane profile is invalid")
+
+    cut_edges = []
+    for entry in cut_plan:
+        start, end = entry[0], entry[1]
+        cut_edges.append(Part.makeLine(
+            FreeCAD.Vector(start.x, start.y, plane_z),
+            FreeCAD.Vector(end.x, end.y, plane_z)))
+    if not cut_edges:
+        raise ValueError("2D partition has no cut edges")
+
+    from BOPTools import SplitAPI
+    fragmented = SplitAPI.slice(profile, cut_edges, "Standard")
+    faces = [
+        face for face in getattr(fragmented, 'Faces', [])
+        if float(getattr(face, 'Area', 0.0)) > 1e-9
+    ]
+    if len(faces) <= 1:
+        raise ValueError(
+            f"2D partition produced only {len(faces)} face(s)")
+
+    profile_area = abs(float(profile.Area))
+    fragments_area = sum(abs(float(face.Area)) for face in faces)
+    area_tolerance = max(1e-6, profile_area * 1e-7)
+    if abs(fragments_area - profile_area) > area_tolerance:
+        raise ValueError(
+            "2D partition area mismatch: "
+            f"profile={profile_area:.9f}, fragments={fragments_area:.9f}")
+
+    faces.sort(key=lambda face: (
+        round(float(face.CenterOfMass.x), 10),
+        round(float(face.CenterOfMass.y), 10),
+        round(float(face.Area), 10)))
+    pieces = []
+    for face in faces:
+        flat_piece = face.copy()
+        flat_piece.translate(FreeCAD.Vector(0, 0, z_min - plane_z))
+        piece = flat_piece.extrude(FreeCAD.Vector(0, 0, body_height))
+        if piece.isNull() or not piece.isValid() or piece.Volume <= 1e-9:
+            raise ValueError("2D partition produced an invalid body piece")
+        pieces.append(piece)
+
+    source_volume = abs(float(unbent.Volume))
+    pieces_volume = sum(abs(float(piece.Volume)) for piece in pieces)
+    volume_tolerance = max(1e-6, source_volume * 1e-7)
+    if abs(pieces_volume - source_volume) > volume_tolerance:
+        raise ValueError(
+            "2D partition volume mismatch: "
+            f"board={source_volume:.9f}, pieces={pieces_volume:.9f}")
+    return pieces
+
+
 def _board_circle_radius_mm(circle):
     """Return a kipy BoardCircle radius in millimetres.
 
@@ -4942,15 +5012,18 @@ class PcbObject:
             f"{_time.time() - _t_phase2a:.3f}s\n")
         partition_signature = _bend_partition_signature(
             cut_plan, thickness)
-        # --- Phase 2b: create 3D cutting faces from 2D plan ---
+        # --- Phase 2b: attach topology metadata to the 2D cut plan ---
         _t_phase2b = _time.time()
         # Each stationary-side cut segment → independent micro-bend.
         # Moving-side cuts → geometry only (no micro-bend, no rotation).
         # After 2D planning, everything is per cut line.
-        cut_faces = []
+        # Vertical faces are expensive and only needed by the 3D partition or
+        # distance fallbacks.  Keep index-compatible empty slots and construct
+        # each face lazily if a fallback is actually used.
+        cut_faces = [None] * len(cut_plan)
         micro_bend_info = []  # per micro-bend: (angle, bend_obj,
                               #   cut_mid, normal, radius, orig_bi)
-        # --- Phase 2b-1: create cut faces with generic bend labels ---
+        # --- Phase 2b-1: label cuts with generic bend labels ---
         # Both geometric sides get the same label (bi) initially.
         # Stationary/moving role is determined per crossing via BFS.
         face_to_micro = {}  # fi → label (initially all bi)
@@ -4959,7 +5032,24 @@ class PcbObject:
         cut_plan_data = {}  # fi → (angle_rad, bend_obj, cut_mid,
                             #       normal, radius, bi)
 
-        for entry in cut_plan:
+        def _vertical_cut_face(fi):
+            face = cut_faces[fi]
+            if face is not None:
+                return face
+            sp0, sp1 = cut_plan[fi][0], cut_plan[fi][1]
+            c1 = sp0 - up * diag
+            c2 = sp1 - up * diag
+            c3 = sp1 + up * diag
+            c4 = sp0 + up * diag
+            face = Part.Face(Part.makePolygon([c1, c2, c3, c4, c1]))
+            cut_faces[fi] = face
+            return face
+
+        def _all_vertical_cut_faces():
+            return [
+                _vertical_cut_face(fi) for fi in range(len(cut_plan))]
+
+        for fi, entry in enumerate(cut_plan):
             sp0, sp1 = entry[0], entry[1]
             side, bi = entry[2], entry[3]
             angle_rad = entry[4]
@@ -4967,14 +5057,6 @@ class PcbObject:
             p0_ref = entry[6]
             normal_ref = entry[7]
             bend_obj_ref = entry[8]
-
-            fi = len(cut_faces)
-            c1 = sp0 - up * diag
-            c2 = sp1 - up * diag
-            c3 = sp1 + up * diag
-            c4 = sp0 + up * diag
-            cut_faces.append(
-                Part.Face(Part.makePolygon([c1, c2, c3, c4, c1])))
 
             cut_mid = (sp0 + sp1) * 0.5
             face_topo_side[fi] = side
@@ -4986,7 +5068,7 @@ class PcbObject:
                                  normal_ref, radius, bi)
 
         FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: [profile] Phase 2b (3D cut faces): "
+            f"FreekiCAD: [profile] Phase 2b (cut metadata): "
             f"{_time.time() - _t_phase2b:.3f}s\n")
         # --- Phase 2c: cut board, assign stationary/moving ---
         _t_phase2c = _time.time()
@@ -4999,25 +5081,31 @@ class PcbObject:
                 self, '_bend_partition_piece_slices', None)))
         if reuse_partition:
             pieces = self._bend_partition_pieces
+            partition_method = "cached pieces"
         else:
             try:
-                # NOTE: generalFuse returns a map of input→output face
-                # images, but we don't use it for adjacency because:
-                # (1) the map only tracks faces, missing edge/vertex
-                #     adjacency between pieces;
-                # (2) pieces filtered by Volume don't correspond 1:1
-                #     to compound solids, making face ownership fragile.
-                # Instead we slice pieces to 2D and use distToShape on
-                # the lightweight 2D wires.
-                fused, _map = unbent.generalFuse(cut_faces)
-                pieces = [s for s in fused.Solids if s.Volume > 1e-6]
-            except Exception:
-                pieces = []
+                pieces = _split_prismatic_board_2d(
+                    unbent, cut_plan, half_t)
+                partition_method = "2D split + extrusion"
+            except Exception as ex:
+                FreeCAD.Console.PrintWarning(
+                    f"FreekiCAD: 2D board partition failed: {ex}; "
+                    "using 3D generalFuse fallback\n")
+                try:
+                    # Keep the prior solid/face boolean as a compatibility
+                    # fallback for unusual or invalid planar topology.
+                    fused, _map = unbent.generalFuse(
+                        _all_vertical_cut_faces())
+                    pieces = [
+                        solid for solid in fused.Solids
+                        if solid.Volume > 1e-6]
+                except Exception:
+                    pieces = []
+                partition_method = "3D generalFuse fallback"
         FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: [profile] generalFuse: "
+            f"FreekiCAD: [profile] board partition: "
             f"{_time.time() - _t_fuse:.3f}s "
-            f"({len(pieces)} pieces, "
-            f"{'reused' if reuse_partition else 'rebuilt'})\n")
+            f"({len(pieces)} pieces, {partition_method})\n")
 
         # Build 2D slices of pieces for fast adjacency checks.
         # The board is flat — slicing at z=half_t gives 2D wires
@@ -5123,7 +5211,8 @@ class PcbObject:
                     except Exception:
                         try:
                             touching = (pieces[pi].distToShape(
-                                cut_faces[fi])[0] < GEOMETRY_TOLERANCE)
+                                _vertical_cut_face(fi))[0]
+                                < GEOMETRY_TOLERANCE)
                         except Exception:
                             touching = False
                     if touching:
@@ -5676,10 +5765,8 @@ class PcbObject:
                     is_stationary = side_dot > side_tol
                 if not is_stationary and abs(side_dot) <= side_tol:
                     # Local geometry is too close to the bend line; fall back
-                    # to direct face contact as a tie-breaker.
-                    is_stationary = (
-                        pieces[parent_pi].distToShape(
-                            cut_faces[fi])[0] < GEOMETRY_TOLERANCE)
+                    # to the already-computed cut incidence as a tie-breaker.
+                    is_stationary = parent_pi in cut_touching_pieces[fi]
             # Reuse mi if partner face already processed
             if sid is not None and sid in sid_to_mi:
                 mi = sid_to_mi[sid]

@@ -175,9 +175,12 @@ For each bend, creates cut line segments offset from the center line by +/- inse
   - Stationary/moving role is determined later by BFS chain selection
   - One entry per cut segment
 
-### Phase 2b-1: Create 3D Cutting Faces
+### Phase 2b-1: Create Partition Tools
 
-Extrudes each 2D cut segment into a vertical rectangular face spanning the full board height. Initially labels all faces with their parent bend index.
+Creates a mid-plane edge and topology metadata for every 2D cut segment. The
+edges drive the normal 2D partition path. Index-compatible vertical rectangular
+faces are constructed lazily only if a 2D distance query or the complete
+partition requires the 3D compatibility fallback.
 
 ### Output
 
@@ -189,19 +192,25 @@ Extrudes each 2D cut segment into a vertical rectangular face spanning the full 
 
 ### Phase 2c: Cut Board and Build Topology
 
-1. `generalFuse(board, cut_faces)` -> compound solid
-2. Extract `pieces` (solids with volume > 1e-6)
-3. Create `piece_slices` (2D wire at z=half_t) and `cut_segments` (2D edge at z=half_t) for fast distance checks
-4. Compute the piece/cut incidence matrix once. Bounding boxes reject distant
+1. Slice the unbent board at `z=half_t` to recover its planar body profile,
+   including outline cutouts and drill holes.
+2. Split that face with the cut edges using `BOPTools.SplitAPI.slice`.
+3. Validate total area, extrude each partition face across the board body's
+   actual Z range, and validate the resulting total volume. This avoids a 3D
+   solid/face boolean on the normal path.
+4. If the planar topology is invalid or validation fails, fall back to
+   `generalFuse(board, cut_faces)` and extract its solids.
+5. Create `piece_slices` (2D wire at z=half_t) for fast distance checks.
+6. Compute the piece/cut incidence matrix once. Bounding boxes reject distant
    pairs before the remaining candidates use 2D `distToShape`. Both
    `cut_touching_pieces[fi]` and `piece_touching_cuts[pi]` are retained.
-5. Build `joints` from trimmed center segments:
+7. Build `joints` from trimmed center segments:
    - each joint corresponds to one trimmed center segment (`sid`)
    - A/B faces are assigned to the joint by midpoint projection onto that center segment
    - wedge pieces are assigned by center-of-mass distance to the center segment
-6. Build adjacency graph from the incidence matrix (see below)
-7. Compute `cut_owner_piece` for debug cut visualization from the same matrix
-8. Run a preliminary non-wedge BFS to determine `fi_parent` / stationary-side ownership for each crossing face
+8. Build adjacency graph from the incidence matrix (see below)
+9. Compute `cut_owner_piece` for debug cut visualization from the same matrix
+10. Run a preliminary non-wedge BFS to determine `fi_parent` / stationary-side ownership for each crossing face
 
 ### Adjacency Graph Construction
 

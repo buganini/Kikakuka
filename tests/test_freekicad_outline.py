@@ -1242,6 +1242,68 @@ class OutlineWireOrderTests(unittest.TestCase):
             signature,
             linked_object._bend_partition_signature(moved_cut, 1.6))
 
+    def test_prismatic_board_is_partitioned_as_2d_faces_then_extruded(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Vector = _Vector2D
+
+        class Solid:
+            def __init__(self, volume):
+                self.Volume = volume
+
+            def isNull(self):
+                return False
+
+            def isValid(self):
+                return True
+
+        class FlatFace:
+            def __init__(self, area, x):
+                self.Area = area
+                self.CenterOfMass = _Vector2D(x, 0, 1)
+
+            def copy(self):
+                return self
+
+            def translate(self, _offset):
+                pass
+
+            def extrude(self, direction):
+                return Solid(self.Area * direction.z)
+
+        faces = [FlatFace(4, 3), FlatFace(6, 1)]
+
+        class Profile:
+            Area = 10
+
+            def isNull(self):
+                return False
+
+            def isValid(self):
+                return True
+
+        profile = Profile()
+        linked_object.Part.Face = mock.Mock(return_value=profile)
+        linked_object.Part.makeLine = mock.Mock(return_value=object())
+        split_api = types.SimpleNamespace(
+            slice=mock.Mock(return_value=types.SimpleNamespace(Faces=faces)))
+        bop_tools = types.ModuleType("BOPTools")
+        bop_tools.SplitAPI = split_api
+        unbent = types.SimpleNamespace(
+            BoundBox=types.SimpleNamespace(ZMin=0.2, ZMax=1.4),
+            Volume=12,
+            slice=mock.Mock(return_value=[object()]))
+        cut_plan = [
+            (_Vector2D(0, 0), _Vector2D(1, 0), "A", 0),
+        ]
+
+        with mock.patch.dict(sys.modules, {"BOPTools": bop_tools}):
+            pieces = linked_object._split_prismatic_board_2d(
+                unbent, cut_plan, 0.8)
+
+        self.assertAlmostEqual(pieces[0].Volume, 7.2)
+        self.assertAlmostEqual(pieces[1].Volume, 4.8)
+        split_api.slice.assert_called_once()
+
     def test_geometric_adjacency_reuses_piece_cut_incidence(self):
         linked_object = self._import_linked_object()
         proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
