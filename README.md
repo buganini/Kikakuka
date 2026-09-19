@@ -172,6 +172,7 @@ object. The option can be disabled independently for each object.
     * Add PCB
         * Switch to the `FreekiCAD` workbench.
         * Menubar -> FreekiCAD -> Add KiCad PCB
+        * Opening, importing, or dragging a `.kicad_pcb` file into FreeCAD performs the same linked import.
         * The selected `.kicad_pcb` remains an external file and is represented by a linked `PcbObject`. Its `AutoReload` property defaults to enabled.
     * Add STEP
         * Menubar -> FreekiCAD -> Add STEP

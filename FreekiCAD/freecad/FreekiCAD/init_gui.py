@@ -22,12 +22,12 @@ class CreatePcbObjectCommand:
 
     def Activated(self):
         from PySide import QtWidgets
-        from .PcbObject import create_pcb_object
+        from .PcbImport import insert
         filepath, _ = QtWidgets.QFileDialog.getOpenFileName(
             None, "Select file to link", "", "KiCad PCB (*.kicad_pcb)"
         )
         if filepath:
-            create_pcb_object(filepath)
+            insert(filepath, FreeCAD.ActiveDocument.Name)
 
 
 class CreateStepObjectCommand:

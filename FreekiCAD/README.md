@@ -7,7 +7,7 @@ PCB editing and mechanical assembly.
 
 ## Features
 
-- Linking external KiCad `.kicad_pcb` files
+- Opening, importing, or dragging external `.kicad_pcb` files as linked PCB objects
 - Editing board outlines
 - Importing solid stiffeners from annotated `F.Stiffener` and `B.Stiffener` layers
 - Bending flexible PCBs from a KiCad user layer named `FreekiCAD`
@@ -31,6 +31,11 @@ models without KiCad.
 
 The [FPC assembly example][fpc-assembly-example] shows a `.kkkk_asm` manifest
 containing linked KiCad PCB files.
+
+FreeCAD's Open and Import commands and drag-and-drop all create the same linked
+`PcbObject` as **FreekiCAD > Add KiCad PCB**. STEP extensions remain assigned to
+FreeCAD's built-in STEP importer; use **FreekiCAD > Add STEP** when a reloadable
+linked STEP object is wanted.
 
 ## Manual Installation
 
