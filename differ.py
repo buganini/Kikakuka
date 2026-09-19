@@ -850,8 +850,7 @@ class DifferUI(Application):
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in [SCH_SUFFIX, PCB_SUFFIX]:
                     self.state.file_a = fn
-                    self.state.log_a = None
-                    self.build()
+                    self.change_file_a()
                     event.accept()
                     return True
         event.ignore()
@@ -864,8 +863,7 @@ class DifferUI(Application):
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in [SCH_SUFFIX, PCB_SUFFIX]:
                     self.state.file_b = fn
-                    self.state.log_b = None
-                    self.build()
+                    self.change_file_b()
                     event.accept()
                     return True
         event.ignore()
@@ -874,11 +872,19 @@ class DifferUI(Application):
     def change_file_a(self):
         self.state.logs_a = None
         self.state.cached_file_a = ""
+        if not self.state.file_b:
+            self.state.file_b = self.state.file_a
+            self.state.logs_b = None
+            self.state.cached_file_b = ""
         self.build()
 
     def change_file_b(self):
         self.state.logs_b = None
         self.state.cached_file_b = ""
+        if not self.state.file_a:
+            self.state.file_a = self.state.file_b
+            self.state.logs_a = None
+            self.state.cached_file_a = ""
         self.build()
 
     def open_file_a(self, e):
