@@ -1,3 +1,12 @@
+# 7.5:
+* FreekiCAD
+    * Add `CouplerAt` for absolute FreeCAD world positioning with `TargetX`, `TargetY`, and `TargetZ`, replacing `CouplerOrigin`
+    * Add `Offset` to `CouplerFixed` and `CouplerMoving` for displacement along the footprint triangle direction without moving the footprint origin
+    * Register `.kicad_pcb` with FreeCAD so Open, Import, and drag-and-drop create linked PCB objects
+    * Fix FreeCAD-to-KiCad component movement synchronization on bent PCBs while ignoring unrelated placement notifications
+* KiCad Footprint Addon
+    * Package the public Kikakuka footprint library as a KiCad addon with descriptions, archive generation, and publish metadata tooling
+
 # 7.4:
 * FreekiCAD
     * Fix solder-mask color fallback when the stackup has no explicit mask color
