@@ -321,24 +321,16 @@ Current dispatch behavior:
 1. Retrieve saved pivot data (virtual_plc, cur_p0, cur_normal, cur_up, bend_axis, coc)
 2. Get `positioned_flat` = `wedge_pre_shapes[pi]` or `piece_shapes[pi]`
 3. If the bend has multiple center segments, choose the nearest saved segment midpoint for this wedge and recompute `cur_p0` / pivot for that segment
-4. Build d-values:
-   - `d_uniform`: N_SLICES+1 uniform positions in [gt, 2*ins - gt]
-   - Vertex projections of positioned_flat → `vertex_proj_ds` (split points where cross-section topology may change)
-5. Split d-range into sub-ranges at vertex projection planes. Each sub-range has consistent cross-section topology.
-6. For each sub-range:
-   - Collect uniform d-values falling within the sub-range, plus boundary d-values
-   - For each d-value:
-     - Slice positioned_flat perpendicular to cur_normal at distance d from cur_p0
-     - Compute `frac = (d - gt) / (2*ins - 2*gt)` and `slice_angle = frac * sweep_angle`
-     - Translate slice back by -d along cur_normal (to stationary edge)
-     - Rotate slice by slice_angle around CoC along bend_axis
-     - Use the first returned wire from `slice()` for that cross-section
-   - Reorder vertices: OCCT's `slice()` can return vertices in different cyclic order depending on slice position; align each wire to match the first wire by trying all cyclic rotations and both directions
-   - Collect as one loft segment
-7. Build wedge output:
-   - in wireframe mode: compound all slice wires
-   - in smooth mode: rebuild the wedge from bent source faces instead of turning the slice stack directly into one user-facing solid
-8. Apply remaining Phase 3 rotations (`piece_plc[pi] * wedge_post_mi_plc[pi]^-1`) to catch rotations that happened after the wedge's own mi
+4. Extract the flat wedge's top, bottom, and side faces plus their unique
+   boundary edges.
+5. Build wedge output:
+   - in wireframe mode: bend the source edges analytically
+   - in smooth mode: rebuild the wedge from bent source faces
+6. When `BuildDebugObjects` is enabled, additionally generate legacy
+   cross-section slices at uniform and vertex-projection d-values for topology
+   diagnostics. These OCC `slice()` results are not inputs to either production
+   builder and are skipped during normal bending.
+7. Apply remaining Phase 3 rotations (`piece_plc[pi] * wedge_post_mi_plc[pi]^-1`) to catch rotations that happened after the wedge's own mi
 
 ### Smooth Hybrid Rebuild
 

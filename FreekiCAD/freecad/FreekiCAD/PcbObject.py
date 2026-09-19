@@ -9815,6 +9815,12 @@ class PcbObject:
             wedge_ctx['profile'] = _extract_flat_wedge_profile(
                 wedge_ctx)
 
+            # The smooth wedge builder below deforms the source topology
+            # directly; it does not consume the legacy cross-section slices.
+            # Keep those slices only for BuildDebugObjects diagnostics.  OCC
+            # slice() calls are comparatively expensive, especially on an FPC
+            # with many wedge pieces, so doing them during every normal build
+            # added avoidable fresh-bend time without affecting the result.
             # Build uniform d-values over the wedge's actual projected span.
             d_uniform = []
             for si in range(N_SLICES + 1):
@@ -9831,7 +9837,7 @@ class PcbObject:
             all_wires_flat = []  # for debug logging
             attempted_ds = []
             split_ds = []
-            if not is_wireframe_wedge:
+            if wedge_diag and not is_wireframe_wedge:
                 # Split the d-range at vertex projection planes
                 # so each sub-range has consistent cross-section
                 # topology.  We slice the original solid for each
@@ -9992,7 +9998,9 @@ class PcbObject:
                     f"FreekiCAD:   slices={len(all_wires_flat)}"
                     f" edges={wire_edges}\n")
 
-            if not is_wireframe_wedge and not all_wires_flat:
+            if (wedge_diag
+                    and not is_wireframe_wedge
+                    and not all_wires_flat):
                 bbox = positioned_flat.BoundBox
                 attempted_ds = sorted(set(attempted_ds))
                 attempted_side_counts = []
