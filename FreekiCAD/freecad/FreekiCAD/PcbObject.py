@@ -5129,24 +5129,36 @@ class PcbObject:
             f"{_time.time() - _t_slices:.3f}s\n")
         wedge_assign_diag = getattr(obj, 'BuildDebugObjects', False)
 
-        def _piece_segment_debug_metrics(piece, seg_p0, seg_p1):
-            cm = piece.CenterOfMass
+        # Accessing TopoShape properties crosses the Python/OCCT boundary.
+        # Joint seeding tests every piece against many bend segments, so cache
+        # the immutable flat-piece data once instead of fetching it in every
+        # pairwise test.
+        _t_joint_seed = _time.time()
+        piece_metric_data = []
+        for piece in pieces:
+            piece_metric_data.append((
+                piece.CenterOfMass,
+                tuple(vertex.Point for vertex in piece.Vertexes),
+                piece.BoundBox,
+            ))
+
+        def _piece_segment_debug_metrics(pi, seg_p0, seg_p1):
+            cm, vertex_points, bbox = piece_metric_data[pi]
             cm_t_raw, cm_t, cm_d = _project_point_to_segment_xy(
                 cm, seg_p0, seg_p1)
             vertex_line_d = []
             vertex_t_raw = []
             vertex_t = []
             vertex_d = []
-            for vertex in getattr(piece, 'Vertexes', []):
+            for point in vertex_points:
                 _, d_line_v = _project_point_to_line_xy(
-                    vertex.Point, seg_p0, seg_p1)
+                    point, seg_p0, seg_p1)
                 t_raw_v, t_v, d_v = _project_point_to_segment_xy(
-                    vertex.Point, seg_p0, seg_p1)
+                    point, seg_p0, seg_p1)
                 vertex_line_d.append(d_line_v)
                 vertex_t_raw.append(t_raw_v)
                 vertex_t.append(t_v)
                 vertex_d.append(d_v)
-            bbox = getattr(piece, 'BoundBox', None)
             return {
                 'cm_t_raw': cm_t_raw,
                 'cm_t': cm_t,
@@ -5299,7 +5311,7 @@ class PcbObject:
                     if pi in strip_pieces:
                         continue
                     metrics = _piece_segment_debug_metrics(
-                        piece, bl_sp0, bl_sp1)
+                        pi, bl_sp0, bl_sp1)
                     if math.isnan(metrics['t_raw_min']):
                         continue
                     if math.isnan(metrics['t_raw_max']):
@@ -5315,11 +5327,13 @@ class PcbObject:
                     strip_pieces.add(pi)
                     strip_to_bend[pi] = bi
                     strip_to_seg[pi] = sid
+        _dt_joint_seed = _time.time() - _t_joint_seed
 
         # Rescue any still-unmatched A/B cut faces using the whole 2D cut
         # segment instead of only the cut midpoint. This catches branch/
         # concavity cases where the face is visibly part of a trimmed bend
         # segment but its midpoint falls outside the inset band.
+        _t_face_rescue = _time.time()
         center_segments_2d = []
         for joint in joints:
             seg_p0, seg_p1 = joint['center']
@@ -5402,6 +5416,7 @@ class PcbObject:
                     f" bend={face_bend.get(fi)}"
                     f" side={side}"
                     f" sid={sid}\n")
+        _dt_face_rescue = _time.time() - _t_face_rescue
 
         # Rescue any still-unassigned strip pieces using the matched cut
         # faces they actually touch, instead of only their center of mass.
@@ -5409,6 +5424,7 @@ class PcbObject:
         # either both A/B faces of a single trimmed segment, or neighboring
         # trimmed segments on opposite topo sides (for branched strips such as
         # p162 in maze_radius_skewed).
+        _t_piece_rescue = _time.time()
         piece_bend_touch = {}  # pi -> bi -> {'sids', 'sides', 'sid_sides'}
         for fi, sid in face_to_seg.items():
             bi = face_bend.get(fi)
@@ -5502,7 +5518,7 @@ class PcbObject:
                                 f" limit={ins + GEOMETRY_TOLERANCE:.6f}\n")
                         continue
                     metrics = _piece_segment_debug_metrics(
-                        pieces[pi], seg_p0, seg_p1)
+                        pi, seg_p0, seg_p1)
                     tol_t = GEOMETRY_TOLERANCE / seg_len
                     if (metrics['t_raw_max'] < -tol_t
                             or metrics['t_raw_min'] > 1.0 + tol_t):
@@ -5561,7 +5577,9 @@ class PcbObject:
                     f" sid={sid}"
                     f" touch_sids={sorted(touch['sids'])}"
                     f" touch_sides={sorted(touch['sides'])}\n")
+        _dt_piece_rescue = _time.time() - _t_piece_rescue
 
+        _t_pairing_diag = _time.time()
         if wedge_assign_diag:
             for sid, joint in enumerate(joints):
                 seg_p0, seg_p1 = joint['center']
@@ -5577,7 +5595,7 @@ class PcbObject:
                 for pi in joint['wedges']:
                     piece = pieces[pi]
                     metrics = _piece_segment_debug_metrics(
-                        piece, seg_p0, seg_p1)
+                        pi, seg_p0, seg_p1)
                     touch_faces = sorted(piece_touching_cuts[pi])
                     touch_sids = sorted(set(
                         face_to_seg[fi]
@@ -5612,11 +5630,13 @@ class PcbObject:
                             f"FreekiCAD:   wedge-src p{pi}"
                             f" assigned_sid={sid}"
                             f" but touches_sid={touch_sids}\n")
+        _dt_pairing_diag = _time.time() - _t_pairing_diag
 
         # Map each debug cut to the rigid piece that owns that edge.
         # The final debug line should follow the same rigid transform as
         # the piece adjacent to that cut, rather than approximating the
         # result from the bend line placement alone.
+        _t_cut_owner = _time.time()
         cut_owner_piece = {}
         for fi in range(len(cut_segments)):
             touching = cut_touching_pieces[fi]
@@ -5643,8 +5663,16 @@ class PcbObject:
                                 pieces[pi].CenterOfMass
                                 - p0_ref).dot(normal_ref))
                     cut_owner_piece[fi] = owner_pi
+        _dt_cut_owner = _time.time() - _t_cut_owner
 
         # Build geometric crossings and BFS for s/m assignment.
+        FreeCAD.Console.PrintMessage(
+            "FreekiCAD: [profile] Phase 2c stages: "
+            f"joint-seed={_dt_joint_seed:.3f}s, "
+            f"face-rescue={_dt_face_rescue:.3f}s, "
+            f"piece-rescue={_dt_piece_rescue:.3f}s, "
+            f"diagnostics={_dt_pairing_diag:.3f}s, "
+            f"cut-owner={_dt_cut_owner:.3f}s\n")
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Phase 2c (pairing): "
             f"{_time.time() - _t_phase2c:.3f}s\n")
@@ -5986,7 +6014,7 @@ class PcbObject:
                 if seg_len < 1e-12:
                     continue
                 metrics = _piece_segment_debug_metrics(
-                    pieces[pi], seg_p0, seg_p1)
+                    pi, seg_p0, seg_p1)
                 band_margin = max(
                     GEOMETRY_TOLERANCE,
                     min(insets[promote_bi] * 0.15, 0.05))
@@ -6910,6 +6938,7 @@ class PcbObject:
             wedge_mode)
         wedge_stage_seconds = {}
         wedge_stage_calls = {}
+        wedge_adaptive_choices = {}
 
         def _record_wedge_stage(stage, started):
             elapsed = _time.perf_counter() - started
@@ -9686,7 +9715,7 @@ class PcbObject:
                     joint_dbg = joints[sid_dbg]
                     seg_p0_dbg, seg_p1_dbg = joint_dbg['center']
                     metrics_dbg = _piece_segment_debug_metrics(
-                        pieces[pi], seg_p0_dbg, seg_p1_dbg)
+                        pi, seg_p0_dbg, seg_p1_dbg)
                     touch_faces_dbg = sorted(piece_touching_cuts[pi])
                     touch_sids_dbg = sorted(set(
                         face_to_seg[fi_dbg]
@@ -10123,19 +10152,28 @@ class PcbObject:
 
             placement_started = _time.perf_counter()
             if loft is not None:
-                    loft_pre_cm = _shape_center(loft)
+                    placement_prep_started = _time.perf_counter()
+                    # Normal smooth wedges do not need their center for
+                    # placement; compute it only for diagnostics or the
+                    # wireframe translation fallback.
+                    loft_pre_cm = (
+                        _shape_center(loft) if wedge_diag else None)
                     remaining_plc = None
                     applied_plc = FreeCAD.Placement()
                     remaining_axis = FreeCAD.Vector() if wedge_diag else None
                     target_cm_pre = FreeCAD.Vector(target_cm)
                     target_near_ref = FreeCAD.Vector(near_ref)
                     target_far_ref = FreeCAD.Vector(far_ref)
+                    _record_wedge_stage(
+                        "placement-prep", placement_prep_started)
                     # Apply remaining Phase 3
                     # rotations: the loft was built
                     # in the pre-mi frame; use the
                     # wedge's own absolute chain to
                     # catch subsequent rotations.
                     if pi in wedge_post_mi_plc:
+                        placement_remaining_started = \
+                            _time.perf_counter()
                         remaining_plc = piece_plc[
                             pi].multiply(
                             wedge_post_mi_plc[
@@ -10161,6 +10199,9 @@ class PcbObject:
                             target_far_ref = FreeCAD.Vector(far_ref)
                         ra = remaining_plc.Rotation.Angle
                         rb = remaining_plc.Base.Length
+                        _record_wedge_stage(
+                            "placement-remaining",
+                            placement_remaining_started)
                         if wedge_diag:
                             loft_anchor_near_pre = _closest_point_on_shape(
                                 loft, near_ref)
@@ -10204,6 +10245,8 @@ class PcbObject:
                         applied_plc = remaining_plc
                         applied_frac = 1.0
                         if ra <= 1e-6 and rb > 1e-6:
+                            placement_adaptive_started = \
+                                _time.perf_counter()
                             neighbor_shapes = []
                             for nbr, _bi, _fi in adjacency[pi]:
                                 if nbr in strip_pieces:
@@ -10213,15 +10256,47 @@ class PcbObject:
                                 neighbor_shapes.append(
                                     (nbr, piece_shapes[nbr]))
                             if neighbor_shapes:
-                                target_anchor_near = _closest_point_on_shape(
-                                    target_shape, target_near_ref)
-                                target_anchor_far = _closest_point_on_shape(
-                                    target_shape, target_far_ref)
                                 best_score = None
                                 best_plc = None
                                 best_frac = 1.0
                                 adaptive_scores = []
-                                for frac in (0.0, 0.5, 1.0):
+                                adaptive_distance_tolerance = 1e-6
+                                # The rebuilt wedge is normally already
+                                # touching every adjacent rigid piece.  Since
+                                # adjacency distance cannot improve below
+                                # zero, accept that position immediately and
+                                # avoid two transformed copies plus the
+                                # center/anchor distance queries.  Keep the
+                                # full legacy scoring for non-exact cases.
+                                zero_dists = []
+                                for _nbr, nbr_shape in neighbor_shapes:
+                                    zero_d = _shape_distance(loft, nbr_shape)
+                                    if not math.isnan(zero_d):
+                                        zero_dists.append(zero_d)
+                                zero_is_exact = (
+                                    bool(zero_dists)
+                                    and max(zero_dists)
+                                    <= adaptive_distance_tolerance)
+                                if zero_is_exact:
+                                    best_score = (
+                                        float(max(zero_dists)),
+                                        float(sum(zero_dists)),
+                                        0.0, 0.0, 0.0)
+                                    best_plc = FreeCAD.Placement()
+                                    best_frac = 0.0
+                                    candidate_fracs = ()
+                                    if wedge_diag:
+                                        adaptive_scores.append(
+                                            "0.00:exact-adjacency")
+                                else:
+                                    target_anchor_near = \
+                                        _closest_point_on_shape(
+                                            target_shape, target_near_ref)
+                                    target_anchor_far = \
+                                        _closest_point_on_shape(
+                                            target_shape, target_far_ref)
+                                    candidate_fracs = (0.0, 0.5, 1.0)
+                                for frac in candidate_fracs:
                                     cand_plc = FreeCAD.Placement()
                                     cand_plc.Base = FreeCAD.Vector(
                                         remaining_plc.Base.x * frac,
@@ -10285,7 +10360,9 @@ class PcbObject:
                                         # ties so the center match can decide.
                                         for axis, (cand_v, best_v) in enumerate(
                                                 zip(cand_score, best_score)):
-                                            tol = 1e-6 if axis < 4 else 1e-9
+                                            tol = (
+                                                adaptive_distance_tolerance
+                                                if axis < 4 else 1e-9)
                                             if cand_v < best_v - tol:
                                                 better = True
                                                 break
@@ -10298,6 +10375,9 @@ class PcbObject:
                                 if best_plc is not None:
                                     applied_plc = best_plc
                                     applied_frac = best_frac
+                                    wedge_adaptive_choices[best_frac] = (
+                                        wedge_adaptive_choices.get(
+                                            best_frac, 0) + 1)
                                     if wedge_diag:
                                         FreeCAD.Console.PrintMessage(
                                             f"FreekiCAD: wedge pi={pi}"
@@ -10313,6 +10393,8 @@ class PcbObject:
                                     + base.y * base.y
                                     + base.z * base.z)
                                 if base_len2 > 1e-18:
+                                    if loft_pre_cm is None:
+                                        loft_pre_cm = _shape_center(loft)
                                     center_delta = target_cm - loft_pre_cm
                                     proj_frac = center_delta.dot(base) / base_len2
                                     proj_frac = max(0.0, min(1.0, proj_frac))
@@ -10330,6 +10412,9 @@ class PcbObject:
                                             f" center_delta={_fmt_vec(center_delta)}"
                                             f" base={_fmt_vec(base)}"
                                             f" fallback=no-neighbors\n")
+                            _record_wedge_stage(
+                                "placement-adaptive",
+                                placement_adaptive_started)
                         if (ra > 1e-6
                                 or applied_plc.Base.Length > 1e-6):
                             if ra <= 1e-6 and abs(applied_frac - 1.0) > 1e-9:
@@ -10339,8 +10424,12 @@ class PcbObject:
                                         f" applying adaptive translation"
                                         f" base={_fmt_vec(applied_plc.Base)}"
                                         f" frac={applied_frac:.2f}\n")
-                            loft.transformShape(
-                                applied_plc.toMatrix())
+                            placement_transform_started = \
+                                _time.perf_counter()
+                            loft.transformShape(applied_plc.toMatrix())
+                            _record_wedge_stage(
+                                "placement-transform",
+                                placement_transform_started)
                     else:
                         if wedge_diag:
                             loft_anchor_near_pre = _closest_point_on_shape(
@@ -10478,6 +10567,10 @@ class PcbObject:
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: [profile] Wedge stages: "
                 f"{stage_summary}\n")
+        if wedge_adaptive_choices:
+            FreeCAD.Console.PrintMessage(
+                "FreekiCAD: [profile] Wedge adaptive choices: "
+                f"{sorted(wedge_adaptive_choices.items())}\n")
 
         bend_plc_debug = {}
         for child in obj.Group:

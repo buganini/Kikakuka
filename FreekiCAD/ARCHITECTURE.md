@@ -212,6 +212,8 @@ partition requires the 3D compatibility fallback.
    - each joint corresponds to one trimmed center segment (`sid`)
    - A/B faces are assigned to the joint by midpoint projection onto that center segment
    - wedge pieces are assigned by center-of-mass distance to the center segment
+   - each flat piece's center, vertices, and bounding box are read from OCCT
+     once, then reused by all segment tests as 2D XY data
 8. Build adjacency graph from the incidence matrix (see below)
 9. Compute `cut_owner_piece` for debug cut visualization from the same matrix
 10. Run a preliminary non-wedge BFS to determine `fi_parent` / stationary-side ownership for each crossing face
@@ -334,7 +336,11 @@ Current dispatch behavior:
    cross-section slices at uniform and vertex-projection d-values for topology
    diagnostics. These OCC `slice()` results are not inputs to either production
    builder and are skipped during normal bending.
-7. Apply remaining Phase 3 rotations (`piece_plc[pi] * wedge_post_mi_plc[pi]^-1`) to catch rotations that happened after the wedge's own mi
+7. Apply remaining Phase 3 rotations (`piece_plc[pi] * wedge_post_mi_plc[pi]^-1`) to catch rotations that happened after the wedge's own mi.
+   For a translation-only correction, first test the rebuilt wedge at zero
+   correction. If every adjacent rigid piece is already touching within the
+   placement scorer's tolerance, zero is accepted immediately; otherwise the
+   original 0/0.5/1.0 candidate scoring is retained.
 
 ### Smooth Hybrid Rebuild
 
