@@ -536,6 +536,19 @@ def _nearest_bend_piece(pieces, point, excluded=None):
     return result
 
 
+def _rigid_wedge_destinations(neighbors, source_pi, strip_pieces):
+    """Return only rigid destinations reachable through one wedge.
+
+    A neighboring strip needs its own canonical entry crossing. Treating it
+    as the rigid destination of another wedge lets first-visit BFS assign the
+    wrong parent and can leave its bend chain empty.
+    """
+    return [
+        entry for entry in neighbors
+        if entry[0] != source_pi and entry[0] not in strip_pieces
+    ]
+
+
 def _placement_matrix_signature(placement, digits=10):
     """Return a tolerance-stable signature for a FreeCAD Placement."""
     matrix = placement.toMatrix()
@@ -11888,9 +11901,9 @@ class PcbObject:
             win first-visit BFS over a real cross-bend traversal.
             """
             ordered = []
-            for nbr2, bi2, fi2 in adjacency[wedge_pi]:
-                if nbr2 == src_pi:
-                    continue
+            destinations = _rigid_wedge_destinations(
+                adjacency[wedge_pi], src_pi, _sp)
+            for nbr2, bi2, fi2 in destinations:
                 ordered.append((
                     0 if _side_test(src_pi, nbr2, entry_fi) else 1,
                     nbr2,

@@ -234,6 +234,20 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(index, 0)
         self.assertAlmostEqual(distance, 0.25)
 
+    def test_wedge_destinations_exclude_source_and_other_strips(self):
+        linked_object = self._import_linked_object()
+        neighbors = [
+            (3, 10, 20),
+            (7, 11, 21),
+            (8, 12, 22),
+            (9, 13, 23),
+        ]
+
+        destinations = linked_object._rigid_wedge_destinations(
+            neighbors, source_pi=3, strip_pieces={7, 9})
+
+        self.assertEqual(destinations, [(8, 12, 22)])
+
     def test_active_bend_does_not_permanently_block_component_sync(self):
         linked_object = self._import_linked_object()
         proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)

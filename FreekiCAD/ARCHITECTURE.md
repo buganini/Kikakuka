@@ -248,6 +248,10 @@ After the preliminary parent search:
 
 - Uses positive mi labels from `face_to_micro`
 - **Wedge pass-through**: when BFS hits a wedge piece, it records the positive entry mi on the wedge, then traverses through the wedge to candidate non-wedge neighbors; the exit side is recorded as a synthesized negative crossing `-(mi + 2)`
+  - Adjacent wedge pieces are not treated as pass-through destinations. Each
+    wedge must receive its own canonical entry crossing; otherwise first-visit
+    BFS can attach it to a neighboring wedge as a same-side rigid leaf and
+    leave its bend chain empty.
 - BFS is strict first-visit: first path wins, no revisiting / re-queuing
 - Wedges are special:
   - the wedge itself gets a BFS entry when first reached
