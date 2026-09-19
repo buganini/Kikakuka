@@ -6908,6 +6908,15 @@ class PcbObject:
         is_wireframe_wedge = (wedge_mode == "Wireframe")
         wedge_target_edge_splits = self._get_wedge_target_edge_splits(
             wedge_mode)
+        wedge_stage_seconds = {}
+        wedge_stage_calls = {}
+
+        def _record_wedge_stage(stage, started):
+            elapsed = _time.perf_counter() - started
+            wedge_stage_seconds[stage] = (
+                wedge_stage_seconds.get(stage, 0.0) + elapsed)
+            wedge_stage_calls[stage] = wedge_stage_calls.get(stage, 0) + 1
+            return elapsed
         # N_SLICES per wedge: at least 16, or 1 per degree
         # (computed per wedge below)
         coc_offsets = {}  # bi → (bend_obj, first_s_mi)
@@ -8859,18 +8868,23 @@ class PcbObject:
             def _build_shell_candidates(
                     candidate_faces,
                     candidate_fix_tol,
-                    candidate_fix_max_tol):
+                    candidate_fix_max_tol,
+                    primary_only=False,
+                    include_primary=True):
                 shell_candidates = []
 
                 def _add_shell_candidate(label, shape):
                     for shell in _collect_shape_shells(shape):
                         shell_candidates.append((label, shell))
 
-                try:
-                    _add_shell_candidate(
-                        "makeShell", Part.makeShell(candidate_faces))
-                except Exception:
-                    pass
+                if include_primary:
+                    try:
+                        _add_shell_candidate(
+                            "makeShell", Part.makeShell(candidate_faces))
+                    except Exception:
+                        pass
+                if primary_only:
+                    return shell_candidates
                 try:
                     _add_shell_candidate(
                         "Shell", Part.Shell(candidate_faces))
@@ -9024,8 +9038,21 @@ class PcbObject:
 
                 return best
 
+            # Most source-topology wedges already form one valid shell.  Try
+            # that normal result before constructing duplicate Shell,
+            # compound, sew, and fix candidates.  Those fallbacks are much
+            # more expensive and are needed only for imperfect topology.
             shell_candidates = _build_shell_candidates(
-                unique_faces, fix_tol, fix_max_tol)
+                unique_faces, fix_tol, fix_max_tol,
+                primary_only=True)
+            solid = _try_shell_candidates(
+                shell_candidates, target_vol, fix_tol, fix_max_tol)
+            if solid is not None:
+                return solid
+
+            shell_candidates = _build_shell_candidates(
+                unique_faces, fix_tol, fix_max_tol,
+                include_primary=False)
             solid = _try_shell_candidates(
                 shell_candidates, target_vol, fix_tol, fix_max_tol)
             if solid is not None:
@@ -9180,10 +9207,12 @@ class PcbObject:
                 )
 
             def _try_source_topology():
+                rebuild_started = _time.perf_counter()
                 (rebuilt_faces,
                  tri_fallback_faces,
                  collapsed_faces,
                  dropped_faces) = _build_rebuilt_faces()
+                _record_wedge_stage("face-rebuild", rebuild_started)
                 if not rebuilt_faces:
                     return None
                 if wedge_diag:
@@ -9193,8 +9222,10 @@ class PcbObject:
                         f" tri_fallback={tri_fallback_faces}"
                         f" collapsed={collapsed_faces}"
                         f" dropped={dropped_faces}\n")
+                solidify_started = _time.perf_counter()
                 solid = _solidify_surface_faces(
                     rebuilt_faces, wedge_ctx, "source-topology")
+                _record_wedge_stage("solidify", solidify_started)
                 if solid is None:
                     return None
                 target_vol = abs(float(
@@ -9266,11 +9297,13 @@ class PcbObject:
             tol_cfg = wedge_ctx.get('tolerances') or {}
             weld_tol = float(
                 tol_cfg.get('weld', max(1e-6, GEOMETRY_TOLERANCE * 0.1)))
+            edge_started = _time.perf_counter()
             bent_pairs = _build_bent_wedge_edges(
                 source_edges, wedge_ctx,
                 vertex_cache=welded_vertex_cache,
                 welded_points=welded_points,
                 weld_tol=weld_tol)
+            _record_wedge_stage("bent-edges", edge_started)
             if not bent_pairs:
                 return None
 
@@ -9592,6 +9625,7 @@ class PcbObject:
         wedge_output_placements = {}
         for pi in sorted(strip_to_bend):
             _t_loft_one = _time.time()
+            wedge_loop_started = _time.perf_counter()
             bi = strip_to_bend[pi]
             _, p0_bi, p1_bi, line_dir_bi, normal_bi, \
                 angle_rad_bi, radius_bi = bend_info[bi]
@@ -9815,8 +9849,10 @@ class PcbObject:
                 anchor_ref_far=anchor_ref_far,
                 anchor_target_near=anchor_target_near,
                 anchor_target_far=anchor_target_far)
+            profile_started = _time.perf_counter()
             wedge_ctx['profile'] = _extract_flat_wedge_profile(
                 wedge_ctx)
+            _record_wedge_stage("profile", profile_started)
 
             # The smooth wedge builder below deforms the source topology
             # directly; it does not consume the legacy cross-section slices.
@@ -10081,8 +10117,11 @@ class PcbObject:
                     return _build_wedge_wireframe_analytic(ctx)
                 return _build_wedge_wireframe_analytic(ctx)
 
+            shape_started = _time.perf_counter()
             loft = _build_wedge_shape(wedge_mode, wedge_ctx)
+            _record_wedge_stage("shape-build", shape_started)
 
+            placement_started = _time.perf_counter()
             if loft is not None:
                     loft_pre_cm = _shape_center(loft)
                     remaining_plc = None
@@ -10422,6 +10461,8 @@ class PcbObject:
                             f" adjacent=["
                             f"{', '.join(adjacent_bridge) if adjacent_bridge else '-'}"
                             f"]\n")
+            _record_wedge_stage("placement", placement_started)
+            _record_wedge_stage("total", wedge_loop_started)
             if wedge_diag:
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: [profile] wedge p{pi}"
@@ -10430,6 +10471,13 @@ class PcbObject:
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] Wedge build: "
             f"{_time.time() - _t_loft:.3f}s\n")
+        if wedge_stage_seconds:
+            stage_summary = ", ".join(
+                f"{stage}={seconds:.3f}s/{wedge_stage_calls[stage]}"
+                for stage, seconds in wedge_stage_seconds.items())
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: [profile] Wedge stages: "
+                f"{stage_summary}\n")
 
         bend_plc_debug = {}
         for child in obj.Group:

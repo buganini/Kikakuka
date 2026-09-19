@@ -367,6 +367,9 @@ Notes:
 - Triangle fallback density is intentionally lighter than the normal `Smooth` target: local fallback faces use one subdivision level less than the configured smooth split count
 - `Smooth` attempts a single source-topology rebuild for each wedge
 - If shell building fails, the smooth wedge rebuild stops at that single source-topology attempt
+- Solidification first tests the normal `Part.makeShell` result by itself.
+  Duplicate `Shell`, compound, sew, and fix candidates are constructed only
+  when that primary shell cannot produce a valid, aligned solid.
 - Smooth solid selection now ranks repaired shell candidates by volume error first, then by anchor alignment
 - If collapsed faces, dropped faces, or local triangle fallback were involved, a source-topology solid with high `vol_rel` is rejected outright
 - If every smooth-stage solid attempt fails, the user-facing `Smooth` mode falls back to analytic wireframe for that wedge
