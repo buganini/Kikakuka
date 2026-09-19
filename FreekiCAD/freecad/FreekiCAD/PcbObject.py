@@ -6666,9 +6666,11 @@ class PcbObject:
             if first_mi_occurrence:
                 for wpi in strip_pieces:
                     if strip_to_mi.get(wpi) == mi:
-                        wedge_pre_shapes[wpi] = \
-                            piece_shapes[wpi].copy()
-                        wedge_pre_plc[wpi] = piece_plc[wpi].copy()
+                        pre_plc = piece_plc[wpi].copy()
+                        pre_shape = pieces[wpi].copy()
+                        pre_shape.transformShape(pre_plc.toMatrix())
+                        wedge_pre_shapes[wpi] = pre_shape
+                        wedge_pre_plc[wpi] = pre_plc
 
             _log_bending_bfs(
                 f"FreekiCAD: micro {mi}:"
@@ -6685,19 +6687,11 @@ class PcbObject:
             for pi in range(len(piece_shapes)):
                 if not _at_step(pi, step_pos, mi):
                     continue
-                if pi in strip_pieces:
-                    pre_cm = piece_shapes[pi].CenterOfMass
-                    piece_shapes[pi].transformShape(
-                        plc_rot.toMatrix())
-                else:
-                    pre_cm = piece_plc[pi].multVec(
-                        pieces[pi].CenterOfMass)
+                pre_cm = piece_plc[pi].multVec(
+                    pieces[pi].CenterOfMass)
                 piece_plc[pi] = plc_rot.multiply(piece_plc[pi])
-                if pi in strip_pieces:
-                    post_cm = piece_shapes[pi].CenterOfMass
-                else:
-                    post_cm = piece_plc[pi].multVec(
-                        pieces[pi].CenterOfMass)
+                post_cm = piece_plc[pi].multVec(
+                    pieces[pi].CenterOfMass)
                 rotated_pis.append(pi)
                 # Log z-change for pieces near fixed
                 entry_dbg = bfs_tree.get(pi)
@@ -6817,8 +6811,6 @@ class PcbObject:
                         # translation, the remaining_plc applied after
                         # loft reconstruction will carry the same
                         # correction back onto the rebuilt wedge.
-                        if pi in strip_pieces:
-                            piece_shapes[pi].translate(correction)
                         piece_plc[pi] = corr_plc.multiply(
                             piece_plc[pi])
 
@@ -6864,6 +6856,12 @@ class PcbObject:
             and len(previous_placement_signatures) == len(piece_shapes))
         for pi in range(len(piece_shapes)):
             if pi in strip_pieces:
+                # Wedges are rebuilt below. Materialize their final rigid
+                # target once for placement/anchor checks instead of mutating
+                # the source BRep at every micro-bend above.
+                piece_shapes[pi] = pieces[pi].copy()
+                piece_shapes[pi].transformShape(
+                    piece_plc[pi].toMatrix())
                 continue
             if (can_reuse_rigid_shapes
                     and pi not in previous_strip_pieces

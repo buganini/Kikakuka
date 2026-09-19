@@ -104,14 +104,16 @@ subsequent rebend reuses the existing flat body pieces and their 2D slices,
 skipping `generalFuse` and slice reconstruction. A source-board reload, an
 inactive bending state, or conflicting bend spans invalidates the cache.
 
-During Phase 3, rigid pieces accumulate only a `piece_plc`; their BRep is not
-transformed repeatedly at every bend step. After all transforms and inset
-corrections are known, the final placement matrix is compared with the prior
-run. An unchanged rigid piece reuses its previous bent shape, while a changed
-piece is copied from its cached flat partition and transformed once. Curved
-wedge pieces are always rebuilt because their geometry depends on bend sweep
-and radius even when a neighboring rigid transform is unchanged. Display-layer
-fragments are currently rebuilt from their flat profiles.
+During Phase 3, every piece accumulates only a `piece_plc`; its BRep is not
+transformed repeatedly at every bend step. A wedge's pre-bend snapshot and
+final rigid target are each materialized once from its cached flat partition
+and the placement accumulated at that point. After all transforms and inset
+corrections are known, a rigid piece's final placement matrix is compared with
+the prior run. An unchanged rigid piece reuses its previous bent shape, while a
+changed piece is copied from its cached flat partition and transformed once.
+Curved wedge pieces are always rebuilt because their geometry depends on bend
+sweep and radius even when a neighboring rigid transform is unchanged.
+Display-layer fragments are currently rebuilt from their flat profiles.
 
 ## Coupler Pose Updates
 
@@ -301,12 +303,13 @@ Iterates chain positions; at each position collects distinct mi's across all pie
    - `bend_sign = -1 if angle > 0 else 1`
    - `pivot = stat_edge_mid + cur_up * (r_eff * bend_sign)`
 5. **(First occurrence of mi only)** Save pivot data in `micro_pivots[mi]` for wedge loft
-6. **(First occurrence of mi only)** Save `wedge_pre_shapes[wpi]` for wedges whose canonical `strip_to_mi[wpi] == mi`
+6. **(First occurrence of mi only)** Materialize `wedge_pre_shapes[wpi]` once from the cached flat wedge and its current `piece_plc` for wedges whose canonical `strip_to_mi[wpi] == mi`
 7. Rotate all pieces where `piece_mi_list[pi][step_pos] == mi` by `micro_angle` around the pivot
-8. Compose rotation into `piece_plc[pi]` for each rotated piece
+8. Compose rotation into `piece_plc[pi]` for each rotated piece; do not transform the BRep at each micro-bend
 9. **(First occurrence of mi only, after rotation)** Save `wedge_post_mi_plc[wpi]`
 10. Rotate bend lines and components by the same transform, using piece-based multipliers where available
-11. Apply inset correction inside the Phase 3 loop to the affected non-wedge pieces, bend lines, and components
+11. Apply inset correction inside the Phase 3 loop to the affected piece placements, bend lines, and components
+12. After Phase 3, materialize each wedge's final rigid target once from its cached flat partition and final `piece_plc`; the wedge builder uses this target for anchor and placement checks
 
 ---
 
