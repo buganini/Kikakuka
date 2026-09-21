@@ -163,7 +163,7 @@ class PdfTileDiffView(PUIView):
     background_color = 0x001124
     cursor_color = 0x7e8792
     mask_opacity = 0.3
-    zoom_limit = 8
+    zoom_limit = 64
 
     def __init__(self, main):
         super().__init__()
