@@ -57,33 +57,103 @@ launches have no equivalent document probe, so they keep a short settling
 period before the next KiCad launch. The outer request may wait up to 120
 seconds to accommodate queued opens.
 
+## Finding a pcbnew PID
+
+KiCad's PCB IPC sockets are separate from the Instance Manager mesh sockets.
+On Unix, the backend scans `/tmp/kicad` for `api-<PID>.sock` and `api.sock`;
+on Windows, it also enumerates the corresponding named pipes. It reads the
+ordinary process list on demand to find KiCad editor PIDs and creation times:
+
+- For `api-<PID>.sock`, the PID is in the socket name, but the backend still
+  requires a matching live KiCad editor process before using it.
+- `api.sock` contains no PID. The backend assigns it to the oldest KiCad
+  editor process that has not already been matched to a PID-specific socket.
+  This is an inference from process order, not a PID supplied by KiCad IPC.
+
+For each candidate socket, the backend asks KiCad's API for the open board
+name (and project path if the name is relative). Only a path matching the
+requested PCB is accepted for reuse, focus, or PCB IPC operations; a saved
+file-to-PID mapping alone is not proof that the board remains open. The
+Instance Manager tab uses the same socket-and-board probe to rebuild its PCB
+rows on manual refresh.
+
+When launching a new KiCad editor, the current launcher also compares editor
+process lists before and after launch to infer the new PID. For a PCB, that
+inference is not the final answer: the backend waits up to 30 seconds for the
+requested board to appear through KiCad IPC and uses the PID assigned to that
+socket. Process-list enumeration is still needed to validate PID-specific
+sockets and to assign a PID to `api.sock`; it is not a background monitor.
+
+## Finding an eeschema PID
+
+For `.kicad_sch` (and `.kicad_pro`) there is no PCB-style IPC probe that
+reports which document an editor currently has open. If the mesh already has
+a file-to-PID mapping and that PID still exists, the executor reuses it. This
+is only a best-effort hint: a live process may have switched or closed its
+document without the mapping being updated.
+
+Otherwise the backend opens the file through its system association. It scans
+KiCad editor processes before and after launch, waits up to eight seconds for
+a new PID, and selects the newly appeared process with the latest creation
+time. The scan includes process names such as `eeschema`, `kicad`, and
+`pcbnew`; it does not verify that the chosen process opened the requested
+schematic. Schematic/project launches then retain the per-program launch lock
+for another three seconds to let process startup settle.
+
+The Instance Manager tab also enumerates editor processes on refresh. If no
+file-to-PID mapping is known, it may infer a `.kicad_sch` or `.kicad_pro`
+path from the process command line (resolving relative paths against its
+working directory). If neither source supplies a path, the row shows an
+unknown file rather than claiming a verified document.
+
+## FreeCAD document APIs and PID
+
+Each GUI FreeCAD process runs its own FreekiCAD mesh node. The node's `hello`
+response identifies its PID and whether GUI document actions are available,
+so FreeCAD documents do not need KiCad-style socket-to-PID inference.
+`freecad-list-documents` runs `FreeCAD.listDocuments()` on that process's GUI
+thread. Each document's `FileName` supplies its path; for imported files with
+an empty `FileName`, FreekiCAD remembers the source path separately. An
+unsaved document without a known source path has no file path to report.
+
+FreekiCAD registers a `FreeCAD.addDocumentObserver()` observer. Its create,
+activate, change, save, and delete callbacks update the file-to-PID mapping
+without polling. A manual Instance Manager refresh calls
+`freecad-list-documents` again to reconcile missed events and show one row per
+open file, even when several files share the same FreeCAD PID. FreeCADCmd runs
+a mesh node but does not provide these GUI document actions.
+
+For an already-open file, `freecad-activate-document` finds it with
+`FreeCAD.listDocuments()`, selects it with `FreeCAD.setActiveDocument()`, and
+uses FreeCAD's Qt MDI area to select the matching visible tab. For a new file,
+`freecad-open-document` queues work on the GUI thread: `.FCStd` uses
+`FreeCAD.openDocument()`, STEP uses `Import.open()` (without a modal import
+dialog), and `.kkkk_asm` uses FreekiCAD's assembly importer. The mesh ACK
+confirms the request was queued, not that document loading has finished.
+
 ## State and refresh
 
 Successful KiCad and FreeCAD opens broadcast file-to-editor-PID events directly
-to every currently discovered node. In GUI FreeCAD, FreekiCAD observes document
-create/activate/save/close events and broadcasts paths with a saved `FileName`.
-Unsaved documents have no path to publish. Multiple GUI documents in one process
-retain separate mappings; FreeCADCmd does not publish its own documents.
-Deletions use timestamped tombstones so an old
-snapshot cannot revive a removed mapping. A joining node and an executor
-refresh snapshots from peers on demand; the Monitor does the same at startup
-and on manual Refresh. The Monitor also sends `freecad-list-documents`
-directly to every responding GUI FreeCAD node. Each node scans
-`FreeCAD.listDocuments()` on its GUI thread and returns its saved file paths.
-FreekiCAD's `.kkkk_asm` importer also records the source path, because its
-generated FreeCAD document has no
-`FileName`. The Monitor reconciles that PID's entries, including removals
-missed by an earlier event. The scan also queues
+to every currently discovered node. Deletions use timestamped tombstones so
+an old snapshot cannot revive a removed mapping. A joining node and an
+executor refresh snapshots from peers on demand; the Instance Manager tab does
+the same at startup and on manual Refresh. The tab probes KiCad PCB IPC
+endpoints to rebuild paths for boards opened outside Kikakuka and requests
+`freecad-list-documents` from responding GUI FreeCAD nodes. It reconciles each
+FreeCAD PID's entries, including removals missed by earlier events, and queues
 corrective broadcasts to the other nodes. Nodes that cannot answer are left
-unchanged until a later refresh. FreeCADCmd does not provide this action.
+unchanged until a later refresh.
 Before opening a FreeCAD file, the executor asks the responding GUI nodes to
 find and activate that path. A match selects its FreeCAD document and MDI tab,
 then brings that process to the foreground. If the document is not open but a
 GUI FreeCAD node exists, the executor sends `freecad-open-document` to that
-node and waits for FreekiCAD to create the document in the same process. STEP
+node. Its acknowledgement means the GUI open was queued; the caller does not
+wait for a potentially slow import or launch another process. STEP
 files use FreeCAD's non-modal importer; imported files without a native
 `FileName` are associated with their source path for later scans. A new
-process is launched only when no GUI FreeCAD node can be reached. The live
+process is launched only when no FreeCAD GUI process is running. If a GUI
+process is running but its node cannot be reached, opening fails rather than
+launching a duplicate. The live
 document check takes precedence over an old PID mapping. After a new process
 starts, the launcher waits for its FreekiCAD node and binds the requested path
 to its imported document; process creation alone is not reported as a

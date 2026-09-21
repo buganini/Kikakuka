@@ -90,6 +90,25 @@ class InstanceMeshTests(unittest.TestCase):
             self.assertTrue(Path(endpoint).exists())
         Path(endpoint).unlink()
 
+    @unittest.skipIf(os.name == "nt", "Unix socket startup race")
+    def test_discovery_does_not_unlink_live_socket_before_listen(self):
+        endpoint = im_mesh._endpoint(os.getpid(), im_mesh._started_ms(os.getpid()))
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            listener.bind(endpoint)
+            self.assertEqual(im_mesh.discover(), [])
+            self.assertTrue(Path(endpoint).exists())
+        Path(endpoint).unlink()
+
+    @unittest.skipIf(os.name == "nt", "Unix socket startup race")
+    def test_new_node_does_not_unlink_live_process_socket(self):
+        endpoint = im_mesh._endpoint(os.getpid(), im_mesh._started_ms(os.getpid()))
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+            listener.bind(endpoint)
+            node = self.node(lambda _: {"status": "ok"})
+            self.assertNotEqual(node.endpoint, endpoint)
+            self.assertTrue(Path(endpoint).exists())
+        Path(endpoint).unlink()
+
     def test_windows_pipe_name_can_be_discovered_by_enumeration(self):
         fake_os = types.SimpleNamespace(name="nt", path=os.path)
         with mock.patch.object(im_mesh, "os", fake_os), \
@@ -222,24 +241,79 @@ class InstanceMeshTests(unittest.TestCase):
             "mesh_action": "freecad-activate-document",
             "filepath": "relative.FCStd"}, token=first.token)["status"], "error")
 
-    def test_freecad_open_targets_gui_node_and_returns_after_open(self):
+    def test_freecad_activation_targets_the_selected_row_pid(self):
+        peers = [
+            {"pid": 111, "endpoint": "first", "freecad_documents": True},
+            {"pid": 222, "endpoint": "second", "freecad_documents": True},
+        ]
+        with mock.patch.object(im_mesh, "discover", return_value=peers), \
+                mock.patch.object(im_mesh, "_exchange", return_value={
+                    "status": "ok", "pid": 222, "found": True,
+                }) as exchange, \
+                mock.patch.object(im_mesh, "_alive", return_value=True):
+            self.assertEqual(im_mesh.activate_open_freecad_document(
+                "/models/part.FCStd", target_pid=222), 222)
+        exchange.assert_called_once_with("second", {
+            "mesh_action": "freecad-activate-document",
+            "filepath": "/models/part.FCStd",
+        }, 2500)
+
+    def test_freecad_open_targets_gui_node_and_returns_after_acceptance(self):
         nongui = self.node(lambda _: {"status": "ok"})
         gui = self.node(lambda _: {"status": "ok"})
         opened = []
+        opened_event = threading.Event()
         gui.set_document_provider(lambda: [])
-        gui.set_document_opener(lambda path: opened.append(path) or True)
+        gui.set_document_opener(lambda path: opened.append(path) or opened_event.set() or True)
         self.assertEqual(im_mesh.open_in_freecad_node(
             "/models/new.FCStd"), os.getpid())
+        self.assertTrue(opened_event.wait(1))
         self.assertEqual(opened, ["/models/new.FCStd"])
         self.assertIsNone(nongui.document_opener)
 
-    def test_freecad_open_reports_import_error(self):
+    def test_freecad_open_does_not_wait_for_slow_gui_operation(self):
         gui = self.node(lambda _: {"status": "ok"})
         gui.set_document_provider(lambda: [])
-        gui.set_document_opener(lambda _: (_ for _ in ()).throw(
-            ValueError("bad STEP")))
-        with self.assertRaisesRegex(RuntimeError, "bad STEP"):
-            im_mesh.open_in_freecad_node("/models/bad.step")
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_open(_):
+            started.set()
+            release.wait(2)
+            return True
+
+        gui.set_document_opener(slow_open)
+        try:
+            self.assertEqual(im_mesh.open_in_freecad_node(
+                "/models/slow.FCStd"), os.getpid())
+            self.assertTrue(started.wait(1))
+            self.assertFalse(release.is_set())
+        finally:
+            release.set()
+
+    def test_freecad_node_deduplicates_inflight_open_by_path(self):
+        gui = self.node(lambda _: {"status": "ok"})
+        gui.set_document_provider(lambda: [])
+        started = threading.Event()
+        release = threading.Event()
+        opened = []
+
+        def slow_open(path):
+            opened.append(path)
+            started.set()
+            release.wait(2)
+            return True
+
+        gui.set_document_opener(slow_open)
+        try:
+            self.assertEqual(im_mesh.open_in_freecad_node(
+                "/models/slow.FCStd"), os.getpid())
+            self.assertTrue(started.wait(1))
+            self.assertEqual(im_mesh.open_in_freecad_node(
+                "/models/slow.FCStd"), os.getpid())
+            self.assertEqual(opened, ["/models/slow.FCStd"])
+        finally:
+            release.set()
 
     def test_existing_gui_without_open_handler_does_not_trigger_new_launch(self):
         gui = self.node(lambda _: {"status": "ok"})

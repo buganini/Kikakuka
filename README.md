@@ -17,7 +17,7 @@ It creates a few more dimensions for KiCad:
     * Easily navigate between projects
         * Automatically open multiple KiCad instances on macOS
     * Recall windows of previously opened files (macOS and Windows only)
-    * Monitor running KiCad and FreeCAD processes and their known file paths
+    * Instance Manager tab lists running KiCad and FreeCAD processes and their known file paths
 * Differ
     * Highlight changed areas
     * [Schematic diff viewer](#schematics-differ)

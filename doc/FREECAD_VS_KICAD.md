@@ -20,20 +20,23 @@ future releases lack a feature. KiCad details below refer to the project's
 For FreeCAD, the source of truth is the responding GUI node's live document
 list. On open, Kikakuka first asks every GUI node to activate an existing
 matching document. If none matches, it asks a node to create the document in
-the same process. The document observer publishes changes; Monitor's manual
-**Refresh** re-queries each GUI node and reconciles all paths belonging to its
-PID. Imported files require FreekiCAD's source-path association because an
-unsaved FreeCAD document may not have a native filename. An unrelated unsaved
-document with no known source cannot be assigned a path; Monitor shows
+the same process. The document observer publishes changes; the Instance
+Manager tab's manual **Refresh** re-queries each GUI node and reconciles all
+paths belonging to its PID. Imported files require FreekiCAD's source-path
+association because an unsaved FreeCAD document may not have a native filename.
+An unrelated unsaved document with no known source cannot be assigned a path;
+the tab shows
 `unknown` when that process has no other identified file.
 
 For KiCad PCBs, the source of truth is the board path reported over that
 editor's IPC endpoint, not a cached `file path -> PID` entry. The endpoint is
 associated with an editor PID, and a request rechecks the board before reusing
-it. For schematics and projects, the current integration relies on the
-best-effort PID association because it has not implemented an equivalent
-live-path check. Monitor also lists running editor processes whose file path
-cannot be identified, as `unknown`.
+it. The Instance Manager tab probes these endpoints on Refresh to identify
+boards opened outside Kikakuka. For schematics and projects, the current
+integration relies on the best-effort PID association because it has not
+implemented an equivalent
+live-path check. The Instance Manager tab also lists running editor processes
+whose file path cannot be identified, as `unknown`.
 
 The [Instance Manager](INSTANCE_MANAGER.md) documents mesh discovery,
 election, state propagation, and platform-specific transport.

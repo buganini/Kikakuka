@@ -95,6 +95,19 @@ def _find_board(filepath):
     return None, None
 
 
+def scan_open_kicad_boards():
+    """Read open PCB paths from live KiCad IPC endpoints for the UI inventory."""
+    boards = []
+    for pid, socket_path in _sockets():
+        try:
+            filepath = _board_path(socket_path)
+        except Exception:
+            continue
+        if filepath:
+            boards.append((pid, filepath))
+    return boards
+
+
 def _focus(pid):
     if platform.system() == "Darwin":
         try:
@@ -184,6 +197,9 @@ def _open_new(filepath, program, is_board, node):
             if pid is not None and psutil.pid_exists(pid):
                 return pid, None
 
+        if program == "freecad" and _editors("freecad"):
+            raise RuntimeError(
+                "FreeCAD is running but its FreekiCAD instance node is unavailable")
         pid = _launch(filepath, program)
         if is_board:
             return _wait_for_board(filepath)

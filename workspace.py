@@ -716,6 +716,11 @@ class WorkspaceUI(PUIView):
             if reply.get("status") == "error":
                 print(f"Instance mesh: {reply.get('message', 'could not open FreeCAD file')}")
         except ConnectionError:
+            from FreekiCAD.freecad.FreekiCAD.instance_backend import _editors
+            if _editors("freecad"):
+                print("Instance mesh unavailable: FreeCAD is running but its "
+                      "FreekiCAD instance node cannot be reached")
+                return
             open_with_system(filepath)
 
     def close(self):
@@ -766,15 +771,36 @@ class MainUI(Application):
         self.refresh_monitor()
 
     def refresh_monitor(self, _event=None):
+        from FreekiCAD.freecad.FreekiCAD.instance_backend import scan_open_kicad_boards
+        boards = scan_open_kicad_boards()
         if self._bus:
             from FreekiCAD.freecad.FreekiCAD.im_mesh import scan_freecad_documents
             self._bus.refresh()
             scans = scan_freecad_documents()
-            with self.pidmap:
-                for pid, paths in scans:
-                    replace_freecad_documents(self.pidmap, pid, paths)
+        else:
+            scans = []
+        with self.pidmap:
+            for pid, paths in scans:
+                replace_freecad_documents(self.pidmap, pid, paths)
+            for pid, filepath in boards:
+                update_pidmap_entry(self.pidmap, filepath, pid)
         # Include editors that were started outside the mesh as well.
         self.pidmap()
+
+    def go_to_monitor_row(self, _event, pid, program, filepath):
+        Thread(target=self._go_to_monitor_row,
+               args=(pid, program, filepath), daemon=True).start()
+
+    def _go_to_monitor_row(self, pid, program, filepath):
+        if not psutil.pid_exists(pid):
+            return
+        if program == "FreeCAD" and filepath:
+            try:
+                from FreekiCAD.freecad.FreekiCAD.im_mesh import activate_open_freecad_document
+                activate_open_freecad_document(filepath, target_pid=pid)
+            except Exception as exc:
+                print(f"Instance Manager: Could not activate {filepath} in PID {pid}: {exc}")
+        bringToFront(pid)
 
     def _update_pidmap_entry(self, filepath, pid):
         with self.pidmap:
@@ -849,7 +875,7 @@ class MainUI(Application):
                         with Tab(os.path.splitext(os.path.basename(workspace))[0]):
                             WorkspaceUI(self, workspace).id(workspace)
 
-                    with Tab("Monitor"):
+                    with Tab("Instance Manager"):
                         with VBox():
                             with HBox():
                                 Label("KiCad and FreeCAD processes")
@@ -861,6 +887,7 @@ class MainUI(Application):
                                         Label("ProcessID").grid(row=0, column=0)
                                         Label("Program").grid(row=0, column=1)
                                         Label("File Path").grid(row=0, column=2)
+                                        Label("Action").grid(row=0, column=3)
                                         rows = snapshot_editor_processes(self.pidmap)
                                         if not rows:
                                             Label("No KiCad or FreeCAD processes found").grid(row=1, column=0)
@@ -869,6 +896,9 @@ class MainUI(Application):
                                                 Label(str(pid)).grid(row=row, column=0)
                                                 Label(program).grid(row=row, column=1)
                                                 Label(filepath or "Unknown", selectable=True).grid(row=row, column=2)
+                                                Button("Go to").click(
+                                                    self.go_to_monitor_row, pid, program, filepath
+                                                ).grid(row=row, column=3)
                                     Spacer()
 
     def newWorkspace(self):

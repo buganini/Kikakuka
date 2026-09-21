@@ -30,6 +30,20 @@ class RetryKicadCallTests(unittest.TestCase):
 
 
 class InstanceBackendTests(unittest.TestCase):
+    def test_scan_open_boards_reads_each_reachable_kicad_endpoint(self):
+        with mock.patch.object(backend, "_sockets", return_value=[
+                (111, "/tmp/kicad/api.sock"),
+                (222, "/tmp/kicad/api-222.sock"),
+                (333, "/tmp/kicad/api-333.sock"),
+        ]), mock.patch.object(backend, "_board_path", side_effect=[
+                "/boards/one.kicad_pcb", RuntimeError("busy"),
+                "/boards/three.kicad_pcb",
+        ]):
+            self.assertEqual(backend.scan_open_kicad_boards(), [
+                (111, "/boards/one.kicad_pcb"),
+                (333, "/boards/three.kicad_pcb"),
+            ])
+
     def test_mac_freecad_launch_uses_explicit_app_and_file_argument(self):
         with mock.patch.object(backend.platform, "system", return_value="Darwin"), \
                 mock.patch.object(backend, "_editors", side_effect=[{}, {321: 1}]), \
@@ -134,6 +148,7 @@ class InstanceBackendTests(unittest.TestCase):
         with mock.patch.object(backend, "local_node", return_value=node), \
                 mock.patch.object(backend.os.path, "isfile", return_value=True), \
                 mock.patch.object(backend, "open_in_freecad_node", return_value=None), \
+                mock.patch.object(backend, "_editors", return_value={}), \
                 mock.patch.object(backend, "bind_freecad_source", return_value=True), \
                 mock.patch.object(backend, "_launch", return_value=321) as launch, \
                 mock.patch.object(backend, "_focus") as focus:
@@ -167,6 +182,7 @@ class InstanceBackendTests(unittest.TestCase):
                 mock.patch.object(backend, "activate_open_freecad_document",
                                   return_value=None), \
                 mock.patch.object(backend, "open_in_freecad_node", return_value=None), \
+                mock.patch.object(backend, "_editors", return_value={}), \
                 mock.patch.object(backend, "bind_freecad_source", return_value=True), \
                 mock.patch.object(backend, "_launch", return_value=321) as launch, \
                 mock.patch.object(backend, "_focus"):
@@ -205,10 +221,21 @@ class InstanceBackendTests(unittest.TestCase):
                 backend.handle({"action": "open-file", "filepath": "/models/new.step"})
         launch.assert_not_called()
 
+    def test_unreachable_running_freecad_does_not_launch_duplicate(self):
+        with mock.patch.object(backend, "activate_open_freecad_document",
+                               return_value=None), \
+                mock.patch.object(backend, "open_in_freecad_node", return_value=None), \
+                mock.patch.object(backend, "_editors", return_value={321: 1}), \
+                mock.patch.object(backend, "_launch") as launch:
+            with self.assertRaisesRegex(RuntimeError, "node is unavailable"):
+                backend._open_new("/models/part.FCStd", "freecad", False, None)
+        launch.assert_not_called()
+
     def test_freecad_launch_is_not_success_until_document_is_identified(self):
         with mock.patch.object(backend, "activate_open_freecad_document",
                                return_value=None), \
                 mock.patch.object(backend, "open_in_freecad_node", return_value=None), \
+                mock.patch.object(backend, "_editors", return_value={}), \
                 mock.patch.object(backend, "_launch", return_value=321), \
                 mock.patch.object(backend, "bind_freecad_source",
                                   return_value=False) as bind:

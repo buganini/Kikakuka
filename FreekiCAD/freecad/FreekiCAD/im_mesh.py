@@ -13,7 +13,6 @@ import os
 from pathlib import Path
 import re
 import secrets
-import socket
 import stat
 import tempfile
 import threading
@@ -235,10 +234,8 @@ def discover():
         try:
             reply = _exchange(endpoint, {"mesh_action": "hello"}, 300)
         except (OSError, ConnectionError, TimeoutError, ValueError):
-            # A timeout may mean a live but busy node. Only a refused Unix
-            # connection is sufficient evidence to unlink a socket.
-            if os.name != "nt" and _unix_refused(endpoint):
-                _remove_dead_unix_socket(endpoint)
+            # A live process may have bound its socket but not started
+            # listening yet. A refusal is not proof that the socket is stale.
             continue
         identity = _parse_endpoint(endpoint)
         if (isinstance(reply, dict) and reply.get("status") == "ok" and
@@ -247,18 +244,6 @@ def discover():
                 reply.get("started_ms") == identity[1]):
             result.append(dict(reply, endpoint=endpoint))
     return sorted(result, key=lambda item: (item["pid"], item["id"]))
-
-
-def _unix_refused(endpoint):
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-            probe.settimeout(0.1)
-            probe.connect(endpoint)
-            return False
-    except ConnectionRefusedError:
-        return True
-    except OSError:
-        return False
 
 
 def _exchange(endpoint, message, timeout_ms=ACK_TIMEOUT_MS, token=None):
@@ -329,11 +314,10 @@ class InstanceNode:
         self.started_ms = _started_ms(self.pid)
         self.endpoint = _endpoint(self.pid, self.started_ms)
         if os.name != "nt" and Path(self.endpoint).exists():
-            if _unix_refused(self.endpoint):
-                _remove_dead_unix_socket(self.endpoint)
-            else:
-                self.endpoint = _endpoint(self.pid, self.started_ms,
-                                          "-" + self.id[:8])
+            # Another node in this process may still be binding/listening.
+            # Never unlink its socket just because a connection is refused.
+            self.endpoint = _endpoint(self.pid, self.started_ms,
+                                      "-" + self.id[:8])
         with _nodes_lock:
             if self.endpoint in _active_endpoints:
                 # Tests can host multiple nodes in one process. Production
@@ -345,6 +329,7 @@ class InstanceNode:
         self._lock = threading.RLock()
         self._results = {}
         self._result_finished = {}
+        self._freecad_open_inflight = {}
         self._mappings = {}
         self._running = True
         self._ready = threading.Event()
@@ -422,8 +407,12 @@ class InstanceNode:
             if not isinstance(request_id, str) or not request_id:
                 return {"status": "error", "message": "request ID required"}
             with self._lock:
+                existing_id = self._freecad_open_inflight.get(filepath)
+                if existing_id is not None:
+                    return {"status": "accepted", "id": existing_id}
                 if request_id not in self._results:
                     self._results[request_id] = {"status": "pending"}
+                    self._freecad_open_inflight[filepath] = request_id
                     threading.Thread(target=self._work_freecad_open,
                                      args=(request_id, filepath), daemon=True).start()
             return {"status": "accepted", "id": request_id}
@@ -496,6 +485,8 @@ class InstanceNode:
         with self._lock:
             self._results[request_id] = reply
             self._result_finished[request_id] = time.monotonic()
+            if self._freecad_open_inflight.get(filepath) == request_id:
+                self._freecad_open_inflight.pop(filepath, None)
 
     def _apply_event(self, event):
         path = event["filepath"]
@@ -609,11 +600,12 @@ def scan_freecad_documents():
             for pid, paths in sorted(documents_by_pid.items())]
 
 
-def activate_open_freecad_document(filepath):
-    """Ask live GUI nodes to select an already-open document, if any."""
+def activate_open_freecad_document(filepath, target_pid=None):
+    """Select an open document, optionally in one specific FreeCAD process."""
     filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
     for peer in discover():
-        if not peer.get("freecad_documents"):
+        if (not peer.get("freecad_documents") or
+                (target_pid is not None and peer["pid"] != target_pid)):
             continue
         try:
             reply = _exchange(peer["endpoint"],
@@ -628,8 +620,8 @@ def activate_open_freecad_document(filepath):
     return None
 
 
-def open_in_freecad_node(filepath, timeout=90):
-    """Open a new document in the lowest-PID responding FreeCAD GUI node."""
+def open_in_freecad_node(filepath):
+    """Hand a new document to the lowest-PID responding FreeCAD GUI node."""
     filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
     candidates = [peer for peer in discover() if peer.get("freecad_documents")]
     if not candidates:
@@ -646,21 +638,9 @@ def open_in_freecad_node(filepath, timeout=90):
         if ack.get("status") != "accepted":
             rejected = rejected or _alive(peer["endpoint"]) is True
             continue
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            try:
-                reply = _exchange(peer["endpoint"],
-                                  {"mesh_action": "result", "id": request_id})
-            except (OSError, ConnectionError, TimeoutError, ValueError):
-                break
-            if (reply.get("status") == "ok" and reply.get("pid") == peer["pid"] and
-                    _alive(peer["endpoint"]) is True):
-                return peer["pid"]
-            if reply.get("status") == "error":
-                raise RuntimeError(reply.get("message", "FreeCAD could not open file"))
-            time.sleep(POLL_INTERVAL)
-        if _alive(peer["endpoint"]) is True:
-            raise TimeoutError(f"FreeCAD did not finish opening: {filepath}")
+        # The node has queued the GUI operation. Treat that as delivered so a
+        # slow import cannot cause the caller to launch a second FreeCAD.
+        return peer["pid"]
     if rejected:
         raise RuntimeError("Running FreeCAD node cannot open a new document")
     return None
