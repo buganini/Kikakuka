@@ -69,6 +69,23 @@ _STANDARD_USER_RGB = (
     (216, 200, 82),
 )
 
+PCB_LAYER_PRESETS = (
+    "All Copper Layers",
+    "All Layers",
+    "Back Assembly View",
+    "Back Layers",
+    "Front Assembly View",
+    "Front Layers",
+    "Inner Copper Layers",
+)
+
+_FRONT_ASSEMBLY_LAYERS = {
+    "F.Silkscreen", "F.Mask", "F.Fab", "F.Courtyard", "Edge.Cuts",
+}
+_BACK_ASSEMBLY_LAYERS = {
+    "B.Silkscreen", "B.Mask", "B.Fab", "B.Courtyard", "Edge.Cuts",
+}
+
 
 def standard_layer_style(layer):
     """Return KiCad's standard theme color as (BGR, alpha)."""
@@ -159,6 +176,36 @@ def choose_render_scale(view_scale, pixel_density=1.0):
         if render_scale >= effective_scale:
             return render_scale
     return RENDER_SCALES[-1]
+
+
+def layers_for_preset(layers, preset, canonical_layers=None):
+    """Return the available layers included in a KiCad-style preset."""
+    canonical_layers = canonical_layers or {}
+
+    def canonical(layer):
+        return canonical_layers.get(layer, layer)
+
+    def included(layer):
+        layer = canonical(layer)
+        if preset == "All Layers":
+            return True
+        if preset == "All Copper Layers":
+            return layer.endswith(".Cu") or layer == "Edge.Cuts"
+        if preset == "Inner Copper Layers":
+            return (
+                layer.startswith("In") and layer.endswith(".Cu")
+            ) or layer == "Edge.Cuts"
+        if preset == "Front Layers":
+            return layer.startswith("F.") or layer == "Edge.Cuts"
+        if preset == "Back Layers":
+            return layer.startswith("B.") or layer == "Edge.Cuts"
+        if preset == "Front Assembly View":
+            return layer in _FRONT_ASSEMBLY_LAYERS
+        if preset == "Back Assembly View":
+            return layer in _BACK_ASSEMBLY_LAYERS
+        raise ValueError(f"Unknown PCB layer preset: {preset}")
+
+    return tuple(layer for layer in layers if included(layer))
 
 
 def visible_tile_indices(canvas_size, viewport_size, view_transform,

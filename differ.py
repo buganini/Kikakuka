@@ -22,10 +22,12 @@ from collections import OrderedDict
 from PySide6 import QtCore, QtGui
 
 from pcb_diff_tiles import (
+    PCB_LAYER_PRESETS,
     PcbTileRenderer,
     build_pair_metadata,
     choose_render_scale,
     clipped_tile_geometry,
+    layers_for_preset,
     tile_pixel_bounds,
     visible_tile_indices,
 )
@@ -593,6 +595,8 @@ class DifferUI(Application):
         self.state.page_b = 0
         self.state.diff_pair = None
         self.state.layers = []
+        self.state.canonical_layers = {}
+        self.state.layer_preset = "All Layers"
         self.state.highlight_changes = True
         self.state.build_time = 0
         self.state.use_workspace = False
@@ -793,9 +797,22 @@ class DifferUI(Application):
                             with VBox().layout(weight=1):
                                 PcbDiffView(self)
                             with VBox():
+                                Label("Presets")
+                                with ComboBox(
+                                    text_model=self.state("layer_preset")
+                                ).change(self.apply_layer_preset):
+                                    if self.state.layer_preset == "Custom":
+                                        ComboBoxItem("Custom")
+                                    for preset in PCB_LAYER_PRESETS:
+                                        ComboBoxItem(preset)
                                 Label("Display Layers")
                                 for layer in self.state.layers:
-                                    Checkbox(layer, model=self.state.show_layers(layer))
+                                    Checkbox(
+                                        layer,
+                                        model=self.state.show_layers(layer),
+                                    ).click(
+                                        self.layer_visibility_changed, layer
+                                    )
                                 Spacer()
                 else:
                     with HBox():
@@ -936,6 +953,30 @@ class DifferUI(Application):
 
     def select_commit_b(self):
         self.build()
+
+    def pcb_layer_variant(self):
+        return tuple(
+            layer for layer in self.state.layers
+            if self.state.show_layers.get(layer, True)
+        )
+
+    def layer_visibility_changed(self, _event, _layer):
+        self.state.layer_preset = "Custom"
+        self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
+
+    def apply_layer_preset(self, _event):
+        preset = self.state.layer_preset
+        if preset not in PCB_LAYER_PRESETS:
+            return
+        visible_layers = set(layers_for_preset(
+            self.state.layers,
+            preset,
+            self.state.canonical_layers,
+        ))
+        self.state.show_layers = {
+            layer: layer in visible_layers for layer in self.state.layers
+        }
+        self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
 
     def build(self):
         self.queue.put(1)
@@ -1162,25 +1203,30 @@ class DifferUI(Application):
                                 layer for layer in layers_b
                                 if layer not in layers
                             )
+                            canonical_layers = {
+                                **get_pcb_canonical_layers(file_a),
+                                **get_pcb_canonical_layers(file_b),
+                            }
                             metadata = build_pair_metadata(
                                 self.state.cached_file_a,
                                 self.state.cached_file_b,
                                 layers,
-                                {
-                                    **get_pcb_canonical_layers(file_a),
-                                    **get_pcb_canonical_layers(file_b),
-                                },
+                                canonical_layers,
                             )
                             if self.state.layers != layers:
                                 self.state.show_layers = {
                                     layer: True for layer in layers
                                 }
+                                self.state.layer_preset = "All Layers"
                             self.state.layers = layers
+                            self.state.canonical_layers = canonical_layers
                             self.state.pcb_page_size = metadata["canvas_size"]
                             self.state.sch_page_size = None
                             self.sch_tiles.reset(None)
                             self.pcb_tiles.reset(metadata)
-                            self.pcb_tiles.prime_coarse(layers)
+                            self.pcb_tiles.prime_coarse(
+                                self.pcb_layer_variant()
+                            )
                             self.state.diff_pair = diff_pair
                             self.state.loading_diff = False
 

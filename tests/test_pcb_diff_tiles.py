@@ -11,6 +11,7 @@ from legacy_pcb_diff import (
     legacy_finish_layer_mask,
 )
 from pcb_diff_tiles import (
+    PCB_LAYER_PRESETS,
     PcbTileRenderer,
     _accumulate_coverage,
     _accumulate_bounded_coverage,
@@ -24,6 +25,7 @@ from pcb_diff_tiles import (
     clipped_tile_geometry,
     combine_layer_images,
     finish_merged_mask,
+    layers_for_preset,
     pixel_aligned_page_layout,
     select_fallback_results,
     standard_layer_style,
@@ -33,6 +35,51 @@ from pcb_diff_tiles import (
 
 
 class PcbDiffTileGeometryTests(unittest.TestCase):
+    def test_layer_presets_match_kicad_layer_groups(self):
+        layers = (
+            "F.Cu", "In1.Cu", "B.Cu", "F.Silkscreen", "B.Silkscreen",
+            "F.Mask", "B.Mask", "F.Fab", "B.Fab", "F.Courtyard",
+            "B.Courtyard", "User.1", "Edge.Cuts",
+        )
+
+        self.assertEqual(
+            set(layers_for_preset(layers, "All Copper Layers")),
+            {"F.Cu", "In1.Cu", "B.Cu", "Edge.Cuts"},
+        )
+        self.assertEqual(
+            set(layers_for_preset(layers, "Inner Copper Layers")),
+            {"In1.Cu", "Edge.Cuts"},
+        )
+        self.assertEqual(
+            set(layers_for_preset(layers, "Front Assembly View")),
+            {
+                "F.Silkscreen", "F.Mask", "F.Fab", "F.Courtyard",
+                "Edge.Cuts",
+            },
+        )
+        self.assertEqual(
+            set(layers_for_preset(layers, "Back Layers")),
+            {
+                "B.Cu", "B.Silkscreen", "B.Mask", "B.Fab",
+                "B.Courtyard", "Edge.Cuts",
+            },
+        )
+        self.assertIn("All Layers", PCB_LAYER_PRESETS)
+
+    def test_layer_presets_use_canonical_names_for_renamed_layers(self):
+        self.assertEqual(
+            layers_for_preset(
+                ("Top Copper", "Board Outline", "Notes"),
+                "All Copper Layers",
+                {
+                    "Top Copper": "F.Cu",
+                    "Board Outline": "Edge.Cuts",
+                    "Notes": "User.Comments",
+                },
+            ),
+            ("Top Copper", "Board Outline"),
+        )
+
     def test_render_scale_uses_ceiling_discrete_lod(self):
         self.assertEqual(choose_render_scale(0.2), 0.25)
         self.assertEqual(choose_render_scale(0.5), 0.5)
