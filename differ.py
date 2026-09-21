@@ -451,6 +451,9 @@ class PdfTileDiffView(PUIView):
                 return
             canvas.qpainter.save()
             try:
+                canvas.qpainter.setRenderHint(
+                    QtGui.QPainter.RenderHint.SmoothPixmapTransform, True
+                )
                 if flipped:
                     canvas.qpainter.translate(canvas.width, 0)
                     canvas.qpainter.scale(-1, 1)

@@ -203,7 +203,10 @@ def choose_render_scale(view_scale, pixel_density=1.0):
     for render_scale in RENDER_SCALES:
         if render_scale >= effective_scale:
             return render_scale
-    return RENDER_SCALES[-1]
+    render_scale = RENDER_SCALES[-1]
+    while render_scale < effective_scale:
+        render_scale *= 2
+    return render_scale
 
 
 def prioritize_selected_layer(layers, selected_layer):

@@ -243,11 +243,14 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
         self.assertEqual(choose_render_scale(0.51), 1.0)
         self.assertEqual(choose_render_scale(0.8), 1.0)
         self.assertEqual(choose_render_scale(1.01), 2.0)
-        self.assertEqual(choose_render_scale(20.0), 8.0)
+        self.assertEqual(choose_render_scale(8.0), 8.0)
+        self.assertEqual(choose_render_scale(8.01), 16.0)
+        self.assertEqual(choose_render_scale(20.0), 32.0)
 
     def test_render_scale_accounts_for_physical_pixel_density(self):
         self.assertEqual(choose_render_scale(0.5, pixel_density=2.0), 1.0)
         self.assertEqual(choose_render_scale(0.8, pixel_density=2.0), 2.0)
+        self.assertEqual(choose_render_scale(20.0, pixel_density=2.0), 64.0)
 
     def test_fallback_uses_nearest_cached_lod(self):
         self.assertEqual(choose_fallback_scale((0.5, 2.0), 1.0), 0.5)
