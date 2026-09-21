@@ -6,7 +6,7 @@ import subprocess
 
 from FreekiCAD.freecad.FreekiCAD import im_mesh
 
-WORKSPACE_OPEN_TIMEOUT = 120.0
+WORKSPACE_OPEN_TIMEOUT = 300.0
 
 
 def system_open_command(filepath, mac_args=()):

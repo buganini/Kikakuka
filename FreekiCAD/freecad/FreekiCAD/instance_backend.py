@@ -15,6 +15,8 @@ from .im_mesh import (activate_open_freecad_document, bind_freecad_source, launc
 
 EDITOR_NAMES = ("kicad", "pcbnew", "eeschema", "pcb editor")
 FREECAD_SUFFIXES = (".fcstd", ".step", ".stp", ".kkkk_asm")
+BOARD_LAUNCH_TIMEOUT = 120
+BOARD_IPC_TIMEOUT = 30
 
 
 def _normal(path):
@@ -165,7 +167,7 @@ def _launch(filepath, program="kicad"):
     return None
 
 
-def _wait_for_board(filepath, timeout=30):
+def _wait_for_board(filepath, timeout=BOARD_LAUNCH_TIMEOUT):
     """Do not release the KiCad launch slot until its board is identifiable."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -201,9 +203,12 @@ def _open_new(filepath, program, is_board, node):
         if program == "freecad" and _editors("freecad"):
             raise RuntimeError(
                 "FreeCAD is running but its FreekiCAD instance node is unavailable")
+        launch_started = time.monotonic()
         pid = _launch(filepath, program)
         if is_board:
-            return _wait_for_board(filepath)
+            remaining = max(0.0, BOARD_LAUNCH_TIMEOUT -
+                            (time.monotonic() - launch_started))
+            return _wait_for_board(filepath, timeout=remaining)
         if program == "freecad" and pid is not None:
             if not bind_freecad_source(pid, filepath):
                 raise RuntimeError(
@@ -249,7 +254,8 @@ def handle(request):
         pid, socket_path = _open_new(
             filepath, "freecad" if is_freecad else "kicad", is_board, node)
         if pid is None:
-            message = ("KiCad IPC did not report the requested board within 30 seconds"
+            message = (f"KiCad IPC did not report the requested board within "
+                       f"{BOARD_LAUNCH_TIMEOUT} seconds of launching"
                        if is_board else "could not determine editor PID")
             return {"status": "error", "message": message}
     if action == "open-file":
@@ -258,7 +264,7 @@ def handle(request):
 
     if not is_board:
         return {"status": "error", "message": "KiCad IPC requires a PCB file"}
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + BOARD_IPC_TIMEOUT
     while socket_path is None and time.monotonic() < deadline:
         if not psutil.pid_exists(pid):
             return {"status": "error", "message": "KiCad editor exited before IPC was ready"}
@@ -267,7 +273,8 @@ def handle(request):
         if verified_pid is not None:
             pid = verified_pid
     if not socket_path:
-        return {"status": "error", "message": "KiCad IPC did not report the requested board within 30 seconds"}
+        return {"status": "error", "message":
+                f"KiCad IPC did not report the requested board within {BOARD_IPC_TIMEOUT} seconds"}
     reply = {"status": "ok", "action": action, "object": request.get("object", ""),
              "socket": socket_path, "pid": pid}
     if request.get("component"):

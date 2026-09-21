@@ -30,6 +30,16 @@ class RetryKicadCallTests(unittest.TestCase):
 
 
 class InstanceBackendTests(unittest.TestCase):
+    def test_new_board_can_appear_after_thirty_seconds(self):
+        with mock.patch.object(backend.time, "monotonic", side_effect=[0, 1, 31]), \
+                mock.patch.object(backend.time, "sleep"), \
+                mock.patch.object(backend, "_find_board", side_effect=[
+                    (None, None), (321, "/ipc/api-321.sock")
+                ]) as find_board:
+            result = backend._wait_for_board("/boards/main.kicad_pcb")
+        self.assertEqual(result, (321, "/ipc/api-321.sock"))
+        self.assertEqual(find_board.call_count, 2)
+
     def test_scan_open_boards_reads_each_reachable_kicad_endpoint(self):
         with mock.patch.object(backend, "_sockets", return_value=[
                 (111, "/tmp/kicad/api.sock"),
@@ -91,7 +101,20 @@ class InstanceBackendTests(unittest.TestCase):
                 pid, socket_path = backend._open_new(
                     "/boards/main.kicad_pcb", "kicad", True, None)
         self.assertEqual((pid, socket_path), (222, "/ipc/api-222.sock"))
-        wait.assert_called_once_with("/boards/main.kicad_pcb")
+        wait.assert_called_once()
+        self.assertEqual(wait.call_args.args[0], "/boards/main.kicad_pcb")
+        self.assertGreater(wait.call_args.kwargs["timeout"], 0)
+        self.assertLessEqual(wait.call_args.kwargs["timeout"], 120)
+
+    def test_launch_time_counts_toward_board_timeout(self):
+        self.assertEqual(backend.BOARD_LAUNCH_TIMEOUT, 120)
+        with mock.patch.object(backend, "launch_lock", return_value=mock.MagicMock()), \
+                mock.patch.object(backend, "_find_board", return_value=(None, None)), \
+                mock.patch.object(backend.time, "monotonic", side_effect=[10, 18]), \
+                mock.patch.object(backend, "_launch", return_value=111), \
+                mock.patch.object(backend, "_wait_for_board", return_value=(222, "/ipc/api.sock")) as wait:
+            backend._open_new("/boards/main.kicad_pcb", "kicad", True, None)
+        wait.assert_called_once_with("/boards/main.kicad_pcb", timeout=112)
 
     def test_board_reuses_only_verified_matching_socket(self):
         node = mock.Mock()
