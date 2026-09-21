@@ -160,6 +160,8 @@ The following video demonstrates coupler-based alignment:
 
 https://github.com/user-attachments/assets/c20a8d80-be67-4816-9a69-82f348ab255e
 
+![Coupler-Arguments](https://github.com/buganini/Kikakuka/blob/main/screenshots/coupler-args.png)
+
 See the [coupler-alignment screenshots][coupler-screenshots] for the key steps.
 
 Use the bundled `CouplerFixed` and `CouplerMoving` KiCad footprints to align

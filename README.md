@@ -251,6 +251,9 @@ object. The option can be disabled independently for each object.
 
 ## Coupler-Based PCB Alignment
 
+### Arguments
+![Coupler-Arguments](screenshots/coupler-args.png)
+
 ### Coupler Pair
 
 ![FreekiCAD-Coupler](screenshots/freekicad_coupler.png)
