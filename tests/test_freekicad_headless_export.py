@@ -1,7 +1,9 @@
 import importlib.util
 import os
+import queue
 import sys
 import tempfile
+import threading
 import types
 import unittest
 from unittest import mock
@@ -224,6 +226,7 @@ def load_im_client_module(*, with_qt=True):
     qt_core = types.SimpleNamespace(
         QObject=object,
         Signal=lambda *args: FakeSignal(),
+        Slot=lambda *args: lambda callback: callback,
     )
     fake_pyside = types.ModuleType("PySide")
     fake_pyside.QtCore = qt_core
@@ -250,6 +253,7 @@ class InstanceClientSyncTests(unittest.TestCase):
             self.assertIs(module.ensure_node(), node)
         self.assertIsNone(module.QtCore)
         module.FreeCAD.addDocumentObserver.assert_not_called()
+        node.set_document_provider.assert_not_called()
         node.publish.assert_not_called()
 
     def test_gui_startup_can_attach_observer_after_node_was_started(self):
@@ -280,10 +284,149 @@ class InstanceClientSyncTests(unittest.TestCase):
         with mock.patch.object(module.im_mesh, "start_node", return_value=node):
             self.assertIs(module.ensure_node(), node)
         module.FreeCAD.addDocumentObserver.assert_called_once()
+        node.set_document_provider.assert_called_once()
         deadline = module.time.monotonic() + 2
         while node.publish.call_count < 1 and module.time.monotonic() < deadline:
             module.time.sleep(0.01)
         node.publish.assert_called_once_with("/boards/board.FCStd", os.getpid())
+
+    def test_document_scan_repairs_missed_open_and_close_events(self):
+        module = load_im_client_module()
+        node = mock.Mock()
+        observer = module._DocumentObserver(node)
+        observer.paths = {"Old": "/models/old.FCStd"}
+        module.FreeCAD.listDocuments = mock.Mock(return_value={
+            "New": types.SimpleNamespace(
+                Name="New", FileName="/models/new.FCStd"),
+            "Unsaved": types.SimpleNamespace(Name="Unsaved", FileName=""),
+        })
+
+        self.assertEqual(observer.list_documents(), ["/models/new.FCStd"])
+        deadline = module.time.monotonic() + 2
+        while node.publish.call_count < 2 and module.time.monotonic() < deadline:
+            module.time.sleep(0.01)
+        self.assertEqual(node.publish.call_args_list, [
+            mock.call("/models/old.FCStd", None),
+            mock.call("/models/new.FCStd", os.getpid()),
+        ])
+
+    def test_imported_assembly_source_is_reported_without_document_filename(self):
+        module = load_im_client_module()
+        node = mock.Mock()
+        observer = module._DocumentObserver(node)
+        document = types.SimpleNamespace(
+            Name="Assembly", Label="assembly", FileName="")
+        module.FreeCAD.listDocuments = mock.Mock(return_value={"Assembly": document})
+
+        observer.register_source(document, "/models/assembly.kkkk_asm")
+        self.assertEqual(observer.list_documents(), ["/models/assembly.kkkk_asm"])
+        deadline = module.time.monotonic() + 2
+        while node.publish.call_count < 1 and module.time.monotonic() < deadline:
+            module.time.sleep(0.01)
+        node.publish.assert_called_once_with(
+            "/models/assembly.kkkk_asm", os.getpid())
+
+        observer.slotDeletedDocument(document)
+        self.assertEqual(observer.list_documents(), [])
+
+    def test_activate_imported_assembly_selects_matching_mdi_tab(self):
+        module = load_im_client_module()
+        document = types.SimpleNamespace(
+            Name="Assembly", Label="assembly", FileName="")
+        module.FreeCAD.listDocuments = mock.Mock(return_value={"Assembly": document})
+        module.FreeCAD.setActiveDocument = mock.Mock()
+        observer = module._DocumentObserver(mock.Mock())
+        observer.register_source(document, "/models/assembly.kkkk_asm")
+        class FakeMdiSubWindow:
+            def windowTitle(self):
+                return "assembly : 1[*]"
+
+        matching_window = FakeMdiSubWindow()
+        other_window = types.SimpleNamespace(
+            windowTitle=lambda: "assembly : 1[*]")
+        graphics = types.SimpleNamespace(parentWidget=lambda: matching_window)
+        mdi = types.SimpleNamespace(
+            subWindowList=lambda: [other_window, matching_window],
+            setActiveSubWindow=mock.Mock())
+        fake_document = types.SimpleNamespace(activeView=lambda: types.SimpleNamespace(
+            graphicsView=lambda: graphics))
+        fake_gui = types.SimpleNamespace(getMainWindow=lambda: types.SimpleNamespace(
+            findChild=lambda _type: mdi), getDocument=lambda _name: fake_document)
+        fake_pyside = types.ModuleType("PySide")
+        fake_pyside.QtWidgets = types.SimpleNamespace(
+            QMdiArea=object(), QMdiSubWindow=FakeMdiSubWindow)
+
+        with mock.patch.dict(sys.modules, {"FreeCADGui": fake_gui,
+                                            "PySide": fake_pyside}):
+            self.assertTrue(observer.activate_document(
+                "/models/assembly.kkkk_asm"))
+            self.assertFalse(observer.activate_document(
+                "/models/missing.kkkk_asm"))
+        mdi.setActiveSubWindow.assert_called_once_with(matching_window)
+        module.FreeCAD.setActiveDocument.assert_called_once_with("Assembly")
+
+    def test_open_step_uses_nonmodal_import_and_registers_source(self):
+        module = load_im_client_module()
+        observer = module._DocumentObserver(mock.Mock())
+        document = types.SimpleNamespace(Name="Imported", FileName="", Objects=[object()])
+        documents = {}
+        module.FreeCAD.listDocuments = lambda: documents
+        fake_import = types.ModuleType("Import")
+        fake_import.open = mock.Mock(side_effect=lambda _: documents.update(
+            {"Imported": document}))
+        with mock.patch.dict(sys.modules, {"Import": fake_import}), \
+                mock.patch.object(observer, "activate_document",
+                                  side_effect=[False, True]) as activate:
+            self.assertTrue(observer.open_document("/models/part.step"))
+        fake_import.open.assert_called_once_with("/models/part.step")
+        self.assertEqual(observer.source_paths["Imported"], "/models/part.step")
+        self.assertEqual(activate.call_count, 2)
+
+    def test_open_native_freecad_document_in_same_process(self):
+        module = load_im_client_module()
+        observer = module._DocumentObserver(mock.Mock())
+        document = types.SimpleNamespace(Name="Part", FileName="/models/part.FCStd")
+        documents = {}
+        module.FreeCAD.listDocuments = lambda: documents
+        module.FreeCAD.openDocument = mock.Mock(side_effect=lambda _: documents.update(
+            {"Part": document}))
+        with mock.patch.object(observer, "activate_document",
+                               side_effect=[False, True]):
+            self.assertTrue(observer.open_document("/models/part.FCStd"))
+        module.FreeCAD.openDocument.assert_called_once_with("/models/part.FCStd")
+
+    def test_bind_launched_step_to_its_unsaved_import_document(self):
+        module = load_im_client_module()
+        observer = module._DocumentObserver(mock.Mock())
+        document = types.SimpleNamespace(Name="Imported", FileName="", Objects=[object()])
+        module.FreeCAD.listDocuments = lambda: {"Imported": document}
+        self.assertTrue(observer.bind_launched_source("/models/part.step"))
+        self.assertEqual(observer.list_documents(), ["/models/part.step"])
+        self.assertTrue(observer.bind_launched_source("/models/part.step"))
+
+    def test_document_scan_runs_on_gui_thread(self):
+        module = load_im_client_module()
+        observer = module._DocumentObserver(mock.Mock())
+        gui_thread = threading.current_thread()
+        module.QtCore.QThread = types.SimpleNamespace(
+            currentThread=threading.current_thread)
+        callbacks = queue.Queue()
+        observer.dispatcher = types.SimpleNamespace(
+            thread=lambda: gui_thread,
+            dispatch=types.SimpleNamespace(emit=callbacks.put),
+        )
+        observed_threads = []
+        module.FreeCAD.listDocuments = lambda: observed_threads.append(
+            threading.current_thread()) or {}
+        results = []
+        worker = threading.Thread(target=lambda: results.append(observer.list_documents()))
+        worker.start()
+        callbacks.get(timeout=2)()
+        worker.join(2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(results, [[]])
+        self.assertEqual(observed_threads, [gui_thread])
 
     def test_created_document_is_published_after_filename_is_assigned(self):
         module = load_im_client_module()

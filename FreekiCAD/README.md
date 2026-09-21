@@ -6,8 +6,10 @@ FreekiCAD bridges KiCad and FreeCAD, providing a FreeCAD-based workflow for
 PCB editing and mechanical assembly.
 
 FreekiCAD and Kikakuka discover each other on demand through local Unix sockets
-or Windows named pipes. No board, assembly, or usage
-data is sent to third parties.
+or Windows named pipes. No board, assembly, or usage data is sent to third
+parties. Kikakuka can find open FreeCAD documents and reuse an existing
+instance when opening a file; see [Instance Manager](https://github.com/buganini/Kikakuka/blob/main/doc/INSTANCE_MANAGER.md)
+for details.
 
 ![Bending+Assembly](https://github.com/buganini/Kikakuka/raw/main/screenshots/freekicad_bending_assembly.png)
 
@@ -61,8 +63,6 @@ to finish, then prints its output:
 ```python
 import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=5.9"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
 ```
-
-Restart FreeCAD after installation.
 
 ## Headless STEP Export
 

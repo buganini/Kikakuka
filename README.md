@@ -17,6 +17,7 @@ It creates a few more dimensions for KiCad:
     * Easily navigate between projects
         * Automatically open multiple KiCad instances on macOS
     * Recall windows of previously opened files (macOS and Windows only)
+    * Monitor running KiCad and FreeCAD processes and their known file paths
 * Differ
     * Highlight changed areas
     * [Schematic diff viewer](#schematics-differ)
@@ -153,6 +154,10 @@ or Windows named pipes. FreeCAD can manage KiCad
 instances without the Workspace Manager running. No board, assembly, or usage
 data is sent to third parties.
 
+When opening a FreeCAD file, Kikakuka first looks for an already open document
+or reuses a responding FreeCAD instance; see
+[Instance Manager](doc/INSTANCE_MANAGER.md) for details.
+
 KiCad `.kicad_pcb` boards and STEP models remain external files referenced by
 path. When saved as `.FCStd`, the FreeCAD document caches their generated
 objects and geometry, but the links remain reloadable from the source files. A
@@ -172,7 +177,6 @@ object. The option can be disabled independently for each object.
     ```
     import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=5.9"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
     ```
-    * Restart FreeCAD
 
 * Activate `Preferences -> Plugins -> Enable KiCad API`. Kikakuka or FreekiCAD can reuse a running matching KiCad editor or start one on demand.
 * FreeCAD

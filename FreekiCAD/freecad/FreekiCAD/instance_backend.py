@@ -9,7 +9,8 @@ import time
 
 import psutil
 
-from .im_mesh import launch_lock, local_node
+from .im_mesh import (activate_open_freecad_document, bind_freecad_source, launch_lock,
+                      local_node, open_in_freecad_node)
 
 
 EDITOR_NAMES = ("kicad", "pcbnew", "eeschema", "pcb editor")
@@ -130,12 +131,18 @@ def _focus(pid):
 def _launch(filepath, program="kicad"):
     before = _editors(program)
     if platform.system() == "Darwin":
-        subprocess.Popen(["open", "-n", "-g", filepath])
+        if program == "freecad":
+            # FreeCAD on macOS does not reliably handle Finder's open-file
+            # event. Pass the path as an application argument, as the former
+            # Workspace Manager launcher did.
+            subprocess.Popen(["open", "-a", "FreeCAD", "-n", "-W", "--args", filepath])
+        else:
+            subprocess.Popen(["open", "-n", "-g", filepath])
     elif platform.system() == "Windows":
         os.startfile(filepath)
     else:
         subprocess.Popen(["xdg-open", filepath])
-    deadline = time.monotonic() + 8
+    deadline = time.monotonic() + (20 if program == "freecad" else 8)
     while time.monotonic() < deadline:
         after = _editors(program)
         new = [(pid, start) for pid, start in after.items() if pid not in before]
@@ -165,6 +172,13 @@ def _open_new(filepath, program, is_board, node):
             pid, socket_path = _find_board(filepath)
             if pid is not None:
                 return pid, socket_path
+        elif program == "freecad":
+            pid = activate_open_freecad_document(filepath)
+            if pid is not None:
+                return pid, None
+            pid = open_in_freecad_node(filepath)
+            if pid is not None:
+                return pid, None
         elif node is not None:
             pid = node.snapshot().get(filepath)
             if pid is not None and psutil.pid_exists(pid):
@@ -173,14 +187,10 @@ def _open_new(filepath, program, is_board, node):
         pid = _launch(filepath, program)
         if is_board:
             return _wait_for_board(filepath)
-        if pid is None and program == "freecad" and node is not None:
-            # A file association may reuse an existing FreeCAD process; its
-            # document observer publishes the path once loading completes.
-            deadline = time.monotonic() + 10
-            while pid is None and time.monotonic() < deadline:
-                pid = node.snapshot().get(filepath)
-                if pid is None:
-                    time.sleep(0.5)
+        if program == "freecad" and pid is not None:
+            if not bind_freecad_source(pid, filepath):
+                raise RuntimeError(
+                    f"FreeCAD started but did not report the opened document: {filepath}")
         if pid is not None and program == "kicad":
             # Schematics/projects have no board IPC path to probe. Allow the
             # editor's initial socket/process setup to settle before another
@@ -214,7 +224,7 @@ def handle(request):
         # A live PID alone does not prove that the editor still has this
         # board open. The KiCad API's filename is authoritative.
         node.publish(filepath, None)
-    if pid is None and mapped and psutil.pid_exists(mapped) and not is_board:
+    if pid is None and mapped and psutil.pid_exists(mapped) and not is_board and not is_freecad:
         pid = mapped
     if pid is None and action == "monitor-couplers":
         return {"status": "error", "message": "file is not open in KiCad"}

@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import hashlib
 import socket
 import tempfile
 import threading
@@ -92,6 +93,8 @@ class InstanceMeshTests(unittest.TestCase):
     def test_windows_pipe_name_can_be_discovered_by_enumeration(self):
         fake_os = types.SimpleNamespace(name="nt", path=os.path)
         with mock.patch.object(im_mesh, "os", fake_os), \
+                mock.patch.object(im_mesh, "_windows_user_sid",
+                                  return_value="S-1-5-21-123-456"), \
                 mock.patch.object(im_mesh, "runtime_dir",
                                   return_value=Path(self.directory.name)):
             endpoint = im_mesh._endpoint(123, 456789)
@@ -104,11 +107,46 @@ class InstanceMeshTests(unittest.TestCase):
                                         listdir=mock.Mock(side_effect=OSError))
         process = types.SimpleNamespace(pid=123, info={"create_time": 456.789})
         with mock.patch.object(im_mesh, "os", fake_os), \
+                mock.patch.object(im_mesh, "_windows_user_sid",
+                                  return_value="S-1-5-21-123-456"), \
                 mock.patch.object(im_mesh, "runtime_dir",
                                   return_value=Path(self.directory.name)), \
                 mock.patch.object(im_mesh.psutil, "process_iter", return_value=[process]):
             self.assertEqual(im_mesh._candidate_endpoints(),
                              [im_mesh._endpoint(123, 456789)])
+
+    def test_windows_pipe_scope_uses_sid_not_runtime_directory(self):
+        fake_os = types.SimpleNamespace(name="nt", path=os.path)
+        sid = "S-1-5-21-123-456"
+        scope = hashlib.sha256(sid.encode("ascii")).hexdigest()[:16]
+        with mock.patch.object(im_mesh, "os", fake_os), \
+                mock.patch.object(im_mesh, "_windows_user_sid", return_value=sid):
+            with mock.patch.object(im_mesh, "runtime_dir", return_value=Path("A")):
+                endpoint = im_mesh._endpoint(123, 456789)
+            with mock.patch.object(im_mesh, "runtime_dir", return_value=Path("B")):
+                self.assertEqual(im_mesh._endpoint(123, 456789), endpoint)
+                self.assertEqual(im_mesh._parse_endpoint(endpoint), (123, 456789))
+            self.assertEqual(endpoint,
+                             rf"\\.\pipe\kikakuka-{scope}-123-456789")
+            with mock.patch.object(im_mesh, "_windows_user_sid",
+                                   return_value="S-1-5-21-999"):
+                self.assertIsNone(im_mesh._parse_endpoint(endpoint))
+
+    def test_windows_runtime_directory_fallback_uses_sid(self):
+        fake_os = types.SimpleNamespace(name="nt", environ={})
+        with mock.patch.object(im_mesh, "os", fake_os), \
+                mock.patch.object(im_mesh, "_windows_user_sid",
+                                  return_value="S-1-5-21-123-456"):
+            self.runtime_patch.stop()
+            try:
+                self.assertEqual(im_mesh.runtime_dir().name,
+                                 f"kikakuka-{im_mesh._windows_user_scope()}")
+            finally:
+                self.runtime_patch.start()
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows access token")
+    def test_windows_sid_is_read_from_process_token(self):
+        self.assertRegex(im_mesh._windows_user_sid(), r"^S-\d+(?:-\d+)+$")
 
     def test_process_exit_triggers_lower_pid_failover(self):
         context = multiprocessing.get_context("spawn")
@@ -145,6 +183,76 @@ class InstanceMeshTests(unittest.TestCase):
         self.assertEqual(two.snapshot()[path], os.getpid())
         one.publish(path, None)
         self.assertNotIn(path, two.snapshot())
+
+    def test_freecad_document_scan_queries_each_gui_node(self):
+        first = self.node(lambda _: {"status": "ok"})
+        second = self.node(lambda _: {"status": "ok"})
+        without_provider = self.node(lambda _: {"status": "ok"})
+        first.set_document_provider(lambda: ["/models/one.FCStd"])
+        second.set_document_provider(lambda: ["/models/two.FCStd"])
+
+        self.assertEqual(im_mesh.scan_freecad_documents(), [
+            (os.getpid(), ("/models/one.FCStd", "/models/two.FCStd")),
+        ])
+        self.assertEqual(im_mesh._exchange(first.endpoint, {
+            "mesh_action": "freecad-list-documents"}, token=first.token), {
+            "status": "ok", "pid": os.getpid(),
+            "documents": ["/models/one.FCStd"],
+        })
+        self.assertEqual(im_mesh._exchange(without_provider.endpoint, {
+            "mesh_action": "freecad-list-documents"},
+            token=without_provider.token)["status"], "error")
+
+    def test_freecad_activation_checks_live_nodes(self):
+        first = self.node(lambda _: {"status": "ok"})
+        second = self.node(lambda _: {"status": "ok"})
+        first.set_document_provider(lambda: [])
+        second.set_document_provider(lambda: ["/models/part.FCStd"])
+        first.set_document_activator(lambda _: False)
+        activated = []
+        second.set_document_activator(
+            lambda path: activated.append(path) or path == "/models/part.FCStd")
+
+        self.assertEqual(im_mesh.activate_open_freecad_document(
+            "/models/part.FCStd"), os.getpid())
+        self.assertEqual(activated, ["/models/part.FCStd"])
+        self.assertIsNone(im_mesh.activate_open_freecad_document(
+            "/models/missing.FCStd"))
+        self.assertEqual(im_mesh._exchange(first.endpoint, {
+            "mesh_action": "freecad-activate-document",
+            "filepath": "relative.FCStd"}, token=first.token)["status"], "error")
+
+    def test_freecad_open_targets_gui_node_and_returns_after_open(self):
+        nongui = self.node(lambda _: {"status": "ok"})
+        gui = self.node(lambda _: {"status": "ok"})
+        opened = []
+        gui.set_document_provider(lambda: [])
+        gui.set_document_opener(lambda path: opened.append(path) or True)
+        self.assertEqual(im_mesh.open_in_freecad_node(
+            "/models/new.FCStd"), os.getpid())
+        self.assertEqual(opened, ["/models/new.FCStd"])
+        self.assertIsNone(nongui.document_opener)
+
+    def test_freecad_open_reports_import_error(self):
+        gui = self.node(lambda _: {"status": "ok"})
+        gui.set_document_provider(lambda: [])
+        gui.set_document_opener(lambda _: (_ for _ in ()).throw(
+            ValueError("bad STEP")))
+        with self.assertRaisesRegex(RuntimeError, "bad STEP"):
+            im_mesh.open_in_freecad_node("/models/bad.step")
+
+    def test_existing_gui_without_open_handler_does_not_trigger_new_launch(self):
+        gui = self.node(lambda _: {"status": "ok"})
+        gui.set_document_provider(lambda: [])
+        with self.assertRaisesRegex(RuntimeError, "cannot open"):
+            im_mesh.open_in_freecad_node("/models/new.step")
+
+    def test_bind_source_reports_imported_document_to_launch_caller(self):
+        gui = self.node(lambda _: {"status": "ok"})
+        gui.set_document_provider(lambda: [])
+        gui.set_source_registrar(lambda path: path == "/models/part.step")
+        self.assertTrue(im_mesh.bind_freecad_source(os.getpid(),
+                                                    "/models/part.step"))
 
     def test_request_id_is_idempotent_on_one_node(self):
         calls = []

@@ -6,7 +6,7 @@ or privileged socket scan.
 """
 
 from contextlib import contextmanager
-import getpass
+from functools import lru_cache
 import hashlib
 import importlib.util
 import os
@@ -41,6 +41,66 @@ def _has_kicad_api():
         return False
 
 
+@lru_cache(maxsize=1)
+def _windows_user_sid():
+    """Return the account SID from this process's primary access token."""
+    import ctypes
+    from ctypes import wintypes
+
+    class SidAndAttributes(ctypes.Structure):
+        _fields_ = [("sid", ctypes.c_void_p), ("attributes", wintypes.DWORD)]
+
+    class TokenUser(ctypes.Structure):
+        _fields_ = [("user", SidAndAttributes)]
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    advapi32.OpenProcessToken.argtypes = (wintypes.HANDLE, wintypes.DWORD,
+                                         ctypes.POINTER(wintypes.HANDLE))
+    advapi32.OpenProcessToken.restype = wintypes.BOOL
+    advapi32.GetTokenInformation.argtypes = (wintypes.HANDLE, ctypes.c_int,
+                                             ctypes.c_void_p, wintypes.DWORD,
+                                             ctypes.POINTER(wintypes.DWORD))
+    advapi32.GetTokenInformation.restype = wintypes.BOOL
+    advapi32.ConvertSidToStringSidW.argtypes = (ctypes.c_void_p,
+                                                ctypes.POINTER(ctypes.c_void_p))
+    advapi32.ConvertSidToStringSidW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.LocalFree.argtypes = (ctypes.c_void_p,)
+    kernel32.LocalFree.restype = ctypes.c_void_p
+
+    token = wintypes.HANDLE()
+    if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008,
+                                     ctypes.byref(token)):  # TOKEN_QUERY
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        size = wintypes.DWORD()
+        advapi32.GetTokenInformation(token, 1, None, 0,
+                                     ctypes.byref(size))  # TokenUser
+        if not size.value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        buffer = ctypes.create_string_buffer(size.value)
+        if not advapi32.GetTokenInformation(token, 1, buffer, size,
+                                            ctypes.byref(size)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        sid = ctypes.cast(buffer, ctypes.POINTER(TokenUser)).contents.user.sid
+        sid_string = ctypes.c_void_p()
+        if not advapi32.ConvertSidToStringSidW(sid, ctypes.byref(sid_string)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            return ctypes.wstring_at(sid_string.value)
+        finally:
+            kernel32.LocalFree(sid_string)
+    finally:
+        kernel32.CloseHandle(token)
+
+
+def _windows_user_scope():
+    return hashlib.sha256(_windows_user_sid().encode("ascii")).hexdigest()[:16]
+
+
 def runtime_dir():
     if os.name != "nt":
         # Keep the socket path short enough for macOS's sockaddr_un limit.
@@ -50,9 +110,7 @@ def runtime_dir():
     base = os.environ.get("LOCALAPPDATA")
     if base:
         return Path(base) / "Kikakuka" / "instances"
-    user = getpass.getuser()
-    suffix = hashlib.sha256(user.encode()).hexdigest()[:16]
-    return Path(tempfile.gettempdir()) / f"kikakuka-{suffix}"
+    return Path(tempfile.gettempdir()) / f"kikakuka-{_windows_user_scope()}"
 
 
 def _ensure_runtime_dir():
@@ -74,10 +132,7 @@ def _started_ms(pid):
 
 def _endpoint_name(pid, started_ms, suffix=""):
     if os.name == "nt":
-        scope = hashlib.sha256(
-            os.path.normcase(os.path.realpath(str(runtime_dir()))).encode()
-        ).hexdigest()[:16]
-        return f"kikakuka-{scope}-{pid}-{started_ms}{suffix}"
+        return f"kikakuka-{_windows_user_scope()}-{pid}-{started_ms}{suffix}"
     return f"{pid}-{started_ms}{suffix}.sock"
 
 
@@ -91,10 +146,7 @@ def _endpoint(pid, started_ms, suffix=""):
 def _parse_endpoint(endpoint):
     name = endpoint.rsplit("\\", 1)[-1] if os.name == "nt" else Path(endpoint).name
     if os.name == "nt":
-        scope = hashlib.sha256(
-            os.path.normcase(os.path.realpath(str(runtime_dir()))).encode()
-        ).hexdigest()[:16]
-        pattern = rf"kikakuka-{scope}-(\d+)-(\d+)(?:-[0-9a-f]{{8}})?"
+        pattern = rf"kikakuka-{_windows_user_scope()}-(\d+)-(\d+)(?:-[0-9a-f]{{8}})?"
     else:
         pattern = r"(\d+)-(\d+)(?:-[0-9a-f]{8})?\.sock"
     match = re.fullmatch(pattern, name)
@@ -267,6 +319,10 @@ class InstanceNode:
     def __init__(self, handle, on_change=None, kicad_api=None):
         self.handle = handle
         self.on_change = on_change
+        self.document_provider = None
+        self.document_activator = None
+        self.document_opener = None
+        self.source_registrar = None
         self.id = uuid.uuid4().hex
         self.token = _shared_token()
         self.pid = os.getpid()
@@ -341,7 +397,44 @@ class InstanceNode:
         if action == "hello":
             return {"status": "ok", "version": 3, "pid": self.pid,
                     "started_ms": self.started_ms, "id": self.id,
-                    "kicad_api": self.kicad_api}
+                    "kicad_api": self.kicad_api,
+                    "freecad_documents": self.document_provider is not None}
+        if action == "freecad-list-documents":
+            if self.document_provider is None:
+                return {"status": "error", "message": "FreeCAD GUI documents unavailable"}
+            return {"status": "ok", "pid": self.pid,
+                    "documents": list(self.document_provider())}
+        if action == "freecad-activate-document":
+            if self.document_activator is None:
+                return {"status": "error", "message": "FreeCAD GUI activation unavailable"}
+            filepath = request.get("filepath")
+            if not isinstance(filepath, str) or not os.path.isabs(filepath):
+                return {"status": "error", "message": "absolute file path required"}
+            return {"status": "ok", "pid": self.pid,
+                    "found": bool(self.document_activator(filepath))}
+        if action == "freecad-open-document":
+            if self.document_opener is None:
+                return {"status": "error", "message": "FreeCAD GUI opening unavailable"}
+            filepath = request.get("filepath")
+            if not isinstance(filepath, str) or not os.path.isabs(filepath):
+                return {"status": "error", "message": "absolute file path required"}
+            request_id = request.get("id")
+            if not isinstance(request_id, str) or not request_id:
+                return {"status": "error", "message": "request ID required"}
+            with self._lock:
+                if request_id not in self._results:
+                    self._results[request_id] = {"status": "pending"}
+                    threading.Thread(target=self._work_freecad_open,
+                                     args=(request_id, filepath), daemon=True).start()
+            return {"status": "accepted", "id": request_id}
+        if action == "freecad-bind-source":
+            if self.source_registrar is None:
+                return {"status": "error", "message": "FreeCAD GUI source binding unavailable"}
+            filepath = request.get("filepath")
+            if not isinstance(filepath, str) or not os.path.isabs(filepath):
+                return {"status": "error", "message": "absolute file path required"}
+            return {"status": "ok", "pid": self.pid,
+                    "bound": bool(self.source_registrar(filepath))}
         if action == "snapshot":
             with self._lock:
                 return {"status": "ok", "mappings": dict(self._mappings)}
@@ -385,6 +478,19 @@ class InstanceNode:
                 reply = {"status": "ok"}
             if "status" not in reply:
                 reply["status"] = "ok"
+        except Exception as exc:
+            reply = {"status": "error", "message": str(exc)}
+        with self._lock:
+            self._results[request_id] = reply
+            self._result_finished[request_id] = time.monotonic()
+
+    def _work_freecad_open(self, request_id, filepath):
+        # The caller already holds the per-file lock. Acquiring it again here
+        # would deadlock when that caller lives in another mesh process.
+        try:
+            opened = self.document_opener(filepath)
+            reply = ({"status": "ok", "pid": self.pid} if opened else
+                     {"status": "error", "message": f"FreeCAD did not open: {filepath}"})
         except Exception as exc:
             reply = {"status": "error", "message": str(exc)}
         with self._lock:
@@ -441,6 +547,18 @@ class InstanceNode:
             return {path: value["pid"] for path, value in self._mappings.items()
                     if value.get("pid")}
 
+    def set_document_provider(self, provider):
+        self.document_provider = provider
+
+    def set_document_activator(self, activator):
+        self.document_activator = activator
+
+    def set_document_opener(self, opener):
+        self.document_opener = opener
+
+    def set_source_registrar(self, registrar):
+        self.source_registrar = registrar
+
     def close(self):
         global _local_node
         if not self._running:
@@ -468,6 +586,105 @@ def start_node(handle, on_change=None):
 
 def local_node():
     return _local_node
+
+
+def scan_freecad_documents():
+    """Query every GUI FreeCAD node; omit nodes that cannot answer now."""
+    documents_by_pid = {}
+    for peer in discover():
+        if not peer.get("freecad_documents"):
+            continue
+        try:
+            reply = _exchange(peer["endpoint"],
+                              {"mesh_action": "freecad-list-documents"}, 2500)
+        except (OSError, ConnectionError, TimeoutError, ValueError):
+            continue
+        documents = reply.get("documents") if isinstance(reply, dict) else None
+        if (isinstance(reply, dict) and reply.get("status") == "ok" and
+                reply.get("pid") == peer["pid"] and
+                isinstance(documents, list) and
+                all(isinstance(path, str) and path for path in documents)):
+            documents_by_pid.setdefault(peer["pid"], set()).update(documents)
+    return [(pid, tuple(sorted(paths)))
+            for pid, paths in sorted(documents_by_pid.items())]
+
+
+def activate_open_freecad_document(filepath):
+    """Ask live GUI nodes to select an already-open document, if any."""
+    filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
+    for peer in discover():
+        if not peer.get("freecad_documents"):
+            continue
+        try:
+            reply = _exchange(peer["endpoint"],
+                              {"mesh_action": "freecad-activate-document",
+                               "filepath": filepath}, 2500)
+        except (OSError, ConnectionError, TimeoutError, ValueError):
+            continue
+        if (isinstance(reply, dict) and reply.get("status") == "ok" and
+                reply.get("pid") == peer["pid"] and reply.get("found") is True and
+                _alive(peer["endpoint"]) is True):
+            return peer["pid"]
+    return None
+
+
+def open_in_freecad_node(filepath, timeout=90):
+    """Open a new document in the lowest-PID responding FreeCAD GUI node."""
+    filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
+    candidates = [peer for peer in discover() if peer.get("freecad_documents")]
+    if not candidates:
+        return None
+    request_id = uuid.uuid4().hex
+    rejected = False
+    for peer in candidates:
+        try:
+            ack = _exchange(peer["endpoint"],
+                            {"mesh_action": "freecad-open-document",
+                             "id": request_id, "filepath": filepath})
+        except (OSError, ConnectionError, TimeoutError, ValueError):
+            continue
+        if ack.get("status") != "accepted":
+            rejected = rejected or _alive(peer["endpoint"]) is True
+            continue
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                reply = _exchange(peer["endpoint"],
+                                  {"mesh_action": "result", "id": request_id})
+            except (OSError, ConnectionError, TimeoutError, ValueError):
+                break
+            if (reply.get("status") == "ok" and reply.get("pid") == peer["pid"] and
+                    _alive(peer["endpoint"]) is True):
+                return peer["pid"]
+            if reply.get("status") == "error":
+                raise RuntimeError(reply.get("message", "FreeCAD could not open file"))
+            time.sleep(POLL_INTERVAL)
+        if _alive(peer["endpoint"]) is True:
+            raise TimeoutError(f"FreeCAD did not finish opening: {filepath}")
+    if rejected:
+        raise RuntimeError("Running FreeCAD node cannot open a new document")
+    return None
+
+
+def bind_freecad_source(pid, filepath, timeout=45):
+    """Wait for a newly launched GUI node to identify its imported file."""
+    filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline and psutil.pid_exists(pid):
+        for peer in discover():
+            if peer["pid"] != pid or not peer.get("freecad_documents"):
+                continue
+            try:
+                reply = _exchange(peer["endpoint"],
+                                  {"mesh_action": "freecad-bind-source",
+                                   "filepath": filepath}, 2500)
+            except (OSError, ConnectionError, TimeoutError, ValueError):
+                continue
+            if (reply.get("status") == "ok" and reply.get("pid") == pid and
+                    reply.get("bound") is True and _alive(peer["endpoint"]) is True):
+                return True
+        time.sleep(min(POLL_INTERVAL, max(0, deadline - time.monotonic())))
+    return False
 
 
 def request(message, timeout=RESULT_TIMEOUT):

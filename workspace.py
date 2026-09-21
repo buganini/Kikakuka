@@ -12,7 +12,8 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
 from common import *
 from pcb_open import system_open_command
-from workspace_monitor import snapshot_editor_processes, update_pidmap_entry
+from workspace_monitor import (replace_freecad_documents,
+                               snapshot_editor_processes, update_pidmap_entry)
 
 FREECAD_SUFFIXES = (ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX)
 FILE_ORDER = [*PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, ".kicad_pro"]
@@ -747,9 +748,8 @@ class MainUI(Application):
         super().__init__(icon=resource_path("icon.ico"))
         self.state = State()
         self.state.workspaces = workspaces
-        self.state.monitor_rows = ()
         self.commit()
-        self.pidmap = {}
+        self.pidmap = StateDict({})
 
         # Host a symmetric instance node. No workspace-owned socket or
         # permanent leader is required for FreekiCAD to resolve KiCad IPC.
@@ -767,11 +767,18 @@ class MainUI(Application):
 
     def refresh_monitor(self, _event=None):
         if self._bus:
+            from FreekiCAD.freecad.FreekiCAD.im_mesh import scan_freecad_documents
             self._bus.refresh()
-        self.state.monitor_rows = snapshot_editor_processes(self.pidmap)
+            scans = scan_freecad_documents()
+            with self.pidmap:
+                for pid, paths in scans:
+                    replace_freecad_documents(self.pidmap, pid, paths)
+        # Include editors that were started outside the mesh as well.
+        self.pidmap()
 
     def _update_pidmap_entry(self, filepath, pid):
-        update_pidmap_entry(self.pidmap, filepath, pid)
+        with self.pidmap:
+            update_pidmap_entry(self.pidmap, filepath, pid)
 
     def _mesh_mapping_changed(self, filepath, pid):
         if pid is None:
@@ -854,7 +861,7 @@ class MainUI(Application):
                                         Label("ProcessID").grid(row=0, column=0)
                                         Label("Program").grid(row=0, column=1)
                                         Label("File Path").grid(row=0, column=2)
-                                        rows = self.state.monitor_rows
+                                        rows = snapshot_editor_processes(self.pidmap)
                                         if not rows:
                                             Label("No KiCad or FreeCAD processes found").grid(row=1, column=0)
                                         else:

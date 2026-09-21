@@ -29,6 +29,7 @@ if QtCore is not None:
             super().__init__()
             self.dispatch.connect(self._run)
 
+        @QtCore.Slot(object)
         def _run(self, callback):
             callback()
 
@@ -39,8 +40,154 @@ class _DocumentObserver:
     def __init__(self, node):
         self.node = node
         self.paths = {}
+        self.source_paths = {}
         self.events = queue.Queue()
+        self.dispatcher = _Dispatcher() if QtCore is not None else None
         threading.Thread(target=self._broadcast, daemon=True).start()
+
+    def _scan_paths(self):
+        current = {}
+        documents = FreeCAD.listDocuments()
+        for document in documents.values():
+            name = getattr(document, "Name", None)
+            path = self._document_path(document)
+            if name and path:
+                current[name] = path
+        self.source_paths = {name: path for name, path in self.source_paths.items()
+                             if name in documents}
+        previous_paths = set(self.paths.values())
+        current_paths = set(current.values())
+        self.paths = current
+        for path in sorted(previous_paths - current_paths):
+            self.events.put((path, None))
+        for path in sorted(current_paths - previous_paths):
+            self.events.put((path, os.getpid()))
+        return sorted(current_paths)
+
+    def _document_path(self, document):
+        name = getattr(document, "Name", None)
+        path = getattr(document, "FileName", "") or self.source_paths.get(name, "")
+        return os.path.normcase(os.path.realpath(os.path.abspath(path))) if path else ""
+
+    def _on_gui_thread(self, callback, timeout=2):
+        if (self.dispatcher is None or not hasattr(QtCore, "QThread") or
+                QtCore.QThread.currentThread() == self.dispatcher.thread()):
+            return callback()
+        result = queue.Queue(maxsize=1)
+
+        def run():
+            try:
+                result.put((True, callback()))
+            except Exception as exc:
+                result.put((False, exc))
+
+        self.dispatcher.dispatch.emit(run)
+        try:
+            success, value = result.get(timeout=timeout)
+        except queue.Empty as exc:
+            raise TimeoutError("FreeCAD GUI did not answer document request") from exc
+        if not success:
+            raise value
+        return value
+
+    def list_documents(self):
+        """Read FreeCAD's live documents on its GUI thread."""
+        return self._on_gui_thread(self._scan_paths)
+
+    def register_source(self, document, filepath):
+        """Record the path of an imported file whose Document.FileName is empty."""
+        self.source_paths[document.Name] = os.path.normcase(
+            os.path.realpath(os.path.abspath(filepath)))
+        self._record(document)
+
+    def activate_document(self, filepath):
+        """Select a matching FreeCAD document and its visible MDI tab."""
+        filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
+
+        def activate():
+            self._scan_paths()
+            document = next((document for document in FreeCAD.listDocuments().values()
+                             if self._document_path(document) == filepath), None)
+            if document is None:
+                return False
+            import FreeCADGui
+            from PySide import QtWidgets
+            mdi = FreeCADGui.getMainWindow().findChild(QtWidgets.QMdiArea)
+            if mdi is not None:
+                view = FreeCADGui.getDocument(document.Name).activeView()
+                graphics = view.graphicsView() if view is not None and hasattr(
+                    view, "graphicsView") else None
+                window = graphics
+                while window is not None and not isinstance(window, QtWidgets.QMdiSubWindow):
+                    window = window.parentWidget()
+                if window is None:
+                    # Some document types have no graphicsView; their tab
+                    # title is usable only when its label is unambiguous.
+                    label = str(getattr(document, "Label", ""))
+                    matching = [candidate for candidate in mdi.subWindowList()
+                                if candidate.windowTitle().startswith(label + " : ")]
+                    window = matching[0] if len(matching) == 1 else None
+                if window is not None and window in mdi.subWindowList():
+                    mdi.setActiveSubWindow(window)
+            FreeCAD.setActiveDocument(document.Name)
+            return True
+
+        return self._on_gui_thread(activate)
+
+    def open_document(self, filepath):
+        """Open a new file in this GUI process and identify its document."""
+        filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
+
+        def open_on_gui():
+            if self.activate_document(filepath):
+                return True
+            before = set(FreeCAD.listDocuments())
+            suffix = os.path.splitext(filepath)[1].lower()
+            if suffix == ".fcstd":
+                FreeCAD.openDocument(filepath)
+            elif suffix in (".step", ".stp"):
+                # ImportGui.open opens a modal STEP-settings dialog, which
+                # cannot be answered by an IPC request. Import.open uses the
+                # current importer settings without blocking the GUI thread.
+                import Import
+                Import.open(filepath)
+            elif suffix == ".kkkk_asm":
+                from . import Assembly
+                Assembly.open(filepath)
+            else:
+                raise ValueError(f"unsupported FreeCAD file: {filepath}")
+            created = set(FreeCAD.listDocuments()) - before
+            if len(created) != 1:
+                raise RuntimeError(f"FreeCAD did not create one document for: {filepath}")
+            document = FreeCAD.listDocuments()[created.pop()]
+            if not getattr(document, "FileName", ""):
+                self.register_source(document, filepath)
+            else:
+                self._record(document)
+            return self.activate_document(filepath)
+
+        return self._on_gui_thread(open_on_gui, timeout=90)
+
+    def bind_launched_source(self, filepath):
+        """Identify an import opened by FreeCAD's command-line startup."""
+        filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
+
+        def bind():
+            if filepath in self._scan_paths():
+                return True
+            documents = list(FreeCAD.listDocuments().values())
+            unbound = [document for document in documents
+                       if not getattr(document, "FileName", "") and
+                       document.Name not in self.source_paths]
+            if len(unbound) != 1:
+                return False
+            if (os.path.splitext(filepath)[1].lower() in (".step", ".stp") and
+                    not getattr(unbound[0], "Objects", ())):
+                return False
+            self.register_source(unbound[0], filepath)
+            return True
+
+        return self._on_gui_thread(bind)
 
     def _broadcast(self):
         while True:
@@ -55,10 +202,9 @@ class _DocumentObserver:
 
     def _record(self, document):
         name = getattr(document, "Name", None)
-        path = getattr(document, "FileName", "") or ""
+        path = self._document_path(document)
         if not name or not path:
             return
-        path = os.path.realpath(os.path.abspath(path))
         previous = self.paths.get(name)
         if previous == path:
             return
@@ -85,7 +231,9 @@ class _DocumentObserver:
         self._record(document)
 
     def slotDeletedDocument(self, document):
-        path = self.paths.pop(getattr(document, "Name", None), None)
+        name = getattr(document, "Name", None)
+        self.source_paths.pop(name, None)
+        path = self.paths.pop(name, None)
         if path and path not in self.paths.values():
             self.events.put((path, None))
 
@@ -106,9 +254,21 @@ def ensure_node(observe_documents=None):
                 hasattr(FreeCAD, "addDocumentObserver")):
             _document_observer = _DocumentObserver(node)
             FreeCAD.addDocumentObserver(_document_observer)
-            for document in getattr(FreeCAD, "listDocuments", lambda: {})().values():
-                _document_observer._record(document)
+            node.set_document_provider(_document_observer.list_documents)
+            node.set_document_activator(_document_observer.activate_document)
+            node.set_document_opener(_document_observer.open_document)
+            node.set_source_registrar(_document_observer.bind_launched_source)
+            _document_observer._scan_paths()
         return node
+
+
+def register_document_source(document, filepath):
+    """Associate a FreeCAD import-created document with its source file."""
+    if not getattr(FreeCAD, "GuiUp", False):
+        return
+    ensure_node(observe_documents=True)
+    if _document_observer is not None:
+        _document_observer.register_source(document, filepath)
 
 
 def set_response_handler(handler):

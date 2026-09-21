@@ -3,8 +3,8 @@ from unittest import mock
 
 import psutil
 
-from workspace_monitor import (program_for_process, snapshot_editor_processes,
-                               update_pidmap_entry)
+from workspace_monitor import (program_for_process, replace_freecad_documents,
+                               snapshot_editor_processes, update_pidmap_entry)
 
 
 class FakeProcess:
@@ -32,6 +32,21 @@ class WorkspaceMonitorTests(unittest.TestCase):
             (30, "FreeCAD", "/models/first.FCStd"),
             (30, "FreeCAD", "/models/second.FCStd"),
         ))
+
+    def test_freecad_scan_rebuilds_only_the_responding_process(self):
+        pidmap = {
+            "/models/stale.FCStd": 30,
+            "/models/other.FCStd": 40,
+            "/boards/main.kicad_pcb": 12,
+        }
+        replace_freecad_documents(pidmap, 30, ["/models/one.FCStd",
+                                               "/models/two.FCStd"])
+        self.assertEqual(pidmap, {
+            "/models/one.FCStd": 30,
+            "/models/two.FCStd": 30,
+            "/models/other.FCStd": 40,
+            "/boards/main.kicad_pcb": 12,
+        })
 
     def test_kicad_replaces_previous_active_file_for_same_pid(self):
         pidmap = {}

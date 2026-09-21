@@ -464,6 +464,17 @@ class AssemblyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "JSON object"):
                 self.assembly._read(stream.name)
 
+    def test_open_registers_manifest_path_for_instance_manager(self):
+        fake_client = types.ModuleType("FreekiCAD.freecad.FreekiCAD.im_client")
+        fake_client.register_document_source = mock.Mock()
+        with mock.patch.object(self.assembly, "insert") as insert, \
+                mock.patch.dict(sys.modules, {
+                    "FreekiCAD.freecad.FreekiCAD.im_client": fake_client}):
+            document = self.assembly.open("/models/assembly.kkkk_asm")
+        insert.assert_called_once_with("/models/assembly.kkkk_asm", document.Name)
+        fake_client.register_document_source.assert_called_once_with(
+            document, "/models/assembly.kkkk_asm")
+
 
 if __name__ == "__main__":
     unittest.main()

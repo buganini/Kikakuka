@@ -392,4 +392,6 @@ def open(filename):
     stem = os.path.splitext(os.path.basename(filename))[0] or "Assembly"
     document = FreeCAD.newDocument(stem)
     insert(filename, document.Name)
+    from .im_client import register_document_source
+    register_document_source(document, filename)
     return document

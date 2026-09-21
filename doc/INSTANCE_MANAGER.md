@@ -1,9 +1,12 @@
 # Instance Manager
 
 Kikakuka and each FreekiCAD process host an equivalent Instance Manager
-node. FreekiCAD starts its node on package import, including in FreeCADCmd.
+node. FreekiCAD starts its node on package import, before its workbench is
+selected, including in FreeCADCmd.
 GUI FreeCAD processes also publish their open document state; FreeCADCmd does
 not publish its own open documents.
+For the differences between FreeCAD and KiCad document lifecycles, see
+[FreeCAD vs KiCad document lifecycle](FREECAD_VS_KICAD.md).
 The common coordination logic is in
 [`im_mesh.py`](../FreekiCAD/freecad/FreekiCAD/im_mesh.py), local transport in
 [`im_transport.py`](../FreekiCAD/freecad/FreekiCAD/im_transport.py), and editor-specific
@@ -15,10 +18,12 @@ operations are in
 On macOS and Linux, each node listens at
 `/tmp/kikakuka-<UID>/<PID>-<process-start-ms>.sock`; the per-user directory is
 mode 0700 and socket files are mode 0600. Windows uses a named pipe of the form
-`\\.\pipe\kikakuka-<runtime-hash>-<PID>-<process-start-ms>`. A short node-ID
-suffix is possible when tests host multiple nodes in one process. There is no
-per-node JSON registration file. A shared random token is stored in the private
-runtime directory (`%LOCALAPPDATA%\Kikakuka\instances` on Windows); nodes
+`\\.\pipe\kikakuka-<SID-hash>-<PID>-<process-start-ms>`; the short hash comes
+from the current process's Windows account SID, not its username or runtime
+directory path. A short node-ID suffix is possible when tests host multiple
+nodes in one process. There is no per-node JSON registration file. A shared
+random token is stored in the private runtime directory
+(`%LOCALAPPDATA%\Kikakuka\instances` on Windows); nodes
 reject requests without it. This directory also holds the cross-process lock
 files.
 
@@ -61,8 +66,29 @@ Unsaved documents have no path to publish. Multiple GUI documents in one process
 retain separate mappings; FreeCADCmd does not publish its own documents.
 Deletions use timestamped tombstones so an old
 snapshot cannot revive a removed mapping. A joining node and an executor
-refresh snapshots from peers on demand; the Monitor's manual Refresh does the
-same. When refreshing, dead editor PIDs are removed and broadcast. There is no
+refresh snapshots from peers on demand; the Monitor does the same at startup
+and on manual Refresh. The Monitor also sends `freecad-list-documents`
+directly to every responding GUI FreeCAD node. Each node scans
+`FreeCAD.listDocuments()` on its GUI thread and returns its saved file paths.
+FreekiCAD's `.kkkk_asm` importer also records the source path, because its
+generated FreeCAD document has no
+`FileName`. The Monitor reconciles that PID's entries, including removals
+missed by an earlier event. The scan also queues
+corrective broadcasts to the other nodes. Nodes that cannot answer are left
+unchanged until a later refresh. FreeCADCmd does not provide this action.
+Before opening a FreeCAD file, the executor asks the responding GUI nodes to
+find and activate that path. A match selects its FreeCAD document and MDI tab,
+then brings that process to the foreground. If the document is not open but a
+GUI FreeCAD node exists, the executor sends `freecad-open-document` to that
+node and waits for FreekiCAD to create the document in the same process. STEP
+files use FreeCAD's non-modal importer; imported files without a native
+`FileName` are associated with their source path for later scans. A new
+process is launched only when no GUI FreeCAD node can be reached. The live
+document check takes precedence over an old PID mapping. After a new process
+starts, the launcher waits for its FreekiCAD node and binds the requested path
+to its imported document; process creation alone is not reported as a
+successful file open.
+When refreshing, dead editor PIDs are removed and broadcast. There is no
 periodic poll. A mapping is only a hint: for PCBs, the KiCad API-reported board
 path is checked before focus or socket resolution. `monitor-couplers` remains
 passive and never launches an editor.
@@ -77,7 +103,8 @@ been removed. KiCad's own
 
 ## Platform and permissions
 
-macOS uses `open -n` for a new editor and AppleScript for best-effort focus;
+macOS starts a new FreeCAD with `open -a FreeCAD -n -W --args <file>` and
+uses AppleScript for best-effort focus; other new editors use `open -n`.
 Windows uses file associations and Win32 foreground APIs; Linux uses
 `xdg-open` and currently has no reliable cross-desktop focus operation.
 File-to-PID discovery uses ordinary process enumeration and KiCad's IPC. No

@@ -22,6 +22,17 @@ def update_pidmap_entry(pidmap, filepath, pid):
     pidmap[filepath] = pid
 
 
+def replace_freecad_documents(pidmap, pid, filepaths):
+    """Reconcile one FreeCAD process from an authoritative document scan."""
+    current = {os.path.normcase(os.path.realpath(os.path.abspath(path)))
+               for path in filepaths}
+    for filepath, mapped_pid in list(pidmap.items()):
+        if mapped_pid == pid and os.path.isabs(filepath) and filepath not in current:
+            pidmap.pop(filepath, None)
+    for filepath in current:
+        pidmap[filepath] = pid
+
+
 def program_for_process(name):
     """Classify GUI editor process names without including CLI tools."""
     name = (name or "").casefold().removesuffix(".exe")
