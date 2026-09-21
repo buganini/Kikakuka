@@ -1,4 +1,4 @@
-# 7.5.1:
+# next:
 * FreekiCAD
     * Accept a single `.kicad_pcb` as direct input to `kkkk_export.py`
     * Allow custom stiffener materials with a warning and Polyimide color/opacity defaults
@@ -13,6 +13,7 @@
     * Render selected schematic vector PDF pages through reusable PDFium buffers instead of fixed-resolution full-page intermediates
     * Add synchronized previous/next page controls for schematic comparisons
     * Fill the unset comparison side automatically when selecting the first file
+    * Limit PCB revision selectors to commits that changed the selected board file; schematic selectors retain all repository commits to account for changes in hierarchical sheets
     * Increase PCB diff zoom to 64x with sharper high-zoom rasterization and more efficient tile compositing
     * Add KiCad-ordered layer controls, visibility presets, and a flipped board view
     * Open either selected working-tree or historical KiCad file through the Instance Manager mesh, with a system fallback when no node runs and clear errors for missing revision files
