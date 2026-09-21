@@ -1,4 +1,8 @@
 # next:
+* TL;DR
+    * Faster PCB and schematic diffs with improved viewing controls
+    * Faster FPC bending
+    * Seamless FreeCAD navigation
 * FreekiCAD
     * Accept a single `.kicad_pcb` as direct input to `kkkk_export.py`
     * Allow custom stiffener materials with a warning and Polyimide color/opacity defaults
@@ -19,9 +23,9 @@
     * Open either selected working-tree or historical KiCad file through the Instance Manager mesh, with a system fallback when no node runs and clear errors for missing revision files
 * Workspace Manager
     * Replace the single `kikakuka.sock` daemon with a per-user local IPC Instance Manager mesh: on-demand discovery, lowest-PID capable executor election, failover, serialized per-file and per-program launches, and replicated PID state
-    * Open or focus KiCad and FreeCAD files through the mesh, verifying existing KiCad PCB mappings against its IPC API
+    * Open or focus KiCad and FreeCAD files through the Instance Manager mesh, verifying existing KiCad PCB mappings against its IPC API
 * Panelizer
-    * Open exported boards through the mesh, falling back to the system file association only when no node is running
+    * Open exported boards through the Instance Manager mesh, falling back to the system file association only when no node is running
 
 # 7.5:
 * FreekiCAD
