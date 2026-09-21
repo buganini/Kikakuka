@@ -68,8 +68,7 @@ ordinary process list on demand to find KiCad editor PIDs and creation times:
   requires a matching live KiCad editor process before using it.
 - `api.sock` contains no PID. The backend assigns it to the oldest KiCad
   editor process that has not already been matched to a PID-specific socket.
-  This is a hacky process-order heuristic, not a PID supplied by KiCad IPC;
-  it can identify the wrong process when multiple editors are running.
+  This is a hacky process-order heuristic, not a PID supplied by KiCad IPC.
 
 For each candidate socket, the backend asks KiCad's API for the open board
 name (and project path if the name is relative). Only a path matching the
@@ -85,7 +84,7 @@ requested board to appear through KiCad IPC and uses the PID assigned to that
 socket. Process-list enumeration is still needed to validate PID-specific
 sockets and to assign a PID to `api.sock`; it is not a background monitor.
 
-## Finding an eeschema PID
+## Finding an eeschema PID (KiCad 10)
 
 For `.kicad_sch` (and `.kicad_pro`) there is no PCB-style IPC probe that
 reports which document an editor currently has open. If the mesh already has
