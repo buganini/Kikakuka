@@ -6,7 +6,6 @@ import json
 import platform
 import subprocess
 from threading import Thread
-import hashlib
 import queue
 import glob
 import pypdfium2 as pdfium
@@ -17,6 +16,8 @@ import atexit
 import shutil
 import githelper
 import pcbnew
+from pcb_open import open_kicad_file
+from differ_source import source_paths
 import time
 from collections import OrderedDict
 from PySide6 import QtCore, QtGui
@@ -815,23 +816,36 @@ class DifferUI(Application):
                     elif self.state.loading_a or self.state.loading_b:
                             Label(self.state.loading_a or "").layout(weight=1)
                             Label(self.state.loading_b or "").layout(weight=1)
-                    elif self.state.file_a and self.state.file_a:
-                            if os.path.splitext(self.state.file_a)[1].lower() == SCH_SUFFIX:
+                    elif self.state.file_a and self.state.file_b:
+                            file_type = os.path.splitext(
+                                self.state.file_a
+                            )[1].lower()
+                            if file_type == SCH_SUFFIX:
                                 Button("PCB Diff").click(self.pcb_diff)
-                                if os.path.splitext(
-                                        self.state.file_b
-                                )[1].lower() == SCH_SUFFIX:
-                                    Button("◀").click(
-                                        lambda e: self.shift_sch_pages(-1)
-                                    )
-                                    Button("▶").click(
-                                        lambda e: self.shift_sch_pages(1)
-                                    )
-                            elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
+                            elif file_type == PCB_SUFFIX:
                                 Button("SCH Diff").click(self.sch_diff)
-                            Label("Ctrl+Wheel to adjust overlap").layout(weight=1)
-                            Label(self.state.message).layout(weight=1)
-                            if os.path.splitext(self.state.file_a)[1].lower() == SCH_SUFFIX:
+                            if file_type in (SCH_SUFFIX, PCB_SUFFIX):
+                                Button("Open File A").click(
+                                    self.open_selected_file_a
+                                )
+                                Button("Open File B").click(
+                                    self.open_selected_file_b
+                                )
+                            if (file_type == SCH_SUFFIX and
+                                    os.path.splitext(
+                                        self.state.file_b
+                                    )[1].lower() == SCH_SUFFIX):
+                                Button("◀").click(
+                                    lambda e: self.shift_sch_pages(-1)
+                                )
+                                Button("▶").click(
+                                    lambda e: self.shift_sch_pages(1)
+                                )
+                            if self.state.message:
+                                Label(self.state.message).layout(weight=1)
+                            else:
+                                Label("Ctrl+Wheel to adjust overlap").layout(weight=1)
+                            if file_type == SCH_SUFFIX:
                                 Checkbox("Highlight Changes", model=self.state("highlight_changes"))
                     else:
                         Spacer()
@@ -1023,6 +1037,45 @@ class DifferUI(Application):
         if fn:
             self.state.file_b = fn
             self.change_file_b()
+
+    def open_selected_file_a(self, _event):
+        self._open_selected_file(
+            self.state.file_a, self.repo_a, self.state.commit_a, "A"
+        )
+
+    def open_selected_file_b(self, _event):
+        self._open_selected_file(
+            self.state.file_b, self.repo_b, self.state.commit_b, "B"
+        )
+
+    def _open_selected_file(self, filepath, repo_root, revision, label):
+        if not filepath:
+            Critical(f"File {label} not selected", f"Open File {label}")
+            return
+        try:
+            _, selected_path, display_path = source_paths(
+                filepath, repo_root, revision, self.temp_dir
+            )
+        except ValueError as exc:
+            Critical(f"Could not open File {label}: {exc}", f"Open File {label}")
+            return
+        if not os.path.isfile(selected_path):
+            location = f"revision {str(revision)[:12]}" if revision else "working tree"
+            Critical(
+                f"File {label} not found in {location}: {display_path}",
+                f"Open File {label}",
+            )
+            return
+        Thread(
+            target=self._open_selected_file_worker,
+            args=(selected_path, label), daemon=True,
+        ).start()
+
+    def _open_selected_file_worker(self, filepath, label):
+        try:
+            open_kicad_file(filepath)
+        except Exception as exc:
+            self.state.message = f"Could not open File {label}: {exc}"
 
     def select_page_a(self, png):
         self.state.page_a = png
@@ -1251,20 +1304,25 @@ class DifferUI(Application):
                     continue
 
                 # A
-                hex = hashlib.sha256(file_a.encode("utf-8")).hexdigest()
-
-                ## Checkout
+                path_a, selected_file_a, display_file_a = source_paths(
+                    file_a, self.repo_a, self.state.commit_a, self.temp_dir
+                )
                 if self.state.commit_a:
                     self.state.loading_a = f"Checking out {self.state.commit_a}..."
-                    path_a = os.path.join(self.temp_dir, f"{hex}_{self.state.commit_a}")
                     repo_workdir = os.path.join(path_a, "workdir")
-                    if not os.path.exists(path_a):
-                        dir = os.path.dirname(file_a)
+                    if not os.path.isdir(repo_workdir):
                         githelper.checkout(self.repo_a, self.state.commit_a, repo_workdir)
-                    file_a = os.path.relpath(file_a, self.repo_a).replace("\\", "/")
-                    file_a = os.path.join(repo_workdir, file_a)
-                else:
-                    path_a = os.path.join(self.temp_dir, hex)
+                file_a = selected_file_a
+
+                if not os.path.isfile(file_a):
+                    revision = self.state.commit_a
+                    location = (
+                        f"revision {str(revision)[:12]}"
+                        if revision else "working tree"
+                    )
+                    raise FileNotFoundError(
+                        f"File A not found in {location}: {display_file_a}"
+                    )
 
                 ## Convert
                 if self.state.cached_file_a != path_a:
@@ -1281,20 +1339,25 @@ class DifferUI(Application):
                         self.state.cached_file_a = path_a
 
                 # B
-                hex = hashlib.sha256(file_b.encode("utf-8")).hexdigest()
-
-                ## Checkout
+                path_b, selected_file_b, display_file_b = source_paths(
+                    file_b, self.repo_b, self.state.commit_b, self.temp_dir
+                )
                 if self.state.commit_b:
                     self.state.loading_b = f"Checking out {self.state.commit_b}..."
-                    path_b = os.path.join(self.temp_dir, f"{hex}_{self.state.commit_b}")
                     repo_workdir = os.path.join(path_b, "workdir")
-                    if not os.path.exists(path_b):
-                        dir = os.path.dirname(file_b)
+                    if not os.path.isdir(repo_workdir):
                         githelper.checkout(self.repo_b, self.state.commit_b, repo_workdir)
-                    file_b = os.path.relpath(file_b, self.repo_b).replace("\\", "/")
-                    file_b = os.path.join(repo_workdir, file_b)
-                else:
-                    path_b = os.path.join(self.temp_dir, hex)
+                file_b = selected_file_b
+
+                if not os.path.isfile(file_b):
+                    revision = self.state.commit_b
+                    location = (
+                        f"revision {str(revision)[:12]}"
+                        if revision else "working tree"
+                    )
+                    raise FileNotFoundError(
+                        f"File B not found in {location}: {display_file_b}"
+                    )
 
                 ## Convert
                 if self.state.cached_file_b != path_b:
@@ -1390,6 +1453,20 @@ class DifferUI(Application):
                     self.state.message = ""
 
                 self.state.build_time = time.time()
-            except:
+            except Exception as exc:
                 import traceback
                 traceback.print_exc()
+                self.state.loading_a = False
+                self.state.loading_b = False
+                self.state.loading_diff = False
+                self.state.cached_file_a = ""
+                self.state.cached_file_b = ""
+                self.state.diff_pair = None
+                self.state.page_a = 0
+                self.state.page_b = 0
+                self.state.pcb_page_size = None
+                self.state.sch_page_size = None
+                self.pcb_tiles.reset(None)
+                self.sch_tiles.reset(None)
+                self.state.message = str(exc) or type(exc).__name__
+                self.state.build_time = time.time()

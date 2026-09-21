@@ -19,6 +19,8 @@ import time
 
 import psutil
 
+from pcb_open import WORKSPACE_PORT, WORKSPACE_SOCKET_PATH
+
 try:
     from FreekiCAD.freecad.FreekiCAD.kicad_api_retry import (
         get_ready_kicad_board,
@@ -30,7 +32,6 @@ except ImportError:
         is_kicad_retryable_error,
     )
 
-WORKSPACE_PORT = 19780  # TCP fallback port for Windows
 KICAD_PROCESS_TOKENS = ("kicad", "pcbnew", "pcb editor", "eeschema")
 
 
@@ -284,7 +285,7 @@ def _socket_path(action=None):
     """Return the platform-specific path for the workspace manager socket."""
     if platform.system() == 'Windows':
         return None  # Use TCP fallback
-    return '/tmp/kikakuka.sock'
+    return WORKSPACE_SOCKET_PATH
 
 
 def _recv_msg(conn):
@@ -327,13 +328,18 @@ class WorkspaceBus:
 
     *update_pid* (optional) is called when socket verification discovers
     that a PID is serving a different board path than the cached pidmap key.
+
+    *bring_to_front* (optional) focuses an existing or newly opened editor
+    for ``open-file`` board or schematic requests.
     """
 
-    def __init__(self, get_pidmap, open_file=None, remove_pid=None, update_pid=None):
+    def __init__(self, get_pidmap, open_file=None, remove_pid=None,
+                 update_pid=None, bring_to_front=None):
         self._get_pidmap = get_pidmap
         self._open_file = open_file
         self._remove_pid = remove_pid
         self._update_pid = update_pid
+        self._bring_to_front = bring_to_front
         self._opening = set()
         # Keep the PID returned by an open request until that same instance is
         # verified as serving the requested board.  A modal dialog can leave
@@ -476,6 +482,10 @@ class WorkspaceBus:
         PID for readiness retries only when a new instance is needed."""
         try:
             with self._launch_lock:
+                with self._opening_lock:
+                    pending_pid = self._pending_open_pids.get(filepath)
+                if pending_pid is not None and psutil.pid_exists(pending_pid):
+                    return pending_pid
                 # A user may have opened this board outside the workspace
                 # manager since startup.  Refresh every known KiCad socket
                 # immediately before launching to avoid a duplicate instance.
@@ -496,10 +506,10 @@ class WorkspaceBus:
                     return existing_pid
 
                 pid = self._open_file(filepath)
-            if pid is not None:
-                with self._opening_lock:
-                    self._pending_open_pids[filepath] = pid
-            return pid
+                if pid is not None:
+                    with self._opening_lock:
+                        self._pending_open_pids[filepath] = pid
+                return pid
         finally:
             with self._opening_lock:
                 self._opening.discard(filepath)
@@ -634,6 +644,43 @@ class WorkspaceBus:
         return False
 
     # -- action handlers ------------------------------------------------
+
+    def _open_file_request(self, msg, pidmap):
+        """Open or focus a KiCad file without waiting for its IPC API."""
+        filepath = os.path.abspath(msg.get("filepath") or "")
+        if (not filepath.lower().endswith((".kicad_pcb", ".kicad_sch")) or
+                not os.path.isfile(filepath)):
+            return {"status": "error", "message": "KiCad file not found"}
+
+        pid = pidmap.get(filepath)
+        if pid is not None and not psutil.pid_exists(pid):
+            if self._remove_pid:
+                self._remove_pid(filepath)
+            pid = None
+        if pid is None:
+            with self._opening_lock:
+                pending_pid = self._pending_open_pids.get(filepath)
+            if pending_pid is not None and psutil.pid_exists(pending_pid):
+                pid = pending_pid
+        if pid is None and self._open_file:
+            with self._opening_lock:
+                self._opening.add(filepath)
+            pid = self._do_open_file(filepath)
+        if pid is None:
+            return {"status": "error", "message": "could not open KiCad file"}
+
+        bring_to_front = getattr(self, "_bring_to_front", None)
+        if bring_to_front is not None:
+            try:
+                bring_to_front(pid)
+            except Exception as exc:
+                _log(f"could not focus KiCad PID {pid}: {exc}")
+        return {
+            "status": "ok",
+            "action": "open-file",
+            "filepath": filepath,
+            "pid": pid,
+        }
 
     def _resolve_socket(self, msg, pidmap):
         """Resolve the KiCad IPC socket for a file, launching KiCad if needed.
@@ -793,6 +840,9 @@ class WorkspaceBus:
     def _handle(self, msg):
         action = msg.get("action")
         pidmap = self._get_pidmap()
+
+        if action == "open-file":
+            return self._open_file_request(msg, pidmap)
 
         if action in (
                 "reload", "open-sketch", "move-component",

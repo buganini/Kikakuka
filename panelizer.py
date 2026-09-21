@@ -26,7 +26,6 @@ from PUI.PySide6 import *
 # from PUI.wx import *
 import PUI
 import wx
-import platform
 import tempfile
 import atexit
 import shutil
@@ -35,7 +34,7 @@ import re
 from buildexpr import buildexpr
 import gc
 from threading import BoundedSemaphore, Event, Lock, Thread, current_thread
-from workspace import bringToFront, posix_open_file, windows_open_file
+from pcb_open import open_pcb_file
 from panelizer_freekicad import (
     FREEKICAD_LAYER_NAME,
     prepare_panel_freekicad_sources,
@@ -3294,21 +3293,7 @@ class PanelizerUI(Application):
             Critical("Exported file not found", "Open Exported File")
 
     def _open_exported_file(self, path):
-        if platform.system() in ["Darwin", "Linux"]:
-            pid = posix_open_file(
-                path,
-                ["kicad", "pcbnew", "eeschema"],
-                "-n",
-            )
-            if pid:
-                bringToFront(pid)
-        elif platform.system() == "Windows":
-            pid = windows_open_file(path, ["kicad", "pcbnew", "eeschema"])
-            if pid:
-                bringToFront(pid)
-        else:
-            import subprocess
-            subprocess.Popen(("xdg-open", path))
+        open_pcb_file(path)
 
     def content(self):
         title = f"Kikakuka v{VERSION} Fabrication Planner (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"

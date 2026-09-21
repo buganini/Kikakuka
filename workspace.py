@@ -11,6 +11,7 @@ import psutil
 from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
 from common import *
+from pcb_open import system_open_command
 
 FREECAD_SUFFIXES = (ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX)
 FILE_ORDER = [*PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, ".kicad_pro"]
@@ -175,8 +176,8 @@ def windows_bring_pid_to_front(pid):
 
 def posix_open_file(filepath, filters, *open_args):
     """
-    Opens a file with its default application on POSIX and returns the PID
-    of the launched process.
+    Opens a file with its default application and finds the launched PID.
+    macOS accepts *open_args*; Linux uses xdg-open instead.
 
     Args:
         file_path (str): Path to the file to be opened
@@ -188,7 +189,7 @@ def posix_open_file(filepath, filters, *open_args):
     initial_pids = set(psutil.pids())
 
     # Open the file with the default application
-    open_command = ["open", *open_args, filepath]
+    open_command = system_open_command(filepath, mac_args=open_args)
     subprocess.Popen(open_command)
 
     # Wait a moment for the application to launch
@@ -764,6 +765,7 @@ class MainUI(Application):
                 open_file=self._open_kicad_file,
                 remove_pid=lambda fp: self.pidmap.pop(fp, None),
                 update_pid=self._update_pidmap_entry,
+                bring_to_front=bringToFront,
             )
             import atexit
             atexit.register(self._shutdown_bus)
@@ -779,7 +781,7 @@ class MainUI(Application):
         self.pidmap[filepath] = pid
 
     def _open_kicad_file(self, filepath, bring_to_front=False):
-        """Open a .kicad_pcb file in a new KiCad instance.
+        """Open a KiCad board or schematic in a new editor instance.
 
         Called from WorkspaceBus when a resolve request arrives for a
         file not yet in the pidmap.  Returns the PID on success, or None.

@@ -44,6 +44,74 @@ class WorkspaceBusResolveSocketTests(unittest.TestCase):
         bus._running = True
         return bus
 
+    def test_open_file_request_focuses_existing_editor(self):
+        path = "/boards/panel.kicad_pcb"
+        bus = self._make_bus({path: 111})
+        bus._open_file = mock.Mock()
+        bus._bring_to_front = mock.Mock(return_value=True)
+
+        with mock.patch("workspace_bus.os.path.isfile", return_value=True):
+            with mock.patch("workspace_bus.psutil.pid_exists", return_value=True):
+                reply = bus._handle({"action": "open-file", "filepath": path})
+
+        self.assertEqual(reply, {
+            "status": "ok", "action": "open-file",
+            "filepath": path, "pid": 111,
+        })
+        bus._open_file.assert_not_called()
+        bus._bring_to_front.assert_called_once_with(111)
+
+    def test_open_file_request_launches_missing_editor(self):
+        path = "/boards/panel.kicad_pcb"
+        bus = self._make_bus({})
+        bus._open_file = mock.Mock(return_value=222)
+        bus._bring_to_front = mock.Mock(return_value=True)
+
+        with mock.patch("workspace_bus.os.path.isfile", return_value=True):
+            with mock.patch("workspace_bus._existing_kicad_sockets", return_value=[]):
+                reply = bus._handle({"action": "open-file", "filepath": path})
+
+        self.assertEqual(reply["status"], "ok")
+        self.assertEqual(reply["pid"], 222)
+        bus._open_file.assert_called_once_with(path)
+        bus._bring_to_front.assert_called_once_with(222)
+
+    def test_open_file_request_accepts_schematic(self):
+        path = "/boards/main.kicad_sch"
+        bus = self._make_bus({})
+        bus._open_file = mock.Mock(return_value=333)
+
+        with mock.patch("workspace_bus.os.path.isfile", return_value=True):
+            with mock.patch("workspace_bus._existing_kicad_sockets", return_value=[]):
+                reply = bus._handle({"action": "open-file", "filepath": path})
+
+        self.assertEqual(reply["status"], "ok")
+        self.assertEqual(reply["filepath"], path)
+        bus._open_file.assert_called_once_with(path)
+
+    def test_open_file_request_returns_error_when_launch_fails(self):
+        path = "/boards/panel.kicad_pcb"
+        bus = self._make_bus({})
+        bus._open_file = mock.Mock(return_value=None)
+
+        with mock.patch("workspace_bus.os.path.isfile", return_value=True):
+            with mock.patch("workspace_bus._existing_kicad_sockets", return_value=[]):
+                reply = bus._handle({"action": "open-file", "filepath": path})
+
+        self.assertEqual(reply["status"], "error")
+
+    def test_repeated_open_request_reuses_pending_editor(self):
+        path = "/boards/panel.kicad_pcb"
+        bus = self._make_bus({})
+        bus._open_file = mock.Mock(return_value=222)
+
+        with mock.patch("workspace_bus._existing_kicad_sockets", return_value=[]):
+            with mock.patch("workspace_bus.psutil.pid_exists", return_value=True):
+                self.assertEqual(bus._do_open_file(path), 222)
+                self.assertEqual(bus._do_open_file(path), 222)
+
+        bus._open_file.assert_called_once_with(path)
+
     def test_opening_different_files_serializes_kicad_launches(self):
         bus = self._make_bus({})
         first_started = threading.Event()
