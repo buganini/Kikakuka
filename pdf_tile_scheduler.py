@@ -1,5 +1,6 @@
 import math
 import queue
+import time
 from collections import OrderedDict
 from threading import Lock, Thread
 
@@ -67,9 +68,9 @@ class PdfTileScheduler:
         self.pending = {}
         self.results = OrderedDict()
         self.cache_bytes = 0
+        self.cache_evictions = 0
         self.active = set()
         self.coarse_key = None
-        self.priority_order = ()
 
         if start_worker:
             Thread(target=self._worker, daemon=True).start()
@@ -81,9 +82,9 @@ class PdfTileScheduler:
             self.pending.clear()
             self.results.clear()
             self.cache_bytes = 0
+            self.cache_evictions = 0
             self.active.clear()
             self.coarse_key = None
-            self.priority_order = ()
 
     def _queue_task(self, task, priority):
         self.task_sequence += 1
@@ -128,12 +129,6 @@ class PdfTileScheduler:
                 for tile_x, tile_y in tile_indices
             ]
             self.active = set(keys)
-            priority_order = tuple(keys)
-            if priority_order != self.priority_order:
-                self.priority_order = priority_order
-                for pending_key in tuple(self.pending):
-                    if pending_key != self.coarse_key:
-                        self.pending.pop(pending_key, None)
             for pending_key in tuple(self.pending):
                 if (pending_key not in self.active and
                         pending_key != self.coarse_key):
@@ -145,6 +140,7 @@ class PdfTileScheduler:
                 if key in self.results:
                     continue
                 pending = self.pending.get(key)
+                # Keep queued work unless this tile gained priority.
                 if pending is not None and pending[1] <= priority:
                     continue
                 task = {
@@ -165,6 +161,41 @@ class PdfTileScheduler:
             if result is not None:
                 self.results.move_to_end(key)
             return result
+
+    def cache_snapshot(self, keys):
+        """Return a consistent diagnostic snapshot for the visible tile keys."""
+        with self.lock:
+            def average_time(field):
+                values = [
+                    self.results[key][field] for key in keys
+                    if key in self.results and
+                    "error" not in self.results[key] and
+                    field in self.results[key]
+                ]
+                return sum(values) / len(values) if values else None
+
+            ready = sum(
+                key in self.results and "error" not in self.results[key]
+                for key in keys
+            )
+            errors = sum(
+                key in self.results and "error" in self.results[key]
+                for key in keys
+            )
+            pending = sum(key in self.pending for key in keys)
+            return {
+                "ready": ready,
+                "errors": errors,
+                "pending": pending,
+                "entries": len(self.results),
+                "bytes": self.cache_bytes,
+                "limit_bytes": self.cache_limit,
+                "evictions": self.cache_evictions,
+                "queue_depth": self.queue.qsize(),
+                "render_ms_avg": average_time("render_ms"),
+                "pdf_render_ms_avg": average_time("pdf_render_ms"),
+                "composite_ms_avg": average_time("composite_ms"),
+            }
 
     def _cache_result(self, key, result):
         previous = self.results.pop(key, None)
@@ -198,6 +229,7 @@ class PdfTileScheduler:
                 break
             removed = self.results.pop(victim)
             self.cache_bytes -= removed.get("memory_bytes", 0)
+            self.cache_evictions += 1
 
     def fallback(self, render_scale, variant, viewport_bounds):
         generation = self.generation
@@ -234,10 +266,14 @@ class PdfTileScheduler:
                 pending = self.pending.get(key)
                 if (pending is None or pending[0] != task["token"]):
                     continue
+                if key in self.results:
+                    self.pending.pop(key, None)
+                    continue
                 if (task["generation"] != self.generation or
                         (not task.get("pinned") and key not in self.active)):
                     self.pending.pop(key, None)
                     continue
+            render_started = time.perf_counter()
             try:
                 result = self.render_task(renderer, task)
                 if task.get("coarse"):
@@ -246,9 +282,14 @@ class PdfTileScheduler:
                 import traceback
                 traceback.print_exc()
                 result = {"error": str(exc)}
+            result["render_ms"] = (
+                time.perf_counter() - render_started
+            ) * 1000
 
             with self.lock:
-                self.pending.pop(key, None)
+                pending = self.pending.get(key)
+                if pending is not None and pending[0] == task["token"]:
+                    self.pending.pop(key, None)
                 if (task["generation"] != self.generation or
                         (not task.get("pinned") and key not in self.active)):
                     continue

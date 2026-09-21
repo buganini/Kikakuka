@@ -1,3 +1,4 @@
+import math
 import os
 import tempfile
 import unittest
@@ -244,13 +245,24 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
         self.assertEqual(choose_render_scale(0.8), 1.0)
         self.assertEqual(choose_render_scale(1.01), 2.0)
         self.assertEqual(choose_render_scale(8.0), 8.0)
-        self.assertEqual(choose_render_scale(8.01), 16.0)
-        self.assertEqual(choose_render_scale(20.0), 32.0)
+        self.assertAlmostEqual(choose_render_scale(8.01), 8 * math.sqrt(2))
+        self.assertEqual(choose_render_scale(16.0), 16.0)
+        self.assertAlmostEqual(choose_render_scale(20.0), 16 * math.sqrt(2))
+        self.assertEqual(choose_render_scale(32.0), 32.0)
 
     def test_render_scale_accounts_for_physical_pixel_density(self):
         self.assertEqual(choose_render_scale(0.5, pixel_density=2.0), 1.0)
         self.assertEqual(choose_render_scale(0.8, pixel_density=2.0), 2.0)
-        self.assertEqual(choose_render_scale(20.0, pixel_density=2.0), 64.0)
+        self.assertAlmostEqual(
+            choose_render_scale(20.0, pixel_density=2.0),
+            32 * math.sqrt(2),
+        )
+
+    def test_high_zoom_lod_never_upscales_or_oversamples_by_two(self):
+        for effective_scale in (8.01, 12.0, 20.0, 40.0, 64.51, 100.0):
+            render_scale = choose_render_scale(effective_scale)
+            self.assertGreaterEqual(render_scale, effective_scale)
+            self.assertLess(render_scale, effective_scale * math.sqrt(2))
 
     def test_fallback_uses_nearest_cached_lod(self):
         self.assertEqual(choose_fallback_scale((0.5, 2.0), 1.0), 0.5)
@@ -441,6 +453,32 @@ class PcbDiffTileImageTests(unittest.TestCase):
 
         np.testing.assert_array_equal(actual, expected)
 
+    def test_reusing_alpha_for_identical_layers_preserves_each_output(self):
+        random = np.random.default_rng(17)
+        grayscale = random.integers(0, 256, (8, 9), dtype=np.uint8)
+        initial = [
+            random.integers(
+                0, np.iinfo(np.uint32).max, (8, 9), dtype=np.uint32
+            )
+            for _index in range(3)
+        ]
+        expected = [image.copy() for image in initial]
+        actual = [image.copy() for image in initial]
+        work_buffers = tuple(
+            np.empty((8, 9), dtype=np.uint32) for _index in range(6)
+        )
+
+        for image in expected:
+            _accumulate_coverage(image, grayscale, (10, 120, 240), 0.8)
+        for index, image in enumerate(actual):
+            _accumulate_coverage(
+                image, grayscale, (10, 120, 240), 0.8,
+                work_buffers, reuse_alpha=index > 0,
+            )
+
+        for result, reference in zip(actual, expected):
+            np.testing.assert_array_equal(result, reference)
+
     def test_darker_bounds_are_union_of_source_bounds(self):
         image_a = np.full((8, 8), 255, dtype=np.uint8)
         image_b = image_a.copy()
@@ -590,6 +628,8 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
         for image in result["image_data"].values():
             self.assertEqual(image.shape, (4, 4, 4))
         self.assertEqual(result["mask_data"].shape, (4, 4, 4))
+        self.assertGreaterEqual(result["pdf_render_ms"], 0.0)
+        self.assertGreaterEqual(result["composite_ms"], 0.0)
 
     def test_viewport_block_renders_empty_layer_selection(self):
         result = PcbTileRenderer().render_tile(
@@ -600,6 +640,62 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
         self.assertIsNone(result["mask_data"])
         for image in result["image_data"].values():
             self.assertFalse(np.any(image))
+
+    def test_equal_bottom_layer_is_shared_until_top_layer_differs(self):
+        bottom = np.full((4, 4), 255, dtype=np.uint8)
+        bottom[0, 0] = 0
+        top_a = np.full((4, 4), 255, dtype=np.uint8)
+        top_a[1, 1] = 0
+        top_b = np.full((4, 4), 255, dtype=np.uint8)
+        images = {
+            "bottom_a.pdf": bottom,
+            "bottom_b.pdf": bottom,
+            "top_a.pdf": top_a,
+            "top_b.pdf": top_b,
+        }
+        metadata = {
+            **self.metadata,
+            "layer_pdfs": {
+                "F.Cu": ("top_a.pdf", "top_b.pdf"),
+                "B.Cu": ("bottom_a.pdf", "bottom_b.pdf"),
+            },
+        }
+        renderer = PcbTileRenderer()
+        renderer._render_layer = mock.Mock(
+            side_effect=lambda path, *_args, **_kwargs: images[path].copy()
+        )
+
+        result = renderer.render_tile(
+            metadata, ["F.Cu", "B.Cu"], 1.0, 0, 0,
+            return_image_data=True,
+        )
+        image_a = result["image_data"]["a"]
+        image_b = result["image_data"]["b"]
+        darker = result["image_data"]["darker"]
+
+        np.testing.assert_array_equal(image_a[0, 0], image_b[0, 0])
+        np.testing.assert_array_equal(image_a[0, 0], darker[0, 0])
+        self.assertGreater(int(image_a[0, 0, 3]), 0)
+        np.testing.assert_array_equal(image_a[1, 1], darker[1, 1])
+        self.assertGreater(int(image_a[1, 1, 3]), 0)
+        self.assertEqual(int(image_b[1, 1, 3]), 0)
+
+    def test_equal_layers_produce_identical_composites(self):
+        renderer = PcbTileRenderer()
+        renderer._render_layer = mock.Mock(
+            side_effect=lambda _path, *_args, **_kwargs: self.image_b.copy()
+        )
+        result = renderer.render_tile(
+            self.metadata, ["F.Cu"], 1.0, 0, 0,
+            return_image_data=True,
+        )
+
+        np.testing.assert_array_equal(
+            result["image_data"]["a"], result["image_data"]["b"]
+        )
+        np.testing.assert_array_equal(
+            result["image_data"]["a"], result["image_data"]["darker"]
+        )
 
     def test_viewport_block_can_composite_into_owned_buffers(self):
         renderer = PcbTileRenderer()
@@ -701,6 +797,31 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
         np.testing.assert_array_equal(
             result, np.full((4, 4), 42, dtype=np.uint8)
         )
+
+    def test_fractional_pdf_crop_falls_back_when_bitmap_size_differs(self):
+        renderer = PcbTileRenderer()
+        output = np.empty((4, 4), dtype=np.uint8)
+        page = mock.MagicMock()
+        bitmap = np.full((4, 5), 42, dtype=np.uint8)
+
+        def render(**options):
+            if "bitmap_maker" in options:
+                options["bitmap_maker"](5, 4, 1, False)
+            result = mock.MagicMock()
+            result.to_numpy.return_value = bitmap
+            return result
+
+        page.render.side_effect = render
+        renderer._page = mock.Mock(return_value=page)
+
+        result = renderer._render_layer(
+            "board.pdf", (4.0, 4.0), (4.0, 4.0),
+            (0.0, 0.0, 4.0, 4.0), 1.0, output=output,
+        )
+
+        self.assertIs(result, output)
+        np.testing.assert_array_equal(result, np.full((4, 4), 42))
+        self.assertEqual(page.render.call_count, 2)
 
     def test_partial_pdf_crop_is_copied_into_caller_buffer(self):
         renderer = PcbTileRenderer()

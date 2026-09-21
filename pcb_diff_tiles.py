@@ -2,6 +2,7 @@ import ctypes
 import glob
 import math
 import os
+import time
 
 import cv2
 import numpy as np
@@ -18,6 +19,10 @@ TILE_SIZE = 512
 TILE_GUTTER = 24
 RENDER_SCALES = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
 LAYER_ALPHA_THRESHOLD = 127
+
+
+class _UnexpectedPdfBitmapSize(ValueError):
+    pass
 
 
 # KiCad's built-in default board theme, stored as OpenCV BGR plus alpha.
@@ -204,9 +209,13 @@ def choose_render_scale(view_scale, pixel_density=1.0):
         if render_scale >= effective_scale:
             return render_scale
     render_scale = RENDER_SCALES[-1]
-    while render_scale < effective_scale:
+    while True:
+        intermediate_scale = render_scale * math.sqrt(2)
+        if intermediate_scale >= effective_scale:
+            return intermediate_scale
         render_scale *= 2
-    return render_scale
+        if render_scale >= effective_scale:
+            return render_scale
 
 
 def prioritize_selected_layer(layers, selected_layer):
@@ -511,18 +520,19 @@ def _divide_packed_pairs_by_255_inplace(value, scratch):
 
 
 def _accumulate_coverage(destination, grayscale, color, opacity=1.0,
-                         work_buffers=None):
+                         work_buffers=None, reuse_alpha=False):
     """Source-over colored coverage in packed premultiplied BGRA uint32."""
     opacity_alpha = np.uint32(round(min(1.0, max(0.0, opacity)) * 255.0))
     if work_buffers is not None:
         source_alpha, inverse_source_alpha, output_br, output_ga, temp, shift = (
             work_buffers
         )
-        np.subtract(255, grayscale, out=source_alpha, casting="unsafe")
-        source_alpha *= opacity_alpha
-        source_alpha += 127
-        source_alpha //= 255
-        np.subtract(255, source_alpha, out=inverse_source_alpha)
+        if not reuse_alpha:
+            np.subtract(255, grayscale, out=source_alpha, casting="unsafe")
+            source_alpha *= opacity_alpha
+            source_alpha += 127
+            source_alpha //= 255
+            np.subtract(255, source_alpha, out=inverse_source_alpha)
 
         blue, green, red = color
         source_br = np.uint32(blue | (red << 16))
@@ -595,7 +605,7 @@ def _union_bounds(bounds_a, bounds_b):
 
 
 def _accumulate_coverage_bounds(destination, grayscale, color, opacity,
-                                bounds, work_buffers=None):
+                                bounds, work_buffers=None, reuse_alpha=False):
     x, y, width, height = bounds
     if width == 0 or height == 0:
         return
@@ -612,6 +622,7 @@ def _accumulate_coverage_bounds(destination, grayscale, color, opacity,
         color,
         opacity,
         bounded_work_buffers,
+        reuse_alpha=reuse_alpha,
     )
 
 
@@ -787,7 +798,9 @@ class PcbTileRenderer:
 
             def bitmap_maker(width, height, format, rev_byteorder=False):
                 if width != pixel_width or height != pixel_height:
-                    raise ValueError("PDFium requested an unexpected bitmap")
+                    raise _UnexpectedPdfBitmapSize(
+                        "PDFium requested an unexpected bitmap"
+                    )
                 return pdfium.PdfBitmap.new_native(
                     width,
                     height,
@@ -797,15 +810,20 @@ class PcbTileRenderer:
                     stride=output.strides[0],
                 )
 
-            self._page(path).render(
-                bitmap_maker=bitmap_maker, **render_options
-            )
-            return output
+            try:
+                self._page(path).render(
+                    bitmap_maker=bitmap_maker, **render_options
+                )
+            except _UnexpectedPdfBitmapSize:
+                # Fractional scales can round PDFium's crop by one pixel.
+                pass
+            else:
+                return output
 
         bitmap = self._page(path).render(**render_options).to_numpy()
         copy_width = min(bitmap.shape[1], pixel_width - target_x)
         copy_height = min(bitmap.shape[0], pixel_height - target_y)
-        if (target_x == 0 and target_y == 0 and
+        if (output is None and target_x == 0 and target_y == 0 and
                 copy_width == pixel_width and copy_height == pixel_height):
             # pypdfium2's NumPy view retains the bitmap buffer owner. Borrow it
             # until this layer has been composited instead of copying the crop.
@@ -884,11 +902,15 @@ class PcbTileRenderer:
         )
         merged_binary_mask.fill(0)
         has_layers = False
+        shared_composite = True
+        pdf_render_seconds = 0.0
+        composite_seconds = 0.0
         for layer in reversed(layers):
             has_layers = True
             path_a, path_b = metadata["layer_pdfs"].get(
                 layer, (None, None)
             )
+            pdf_started = time.perf_counter()
             image_a = self._render_layer(
                 path_a,
                 metadata["page_size_a"],
@@ -905,14 +927,23 @@ class PcbTileRenderer:
                 render_scale,
                 output=image_b_buffer,
             )
-            cv2.min(image_a, image_b, dst=darker_buffer)
+            pdf_render_seconds += time.perf_counter() - pdf_started
+            composite_started = time.perf_counter()
+            layer_equal = np.array_equal(image_a, image_b)
+            if shared_composite and not layer_equal:
+                # The three outputs were identical up to this layer.
+                np.copyto(composites["b"], composites["a"])
+                np.copyto(composites["darker"], composites["a"])
+                shared_composite = False
+            if not layer_equal:
+                cv2.min(image_a, image_b, dst=darker_buffer)
             color, layer_opacity = metadata.get("layer_styles", {}).get(
                 layer, standard_layer_style(layer)
             )
             opacity = 0.8 * layer_opacity
             composite_a = image_a
-            composite_b = image_b
-            composite_darker = darker_buffer
+            composite_b = image_a if layer_equal else image_b
+            composite_darker = image_a if layer_equal else darker_buffer
             if external_composites:
                 composite_a = composite_a[
                     crop_y:crop_y + crop_height,
@@ -930,37 +961,47 @@ class PcbTileRenderer:
                 :composite_a.size
             ].reshape(composite_a.shape)
             bounds_a = _coverage_bounds(composite_a, bounds_scratch)
-            bounds_b = _coverage_bounds(composite_b, bounds_scratch)
-            # min(A, B) is non-white wherever either A or B is non-white.
-            bounds_darker = _union_bounds(bounds_a, bounds_b)
             _accumulate_coverage_bounds(
                 composites["a"], composite_a, color, opacity, bounds_a,
                 composite_work_buffers,
             )
-            _accumulate_coverage_bounds(
-                composites["b"], composite_b, color, opacity, bounds_b,
-                composite_work_buffers,
-            )
-            _accumulate_coverage_bounds(
-                composites["darker"], composite_darker, color, opacity,
-                bounds_darker, composite_work_buffers,
-            )
-            threshold = 254 - LAYER_ALPHA_THRESHOLD
-            cv2.threshold(
-                image_a, threshold, 255, cv2.THRESH_BINARY_INV,
-                dst=image_a
-            )
-            cv2.threshold(
-                image_b, threshold, 255, cv2.THRESH_BINARY_INV,
-                dst=image_b
-            )
-            cv2.bitwise_xor(image_a, image_b, dst=image_a)
-            cv2.max(
-                merged_binary_mask, image_a, dst=merged_binary_mask
-            )
+            if not shared_composite:
+                bounds_b = (
+                    bounds_a if layer_equal else
+                    _coverage_bounds(composite_b, bounds_scratch)
+                )
+                # min(A, B) is non-white wherever either image is non-white.
+                bounds_darker = _union_bounds(bounds_a, bounds_b)
+                _accumulate_coverage_bounds(
+                    composites["b"], composite_b, color, opacity, bounds_b,
+                    composite_work_buffers, reuse_alpha=layer_equal,
+                )
+                _accumulate_coverage_bounds(
+                    composites["darker"], composite_darker, color, opacity,
+                    bounds_darker, composite_work_buffers,
+                    reuse_alpha=layer_equal,
+                )
+            if not layer_equal:
+                threshold = 254 - LAYER_ALPHA_THRESHOLD
+                cv2.threshold(
+                    image_a, threshold, 255, cv2.THRESH_BINARY_INV,
+                    dst=image_a
+                )
+                cv2.threshold(
+                    image_b, threshold, 255, cv2.THRESH_BINARY_INV,
+                    dst=image_b
+                )
+                cv2.bitwise_xor(image_a, image_b, dst=image_a)
+                cv2.max(
+                    merged_binary_mask, image_a, dst=merged_binary_mask
+                )
+            composite_seconds += time.perf_counter() - composite_started
 
         if not has_layers:
             merged_binary_mask = None
+        if shared_composite:
+            np.copyto(composites["b"], composites["a"])
+            np.copyto(composites["darker"], composites["a"])
 
         image_paths = {}
         image_data = {}
@@ -1008,6 +1049,8 @@ class PcbTileRenderer:
             "images": image_paths,
             "mask": mask_path,
             "has_mask": mask is not None,
+            "pdf_render_ms": pdf_render_seconds * 1000,
+            "composite_ms": composite_seconds * 1000,
         }
         if return_image_data:
             result["image_data"] = image_data

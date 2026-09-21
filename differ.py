@@ -189,6 +189,8 @@ class PdfTileDiffView(PUIView):
         self.generation = None
         self.tile_images = OrderedDict()
         self.mousehold = False
+        self._last_tile_log = 0.0
+        self._last_tile_log_incomplete = False
 
     def setup(self):
         self.state = State()
@@ -323,6 +325,8 @@ class PdfTileDiffView(PUIView):
             self.state.scale = None
             self.canvas_width = None
             self.canvas_height = None
+            self._last_tile_log = 0.0
+            self._last_tile_log_incomplete = False
 
         if self.state.scale is None or (self.canvas_width, self.canvas_height) != (canvas.width, canvas.height):
             return self.autoScale(canvas.width, canvas.height)
@@ -386,6 +390,46 @@ class PdfTileDiffView(PUIView):
         fallback_results = self.scheduler.fallback(
             render_scale, variant, viewport_bounds
         )
+
+        if isinstance(self, PcbDiffView):
+            incomplete = len(tile_results) < len(tile_keys)
+            now = time.monotonic()
+            if (now - self._last_tile_log >= 1.0 or
+                    self._last_tile_log_incomplete and not incomplete):
+                cache = self.scheduler.cache_snapshot(tile_keys)
+                render_ms = cache["render_ms_avg"]
+                render_ms_text = (
+                    f"{render_ms:.1f}" if render_ms is not None else "n/a"
+                )
+                pdf_ms = cache["pdf_render_ms_avg"]
+                pdf_ms_text = f"{pdf_ms:.1f}" if pdf_ms is not None else "n/a"
+                composite_ms = cache["composite_ms_avg"]
+                composite_ms_text = (
+                    f"{composite_ms:.1f}"
+                    if composite_ms is not None else "n/a"
+                )
+                print(
+                    "[differ tiles] "
+                    f"zoom={scale / self.scale:.2f}x "
+                    f"view={scale:.2f}x dpr={canvas.pixel_density:.2f} "
+                    f"raster={render_scale:.2f}x "
+                    f"visible={len(tile_keys)} "
+                    f"cached={cache['ready']}/{len(tile_keys)} "
+                    f"pending={cache['pending']} errors={cache['errors']} "
+                    f"fallback={len(fallback_results)} "
+                    f"layers={len(variant)} "
+                    f"cache={cache['bytes'] / 1048576:.1f}/"
+                    f"{cache['limit_bytes'] / 1048576:.0f}MiB "
+                    f"entries={cache['entries']} "
+                    f"evictions={cache['evictions']} "
+                    f"queue={cache['queue_depth']} "
+                    f"render_ms={render_ms_text} "
+                    f"pdf_ms={pdf_ms_text} "
+                    f"composite_ms={composite_ms_text}",
+                    flush=True,
+                )
+                self._last_tile_log = now
+                self._last_tile_log_incomplete = incomplete
 
         load_started = time.perf_counter()
         loaded_images = [0]
