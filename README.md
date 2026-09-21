@@ -14,10 +14,14 @@ It creates a few more dimensions for KiCad:
 
 # Features
 * Workspace Manager
-    * Easily navigate between projects
-        * Automatically open multiple KiCad instances on macOS
-    * Recall windows of previously opened files (macOS and Windows only)
-    * Instance Manager tab lists running KiCad and FreeCAD processes and their known file paths
+    * Organize KiCad projects, FabPlans, FreeCAD documents, assemblies, and STEP files in `.kkkk` workspaces with relative paths and file descriptions
+    * Open related schematic, PCB, and STEP files or launch Differ and FabPlan from the workspace
+    * Inspect project-specific symbol and footprint libraries and convert their paths to `${KIPRJMOD}`-relative references
+* Instance Manager
+    * Discover KiCad and FreeCAD instances on demand and coordinate file-opening requests across Kikakuka and FreekiCAD, even without the Workspace Manager
+    * Navigate KiCad files by reusing open PCB editors or recalling editor windows (macOS and Windows); launch multiple KiCad instances automatically on macOS
+    * Seamlessly navigate FreeCAD files by activating an open document or opening it in an existing instance
+    * Inspect running processes and known file paths in the Instance Manager tab, with one row per FreeCAD document, manual refresh, and Go to actions
 * Differ
     * Highlight changed areas
     * [Schematic diff viewer](#schematics-differ)
@@ -181,9 +185,12 @@ object. The option can be disabled independently for each object.
 * Activate `Preferences -> Plugins -> Enable KiCad API`. Kikakuka or FreekiCAD can reuse a running matching KiCad editor or start one on demand.
 * FreeCAD
     * Add PCB
-        * Switch to the `FreekiCAD` workbench.
-        * Menubar -> FreekiCAD -> Add KiCad PCB
-        * Opening, importing, or dragging a `.kicad_pcb` file into FreeCAD performs the same linked import.
+        * Drag and drop / Open / Import
+            * Drag a `.kicad_pcb` file into FreeCAD, or use FreeCAD's Open or Import command; switching workbenches is not required.
+        * FreekiCAD menu
+            * Switch to the `FreekiCAD` workbench.
+            * Menubar -> FreekiCAD -> Add KiCad PCB.
+        * All of these entry points create the same linked PCB object.
         * The selected `.kicad_pcb` remains an external file and is represented by a linked `PcbObject`. Its `AutoReload` property defaults to enabled.
     * Add STEP
         * Menubar -> FreekiCAD -> Add STEP

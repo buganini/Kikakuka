@@ -6,7 +6,7 @@ selected, including in FreeCADCmd.
 GUI FreeCAD processes also publish their open document state; FreeCADCmd does
 not publish its own open documents.
 For the differences between FreeCAD and KiCad document lifecycles, see
-[FreeCAD vs KiCad document lifecycle](FREECAD_VS_KICAD.md).
+[Instance lifecycle](INSTANCE_LIFECYCLE.md).
 The common coordination logic is in
 [`im_mesh.py`](../FreekiCAD/freecad/FreekiCAD/im_mesh.py), local transport in
 [`im_transport.py`](../FreekiCAD/freecad/FreekiCAD/im_transport.py), and editor-specific
@@ -68,7 +68,8 @@ ordinary process list on demand to find KiCad editor PIDs and creation times:
   requires a matching live KiCad editor process before using it.
 - `api.sock` contains no PID. The backend assigns it to the oldest KiCad
   editor process that has not already been matched to a PID-specific socket.
-  This is an inference from process order, not a PID supplied by KiCad IPC.
+  This is a hacky process-order heuristic, not a PID supplied by KiCad IPC;
+  it can identify the wrong process when multiple editors are running.
 
 For each candidate socket, the backend asks KiCad's API for the open board
 name (and project path if the name is relative). Only a path matching the
@@ -189,10 +190,7 @@ temporary directory private.
 
 ## Dependencies and limitations
 
-Kikakuka and FreekiCAD require `psutil`. FreekiCAD's
-optional KiCad integration additionally requires `kicad-python` and
-`shapely`; install those in the Python environment **inside FreeCAD**, not only in Kikakuka's
-environment. FreeCAD Addon Manager may not install `psutil`
+Instance Manager requires `psutil`. FreeCAD Addon Manager may not install it
 automatically on builds whose allowed-package list excludes it.
 
 The current backend can verify a PCB's open document through KiCad IPC. KiCad
