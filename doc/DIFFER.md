@@ -86,6 +86,11 @@ coarse/nearest cached fallbacks. PCB includes the visible-layer tuple in its
 cache key; schematic tiles use an empty variant because each selected PDF page
 is already composited.
 
+Ctrl+Wheel adjusts the comparison overlap linearly by one percentage point per
+wheel notch, from 0% (the default) to 30%. The percentage is the total overlap
+width relative to the viewport width, so zooming does not change its on-screen
+width. The overlap is centered on the splitter and clipped at the page edges.
+
 ## PCB viewport tile renderer
 
 The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:

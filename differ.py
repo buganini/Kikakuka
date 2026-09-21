@@ -18,6 +18,7 @@ import githelper
 import pcbnew
 from pcb_open import open_kicad_file
 from differ_source import source_paths
+from differ_view_geometry import adjust_overlap_percent, overlap_bounds
 import time
 from collections import OrderedDict
 from PySide6 import QtCore, QtGui
@@ -198,7 +199,6 @@ class PdfTileDiffView(PUIView):
         self.state = State()
         self.state.scale = None
         self.state.splitter_x = 0.5
-        self.state.overlap = 0.0005
         self.state.mousepos = None
 
     @property
@@ -255,7 +255,7 @@ class PdfTileDiffView(PUIView):
         # register update
         self.main.state.diff_pair
         self.state.splitter_x
-        self.state.overlap
+        self.main.state.overlap_percent
         self.state.scale
         self.tile_variant()
         self.main.state.highlight_changes
@@ -297,9 +297,9 @@ class PdfTileDiffView(PUIView):
 
     def wheel(self, e):
         if e.modifiers & KeyModifier.CTRL:
-            zoom_factor = 1.7  # Factor for smoother zooming
-            noverlap = self.state.overlap * (zoom_factor ** (e.v_delta / 120))
-            self.state.overlap = max(0.0005, min(0.1, noverlap))
+            self.main.state.overlap_percent = adjust_overlap_percent(
+                self.main.state.overlap_percent, e.v_delta
+            )
             return
 
         if self.state.scale is None:
@@ -344,17 +344,9 @@ class PdfTileDiffView(PUIView):
         view_offx = view_transform[0]
         render_scale = choose_render_scale(scale, canvas.pixel_density)
         variant = self.tile_variant()
-        x_left = min(
-            self.diff_width,
-            max(0.0, self.diff_width * (
-                self.state.splitter_x - self.state.overlap
-            )),
-        )
-        x_right = max(
-            0.0,
-            min(self.diff_width, self.diff_width * (
-                self.state.splitter_x + self.state.overlap
-            )),
+        x_left, x_right = overlap_bounds(
+            self.diff_width, self.state.splitter_x, canvas.width, scale,
+            self.main.state.overlap_percent,
         )
         region_a, region_b, region_darker = comparison_regions(
             self.diff_width, x_left, x_right, flipped
@@ -684,6 +676,7 @@ class DifferUI(Application):
         self.state.selected_layer = None
         self.state.highlight_changes = True
         self.state.flip_board_view = False
+        self.state.overlap_percent = 0.0
         self.state.build_time = 0
         self.state.use_workspace = False
         self.state.cached_file_a = ""
@@ -845,7 +838,10 @@ class DifferUI(Application):
                             if self.state.message:
                                 Label(self.state.message).layout(weight=1)
                             else:
-                                Label("Ctrl+Wheel to adjust overlap").layout(weight=1)
+                                Label(
+                                    f"Overlap: {self.state.overlap_percent:.1f}% "
+                                    "(Ctrl+Wheel)"
+                                ).layout(weight=1)
                             if file_type == SCH_SUFFIX:
                                 Checkbox("Highlight Changes", model=self.state("highlight_changes"))
                     else:
