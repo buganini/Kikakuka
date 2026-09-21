@@ -604,6 +604,41 @@ def _union_bounds(bounds_a, bounds_b):
     return left, top, right - left, bottom - top
 
 
+def _intersect_bounds(bounds_a, bounds_b):
+    left = max(bounds_a[0], bounds_b[0])
+    top = max(bounds_a[1], bounds_b[1])
+    right = min(bounds_a[0] + bounds_a[2], bounds_b[0] + bounds_b[2])
+    bottom = min(bounds_a[1] + bounds_a[3], bounds_b[1] + bounds_b[3])
+    return left, top, max(0, right - left), max(0, bottom - top)
+
+
+def _copy_rectangle_difference(source, destination, outer, inner):
+    """Copy outer except inner, which already has its own composite."""
+    x, y, width, height = outer
+    if width == 0 or height == 0:
+        return
+    inner_x, inner_y, inner_width, inner_height = inner
+    if inner_width == 0 or inner_height == 0:
+        destination[y:y + height, x:x + width] = source[
+            y:y + height, x:x + width
+        ]
+        return
+    right = x + width
+    bottom = y + height
+    inner_right = inner_x + inner_width
+    inner_bottom = inner_y + inner_height
+    destination[y:inner_y, x:right] = source[y:inner_y, x:right]
+    destination[inner_bottom:bottom, x:right] = source[
+        inner_bottom:bottom, x:right
+    ]
+    destination[inner_y:inner_bottom, x:inner_x] = source[
+        inner_y:inner_bottom, x:inner_x
+    ]
+    destination[inner_y:inner_bottom, inner_right:right] = source[
+        inner_y:inner_bottom, inner_right:right
+    ]
+
+
 def _accumulate_coverage_bounds(destination, grayscale, color, opacity,
                                 bounds, work_buffers=None, reuse_alpha=False):
     x, y, width, height = bounds
@@ -902,7 +937,7 @@ class PcbTileRenderer:
         )
         merged_binary_mask.fill(0)
         has_layers = False
-        shared_composite = True
+        dirty_bounds = (0, 0, 0, 0)
         pdf_render_seconds = 0.0
         composite_seconds = 0.0
         for layer in reversed(layers):
@@ -930,11 +965,6 @@ class PcbTileRenderer:
             pdf_render_seconds += time.perf_counter() - pdf_started
             composite_started = time.perf_counter()
             layer_equal = np.array_equal(image_a, image_b)
-            if shared_composite and not layer_equal:
-                # The three outputs were identical up to this layer.
-                np.copyto(composites["b"], composites["a"])
-                np.copyto(composites["darker"], composites["a"])
-                shared_composite = False
             if not layer_equal:
                 cv2.min(image_a, image_b, dst=darker_buffer)
             color, layer_opacity = metadata.get("layer_styles", {}).get(
@@ -960,26 +990,49 @@ class PcbTileRenderer:
             bounds_scratch = coverage_scratch.reshape(-1)[
                 :composite_a.size
             ].reshape(composite_a.shape)
+            if not layer_equal:
+                cv2.compare(
+                    composite_a, composite_b, cv2.CMP_NE,
+                    dst=bounds_scratch,
+                )
+                difference_bounds = cv2.boundingRect(bounds_scratch)
+                expanded_bounds = _union_bounds(
+                    dirty_bounds, difference_bounds
+                )
+                if expanded_bounds != dirty_bounds:
+                    # Outside the old dirty region, B and darker still match
+                    # A's value from before this layer is composited.
+                    for name in ("b", "darker"):
+                        _copy_rectangle_difference(
+                            composites["a"], composites[name],
+                            expanded_bounds, dirty_bounds,
+                        )
+                    dirty_bounds = expanded_bounds
             bounds_a = _coverage_bounds(composite_a, bounds_scratch)
             _accumulate_coverage_bounds(
                 composites["a"], composite_a, color, opacity, bounds_a,
                 composite_work_buffers,
             )
-            if not shared_composite:
+            if dirty_bounds[2] and dirty_bounds[3]:
                 bounds_b = (
                     bounds_a if layer_equal else
                     _coverage_bounds(composite_b, bounds_scratch)
                 )
                 # min(A, B) is non-white wherever either image is non-white.
                 bounds_darker = _union_bounds(bounds_a, bounds_b)
+                bounds_b = _intersect_bounds(bounds_b, dirty_bounds)
+                bounds_darker = _intersect_bounds(
+                    bounds_darker, dirty_bounds
+                )
                 _accumulate_coverage_bounds(
                     composites["b"], composite_b, color, opacity, bounds_b,
-                    composite_work_buffers, reuse_alpha=layer_equal,
+                    composite_work_buffers,
+                    reuse_alpha=layer_equal and bounds_b == bounds_a,
                 )
                 _accumulate_coverage_bounds(
                     composites["darker"], composite_darker, color, opacity,
                     bounds_darker, composite_work_buffers,
-                    reuse_alpha=layer_equal,
+                    reuse_alpha=layer_equal and bounds_darker == bounds_b,
                 )
             if not layer_equal:
                 threshold = 254 - LAYER_ALPHA_THRESHOLD
@@ -999,9 +1052,13 @@ class PcbTileRenderer:
 
         if not has_layers:
             merged_binary_mask = None
-        if shared_composite:
-            np.copyto(composites["b"], composites["a"])
-            np.copyto(composites["darker"], composites["a"])
+        composite_height, composite_width = composites["a"].shape
+        full_bounds = (0, 0, composite_width, composite_height)
+        for name in ("b", "darker"):
+            _copy_rectangle_difference(
+                composites["a"], composites[name], full_bounds,
+                dirty_bounds,
+            )
 
         image_paths = {}
         image_data = {}

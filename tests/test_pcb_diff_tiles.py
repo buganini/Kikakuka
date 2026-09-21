@@ -697,6 +697,108 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
             result["image_data"]["a"], result["image_data"]["darker"]
         )
 
+    def test_later_difference_expands_dirty_composite_region(self):
+        blank = np.full((8, 8), 255, dtype=np.uint8)
+        bottom_a = blank.copy()
+        bottom_a[1, 1] = 0
+        middle = blank.copy()
+        middle[1, 1] = 100
+        middle[6, 6] = 0
+        top_a = blank.copy()
+        top_a[6, 6] = 0
+        top_a[0, 7] = 80
+        images = {
+            "bottom_a.pdf": bottom_a,
+            "bottom_b.pdf": blank,
+            "middle_a.pdf": middle,
+            "middle_b.pdf": middle,
+            "top_a.pdf": top_a,
+            "top_b.pdf": blank,
+        }
+        layers = ["F.Cu", "B.Cu", "Edge.Cuts"]
+        metadata = {
+            "canvas_size": (8.0, 8.0),
+            "page_size_a": (8.0, 8.0),
+            "page_size_b": (8.0, 8.0),
+            "layer_pdfs": {
+                "F.Cu": ("top_a.pdf", "top_b.pdf"),
+                "B.Cu": ("middle_a.pdf", "middle_b.pdf"),
+                "Edge.Cuts": ("bottom_a.pdf", "bottom_b.pdf"),
+            },
+        }
+        renderer = PcbTileRenderer()
+        renderer._render_layer = mock.Mock(
+            side_effect=lambda path, *_args, **_kwargs: images[path].copy()
+        )
+
+        actual = renderer.render_tile(
+            metadata, layers, 1.0, 0, 0,
+            gutter=0, return_image_data=True,
+        )["image_data"]
+
+        expected = {
+            name: np.zeros((8, 8), dtype=np.uint32)
+            for name in ("a", "b", "darker")
+        }
+        for layer in reversed(layers):
+            path_a, path_b = metadata["layer_pdfs"][layer]
+            image_a, image_b = images[path_a], images[path_b]
+            color, layer_opacity = standard_layer_style(layer)
+            for name, grayscale in (
+                ("a", image_a),
+                ("b", image_b),
+                ("darker", np.minimum(image_a, image_b)),
+            ):
+                _accumulate_coverage(
+                    expected[name], grayscale, color,
+                    0.8 * layer_opacity,
+                )
+        for name, accumulator in expected.items():
+            np.testing.assert_array_equal(
+                actual[name], _finish_coverage(accumulator),
+            )
+
+    def test_dirty_composite_copies_shared_pixels_through_tile_gutter(self):
+        blank = np.full((100, 112), 255, dtype=np.uint8)
+        bottom_a = blank.copy()
+        bottom_a[50, 30] = 0
+        top = blank.copy()
+        top[50, 100] = 0
+        images = {
+            "bottom_a.pdf": bottom_a,
+            "bottom_b.pdf": blank,
+            "top_a.pdf": top,
+            "top_b.pdf": top,
+        }
+        metadata = {
+            "canvas_size": (600.0, 100.0),
+            "page_size_a": (600.0, 100.0),
+            "page_size_b": (600.0, 100.0),
+            "layer_pdfs": {
+                "F.Cu": ("top_a.pdf", "top_b.pdf"),
+                "B.Cu": ("bottom_a.pdf", "bottom_b.pdf"),
+            },
+        }
+        renderer = PcbTileRenderer()
+        renderer._render_layer = mock.Mock(
+            side_effect=lambda path, *_args, **_kwargs: images[path].copy()
+        )
+
+        result = renderer.render_tile(
+            metadata, ["F.Cu", "B.Cu"], 1.0, 1, 0,
+            return_image_data=True,
+        )
+
+        images = result["image_data"]
+        self.assertEqual(images["a"].shape, (100, 88, 4))
+        self.assertGreater(int(images["a"][50, 76, 3]), 0)
+        np.testing.assert_array_equal(
+            images["a"][50, 76], images["b"][50, 76],
+        )
+        np.testing.assert_array_equal(
+            images["a"][50, 76], images["darker"][50, 76],
+        )
+
     def test_viewport_block_can_composite_into_owned_buffers(self):
         renderer = PcbTileRenderer()
         renderer._render_layer = mock.Mock(
