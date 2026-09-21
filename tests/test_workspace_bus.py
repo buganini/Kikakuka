@@ -74,15 +74,16 @@ class WorkspaceBusResolveSocketTests(unittest.TestCase):
             bus._do_open_file("/boards/fpc2.kicad_pcb")
 
         second = threading.Thread(target=open_second)
-        first.start()
-        self.assertTrue(first_started.wait(1.0))
-        second.start()
-        self.assertTrue(second_attempted.wait(1.0))
+        with mock.patch("workspace_bus._existing_kicad_sockets", return_value=[]):
+            first.start()
+            self.assertTrue(first_started.wait(1.0))
+            second.start()
+            self.assertTrue(second_attempted.wait(1.0))
 
-        self.assertEqual(opened, ["/boards/fpc.kicad_pcb"])
-        release_first.set()
-        first.join(1.0)
-        second.join(1.0)
+            self.assertEqual(opened, ["/boards/fpc.kicad_pcb"])
+            release_first.set()
+            first.join(1.0)
+            second.join(1.0)
 
         self.assertFalse(first.is_alive())
         self.assertFalse(second.is_alive())
@@ -104,13 +105,116 @@ class WorkspaceBusResolveSocketTests(unittest.TestCase):
             return_value=["api.sock", "api-222.sock", "api.lock", "other"],
         ):
             with mock.patch("workspace_bus._kicad_socket_dir", return_value="/ipc"):
-                with mock.patch("workspace_bus._socket_owner_pid", return_value=111):
-                    sockets = workspace_bus._existing_kicad_sockets()
+                with mock.patch("workspace_bus._kicad_pid_state", return_value=True):
+                    with mock.patch(
+                        "workspace_bus._socket_owner_pid", return_value=111
+                    ):
+                        with mock.patch(
+                            "workspace_bus._kicad_process_pids", return_value=[111, 222]
+                        ):
+                            sockets = workspace_bus._existing_kicad_sockets()
 
         self.assertCountEqual(
             sockets,
             [("/ipc/api.sock", 111), ("/ipc/api-222.sock", 222)],
         )
+
+    def test_existing_kicad_sockets_removes_dead_pid_named_socket(self):
+        with mock.patch(
+            "workspace_bus.os.listdir", return_value=["api-222.sock"]
+        ):
+            with mock.patch("workspace_bus._kicad_socket_dir", return_value="/ipc"):
+                with mock.patch(
+                    "workspace_bus._kicad_pid_state", return_value=False
+                ):
+                    with mock.patch(
+                        "workspace_bus._unix_socket_connectable", return_value=False
+                    ):
+                        with mock.patch(
+                            "workspace_bus._remove_dead_socket", return_value=True
+                        ) as remove:
+                            sockets = workspace_bus._existing_kicad_sockets()
+
+        self.assertEqual(sockets, [])
+        remove.assert_called_once_with(
+            "/ipc/api-222.sock", "PID 222 is not a running KiCad process"
+        )
+
+    def test_existing_kicad_sockets_removes_generic_without_kicad_process(self):
+        with mock.patch("workspace_bus.os.listdir", return_value=["api.sock"]):
+            with mock.patch("workspace_bus._kicad_socket_dir", return_value="/ipc"):
+                with mock.patch("workspace_bus._socket_owner_pid", return_value=None):
+                    with mock.patch(
+                        "workspace_bus._kicad_process_pids", return_value=[]
+                    ):
+                        with mock.patch(
+                            "workspace_bus._unix_socket_connectable",
+                            return_value=False,
+                        ):
+                            with mock.patch(
+                                "workspace_bus._remove_dead_socket", return_value=True
+                            ) as remove:
+                                sockets = workspace_bus._existing_kicad_sockets()
+
+        self.assertEqual(sockets, [])
+        remove.assert_called_once_with(
+            "/ipc/api.sock", "no listener or running KiCad process"
+        )
+
+    def test_existing_kicad_sockets_keeps_socket_when_pid_state_unknown(self):
+        with mock.patch(
+            "workspace_bus.os.listdir", return_value=["api-222.sock"]
+        ):
+            with mock.patch("workspace_bus._kicad_socket_dir", return_value="/ipc"):
+                with mock.patch(
+                    "workspace_bus._kicad_pid_state", return_value=None
+                ):
+                    with mock.patch(
+                        "workspace_bus._remove_dead_socket"
+                    ) as remove:
+                        sockets = workspace_bus._existing_kicad_sockets()
+
+        self.assertEqual(sockets, [("/ipc/api-222.sock", 222)])
+        remove.assert_not_called()
+
+    def test_existing_kicad_sockets_does_not_remove_socket_with_listener(self):
+        with mock.patch(
+            "workspace_bus.os.listdir", return_value=["api-222.sock"]
+        ):
+            with mock.patch("workspace_bus._kicad_socket_dir", return_value="/ipc"):
+                with mock.patch(
+                    "workspace_bus._kicad_pid_state", return_value=False
+                ):
+                    with mock.patch(
+                        "workspace_bus._unix_socket_connectable", return_value=True
+                    ):
+                        with mock.patch(
+                            "workspace_bus._remove_dead_socket"
+                        ) as remove:
+                            sockets = workspace_bus._existing_kicad_sockets()
+
+        self.assertEqual(sockets, [])
+        remove.assert_not_called()
+
+    def test_dead_socket_cleanup_skips_windows_named_pipes(self):
+        with mock.patch("workspace_bus.platform.system", return_value="Windows"):
+            with mock.patch("workspace_bus.os.stat") as socket_stat:
+                with mock.patch("workspace_bus.os.unlink") as unlink:
+                    removed = workspace_bus._remove_dead_socket(
+                        r"C:\Temp\kicad\api-222.sock", "dead test socket"
+                    )
+
+        self.assertFalse(removed)
+        socket_stat.assert_not_called()
+        unlink.assert_not_called()
+
+    def test_socket_connectability_is_inconclusive_on_windows(self):
+        with mock.patch("workspace_bus.platform.system", return_value="Windows"):
+            self.assertIsNone(
+                workspace_bus._unix_socket_connectable(
+                    r"C:\Temp\kicad\api-222.sock"
+                )
+            )
 
     def test_monitor_couplers_action_resolves_existing_socket(self):
         bus = self._make_bus({"/boards/fpc.kicad_pcb": 111})
@@ -215,6 +319,42 @@ class WorkspaceBusResolveSocketTests(unittest.TestCase):
         self.assertEqual(reply["pid"], 222)
         bus._open_file.assert_not_called()
 
+    def test_resolve_scans_manual_instance_before_opening_new_instance(self):
+        requested = "/boards/fpc.kicad_pcb"
+        pidmap = {}
+        bus = self._make_bus(pidmap)
+        bus._update_pid = lambda filepath, pid: pidmap.__setitem__(filepath, pid)
+        bus._open_file = mock.Mock(return_value=333)
+
+        with mock.patch(
+            "workspace_bus._existing_kicad_sockets",
+            return_value=[("/tmp/kicad/api-222.sock", 222)],
+        ):
+            with mock.patch("workspace_bus.psutil.pid_exists", return_value=True):
+                with mock.patch(
+                    "workspace_bus._socket_board_filepath_state",
+                    return_value=("ready", requested, None),
+                ):
+                    with mock.patch.object(
+                        bus,
+                        "_wait_for_ready_socket",
+                        return_value=(
+                            "/tmp/kicad/api-222.sock", "ready", requested, None
+                        ),
+                    ):
+                        reply = bus._resolve_socket(
+                            {
+                                "action": "reload",
+                                "object": "fpc",
+                                "filepath": requested,
+                            },
+                            {},
+                        )
+
+        self.assertEqual(reply["pid"], 222)
+        self.assertEqual(pidmap, {requested: 222})
+        bus._open_file.assert_not_called()
+
     def test_wait_for_ready_socket_retries_until_api_is_ready(self):
         bus = self._make_bus({})
 
@@ -316,25 +456,26 @@ class WorkspaceBusResolveSocketTests(unittest.TestCase):
         bus = self._make_bus(pidmap)
         bus._open_file = open_file
 
-        with mock.patch("workspace_bus.psutil.pid_exists", return_value=True):
-            with mock.patch.object(
-                bus,
-                "_wait_for_ready_socket",
-                return_value=(
-                    "/tmp/api.sock",
-                    "not_ready",
-                    None,
-                    "waiting for requested board to load",
-                ),
-            ) as wait_for_ready:
-                first = bus._resolve_socket(
-                    {"action": "reload", "object": "fpc", "filepath": requested},
-                    {},
-                )
-                second = bus._resolve_socket(
-                    {"action": "reload", "object": "fpc", "filepath": requested},
-                    dict(pidmap),
-                )
+        with mock.patch("workspace_bus._existing_kicad_sockets", return_value=[]):
+            with mock.patch("workspace_bus.psutil.pid_exists", return_value=True):
+                with mock.patch.object(
+                    bus,
+                    "_wait_for_ready_socket",
+                    return_value=(
+                        "/tmp/api.sock",
+                        "not_ready",
+                        None,
+                        "waiting for requested board to load",
+                    ),
+                ) as wait_for_ready:
+                    first = bus._resolve_socket(
+                        {"action": "reload", "object": "fpc", "filepath": requested},
+                        {},
+                    )
+                    second = bus._resolve_socket(
+                        {"action": "reload", "object": "fpc", "filepath": requested},
+                        dict(pidmap),
+                    )
 
         self.assertEqual(first["status"], "error")
         self.assertEqual(second["status"], "error")

@@ -5,12 +5,14 @@ queries from FreekiCAD (running inside FreeCAD) about which KiCad
 IPC socket to use for a given ``.kicad_pcb`` file.
 """
 
+import errno
 import json
 import math
 import os
 import platform
 import re
 import socket
+import stat
 import tempfile
 import threading
 import time
@@ -29,6 +31,7 @@ except ImportError:
     )
 
 WORKSPACE_PORT = 19780  # TCP fallback port for Windows
+KICAD_PROCESS_TOKENS = ("kicad", "pcbnew", "pcb editor", "eeschema")
 
 
 def _timestamp():
@@ -150,7 +153,7 @@ def _kicad_process_pids():
                 name = (proc.info.get("name") or "").lower()
                 if not any(
                     token in name
-                    for token in ("kicad", "pcbnew", "pcb editor", "eeschema")
+                    for token in KICAD_PROCESS_TOKENS
                 ):
                     continue
                 processes.append(
@@ -163,13 +166,66 @@ def _kicad_process_pids():
     return [pid for pid, _ in sorted(processes, key=lambda item: item[1])]
 
 
+def _kicad_pid_state(pid):
+    """Return True for KiCad, False for dead/non-KiCad, or None if unknown."""
+    try:
+        process = psutil.Process(pid)
+        name = (process.name() or "").lower()
+    except psutil.NoSuchProcess:
+        return False
+    except (psutil.AccessDenied, psutil.Error, OSError):
+        return None
+    return any(token in name for token in KICAD_PROCESS_TOKENS)
+
+
+def _remove_dead_socket(socket_path, reason):
+    """Remove a confirmed dead Unix socket without touching other file types."""
+    # Windows uses kernel-managed named pipes for KiCad IPC.  They disappear
+    # with their owner and must never be treated as unlinkable socket files.
+    if platform.system() == "Windows":
+        return False
+
+    try:
+        info = os.stat(socket_path, follow_symlinks=False)
+        if not stat.S_ISSOCK(info.st_mode):
+            _log(f"not removing non-socket path {socket_path}")
+            return False
+        os.unlink(socket_path)
+    except FileNotFoundError:
+        return False
+    except OSError as e:
+        _log(f"could not remove dead KiCad socket {socket_path}: {e}")
+        return False
+
+    _log(f"removed dead KiCad socket {socket_path}: {reason}")
+    return True
+
+
+def _unix_socket_connectable(socket_path, timeout=0.2):
+    """Return whether a Unix socket has a listener, or None if inconclusive."""
+    if platform.system() == "Windows":
+        return None
+
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.settimeout(timeout)
+        client.connect(socket_path)
+        return True
+    except OSError as e:
+        if e.errno in (errno.ENOENT, errno.ECONNREFUSED):
+            return False
+        return None
+    finally:
+        client.close()
+
+
 def _socket_owner_pid(socket_path):
     """Best-effort lookup of the process owning a Unix-domain socket."""
     try:
         for conn in psutil.net_connections(kind="unix"):
             if conn.pid and conn.laddr == socket_path:
                 return conn.pid
-    except (psutil.AccessDenied, OSError, NotImplementedError):
+    except (psutil.Error, OSError, NotImplementedError):
         pass
     return None
 
@@ -189,23 +245,37 @@ def _existing_kicad_sockets():
         match = re.fullmatch(r"api-(\d+)\.sock", name)
         if match:
             pid = int(match.group(1))
+            path = os.path.join(sock_dir, name)
+            pid_state = _kicad_pid_state(pid)
+            if pid_state is False:
+                if _unix_socket_connectable(path) is False:
+                    _remove_dead_socket(
+                        path, f"PID {pid} is not a running KiCad process"
+                    )
+                continue
             explicit_pids.add(pid)
-            candidates.append((os.path.join(sock_dir, name), pid))
+            candidates.append((path, pid))
         elif name == "api.sock":
             generic_path = os.path.join(sock_dir, name)
 
     if generic_path:
         pid = _socket_owner_pid(generic_path)
+        process_pids = _kicad_process_pids()
         if pid is None:
             # api.sock belongs to the first KiCad instance.  If the platform
             # does not expose Unix socket ownership, use the oldest editor
             # process which has no PID-named socket.
             pid = next(
-                (p for p in _kicad_process_pids() if p not in explicit_pids),
+                (p for p in process_pids if p not in explicit_pids),
                 None,
             )
         if pid is not None and pid not in explicit_pids:
             candidates.append((generic_path, pid))
+        elif pid is None and not process_pids:
+            if _unix_socket_connectable(generic_path) is False:
+                _remove_dead_socket(
+                    generic_path, "no listener or running KiCad process"
+                )
 
     return candidates
 
@@ -348,6 +418,41 @@ class WorkspaceBus:
 
     # -- synchronous file opener ----------------------------------------
 
+    def _scan_kicad_sockets(self, candidates=None):
+        """Probe existing KiCad sockets once and refresh filepath/PID mappings.
+
+        Returns sockets that exist but are not ready yet, so startup recovery
+        can retry them without repeatedly probing sockets that were already
+        identified.
+        """
+        if candidates is None:
+            candidates = _existing_kicad_sockets()
+
+        retry = []
+        for socket_path, pid in candidates:
+            if not psutil.pid_exists(pid):
+                continue
+
+            state, filepath, error_message = _socket_board_filepath_state(
+                socket_path
+            )
+            if state == "ready" and filepath:
+                if self._update_pid:
+                    self._update_pid(filepath, pid)
+                _log(
+                    f"restored KiCad mapping: {filepath} -> PID {pid} "
+                    f"({socket_path})"
+                )
+            elif state == "not_ready" or (state == "ready" and not filepath):
+                retry.append((socket_path, pid))
+            else:
+                _log(
+                    f"skipping unverified KiCad socket {socket_path}: "
+                    f"{error_message or 'unknown error'}"
+                )
+
+        return retry
+
     def _rebuild_pidmap(self, interval=1.0):
         """Recover board-to-PID mappings from KiCad sockets at startup.
 
@@ -359,30 +464,7 @@ class WorkspaceBus:
             _log(f"rebuilding pidmap from {len(pending)} KiCad IPC socket(s)")
 
         while pending and self._running:
-            retry = []
-            for socket_path, pid in pending:
-                if not psutil.pid_exists(pid):
-                    continue
-
-                state, filepath, error_message = _socket_board_filepath_state(
-                    socket_path
-                )
-                if state == "ready" and filepath:
-                    if self._update_pid:
-                        self._update_pid(filepath, pid)
-                    _log(
-                        f"restored KiCad mapping: {filepath} -> PID {pid} "
-                        f"({socket_path})"
-                    )
-                elif state == "not_ready" or (state == "ready" and not filepath):
-                    retry.append((socket_path, pid))
-                else:
-                    _log(
-                        f"skipping unverified KiCad socket {socket_path}: "
-                        f"{error_message or 'unknown error'}"
-                    )
-
-            pending = retry
+            pending = self._scan_kicad_sockets(pending)
             if pending and self._running:
                 time.sleep(interval)
 
@@ -390,9 +472,29 @@ class WorkspaceBus:
 
     def _do_open_file(self, filepath):
         """Open KiCad synchronously (blocks the handler thread).
-        Remember the launched PID for readiness retries."""
+        Scan for manually opened instances first, and remember the launched
+        PID for readiness retries only when a new instance is needed."""
         try:
             with self._launch_lock:
+                # A user may have opened this board outside the workspace
+                # manager since startup.  Refresh every known KiCad socket
+                # immediately before launching to avoid a duplicate instance.
+                sockets = _existing_kicad_sockets()
+                if sockets:
+                    _log(
+                        f"scanning {len(sockets)} existing KiCad IPC socket(s) "
+                        f"before opening {filepath}"
+                    )
+                    self._scan_kicad_sockets(sockets)
+
+                existing_pid = self._get_pidmap().get(filepath)
+                if existing_pid is not None:
+                    _log(
+                        f"found existing KiCad mapping before launch: "
+                        f"{filepath} -> PID {existing_pid}"
+                    )
+                    return existing_pid
+
                 pid = self._open_file(filepath)
             if pid is not None:
                 with self._opening_lock:
