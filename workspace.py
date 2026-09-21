@@ -12,6 +12,7 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
 from common import *
 from pcb_open import system_open_command
+from workspace_monitor import snapshot_editor_processes
 
 FREECAD_SUFFIXES = (ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX)
 FILE_ORDER = [*PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, ".kicad_pro"]
@@ -448,7 +449,7 @@ class WorkspaceUI(PUIView):
             with HBox():
                 Button("Import KiCad/FabPlan/Assembly").click(lambda e: self.addFileDialog())
                 Button("New FabPlan").click(lambda e: self.newPanelization())
-                Button("Differ").click(lambda e: self.openDiffer())
+                Button("Differ for this workspace").click(lambda e: self.openDiffer())
                 Spacer()
                 Button("Close").click(lambda e: self.close())
 
@@ -753,6 +754,7 @@ class MainUI(Application):
         super().__init__(icon=resource_path("icon.ico"))
         self.state = State()
         self.state.workspaces = workspaces
+        self.state.monitor_rows = ()
         self.commit()
         self.pidmap = {}
 
@@ -771,6 +773,11 @@ class MainUI(Application):
             atexit.register(self._shutdown_bus)
         except Exception as e:
             print(f"WorkspaceBus: Could not start: {e}")
+
+        self.refresh_monitor()
+
+    def refresh_monitor(self, _event=None):
+        self.state.monitor_rows = snapshot_editor_processes(self.pidmap)
 
     def _update_pidmap_entry(self, filepath, pid):
         """Record the canonical board path for a KiCad PID."""
@@ -830,36 +837,40 @@ class MainUI(Application):
         )
         with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
-                if not self.state.workspaces:
-                    with HBox():
-                        Label("Workspace")
-                        Button("New").click(lambda e: self.newWorkspace())
-                        Button("Open").click(lambda e: self.openWorkspace())
-                        Spacer()
-                    with HBox():
-                        Label("FabPlan")
-                        Button("New").click(lambda e: self.newPanelization())
-                        Button("Open").click(lambda e: self.openPanelizationAndClose())
-                        Spacer()
-                    with HBox():
-                        Label("Differ")
-                        Button("Open").click(lambda e: self.openDiffer())
-                        Spacer()
-
-                    Spacer()
-                    return
-
                 with HBox():
                     Button("New Workspace").click(lambda e: self.newWorkspace())
                     Button("Open Workspace").click(lambda e: self.openWorkspace())
-                    Spacer()
                     Button("New FabPlan").click(lambda e: self.newPanelization())
                     Button("Open FabPlan").click(lambda e: self.openPanelizationAndClose())
+                    Spacer()
+                    Button("Differ").click(lambda e: self.openDiffer())
 
-                with Tabs():
+                with Tabs().layout(weight=1):
                     for workspace in self.state.workspaces:
                         with Tab(os.path.splitext(os.path.basename(workspace))[0]):
                             WorkspaceUI(self, workspace).id(workspace)
+
+                    with Tab("Monitor"):
+                        with VBox():
+                            with HBox():
+                                Label("KiCad and FreeCAD processes")
+                                Button("Refresh").click(self.refresh_monitor)
+                                Spacer()
+                            with Scroll().layout(weight=1):
+                                with VBox():
+                                    with Grid():
+                                        Label("ProcessID").grid(row=0, column=0)
+                                        Label("Program").grid(row=0, column=1)
+                                        Label("File Path").grid(row=0, column=2)
+                                        rows = self.state.monitor_rows
+                                        if not rows:
+                                            Label("No KiCad or FreeCAD processes found").grid(row=1, column=0)
+                                        else:
+                                            for row, (pid, program, filepath) in enumerate(rows, start=1):
+                                                Label(str(pid)).grid(row=row, column=0)
+                                                Label(program).grid(row=row, column=1)
+                                                Label(filepath or "Unknown", selectable=True).grid(row=row, column=2)
+                                    Spacer()
 
     def newWorkspace(self):
         filepath = SaveFile("New Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
