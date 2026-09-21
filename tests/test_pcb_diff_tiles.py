@@ -19,15 +19,22 @@ from pcb_diff_tiles import (
     _finish_coverage,
     _union_bounds,
     binary_layer_occupancy,
+    build_pair_metadata,
     choose_coarse_render_scale,
     choose_render_scale,
     choose_fallback_scale,
     clipped_tile_geometry,
+    comparison_regions,
     combine_layer_images,
+    display_layer_label,
     finish_merged_mask,
     layers_for_preset,
+    mirrored_view_transform,
+    paired_layer_label,
     pixel_aligned_page_layout,
+    prioritize_selected_layer,
     select_fallback_results,
+    sort_layers_in_kicad_ui_order,
     standard_layer_style,
     tile_bounds,
     visible_tile_indices,
@@ -35,6 +42,135 @@ from pcb_diff_tiles import (
 
 
 class PcbDiffTileGeometryTests(unittest.TestCase):
+    def test_flipped_view_keeps_a_on_left_and_b_on_right(self):
+        self.assertEqual(
+            comparison_regions(100.0, 25.0, 35.0),
+            ((0.0, 25.0), (35.0, 100.0), (25.0, 35.0)),
+        )
+        self.assertEqual(
+            comparison_regions(100.0, 25.0, 35.0, flipped=True),
+            ((75.0, 100.0), (0.0, 65.0), (65.0, 75.0)),
+        )
+
+    def test_flipped_view_requests_tiles_at_the_opposite_page_edge(self):
+        transform = mirrored_view_transform(
+            512, 2048.0, (0.0, 0.0, 1.0)
+        )
+
+        self.assertEqual(transform, (-1536.0, 0.0, 1.0))
+        self.assertEqual(
+            visible_tile_indices(
+                (2048.0, 512.0), (512, 512), transform, 1.0
+            ),
+            [(3, 0)],
+        )
+
+    def test_same_user_layer_in_both_boards_has_one_combined_label(self):
+        self.assertEqual(
+            paired_layer_label("User.2", "User.2", "F.Stiffener"),
+            "F.Stiffener (User.2)",
+        )
+        self.assertEqual(
+            paired_layer_label("User.3", "Front Stiffener", "Back Stiffener"),
+            "Front Stiffener / Back Stiffener (User.3)",
+        )
+
+    def test_pair_metadata_matches_renamed_layers_by_canonical_id(self):
+        layer_names_a = {"User.2": "User.2"}
+        layer_names_b = {"User.2": "F.Stiffener"}
+        with mock.patch("pcb_diff_tiles.find_layer_pdf") as find_pdf, mock.patch(
+            "pcb_diff_tiles.pdf_page_size", return_value=(100.0, 80.0)
+        ):
+            find_pdf.side_effect = lambda cache, name: f"{cache}/{name}.pdf"
+            metadata = build_pair_metadata(
+                "cache_a", "cache_b", ["User.2"],
+                layer_names_a=layer_names_a,
+                layer_names_b=layer_names_b,
+            )
+
+        self.assertEqual(
+            metadata["layer_pdfs"]["User.2"],
+            ("cache_a/User.2.pdf", "cache_b/F.Stiffener.pdf"),
+        )
+        self.assertEqual(
+            find_pdf.call_args_list,
+            [
+                mock.call("cache_a", "User.2"),
+                mock.call("cache_b", "F.Stiffener"),
+            ],
+        )
+
+    def test_pair_metadata_skips_layer_missing_from_one_board(self):
+        with mock.patch("pcb_diff_tiles.find_layer_pdf") as find_pdf, mock.patch(
+            "pcb_diff_tiles.pdf_page_size", return_value=(100.0, 80.0)
+        ):
+            find_pdf.return_value = "cache_a/User.2.pdf"
+            metadata = build_pair_metadata(
+                "cache_a", "cache_b", ["User.2"],
+                layer_names_a={"User.2": "User.2"},
+                layer_names_b={},
+            )
+
+        self.assertEqual(
+            metadata["layer_pdfs"]["User.2"],
+            ("cache_a/User.2.pdf", None),
+        )
+        find_pdf.assert_called_once_with("cache_a", "User.2")
+
+    def test_renamed_user_layer_label_shows_canonical_number(self):
+        canonical_layers = {
+            "Notes": "User.2",
+            "Top Copper": "F.Cu",
+            "Assembly Notes": "User.Drawings",
+        }
+
+        self.assertEqual(
+            display_layer_label("Notes", canonical_layers),
+            "Notes (User.2)",
+        )
+        self.assertEqual(
+            display_layer_label("User.1", {"User.1": "User.1"}),
+            "User.1",
+        )
+        self.assertEqual(
+            display_layer_label("Top Copper", canonical_layers),
+            "Top Copper",
+        )
+        self.assertEqual(
+            display_layer_label("Assembly Notes", canonical_layers),
+            "Assembly Notes",
+        )
+
+    def test_layers_follow_kicad_ui_order(self):
+        layers = (
+            "User.2", "B.Fab", "In2.Cu", "Edge.Cuts", "F.Mask",
+            "F.Cu", "B.Silkscreen", "User.Drawings", "B.Cu",
+            "F.Adhesive", "In1.Cu", "F.Fab", "User.1", "B.Mask",
+            "F.Silkscreen", "Margin",
+        )
+
+        self.assertEqual(
+            sort_layers_in_kicad_ui_order(layers),
+            [
+                "F.Cu", "In1.Cu", "In2.Cu", "B.Cu", "F.Adhesive",
+                "F.Silkscreen", "B.Silkscreen", "F.Mask", "B.Mask",
+                "User.Drawings", "Edge.Cuts", "Margin", "F.Fab",
+                "B.Fab", "User.1", "User.2",
+            ],
+        )
+
+    def test_layer_order_uses_canonical_names_and_keeps_unknowns_stable(self):
+        layers = ("Notes B", "Bottom Copper", "Notes A", "Top Copper")
+        canonical_layers = {
+            "Bottom Copper": "B.Cu",
+            "Top Copper": "F.Cu",
+        }
+
+        self.assertEqual(
+            sort_layers_in_kicad_ui_order(layers, canonical_layers),
+            ["Top Copper", "Bottom Copper", "Notes B", "Notes A"],
+        )
+
     def test_layer_presets_match_kicad_layer_groups(self):
         layers = (
             "F.Cu", "In1.Cu", "B.Cu", "F.Silkscreen", "B.Silkscreen",
@@ -66,6 +202,13 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
         )
         self.assertIn("All Layers", PCB_LAYER_PRESETS)
 
+    def test_no_layers_is_the_last_preset_and_hides_every_layer(self):
+        self.assertEqual(PCB_LAYER_PRESETS[-1], "No Layers")
+        self.assertEqual(
+            layers_for_preset(("F.Cu", "B.Cu", "Edge.Cuts"), "No Layers"),
+            (),
+        )
+
     def test_layer_presets_use_canonical_names_for_renamed_layers(self):
         self.assertEqual(
             layers_for_preset(
@@ -78,6 +221,20 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
                 },
             ),
             ("Top Copper", "Board Outline"),
+        )
+
+    def test_selected_layer_is_prioritized_for_topmost_rendering(self):
+        self.assertEqual(
+            prioritize_selected_layer(
+                ("F.Cu", "B.Cu", "F.Silkscreen"), "B.Cu"
+            ),
+            ("B.Cu", "F.Cu", "F.Silkscreen"),
+        )
+
+    def test_missing_selected_layer_preserves_render_order(self):
+        self.assertEqual(
+            prioritize_selected_layer(("F.Cu", "B.Cu"), "Edge.Cuts"),
+            ("F.Cu", "B.Cu"),
         )
 
     def test_render_scale_uses_ceiling_discrete_lod(self):
@@ -430,6 +587,16 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
         for image in result["image_data"].values():
             self.assertEqual(image.shape, (4, 4, 4))
         self.assertEqual(result["mask_data"].shape, (4, 4, 4))
+
+    def test_viewport_block_renders_empty_layer_selection(self):
+        result = PcbTileRenderer().render_tile(
+            self.metadata, [], 1.0, 0, 0, return_image_data=True
+        )
+
+        self.assertFalse(result["has_mask"])
+        self.assertIsNone(result["mask_data"])
+        for image in result["image_data"].values():
+            self.assertFalse(np.any(image))
 
     def test_viewport_block_can_composite_into_owned_buffers(self):
         renderer = PcbTileRenderer()

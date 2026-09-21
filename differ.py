@@ -27,7 +27,12 @@ from pcb_diff_tiles import (
     build_pair_metadata,
     choose_render_scale,
     clipped_tile_geometry,
+    comparison_regions,
     layers_for_preset,
+    mirrored_view_transform,
+    paired_layer_label,
+    prioritize_selected_layer,
+    sort_layers_in_kicad_ui_order,
     tile_pixel_bounds,
     visible_tile_indices,
 )
@@ -43,6 +48,13 @@ PDF_TILE_IMAGE_LOAD_BUDGET_SECONDS = 0.004
 PDF_TILE_CACHE_BYTES = 384 * 1024 * 1024
 PDF_TILE_LOW_RES_CACHE_BYTES = 64 * 1024 * 1024
 PDF_TILE_LOW_RES_MAX_SCALE = 1.0
+
+
+class LayerList(VBox):
+    def update(self, prev):
+        super().update(prev)
+        self.qtlayout.setContentsMargins(0, 0, 0, 0)
+        self.qtlayout.setSpacing(0)
 
 
 def premultiplied_image_resource(width, height):
@@ -131,10 +143,10 @@ def get_pcb_layers(path):
     return [board.GetLayerName(layer) for layer in board.GetEnabledLayers().Seq()]
 
 
-def get_pcb_canonical_layers(path):
+def get_pcb_layer_names(path):
     board = pcbnew.LoadBoard(path)
     return {
-        board.GetLayerName(layer): pcbnew.LayerName(layer)
+        pcbnew.LayerName(layer): board.GetLayerName(layer)
         for layer in board.GetEnabledLayers().Seq()
     }
 
@@ -195,6 +207,9 @@ class PdfTileDiffView(PUIView):
     def tile_variant(self):
         return ()
 
+    def flip_horizontal(self):
+        return False
+
     def autoScale(self, canvas_width, canvas_height):
         page_size = self.page_size()
         if not page_size:
@@ -240,6 +255,7 @@ class PdfTileDiffView(PUIView):
         self.state.scale
         self.tile_variant()
         self.main.state.highlight_changes
+        self.flip_horizontal()
         self.main.state.build_time
 
         (Canvas(self.painter).layout(weight=1)
@@ -313,6 +329,13 @@ class PdfTileDiffView(PUIView):
 
         immediate = False
         offx, offy, scale = self.state.scale
+        flipped = self.flip_horizontal()
+        view_transform = (
+            mirrored_view_transform(
+                canvas.width, self.diff_width, self.state.scale
+            ) if flipped else self.state.scale
+        )
+        view_offx = view_transform[0]
         render_scale = choose_render_scale(scale, canvas.pixel_density)
         variant = self.tile_variant()
         x_left = min(
@@ -327,13 +350,21 @@ class PdfTileDiffView(PUIView):
                 self.state.splitter_x + self.state.overlap
             )),
         )
+        region_a, region_b, region_darker = comparison_regions(
+            self.diff_width, x_left, x_right, flipped
+        )
+        priority_point = self.state.mousepos
+        if flipped and priority_point is not None:
+            priority_point = (
+                canvas.width - priority_point[0], priority_point[1]
+            )
         tile_indices = visible_tile_indices(
             (self.diff_width, self.diff_height),
             (canvas.width, canvas.height),
-            self.state.scale,
+            view_transform,
             render_scale,
-            priority_point=self.state.mousepos,
-            priority_lines=(x_left, x_right),
+            priority_point=priority_point,
+            priority_lines=(region_darker[0], region_darker[1]),
         )
         tile_results = []
         tile_keys = self.scheduler.request(
@@ -347,9 +378,9 @@ class PdfTileDiffView(PUIView):
                 tile_results.append(result)
 
         viewport_bounds = (
-            max(0.0, (0.0 - offx) / scale),
+            max(0.0, (0.0 - view_offx) / scale),
             max(0.0, (0.0 - offy) / scale),
-            min(self.diff_width, (canvas.width - offx) / scale),
+            min(self.diff_width, (canvas.width - view_offx) / scale),
             min(self.diff_height, (canvas.height - offy) / scale),
         )
         fallback_results = self.scheduler.fallback(
@@ -402,7 +433,7 @@ class PdfTileDiffView(PUIView):
             geometry = clipped_tile_geometry(
                 bounds,
                 pixel_size,
-                self.state.scale,
+                view_transform,
                 region_left,
                 region_right,
             )
@@ -420,6 +451,9 @@ class PdfTileDiffView(PUIView):
                 return
             canvas.qpainter.save()
             try:
+                if flipped:
+                    canvas.qpainter.translate(canvas.width, 0)
+                    canvas.qpainter.scale(-1, 1)
                 canvas.qpainter.setClipRegion(
                     clip_region,
                     QtCore.Qt.ClipOperation.IntersectClip,
@@ -444,23 +478,26 @@ class PdfTileDiffView(PUIView):
             bounds = result["bounds"]
             pixel_size = result["pixel_size"]
             image_paths = result["images"]
-            if bounds[0] < x_left:
+            if (bounds[0] < region_a[1] and
+                    bounds[0] + bounds[2] > region_a[0]):
                 draw_region(
                     load_image(image_paths["a"], allow_load),
-                    bounds, 0.0, x_left, pixel_size, opacity=1.0,
+                    bounds, *region_a, pixel_size, opacity=1.0,
                     exclude_region=exclude_region,
                 )
-            if bounds[0] + bounds[2] > x_right:
+            if (bounds[0] < region_b[1] and
+                    bounds[0] + bounds[2] > region_b[0]):
                 draw_region(
                     load_image(image_paths["b"], allow_load),
-                    bounds, x_right, self.diff_width, pixel_size,
+                    bounds, *region_b, pixel_size,
                     opacity=1.0,
                     exclude_region=exclude_region,
                 )
-            if bounds[0] < x_right and bounds[0] + bounds[2] > x_left:
+            if (bounds[0] < region_darker[1] and
+                    bounds[0] + bounds[2] > region_darker[0]):
                 draw_region(
                     load_image(image_paths["darker"], allow_load),
-                    bounds, x_left, x_right, pixel_size, opacity=1.0,
+                    bounds, *region_darker, pixel_size, opacity=1.0,
                     exclude_region=exclude_region,
                 )
 
@@ -479,23 +516,21 @@ class PdfTileDiffView(PUIView):
             image_paths = result["images"]
             region = QtGui.QRegion()
             visible_images = []
-            if bounds[0] < x_left:
-                visible_images.append((image_paths["a"], 0.0, x_left))
-            if bounds[0] + bounds[2] > x_right:
-                visible_images.append((
-                    image_paths["b"], x_right, self.diff_width
-                ))
-            if bounds[0] < x_right and bounds[0] + bounds[2] > x_left:
-                visible_images.append((
-                    image_paths["darker"], x_left, x_right
-                ))
+            for name, source_region in (
+                ("a", region_a),
+                ("b", region_b),
+                ("darker", region_darker),
+            ):
+                if (bounds[0] < source_region[1] and
+                        bounds[0] + bounds[2] > source_region[0]):
+                    visible_images.append((image_paths[name], *source_region))
             for source, region_left, region_right in visible_images:
                 if not image_is_loaded(source):
                     continue
                 geometry = clipped_tile_geometry(
                     bounds,
                     pixel_size,
-                    self.state.scale,
+                    view_transform,
                     region_left,
                     region_right,
                 )
@@ -559,10 +594,10 @@ class PcbDiffView(PdfTileDiffView):
     page_size_attribute = "pcb_page_size"
 
     def tile_variant(self):
-        return tuple(
-            layer for layer in self.main.state.layers
-            if self.main.state.show_layers.get(layer, True)
-        )
+        return self.main.pcb_layer_variant()
+
+    def flip_horizontal(self):
+        return self.main.state.flip_board_view
 
 
 class SchDiffView(PdfTileDiffView):
@@ -595,9 +630,11 @@ class DifferUI(Application):
         self.state.page_b = 0
         self.state.diff_pair = None
         self.state.layers = []
-        self.state.canonical_layers = {}
+        self.state.layer_labels = {}
         self.state.layer_preset = "All Layers"
+        self.state.selected_layer = None
         self.state.highlight_changes = True
+        self.state.flip_board_view = False
         self.state.build_time = 0
         self.state.use_workspace = False
         self.state.cached_file_a = ""
@@ -747,7 +784,8 @@ class DifferUI(Application):
                                 Button("SCH Diff").click(self.sch_diff)
                             Label("Ctrl+Wheel to adjust overlap").layout(weight=1)
                             Label(self.state.message).layout(weight=1)
-                            Checkbox("Highlight Changes", model=self.state("highlight_changes"))
+                            if os.path.splitext(self.state.file_a)[1].lower() == SCH_SUFFIX:
+                                Checkbox("Highlight Changes", model=self.state("highlight_changes"))
                     else:
                         Spacer()
                         Label("Select two files to compare")
@@ -796,24 +834,47 @@ class DifferUI(Application):
                         with HBox():
                             with VBox().layout(weight=1):
                                 PcbDiffView(self)
-                            with VBox():
-                                Label("Presets")
-                                with ComboBox(
-                                    text_model=self.state("layer_preset")
-                                ).change(self.apply_layer_preset):
-                                    if self.state.layer_preset == "Custom":
-                                        ComboBoxItem("Custom")
-                                    for preset in PCB_LAYER_PRESETS:
-                                        ComboBoxItem(preset)
-                                Label("Display Layers")
-                                for layer in self.state.layers:
-                                    Checkbox(
-                                        layer,
-                                        model=self.state.show_layers(layer),
-                                    ).click(
-                                        self.layer_visibility_changed, layer
-                                    )
-                                Spacer()
+                            with Scroll(horizontal=None).layout(width=250):
+                                with VBox():
+                                    Checkbox("Highlight Changes", model=self.state("highlight_changes"))
+                                    Checkbox("Flip board view", model=self.state("flip_board_view"))
+                                    Label("Presets")
+                                    with ComboBox(
+                                        text_model=self.state("layer_preset")
+                                    ).change(self.apply_layer_preset):
+                                        if self.state.layer_preset == "Custom":
+                                            ComboBoxItem("Custom")
+                                        for preset in PCB_LAYER_PRESETS:
+                                            ComboBoxItem(preset)
+                                    Label("Display Layers")
+                                    with LayerList():
+                                        for layer in self.state.layers:
+                                            with HBox():
+                                                Checkbox(
+                                                    "", model=self.state.show_layers(layer)
+                                                ).qt(
+                                                    StyleSheet={"spacing": "0px"}
+                                                ).click(
+                                                    self.layer_visibility_changed,
+                                                    layer,
+                                                )
+                                                selected = self.state.selected_layer == layer
+                                                layer_label = Label(
+                                                    self.state.layer_labels.get(
+                                                        layer, layer
+                                                    )
+                                                ).layout(
+                                                    weight=1
+                                                ).click(
+                                                    self.select_pcb_layer, layer
+                                                )
+                                                if selected:
+                                                    layer_label.qt(
+                                                        StyleSheet={
+                                                            "font-weight": "bold"
+                                                        }
+                                                    )
+                                    Spacer()
                 else:
                     with HBox():
                         with VBox().dragEnter(self.handleDragEnter).drop(self.drop_file_a):
@@ -955,27 +1016,65 @@ class DifferUI(Application):
         self.build()
 
     def pcb_layer_variant(self):
-        return tuple(
+        visible_layers = (
             layer for layer in self.state.layers
             if self.state.show_layers.get(layer, True)
         )
+        return prioritize_selected_layer(
+            visible_layers, self.state.selected_layer
+        )
 
-    def layer_visibility_changed(self, _event, _layer):
+    def layer_visibility_changed(self, _event, layer):
         self.state.layer_preset = "Custom"
+        if (self.state.selected_layer == layer and
+                not self.state.show_layers.get(layer, True)):
+            self.state.selected_layer = next(
+                (
+                    candidate for candidate in self.state.layers
+                    if self.state.show_layers.get(candidate, True)
+                ),
+                None,
+            )
+        self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
+
+    def select_pcb_layer(self, _event, layer):
+        if not self.state.show_layers.get(layer, True):
+            self.state.layer_preset = "Custom"
+        self.state.show_layers[layer] = True
+        self.state.selected_layer = layer
         self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
 
     def apply_layer_preset(self, _event):
         preset = self.state.layer_preset
         if preset not in PCB_LAYER_PRESETS:
             return
-        visible_layers = set(layers_for_preset(
+        visible_layers = layers_for_preset(
             self.state.layers,
             preset,
-            self.state.canonical_layers,
-        ))
+        )
+        visible = set(visible_layers)
         self.state.show_layers = {
-            layer: layer in visible_layers for layer in self.state.layers
+            layer: layer in visible for layer in self.state.layers
         }
+        preferred_layers = {
+            "Front Assembly View": "F.Silkscreen",
+            "Front Layers": "F.Cu",
+            "Back Assembly View": "B.Silkscreen",
+            "Back Layers": "B.Cu",
+        }
+        preferred = preferred_layers.get(preset)
+        selected = next(
+            (
+                layer for layer in visible_layers
+                if layer == preferred
+            ),
+            None,
+        )
+        if selected is None and self.state.selected_layer in visible:
+            selected = self.state.selected_layer
+        if selected is None:
+            selected = next(iter(visible_layers), None)
+        self.state.selected_layer = selected
         self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
 
     def build(self):
@@ -1196,30 +1295,38 @@ class DifferUI(Application):
                         diff_pair = (self.state.cached_file_a, self.state.cached_file_b)
                         if self.state.diff_pair != diff_pair:
                             self.state.loading_diff = True
-                            layers_a = get_pcb_layers(file_a)
-                            layers_b = get_pcb_layers(file_b)
-                            layers = list(layers_a)
-                            layers.extend(
-                                layer for layer in layers_b
-                                if layer not in layers
+                            layer_names_a = get_pcb_layer_names(file_a)
+                            layer_names_b = get_pcb_layer_names(file_b)
+                            layers = sort_layers_in_kicad_ui_order(
+                                dict.fromkeys((
+                                    *layer_names_a, *layer_names_b
+                                ))
                             )
-                            canonical_layers = {
-                                **get_pcb_canonical_layers(file_a),
-                                **get_pcb_canonical_layers(file_b),
-                            }
                             metadata = build_pair_metadata(
                                 self.state.cached_file_a,
                                 self.state.cached_file_b,
                                 layers,
-                                canonical_layers,
+                                layer_names_a=layer_names_a,
+                                layer_names_b=layer_names_b,
                             )
                             if self.state.layers != layers:
                                 self.state.show_layers = {
                                     layer: True for layer in layers
                                 }
                                 self.state.layer_preset = "All Layers"
+                            if self.state.selected_layer not in layers:
+                                self.state.selected_layer = (
+                                    layers[0] if layers else None
+                                )
                             self.state.layers = layers
-                            self.state.canonical_layers = canonical_layers
+                            self.state.layer_labels = {
+                                layer: paired_layer_label(
+                                    layer,
+                                    layer_names_a.get(layer),
+                                    layer_names_b.get(layer),
+                                )
+                                for layer in layers
+                            }
                             self.state.pcb_page_size = metadata["canvas_size"]
                             self.state.sch_page_size = None
                             self.sch_tiles.reset(None)

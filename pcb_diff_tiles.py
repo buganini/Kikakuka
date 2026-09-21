@@ -77,6 +77,7 @@ PCB_LAYER_PRESETS = (
     "Front Assembly View",
     "Front Layers",
     "Inner Copper Layers",
+    "No Layers",
 )
 
 _FRONT_ASSEMBLY_LAYERS = {
@@ -84,6 +85,30 @@ _FRONT_ASSEMBLY_LAYERS = {
 }
 _BACK_ASSEMBLY_LAYERS = {
     "B.Silkscreen", "B.Mask", "B.Fab", "B.Courtyard", "Edge.Cuts",
+}
+
+_KICAD_TECH_USER_UI_ORDER = (
+    "F.Adhesive",
+    "B.Adhesive",
+    "F.Paste",
+    "B.Paste",
+    "F.Silkscreen",
+    "B.Silkscreen",
+    "F.Mask",
+    "B.Mask",
+    "User.Drawings",
+    "User.Comments",
+    "User.Eco1",
+    "User.Eco2",
+    "Edge.Cuts",
+    "Margin",
+    "F.Courtyard",
+    "B.Courtyard",
+    "F.Fab",
+    "B.Fab",
+)
+_KICAD_TECH_USER_UI_RANK = {
+    layer: index for index, layer in enumerate(_KICAD_TECH_USER_UI_ORDER)
 }
 
 
@@ -130,15 +155,18 @@ def pdf_page_size(path):
         document.close()
 
 
-def build_pair_metadata(cache_a, cache_b, layers, canonical_layers=None):
+def build_pair_metadata(cache_a, cache_b, layers, canonical_layers=None,
+                        layer_names_a=None, layer_names_b=None):
     canonical_layers = canonical_layers or {}
     layer_pdfs = {}
     page_size_a = None
     page_size_b = None
 
     for layer in layers:
-        path_a = find_layer_pdf(cache_a, layer)
-        path_b = find_layer_pdf(cache_b, layer)
+        name_a = layer if layer_names_a is None else layer_names_a.get(layer)
+        name_b = layer if layer_names_b is None else layer_names_b.get(layer)
+        path_a = find_layer_pdf(cache_a, name_a) if name_a else None
+        path_b = find_layer_pdf(cache_b, name_b) if name_b else None
         layer_pdfs[layer] = (path_a, path_b)
         if page_size_a is None and path_a:
             page_size_a = pdf_page_size(path_a)
@@ -178,8 +206,65 @@ def choose_render_scale(view_scale, pixel_density=1.0):
     return RENDER_SCALES[-1]
 
 
+def prioritize_selected_layer(layers, selected_layer):
+    """Put the selected layer first, which is the renderer's top layer."""
+    ordered_layers = list(layers)
+    if selected_layer in ordered_layers:
+        ordered_layers.remove(selected_layer)
+        ordered_layers.insert(0, selected_layer)
+    return tuple(ordered_layers)
+
+
+def display_layer_label(layer, canonical_layers=None):
+    """Show the original User.N ID beside a renamed user layer."""
+    canonical = (canonical_layers or {}).get(layer, layer)
+    if (canonical != layer and canonical.startswith("User.") and
+            canonical[5:].isdigit() and int(canonical[5:]) > 0):
+        return f"{layer} ({canonical})"
+    return layer
+
+
+def paired_layer_label(canonical, name_a=None, name_b=None):
+    """Show one row per canonical layer, including names from both boards."""
+    custom_names = list(dict.fromkeys(
+        name for name in (name_a, name_b)
+        if name and name != canonical
+    ))
+    display_name = " / ".join(custom_names) if custom_names else canonical
+    return display_layer_label(display_name, {display_name: canonical})
+
+
+def sort_layers_in_kicad_ui_order(layers, canonical_layers=None):
+    """Sort board layers like KiCad's LSET::UIOrder()."""
+    canonical_layers = canonical_layers or {}
+
+    def sort_key(layer):
+        canonical = canonical_layers.get(layer, layer)
+        if canonical == "F.Cu":
+            return 0, 0
+        if canonical.startswith("In") and canonical.endswith(".Cu"):
+            try:
+                return 0, int(canonical[2:-3])
+            except ValueError:
+                pass
+        if canonical == "B.Cu":
+            return 0, 10_000
+        if canonical in _KICAD_TECH_USER_UI_RANK:
+            return 1, _KICAD_TECH_USER_UI_RANK[canonical]
+        if canonical.startswith("User."):
+            try:
+                return 2, int(canonical[5:])
+            except ValueError:
+                pass
+        return 3, 0
+
+    return sorted(layers, key=sort_key)
+
+
 def layers_for_preset(layers, preset, canonical_layers=None):
     """Return the available layers included in a KiCad-style preset."""
+    if preset == "No Layers":
+        return ()
     canonical_layers = canonical_layers or {}
 
     def canonical(layer):
@@ -349,6 +434,23 @@ def clipped_tile_geometry(bounds, pixel_size, view_transform,
             dest_bottom - dest_top,
         ),
     }
+
+
+def mirrored_view_transform(canvas_width, page_width, view_transform):
+    """Map source tiles into a canvas mirrored around its vertical center."""
+    offx, offy, scale = view_transform
+    return canvas_width - offx - page_width * scale, offy, scale
+
+
+def comparison_regions(page_width, x_left, x_right, flipped=False):
+    """Return source-space A, B and overlap regions in display order."""
+    if flipped:
+        return (
+            (page_width - x_left, page_width),
+            (0.0, page_width - x_right),
+            (page_width - x_right, page_width - x_left),
+        )
+    return (0.0, x_left), (x_right, page_width), (x_left, x_right)
 
 
 def combine_layer_images(image_a, image_b):
