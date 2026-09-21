@@ -49,6 +49,7 @@ PDF_TILE_IMAGE_LOAD_BUDGET_SECONDS = 0.004
 PDF_TILE_CACHE_BYTES = 384 * 1024 * 1024
 PDF_TILE_LOW_RES_CACHE_BYTES = 64 * 1024 * 1024
 PDF_TILE_LOW_RES_MAX_SCALE = 1.0
+DIFFER_TILE_LOG_ENABLED = os.environ.get("KIKAKUKA_DIFFER_TILE_LOG") == "1"
 
 
 class LayerList(VBox):
@@ -392,7 +393,7 @@ class PdfTileDiffView(PUIView):
             render_scale, variant, viewport_bounds
         )
 
-        if isinstance(self, PcbDiffView):
+        if DIFFER_TILE_LOG_ENABLED and isinstance(self, PcbDiffView):
             incomplete = len(tile_results) < len(tile_keys)
             now = time.monotonic()
             if (now - self._last_tile_log >= 1.0 or

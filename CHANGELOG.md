@@ -12,6 +12,13 @@
     * Render selected schematic vector PDF pages through reusable PDFium buffers instead of fixed-resolution full-page intermediates
     * Add synchronized previous/next page controls for schematic comparisons
     * Fill the unset comparison side automatically when selecting the first file
+    * Increase PCB diff zoom to 64x with sharper high-zoom rasterization and more efficient tile compositing
+    * Add KiCad-ordered layer controls, visibility presets, and a flipped board view
+    * Open either selected working-tree or historical KiCad file through Workspace Manager, with a system fallback and clear errors for missing revision files
+* Workspace Manager
+    * Open or focus KiCad board and schematic files through its socket, and improve detection of existing editor instances
+* Panelizer
+    * Open exported boards through Workspace Manager when available, falling back to the system file association
 
 # 7.5:
 * FreekiCAD
