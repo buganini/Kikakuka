@@ -9,6 +9,27 @@ The schematic differ uses the same viewport scheduler and drawing pipeline.
 Its renderer consumes the colored multi-page schematic PDF directly instead
 of KiCad's separate black-and-white PCB layer PDFs.
 
+## Revision history
+
+The A and B revision selectors load history independently for their selected
+files. `WORKING` uses the current file on disk. Switching between schematic
+and PCB mode reloads the corresponding revision lists.
+
+- For a PCB (`.kicad_pcb`), the list contains commits that added, changed, or
+  deleted the selected board path. The file's Git blob and mode are compared
+  with the commit's first parent; commits that changed only other files are
+  omitted. History does not follow a board renamed from another path. A
+  deletion commit can appear in the list, but cannot be exported as a board.
+- For a schematic (`.kicad_sch`), the list contains all repository commits.
+  A root schematic's exported PDF can change when a separate hierarchical
+  sheet changes, even if the root file does not.
+
+PCB filtering tracks changes to the saved board file, not every possible
+change to the exported PDF. Existing PCB footprints and schematic symbols
+are embedded in their respective design files, so an external library edit
+alone does not update them. Project variables, drawing sheets, or export
+settings may nevertheless affect a PCB PDF without changing the board file.
+
 ## Common input
 
 `kicad-cli pcb export pdf --mode-separate --black-and-white` produces one

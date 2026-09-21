@@ -957,8 +957,8 @@ class DifferUI(Application):
     def pcb_diff(self, e):
         self.state.file_a = os.path.splitext(self.state.file_a)[0] + PCB_SUFFIX
         self.state.file_b = os.path.splitext(self.state.file_b)[0] + PCB_SUFFIX
-        self.state.log_a = None
-        self.state.log_b = None
+        self.state.logs_a = None
+        self.state.logs_b = None
         self.state.cached_file_a = None
         self.state.cached_file_b = None
         self.build()
@@ -966,8 +966,8 @@ class DifferUI(Application):
     def sch_diff(self, e):
         self.state.file_a = os.path.splitext(self.state.file_a)[0] + SCH_SUFFIX
         self.state.file_b = os.path.splitext(self.state.file_b)[0] + SCH_SUFFIX
-        self.state.log_a = None
-        self.state.log_b = None
+        self.state.logs_a = None
+        self.state.logs_b = None
         self.state.cached_file_a = None
         self.state.cached_file_b = None
         self.build()
@@ -1286,7 +1286,13 @@ class DifferUI(Application):
                     self.repo_a = githelper.repo(file_a)
                     if self.repo_a:
                         self.state.commit_a = ""
-                        self.state.logs_a = [(hex, msg) for hex,msg in githelper.log(self.repo_a)]
+                        history_path = (
+                            file_a if file_a.lower().endswith(PCB_SUFFIX) else None
+                        )
+                        self.state.logs_a = [
+                            (hex, msg)
+                            for hex, msg in githelper.log(self.repo_a, history_path)
+                        ]
                     else:
                         self.state.logs_a = False
 
@@ -1294,7 +1300,13 @@ class DifferUI(Application):
                     self.repo_b = githelper.repo(file_b)
                     if self.repo_b:
                         self.state.commit_b = ""
-                        self.state.logs_b = [(hex, msg) for hex,msg in githelper.log(self.repo_b)]
+                        history_path = (
+                            file_b if file_b.lower().endswith(PCB_SUFFIX) else None
+                        )
+                        self.state.logs_b = [
+                            (hex, msg)
+                            for hex, msg in githelper.log(self.repo_b, history_path)
+                        ]
                     else:
                         self.state.logs_b = False
 

@@ -52,29 +52,44 @@ def repo(file_path):
         print(f"Error checking file: {e}")
         return False
 
+def _tree_file_version(tree, file_path):
+    """Return a file's blob and mode, or None when it is absent."""
+    try:
+        entry = tree[file_path]
+    except KeyError:
+        return None
+    return entry.id, entry.filemode
+
+
 def log(repo_path, file_path=None):
-    """
-    Get the commit history for a specific file in a Git repository.
+    """Yield commits that changed *file_path*, or every commit if omitted.
 
-    Args:
-        repo_path (str): Path to the Git repository
-        file_path (str): Path to the file relative to the repository root
-
-    Returns:
-        list: List of dictionaries containing commit information
+    File history uses the selected path at each commit. Renames from older
+    paths are not followed.
     """
 
     # Open the repository
     repo = pygit2.Repository(repo_path)
 
     if file_path:
-        file_path = os.path.relpath(os.path.abspath(file_path), repo_path).replace("\\", "/")
+        if not os.path.isabs(file_path):
+            file_path = os.path.join(repo.workdir or repo_path, file_path)
+        file_path = os.path.relpath(
+            os.path.realpath(file_path),
+            os.path.realpath(repo.workdir or repo_path),
+        ).replace("\\", "/")
 
     for commit in repo.walk(repo.head.target, pygit2.GIT_SORT_TIME):
         if commit.type != pygit2.GIT_OBJECT_COMMIT:
             continue
-        if file_path and file_path not in commit.tree:
-            continue
+        if file_path:
+            version = _tree_file_version(commit.tree, file_path)
+            previous = (
+                _tree_file_version(commit.parents[0].tree, file_path)
+                if commit.parents else None
+            )
+            if version == previous:
+                continue
         yield (
             commit.id,
             f"{commit.short_id} {commit.message.strip()}",
