@@ -25,7 +25,7 @@ from . import im_transport
 
 
 ACK_TIMEOUT_MS = 1000
-RESULT_TIMEOUT = 300.0
+RESULT_TIMEOUT = 120.0
 POLL_INTERVAL = 0.2
 _nodes_lock = threading.RLock()
 _local_node = None

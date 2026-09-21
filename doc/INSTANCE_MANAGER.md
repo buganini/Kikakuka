@@ -39,7 +39,7 @@ privileged socket-owner inspection, or elevated-privilege requirement.
 A caller first sends a `dispatch` request to the lowest-PID capable node; PCB
 requests skip nodes without `kicad-python`. The receiver
 acknowledges within the 1-second request timeout and performs the operation in
-a worker thread. The caller polls that node for the result, up to 300 seconds
+a worker thread. The caller polls that node for the result, up to 120 seconds
 by default. If a node fails before acknowledging or while being polled, the
 caller tries the next candidate. A request ID prevents repeated execution on
 one node. An OS file lock keyed by canonical path serializes opens across
@@ -51,13 +51,11 @@ and risk opening a duplicate.
 
 Different-file launches of the same editor are serialized by a second,
 per-program OS lock. This keeps process-list PID inference and KiCad's initial
-socket setup from overlapping. For a newly launched PCB editor, the launch
-slot remains held until KiCad's IPC reports the requested board, for up to
-120 seconds from the launch attempt. Board discovery also probes shape
-readiness before accepting the IPC socket. Schematic/project launches have no
-equivalent document probe, so they keep a short settling period before the
-next KiCad launch. The outer request may wait up to 300 seconds to accommodate
-queued opens; this does not extend one PCB launch beyond 120 seconds.
+socket setup from overlapping. For PCBs, the launch slot remains held until
+KiCad's IPC reports the requested board (up to 30 seconds). Schematic/project
+launches have no equivalent document probe, so they keep a short settling
+period before the next KiCad launch. The outer request may wait up to 120
+seconds to accommodate queued opens.
 
 ## Finding a pcbnew PID
 
@@ -81,11 +79,10 @@ rows on manual refresh.
 
 When launching a new KiCad editor, the current launcher also compares editor
 process lists before and after launch to infer the new PID. For a PCB, that
-inference is not the final answer: the backend waits up to 120 seconds from
-launch for the requested board to appear through KiCad IPC and uses the PID
-assigned to that socket. Process-list enumeration is still needed to validate
-PID-specific sockets and to assign a PID to `api.sock`; it is not a background
-monitor.
+inference is not the final answer: the backend waits up to 30 seconds for the
+requested board to appear through KiCad IPC and uses the PID assigned to that
+socket. Process-list enumeration is still needed to validate PID-specific
+sockets and to assign a PID to `api.sock`; it is not a background monitor.
 
 ## Finding an eeschema PID (KiCad 10)
 

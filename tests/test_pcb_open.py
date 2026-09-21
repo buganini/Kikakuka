@@ -7,7 +7,6 @@ import pcb_open
 
 class PcbOpenTests(unittest.TestCase):
     def test_workspace_request_uses_instance_mesh(self):
-        self.assertGreater(pcb_open.WORKSPACE_OPEN_TIMEOUT, 120)
         path = "/boards/panel.kicad_pcb"
         reply = {
             "status": "ok", "action": "open-file", "filepath": path,
