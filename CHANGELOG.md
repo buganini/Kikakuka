@@ -1,4 +1,4 @@
-# next:
+# 8.0:
 * TL;DR
     * Faster PCB and schematic diffs with improved viewing controls
     * Faster FPC bending
@@ -19,6 +19,7 @@
     * Fill the unset comparison side automatically when selecting the first file
     * Limit PCB revision selectors to commits that changed the selected board file; schematic selectors retain all repository commits to account for changes in hierarchical sheets
     * Increase PCB diff zoom to 64x with sharper high-zoom rasterization and more efficient tile compositing
+    * Set the comparison overlap as 0–30% of the viewport width, with linear Ctrl+Wheel adjustment
     * Add KiCad-ordered layer controls, visibility presets, and a flipped board view
     * Open either selected working-tree or historical KiCad file through the Instance Manager mesh, with a system fallback when no node runs and clear errors for missing revision files
 * Workspace Manager
