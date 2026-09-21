@@ -12,6 +12,9 @@ It creates a few more dimensions for KiCad:
 * Panelization
 * FreeCAD integration for flexible PCB bending and multi-board assembly
 
+> [!CAUTION]
+> Due to [KiCad issue #23994](https://gitlab.com/kicad/code/kicad/-/work_items/23994), only one KiCad instance can currently be accessed through the IPC API on Windows.
+
 # Features
 * Workspace Manager
     * Organize KiCad projects, FabPlans, FreeCAD documents, assemblies, and STEP files in `.kkkk` workspaces with relative paths and file descriptions

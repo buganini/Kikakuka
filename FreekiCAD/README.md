@@ -11,6 +11,9 @@ parties. Kikakuka can find open FreeCAD documents and reuse an existing
 instance when opening a file; see [Instance Manager](https://github.com/buganini/Kikakuka/blob/main/doc/INSTANCE_MANAGER.md)
 for details.
 
+> [!CAUTION]
+> Due to [KiCad issue #23994](https://gitlab.com/kicad/code/kicad/-/work_items/23994), only one KiCad instance can currently be accessed through the IPC API on Windows.
+
 ![Bending+Assembly](https://github.com/buganini/Kikakuka/raw/main/screenshots/freekicad_bending_assembly.png)
 
 ## Features
