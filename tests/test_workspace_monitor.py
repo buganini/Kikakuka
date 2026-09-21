@@ -3,7 +3,8 @@ from unittest import mock
 
 import psutil
 
-from workspace_monitor import program_for_process, snapshot_editor_processes
+from workspace_monitor import (program_for_process, snapshot_editor_processes,
+                               update_pidmap_entry)
 
 
 class FakeProcess:
@@ -20,6 +21,24 @@ class FakeProcess:
 
 
 class WorkspaceMonitorTests(unittest.TestCase):
+    def test_multiple_freecad_documents_share_a_pid(self):
+        pidmap = {}
+        update_pidmap_entry(pidmap, "/models/first.FCStd", 30)
+        update_pidmap_entry(pidmap, "/models/second.FCStd", 30)
+        with mock.patch("workspace_monitor.psutil.process_iter", return_value=[
+                FakeProcess(30, "FreeCAD")]):
+            rows = snapshot_editor_processes(pidmap)
+        self.assertEqual(rows, (
+            (30, "FreeCAD", "/models/first.FCStd"),
+            (30, "FreeCAD", "/models/second.FCStd"),
+        ))
+
+    def test_kicad_replaces_previous_active_file_for_same_pid(self):
+        pidmap = {}
+        update_pidmap_entry(pidmap, "/boards/old.kicad_pcb", 12)
+        update_pidmap_entry(pidmap, "/boards/new.kicad_pcb", 12)
+        self.assertEqual(pidmap, {"/boards/new.kicad_pcb": 12})
+
     def test_classifies_gui_editors_but_not_cli_or_unrelated_processes(self):
         self.assertEqual(program_for_process("pcbnew.exe"), "KiCad")
         self.assertEqual(program_for_process("PCB Editor"), "KiCad")

@@ -11,6 +11,17 @@ FILE_SUFFIXES = {
 }
 
 
+def update_pidmap_entry(pidmap, filepath, pid):
+    """Keep all FreeCAD documents; KiCad's editor tracks one active file."""
+    filepath = os.path.abspath(filepath)
+    if filepath.lower().endswith(FILE_SUFFIXES["KiCad"]):
+        for existing_path, existing_pid in list(pidmap.items()):
+            if (existing_pid == pid and existing_path != filepath and
+                    existing_path.lower().endswith(FILE_SUFFIXES["KiCad"])):
+                pidmap.pop(existing_path, None)
+    pidmap[filepath] = pid
+
+
 def program_for_process(name):
     """Classify GUI editor process names without including CLI tools."""
     name = (name or "").casefold().removesuffix(".exe")

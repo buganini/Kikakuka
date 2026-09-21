@@ -12,9 +12,9 @@ HEADLESS_EXPORT_PATH = os.path.join(
     REPOSITORY_ROOT, "FreekiCAD", "freecad", "FreekiCAD",
     "HeadlessExport.py"
 )
-WORKSPACE_BUS_PATH = os.path.join(
+IM_CLIENT_PATH = os.path.join(
     REPOSITORY_ROOT, "FreekiCAD", "freecad", "FreekiCAD",
-    "workspace_bus.py"
+    "im_client.py"
 )
 STEP_LOADER_PATH = os.path.join(
     REPOSITORY_ROOT, "FreekiCAD", "freecad", "FreekiCAD",
@@ -216,8 +216,9 @@ class FakeSignal:
         self.callback(value)
 
 
-def load_workspace_bus_module():
+def load_im_client_module(*, with_qt=True):
     fake_freecad = types.ModuleType("FreeCAD")
+    fake_freecad.GuiUp = with_qt
     fake_freecad.Console = types.SimpleNamespace(
         PrintMessage=mock.Mock(), PrintError=mock.Mock())
     qt_core = types.SimpleNamespace(
@@ -226,48 +227,141 @@ def load_workspace_bus_module():
     )
     fake_pyside = types.ModuleType("PySide")
     fake_pyside.QtCore = qt_core
-    module_name = "FreekiCAD.freecad.FreekiCAD.workspace_bus_sync_test"
-    spec = importlib.util.spec_from_file_location(module_name, WORKSPACE_BUS_PATH)
+    module_name = "FreekiCAD.freecad.FreekiCAD.im_client_sync_test"
+    spec = importlib.util.spec_from_file_location(module_name, IM_CLIENT_PATH)
     module = importlib.util.module_from_spec(spec)
     with mock.patch.dict(sys.modules, {
         "FreeCAD": fake_freecad,
-        "PySide": fake_pyside,
+        "PySide": fake_pyside if with_qt else None,
     }):
         spec.loader.exec_module(module)
     return module
 
 
-class WorkspaceBusSyncTests(unittest.TestCase):
-    def test_request_sync_retries_connection_and_waits_without_timeout(self):
-        module = load_workspace_bus_module()
-        connection = mock.Mock()
-        module._connect = mock.Mock(side_effect=[None, None, connection])
-        module._send = mock.Mock()
-        module._recv = mock.Mock(return_value={
-            "action": "reload",
-            "socket": "/tmp/kicad/api-123.sock",
-        })
+class InstanceClientSyncTests(unittest.TestCase):
+    def test_headless_node_does_not_publish_its_documents_or_require_pyside(self):
+        module = load_im_client_module(with_qt=False)
+        node = mock.Mock()
+        module.FreeCAD.addDocumentObserver = mock.Mock()
+        module.FreeCAD.listDocuments = mock.Mock(return_value={
+            "Board": types.SimpleNamespace(
+                Name="Board", FileName="/boards/board.FCStd")})
+        with mock.patch.object(module.im_mesh, "start_node", return_value=node):
+            self.assertIs(module.ensure_node(), node)
+        self.assertIsNone(module.QtCore)
+        module.FreeCAD.addDocumentObserver.assert_not_called()
+        node.publish.assert_not_called()
 
-        with mock.patch.object(module.time, "sleep") as sleep:
+    def test_gui_startup_can_attach_observer_after_node_was_started(self):
+        module = load_im_client_module()
+        module.FreeCAD.GuiUp = False
+        module.FreeCAD.addDocumentObserver = mock.Mock()
+        module.FreeCAD.listDocuments = mock.Mock(return_value={
+            "Board": types.SimpleNamespace(
+                Name="Board", FileName="/boards/board.FCStd")})
+        node = mock.Mock()
+        with mock.patch.object(module.im_mesh, "start_node", return_value=node):
+            module.ensure_node()
+            module.FreeCAD.addDocumentObserver.assert_not_called()
+            module.ensure_node(observe_documents=True)
+        module.FreeCAD.addDocumentObserver.assert_called_once()
+        deadline = module.time.monotonic() + 2
+        while node.publish.call_count < 1 and module.time.monotonic() < deadline:
+            module.time.sleep(0.01)
+        node.publish.assert_called_once_with("/boards/board.FCStd", os.getpid())
+
+    def test_existing_freecad_documents_are_published_when_node_starts(self):
+        module = load_im_client_module()
+        node = mock.Mock()
+        module.FreeCAD.addDocumentObserver = mock.Mock()
+        module.FreeCAD.listDocuments = mock.Mock(return_value={
+            "Board": types.SimpleNamespace(
+                Name="Board", FileName="/boards/board.FCStd")})
+        with mock.patch.object(module.im_mesh, "start_node", return_value=node):
+            self.assertIs(module.ensure_node(), node)
+        module.FreeCAD.addDocumentObserver.assert_called_once()
+        deadline = module.time.monotonic() + 2
+        while node.publish.call_count < 1 and module.time.monotonic() < deadline:
+            module.time.sleep(0.01)
+        node.publish.assert_called_once_with("/boards/board.FCStd", os.getpid())
+
+    def test_created_document_is_published_after_filename_is_assigned(self):
+        module = load_im_client_module()
+        callbacks = []
+        module.QtCore.QTimer = types.SimpleNamespace(
+            singleShot=lambda _delay, callback: callbacks.append(callback))
+        node = mock.Mock()
+        observer = module._DocumentObserver(node)
+        document = types.SimpleNamespace(Name="Board", FileName="")
+        observer.slotCreatedDocument(document)
+        document.FileName = "/boards/board.FCStd"
+        callbacks.pop()()
+        deadline = module.time.monotonic() + 2
+        while node.publish.call_count < 1 and module.time.monotonic() < deadline:
+            module.time.sleep(0.01)
+        node.publish.assert_called_once_with("/boards/board.FCStd", os.getpid())
+
+    def test_activation_publishes_document_loaded_after_create(self):
+        module = load_im_client_module()
+        node = mock.Mock()
+        observer = module._DocumentObserver(node)
+        document = types.SimpleNamespace(Name="Board", FileName="")
+        observer._record(document)
+        document.FileName = "/boards/board.FCStd"
+        observer.slotActivateDocument(document)
+        deadline = module.time.monotonic() + 2
+        while node.publish.call_count < 1 and module.time.monotonic() < deadline:
+            module.time.sleep(0.01)
+        node.publish.assert_called_once_with("/boards/board.FCStd", os.getpid())
+
+    def test_freecad_document_events_publish_open_and_close(self):
+        module = load_im_client_module()
+        node = mock.Mock()
+        observer = module._DocumentObserver(node)
+        document = types.SimpleNamespace(Name="Board", FileName="/boards/board.FCStd")
+        observer._record(document)
+        observer.slotDeletedDocument(document)
+        deadline = module.time.monotonic() + 2
+        while node.publish.call_count < 2 and module.time.monotonic() < deadline:
+            module.time.sleep(0.01)
+        self.assertEqual(node.publish.call_args_list, [
+            mock.call("/boards/board.FCStd", os.getpid()),
+            mock.call("/boards/board.FCStd", None),
+        ])
+
+    def test_save_as_replaces_the_published_path(self):
+        module = load_im_client_module()
+        node = mock.Mock()
+        observer = module._DocumentObserver(node)
+        document = types.SimpleNamespace(Name="Board", FileName="/boards/old.FCStd")
+        observer._record(document)
+        document.FileName = "/boards/new.FCStd"
+        observer.slotFinishSaveDocument(document, document.FileName)
+        deadline = module.time.monotonic() + 2
+        while node.publish.call_count < 3 and module.time.monotonic() < deadline:
+            module.time.sleep(0.01)
+        self.assertEqual(node.publish.call_args_list, [
+            mock.call("/boards/old.FCStd", os.getpid()),
+            mock.call("/boards/old.FCStd", None),
+            mock.call("/boards/new.FCStd", os.getpid()),
+        ])
+
+    def test_request_sync_uses_mesh_without_workspace(self):
+        module = load_im_client_module()
+        with mock.patch.object(module, "_request", return_value={
+                "status": "ok", "action": "reload",
+                "socket": "/tmp/kicad/api-123.sock"}) as request:
             result = module.request_sync(
-                "reload", "/board/main.kicad_pcb",
-                connect_retries=2, connect_retry_delay=0.25)
+                "reload", "/board/main.kicad_pcb")
 
         self.assertEqual(result["socket"], "/tmp/kicad/api-123.sock")
-        self.assertEqual(module._connect.call_count, 3)
-        self.assertEqual(sleep.call_count, 2)
-        connection.settimeout.assert_called_once_with(None)
-        connection.close.assert_called_once_with()
+        request.assert_called_once_with({
+            "action": "reload", "filepath": "/board/main.kicad_pcb", "object": ""})
 
-    def test_request_sync_raises_workspace_error(self):
-        module = load_workspace_bus_module()
-        connection = mock.Mock()
-        module._connect = mock.Mock(return_value=connection)
-        module._send = mock.Mock()
-        module._recv = mock.Mock(return_value={
-            "status": "error",
-            "message": "KiCad API was not ready",
-        })
+    def test_request_sync_raises_instance_error(self):
+        module = load_im_client_module()
+        module._request = mock.Mock(return_value={
+            "status": "error", "message": "KiCad API was not ready"})
 
         with self.assertRaisesRegex(RuntimeError, "not ready"):
             module.request_sync("reload", "/board/main.kicad_pcb")

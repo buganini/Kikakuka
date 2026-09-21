@@ -12,7 +12,7 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
 from common import *
 from pcb_open import system_open_command
-from workspace_monitor import snapshot_editor_processes
+from workspace_monitor import snapshot_editor_processes, update_pidmap_entry
 
 FREECAD_SUFFIXES = (ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX)
 FILE_ORDER = [*PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, ".kicad_pro"]
@@ -666,6 +666,10 @@ class WorkspaceUI(PUIView):
         if path.lower().endswith(FREECAD_SUFFIXES):
             self.openFreeCAD(path)
             return
+        if path.lower().endswith((".kicad_pcb", ".kicad_sch", ".kicad_pro")):
+            from pcb_open import open_kicad_file
+            Thread(target=open_kicad_file, args=[path], daemon=True).start()
+            return
         pid = self.main.pidmap.get(path)
         if pid is not None:
             if bring_to_front:
@@ -674,7 +678,8 @@ class WorkspaceUI(PUIView):
             else:
                 if psutil.pid_exists(pid):
                     return
-        Thread(target=self.main._open_kicad_file, args=[path, bring_to_front], daemon=True).start()
+        from pcb_open import open_with_system
+        Thread(target=open_with_system, args=[path], daemon=True).start()
 
     def openFolder(self, location):
         if platform.system() == 'Darwin':
@@ -700,29 +705,17 @@ class WorkspaceUI(PUIView):
         self.main.pidmap.pop(filepath, None)
 
     def openFreeCAD(self, filepath):
-        if bringToFront(self.main.pidmap.get(filepath)):
-            return
         Thread(target=self._openFreeCAD, args=[filepath], daemon=True).start()
 
     def _openFreeCAD(self, filepath):
-        if platform.system() == 'Darwin':
-            pid = posix_open_file(filepath, ["freecad"], "-a", "FreeCAD", "-n", "-W", "--args")
-            if pid:
-                self.main.pidmap[filepath] = pid
-        elif platform.system() == 'Windows':
-            executable = (
-                windows_associated_executable(FREECAD_SUFFIX)
-                or WINDOWS_FREECAD_EXE
-            )
-            process = subprocess.Popen([executable, filepath])
-            self.main.pidmap[filepath] = process.pid
-            process.wait()
-            self.main.pidmap.pop(filepath, None)
-        else:
-            process = subprocess.Popen(["freecad", filepath])
-            self.main.pidmap[filepath] = process.pid
-            process.wait()
-            self.main.pidmap.pop(filepath, None)
+        from FreekiCAD.freecad.FreekiCAD import im_mesh
+        from pcb_open import open_with_system
+        try:
+            reply = im_mesh.request({"action": "open-file", "filepath": filepath})
+            if reply.get("status") == "error":
+                print(f"Instance mesh: {reply.get('message', 'could not open FreeCAD file')}")
+        except ConnectionError:
+            open_with_system(filepath)
 
     def close(self):
         if Confirm("Are you sure you want to close this workspace?", "Close workspace"):
@@ -758,34 +751,33 @@ class MainUI(Application):
         self.commit()
         self.pidmap = {}
 
-        # Start the socket daemon so FreekiCAD can resolve KiCad sockets
+        # Host a symmetric instance node. No workspace-owned socket or
+        # permanent leader is required for FreekiCAD to resolve KiCad IPC.
         self._bus = None
         try:
-            from workspace_bus import WorkspaceBus
-            self._bus = WorkspaceBus(
-                lambda: dict(self.pidmap),
-                open_file=self._open_kicad_file,
-                remove_pid=lambda fp: self.pidmap.pop(fp, None),
-                update_pid=self._update_pidmap_entry,
-                bring_to_front=bringToFront,
-            )
+            from FreekiCAD.freecad.FreekiCAD.im_mesh import start_node
+            from FreekiCAD.freecad.FreekiCAD.instance_backend import handle
+            self._bus = start_node(handle, self._mesh_mapping_changed)
             import atexit
             atexit.register(self._shutdown_bus)
         except Exception as e:
-            print(f"WorkspaceBus: Could not start: {e}")
+            print(f"Instance mesh: Could not start: {e}")
 
         self.refresh_monitor()
 
     def refresh_monitor(self, _event=None):
+        if self._bus:
+            self._bus.refresh()
         self.state.monitor_rows = snapshot_editor_processes(self.pidmap)
 
     def _update_pidmap_entry(self, filepath, pid):
-        """Record the canonical board path for a KiCad PID."""
-        filepath = os.path.abspath(filepath)
-        for existing_path, existing_pid in list(self.pidmap.items()):
-            if existing_pid == pid and existing_path != filepath:
-                self.pidmap.pop(existing_path, None)
-        self.pidmap[filepath] = pid
+        update_pidmap_entry(self.pidmap, filepath, pid)
+
+    def _mesh_mapping_changed(self, filepath, pid):
+        if pid is None:
+            self.pidmap.pop(filepath, None)
+        else:
+            self._update_pidmap_entry(filepath, pid)
 
     def _open_kicad_file(self, filepath, bring_to_front=False):
         """Open a KiCad board or schematic in a new editor instance.
@@ -820,7 +812,7 @@ class MainUI(Application):
 
     def _shutdown_bus(self):
         if self._bus:
-            self._bus.shutdown()
+            self._bus.close()
             self._bus = None
 
     def commit(self):

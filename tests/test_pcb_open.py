@@ -1,4 +1,3 @@
-import json
 import os
 import unittest
 from unittest import mock
@@ -6,65 +5,42 @@ from unittest import mock
 import pcb_open
 
 
-class FakeConnection:
-    def __init__(self, reply):
-        payload = json.dumps(reply).encode("utf-8")
-        self.remaining = len(payload).to_bytes(4, "big") + payload
-        self.sent = b""
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        return None
-
-    def sendall(self, data):
-        self.sent += data
-
-    def recv(self, size):
-        # Exercise the client's partial-read handling.
-        chunk = self.remaining[:min(size, 3)]
-        self.remaining = self.remaining[len(chunk):]
-        return chunk
-
-
 class PcbOpenTests(unittest.TestCase):
-    def test_workspace_request_uses_length_prefixed_open_file_protocol(self):
+    def test_workspace_request_uses_instance_mesh(self):
         path = "/boards/panel.kicad_pcb"
-        connection = FakeConnection({
+        reply = {
             "status": "ok", "action": "open-file", "filepath": path,
             "pid": 123,
-        })
-        with mock.patch("pcb_open._connect_workspace", return_value=connection):
+        }
+        with mock.patch("pcb_open.im_mesh.request", return_value=reply) as request:
             self.assertTrue(pcb_open.request_workspace_open(path))
-
-        request_size = int.from_bytes(connection.sent[:4], "big")
-        self.assertEqual(request_size, len(connection.sent) - 4)
-        self.assertEqual(
-            json.loads(connection.sent[4:].decode("utf-8")),
-            {"action": "open-file", "filepath": path},
-        )
+        request.assert_called_once_with(
+            {"action": "open-file", "filepath": path}, timeout=pcb_open.WORKSPACE_OPEN_TIMEOUT)
 
     def test_workspace_request_rejects_response_for_another_file(self):
-        connection = FakeConnection({
+        reply = {
             "status": "ok", "action": "open-file",
             "filepath": "/boards/other.kicad_pcb", "pid": 123,
-        })
-        with mock.patch("pcb_open._connect_workspace", return_value=connection):
-            self.assertFalse(
+        }
+        with mock.patch("pcb_open.im_mesh.request", return_value=reply):
+            with self.assertRaisesRegex(RuntimeError, "mismatched"):
                 pcb_open.request_workspace_open("/boards/panel.kicad_pcb")
-            )
 
-    def test_windows_workspace_connection_uses_local_tcp(self):
-        connection = object()
-        with mock.patch("pcb_open.platform.system", return_value="Windows"):
-            with mock.patch(
-                "pcb_open.socket.create_connection", return_value=connection
-            ) as connect:
-                self.assertIs(pcb_open._connect_workspace(3.0), connection)
-        connect.assert_called_once_with(
-            ("127.0.0.1", pcb_open.WORKSPACE_PORT), 3.0
-        )
+    def test_manager_error_does_not_duplicate_open(self):
+        with mock.patch("pcb_open.os.path.isfile", return_value=True):
+            with mock.patch("pcb_open.request_workspace_open", side_effect=RuntimeError("KiCad busy")):
+                with mock.patch("pcb_open.open_with_system") as fallback:
+                    with self.assertRaisesRegex(RuntimeError, "KiCad busy"):
+                        pcb_open.open_pcb_file("/boards/panel.kicad_pcb")
+        fallback.assert_not_called()
+
+    def test_ambiguous_timeout_does_not_duplicate_open(self):
+        with mock.patch("pcb_open.os.path.isfile", return_value=True):
+            with mock.patch("pcb_open.request_workspace_open", side_effect=TimeoutError("waiting")):
+                with mock.patch("pcb_open.open_with_system") as fallback:
+                    with self.assertRaises(TimeoutError):
+                        pcb_open.open_pcb_file("/boards/panel.kicad_pcb")
+        fallback.assert_not_called()
 
     def test_manager_success_does_not_open_file_again(self):
         with mock.patch("pcb_open.os.path.isfile", return_value=True):
@@ -87,14 +63,6 @@ class PcbOpenTests(unittest.TestCase):
     def test_pcb_only_entry_point_rejects_schematic(self):
         with self.assertRaises(ValueError):
             pcb_open.open_pcb_file("/boards/main.kicad_sch")
-
-    def test_manager_error_falls_back_to_system(self):
-        with mock.patch("pcb_open.os.path.isfile", return_value=True):
-            with mock.patch("pcb_open.request_workspace_open", return_value=False):
-                with mock.patch("pcb_open.open_with_system") as fallback:
-                    result = pcb_open.open_pcb_file("/boards/panel.kicad_pcb")
-        self.assertEqual(result, "system")
-        fallback.assert_called_once_with("/boards/panel.kicad_pcb")
 
     def test_unavailable_manager_falls_back_to_system(self):
         with mock.patch("pcb_open.os.path.isfile", return_value=True):

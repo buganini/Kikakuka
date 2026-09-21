@@ -132,7 +132,7 @@ to slowest using the fast baseline.
 The comparison checks record:
 
 - unit-test passed/total counts and runtime
-- PCB load and model-build time, starting only after the Workspace Manager has
+- PCB load and model-build time, starting only after the instance mesh has
   returned a ready KiCad IPC socket
 - active bend-line and generated wedge-piece counts
 - shape validity and solid, face, edge, and vertex counts

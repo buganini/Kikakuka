@@ -1,129 +1,107 @@
 # Instance Manager
 
-## Component boundary
+Kikakuka and each FreekiCAD process host an equivalent Instance Manager
+node. FreekiCAD starts its node on package import, including in FreeCADCmd.
+GUI FreeCAD processes also publish their open document state; FreeCADCmd does
+not publish its own open documents.
+The common coordination logic is in
+[`im_mesh.py`](../FreekiCAD/freecad/FreekiCAD/im_mesh.py), local transport in
+[`im_transport.py`](../FreekiCAD/freecad/FreekiCAD/im_transport.py), and editor-specific
+operations are in
+[`instance_backend.py`](../FreekiCAD/freecad/FreekiCAD/instance_backend.py).
 
-The Instance Manager is a separate component from the Workspace Manager. It
-owns process identity, file-to-PID mappings, editor launch/reuse/focus, and
-KiCad IPC socket resolution. Its lifetime and behavior must not depend on
-whether any workspace tab is open. This is a component boundary, not a
-requirement to run in a separate OS process.
+## Discovery and election
 
-The Workspace Manager owns workspace files, project trees, and tabs. It is a
-client of the Instance Manager when a user opens a file. FreekiCAD, the shared
-file opener, and the Monitor UI are clients as well. In particular, the
-Monitor displays an instance snapshot; it must not own or repair PID state.
+On macOS and Linux, each node listens at
+`/tmp/kikakuka-<UID>/<PID>-<process-start-ms>.sock`; the per-user directory is
+mode 0700 and socket files are mode 0600. Windows uses a named pipe of the form
+`\\.\pipe\kikakuka-<runtime-hash>-<PID>-<process-start-ms>`. A short node-ID
+suffix is possible when tests host multiple nodes in one process. There is no
+per-node JSON registration file. A shared random token is stored in the private
+runtime directory (`%LOCALAPPDATA%\Kikakuka\instances` on Windows); nodes
+reject requests without it. This directory also holds the cross-process lock
+files.
 
-**Implementation status:** this boundary is the intended design. Today the
-PID map and launch code still live in `MainUI`/`WorkspaceUI` in `workspace.py`,
-while `WorkspaceBus` in `workspace_bus.py` handles KiCad IPC. Moving those
-responsibilities into an independent component is not yet implemented.
+Discovery scans socket files or the Windows pipe namespace **on demand**. If
+Windows pipe enumeration is unavailable, it derives names from the process
+list. A `hello` request checks protocol version, PID, creation time, and
+capabilities before election; `psutil` validates the PID and creation time.
+Unix socket files are removed only when confirmed stale. Windows named pipes
+disappear when their final handle closes and need no stale-file cleanup. Live
+nodes are sorted by PID and node ID. There is no heartbeat, shared memory,
+privileged socket-owner inspection, or elevated-privilege requirement.
 
-## PID state and lifecycle
+A caller first sends a `dispatch` request to the lowest-PID capable node; PCB
+requests skip nodes without `kicad-python`. The receiver
+acknowledges within the 1-second request timeout and performs the operation in
+a worker thread. The caller polls that node for the result, up to 120 seconds
+by default. If a node fails before acknowledging or while being polled, the
+caller tries the next candidate. A request ID prevents repeated execution on
+one node. An OS file lock keyed by canonical path serializes opens across
+different nodes after a failover or concurrent elections. The executor always
+re-probes KiCad's IPC before opening, so a second executor can reuse an editor
+opened by the first. If no node is running, the shared file opener falls back
+to the system file association; a node's explicit error does **not** fall back
+and risk opening a duplicate.
 
-The current implementation keeps a best-effort, in-memory map from an open
-file to the process handling it:
+Different-file launches of the same editor are serialized by a second,
+per-program OS lock. This keeps process-list PID inference and KiCad's initial
+socket setup from overlapping. For PCBs, the launch slot remains held until
+KiCad's IPC reports the requested board (up to 30 seconds). Schematic/project
+launches have no equivalent document probe, so they keep a short settling
+period before the next KiCad launch. The outer request may wait up to 120
+seconds to accommodate queued opens.
 
-```text
-pidmap[absolute_file_path] = process_id
-pidmap[":differ"] = differ_process_id
-```
+## State and refresh
 
-The Instance Manager should own this state rather than a workspace UI. It is
-not persisted with the workspace list. A PID identifies a process, not
-necessarily its currently open document; KiCad board mappings are checked
-against the KiCad IPC API before an IPC socket is returned. Closing a
-workspace removes its tab, but does not terminate editor processes or clear
-instance state.
+Successful KiCad and FreeCAD opens broadcast file-to-editor-PID events directly
+to every currently discovered node. In GUI FreeCAD, FreekiCAD observes document
+create/activate/save/close events and broadcasts paths with a saved `FileName`.
+Unsaved documents have no path to publish. Multiple GUI documents in one process
+retain separate mappings; FreeCADCmd does not publish its own documents.
+Deletions use timestamped tombstones so an old
+snapshot cannot revive a removed mapping. A joining node and an executor
+refresh snapshots from peers on demand; the Monitor's manual Refresh does the
+same. When refreshing, dead editor PIDs are removed and broadcast. There is no
+periodic poll. A mapping is only a hint: for PCBs, the KiCad API-reported board
+path is checked before focus or socket resolution. `monitor-couplers` remains
+passive and never launches an editor.
 
-## Recording and reusing processes
+FreekiCAD's [`im_client.py`](../FreekiCAD/freecad/FreekiCAD/im_client.py)
+provides asynchronous and synchronous KiCad requests for linked PCB objects.
+The Workspace Manager's KiCad and FreeCAD open actions and `pcb_open.py` use
+the same route.
+The old `/tmp/kikakuka.sock` / Windows port 19780 daemon and its tests have
+been removed. KiCad's own
+`api.sock` and `api-<PID>.sock` are unrelated and remain in use.
 
-- Opening a KiCad PCB or schematic uses the OS file association. On macOS and
-  Linux, `posix_open_file()` compares process snapshots before and after the
-  open command (with a three-second wait) to infer the editor PID; Windows
-  uses the same approach after `os.startfile()`. If no PID can be identified,
-  the file still opens but cannot immediately be added to `pidmap`.
-- Opening FreeCAD records the launched or discovered PID. Windows and Linux
-  remove that mapping when the launched process exits; macOS does not have an
-  exit waiter for its discovered PID. Panelizer and Differ run as separate
-  Kikakuka processes; their paths, or `:differ`, are mapped to their PIDs and
-  removed when those subprocesses exit.
-- An open request first tries an existing mapping. It may focus that process
-  instead of opening another copy. Dead PIDs are discarded when checked with
-  `psutil.pid_exists()`; a stale entry is not a guarantee that the editor
-  still has the same file open.
+## Platform and permissions
 
-The window-focus implementation is platform-specific: macOS uses
-`osascript`, Windows uses window APIs, and Linux currently has no
-`bringToFront()` implementation.
+macOS uses `open -n` for a new editor and AppleScript for best-effort focus;
+Windows uses file associations and Win32 foreground APIs; Linux uses
+`xdg-open` and currently has no reliable cross-desktop focus operation.
+File-to-PID discovery uses ordinary process enumeration and KiCad's IPC. No
+`psutil.net_connections(kind="unix")` or other privileged process/socket
+inspection is used. An inaccessible process is treated as unavailable, never
+as a reason to request elevation.
 
-## KiCad IPC and PID recovery
+The private runtime directory and request token provide best-effort local-user
+isolation, not an authentication boundary against malicious processes running
+as the same desktop user (which can read the token). Keep the per-user
+temporary directory private.
 
-The current IPC endpoint, `WorkspaceBus` in `workspace_bus.py`, serves
-requests from FreekiCAD and the shared file opener. It is hosted by `MainUI`
-today, but belongs to the Instance Manager boundary. It listens on
-`/tmp/kikakuka.sock` on Unix and localhost TCP port 19780 on Windows, and
-maintains a temporary `_pending_open_pids` map for KiCad launches whose
-board is not ready yet.
+## Dependencies and limitations
 
-At startup, the bus scans existing KiCad IPC sockets and attempts to rebuild
-board-path-to-PID mappings. It repeats that scan immediately before opening a
-KiCad file through the bus, so a board manually opened since startup can be
-reused. For `api-<PID>.sock`, the filename supplies the candidate PID. For the
-first instance's generic `api.sock`, the bus uses the oldest KiCad editor PID
-without a PID-named socket. This association is an inference; the subsequent
-KiCad IPC probe checks which board the socket actually serves.
+Kikakuka and FreekiCAD require `psutil`. FreekiCAD's
+optional KiCad integration additionally requires `kicad-python` and
+`shapely`; install those in the Python environment **inside FreeCAD**, not only in Kikakuka's
+environment. FreeCAD Addon Manager may not install `psutil`
+automatically on builds whose allowed-package list excludes it.
 
-The bus probes a candidate socket through `kipy` to read the board filename
-and project path. A verified board path updates `pidmap`, removing another
-path previously mapped to the same PID. A busy editor remains pending and is
-retried during startup recovery. A stale socket with no live KiCad owner is
-removed only if it is a Unix socket and cannot be connected to.
-
-For a FreekiCAD action that needs a PCB IPC socket, the bus waits for an
-ongoing open or startup recovery, then opens KiCad if necessary. It checks
-that the PID is alive, waits for a responsive socket, and compares the board
-path reported by KiCad with the requested path. A mismatch clears or repairs
-the mapping and retries resolution; a pending launch is not considered ready
-merely because another instance's generic `api.sock` responds. The passive
-`monitor-couplers` action does not launch KiCad. The separate `open-file`
-action opens or focuses a PCB/schematic and returns without waiting for its
-IPC API to become ready. The `list` action reports the current `pidmap`
-grouped by PID; it does not enumerate every OS process.
-
-## Monitor client
-
-The Monitor tab is a manually refreshed presentation of instance state, not
-the source of `pidmap`. Currently `workspace_monitor.py` enumerates running
-KiCad and FreeCAD GUI processes with `psutil.process_iter()`. For each PID, it
-uses a known `pidmap` path first, then tries the process command line and
-working directory. When the file cannot be determined, the path is shown as
-`Unknown`. It does not query open files or KiCad's active document, and it
-does not automatically refresh on process-open or process-close events. The
-process snapshot logic should move behind the Instance Manager interface;
-the tab should only request and display that snapshot.
-
-Process inspection is best-effort across platforms: another user's process
-may deny access to its command line or working directory. A process can also
-exit between enumeration and inspection. These cases are skipped or shown
-without a path; the manager does not request elevated privileges.
-
-## Privilege policy
-
-Instance management must work as a regular desktop user. Do not depend on
-APIs that require root or administrator privileges, including system-wide
-socket-owner queries such as `psutil.net_connections(kind="unix")` on macOS.
-Use PID-named KiCad sockets, ordinary process enumeration, and KiCad's own
-IPC response instead. Treat inaccessible process details as unavailable and
-keep a non-privileged fallback; do not prompt for elevation just to populate
-or repair `pidmap`.
-
-## Current implementation references
-
-- [`workspace.py`](../workspace.py): transitional home of `MainUI.pidmap`,
-  editor launch/focus, Panelizer/Differ subprocesses, and the Monitor tab.
-- [`workspace_bus.py`](../workspace_bus.py): transitional KiCad IPC endpoint,
-  socket discovery, mapping recovery, and pending launches.
-- [`workspace_monitor.py`](../workspace_monitor.py): process snapshot and
-  best-effort file-path inference, currently called directly by the UI.
-- [`pcb_open.py`](../pcb_open.py): socket request to the manager with an OS
-  file-association fallback when the request cannot be fulfilled.
+The current backend can verify a PCB's open document through KiCad IPC. KiCad
+schematics do not have an equivalent verified-document probe here, so a live
+schematic PID association is best-effort. The 120-second request limit prevents
+an indefinitely blocked GUI workflow; a modal dialog or unresponsive KiCad
+may return a timeout and require a retry. No background heartbeat detects a
+document changing in an otherwise-live editor; the next demand-triggered
+operation rechecks the PCB mapping.

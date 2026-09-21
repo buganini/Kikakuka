@@ -6,6 +6,7 @@
     * Improve initial bending and rebending performance by roughly 7-12x on representative multi-bend FPC benchmarks through 2D partitioning, reusable geometry caches, and optimized wedge construction
     * Fix bend traversal across adjacent wedge pieces
     * Prepare package metadata, icons, scripts, screenshots, and documentation for FreeCAD Addon Manager submission
+    * Host a local IPC Instance Manager node in each FreeCAD process, including FreeCADCmd, so linked KiCad boards work without a running Workspace Manager; GUI FreeCAD also publishes document open/save/close state
 * Differ
     * Add a shared PDF tile scheduler for PCB and schematic diffs, with cached adaptively prioritized viewport tiles, coarse previews, physical-pixel LOD fallback, and cancellation outside the viewport
     * Render PCB layer PDFs through grayscale compositing and direct QImage buffers; equal-resolution full-page builds are roughly 5x faster, while the documented visible-area benchmark is about 16x faster
@@ -14,11 +15,12 @@
     * Fill the unset comparison side automatically when selecting the first file
     * Increase PCB diff zoom to 64x with sharper high-zoom rasterization and more efficient tile compositing
     * Add KiCad-ordered layer controls, visibility presets, and a flipped board view
-    * Open either selected working-tree or historical KiCad file through Workspace Manager, with a system fallback and clear errors for missing revision files
+    * Open either selected working-tree or historical KiCad file through the Instance Manager mesh, with a system fallback when no node runs and clear errors for missing revision files
 * Workspace Manager
-    * Open or focus KiCad board and schematic files through its socket, and improve detection of existing editor instances
+    * Replace the single `kikakuka.sock` daemon with a per-user local IPC Instance Manager mesh: on-demand discovery, lowest-PID capable executor election, failover, serialized per-file and per-program launches, and replicated PID state
+    * Open or focus KiCad and FreeCAD files through the mesh, verifying existing KiCad PCB mappings against its IPC API
 * Panelizer
-    * Open exported boards through Workspace Manager when available, falling back to the system file association
+    * Open exported boards through the mesh, falling back to the system file association only when no node is running
 
 # 7.5:
 * FreekiCAD

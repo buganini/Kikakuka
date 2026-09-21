@@ -2342,7 +2342,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD: KiCad API socket was: {socket_path}\n"
         )
-        from .workspace_bus import report_error
+        from .im_client import report_error
         report_error(socket_path, e)
     return (None, [], None, [], DEFAULT_PCB_THICKNESS, [], None, [], [], [],
             [], [], 0)
@@ -2814,7 +2814,7 @@ class _OutlineSketchObserver:
             new_kicad_y = float(obj.Y) + delta_y
             new_kicad_angle = float(obj.Rotation) + delta_yaw
 
-            from .workspace_bus import send_request
+            from .im_client import send_request
             send_request("move-component", _resolved_linked_filename(parent),
                          object_label=parent.Label, component=ref)
             # Stash computed coordinates on the proxy for the response
@@ -2932,8 +2932,8 @@ def _ensure_sketch_observer():
             setattr(FreeCAD, _SKETCH_OBSERVER_ATTR, _sketch_observer)
         except Exception:
             pass
-        # Register the global workspace bus response handler
-        from .workspace_bus import set_response_handler
+        # Register the instance-client response handler.
+        from .im_client import set_response_handler
         set_response_handler(_handle_bus_response)
     return _sketch_observer
 
@@ -4183,7 +4183,7 @@ class PcbObject:
         if update is None:
             return
         self._coupler_updates_in_flight[reference] = update
-        from .workspace_bus import send_request
+        from .im_client import send_request
         send_request(
             "update-coupler", _resolved_linked_filename(obj),
             object_label=obj.Label, component=reference)
@@ -4204,7 +4204,7 @@ class PcbObject:
             except Exception as ex:
                 import traceback
                 error = (ex, traceback.format_exc())
-            from .workspace_bus import dispatch_to_main_thread
+            from .im_client import dispatch_to_main_thread
             dispatch_to_main_thread(lambda: self._finish_coupler_update(
                 obj, reference, update, error))
 
@@ -4311,7 +4311,7 @@ class PcbObject:
         socket_path = getattr(self, '_cached_socket_path', None)
         if socket_path is None:
             self._coupler_socket_pending = True
-            from .workspace_bus import send_request
+            from .im_client import send_request
             send_request(
                 "monitor-couplers", _resolved_linked_filename(obj),
                 object_label=obj.Label)
@@ -4347,7 +4347,7 @@ class PcbObject:
             except Exception as ex:
                 error = ex
 
-            from .workspace_bus import dispatch_to_main_thread
+            from .im_client import dispatch_to_main_thread
             dispatch_to_main_thread(lambda: self._finish_coupler_poll(
                 obj, generation, live_poses, error))
 
@@ -12545,7 +12545,7 @@ class PcbObject:
         self._suppress_execute = True
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Outline sketch opened for '{obj.Name}'\n")
-        from .workspace_bus import send_request
+        from .im_client import send_request
         send_request("open-sketch", _resolved_linked_filename(obj),
                      object_label=obj.Label)
 
@@ -12598,7 +12598,7 @@ class PcbObject:
                 f"FreekiCAD: Failed to connect to KiCad: "
                 f"{type(e).__name__}: {e}\n"
                 f"{traceback.format_exc()}\n")
-            from .workspace_bus import report_error
+            from .im_client import report_error
             report_error(socket_path, e)
             return None
 
@@ -12833,7 +12833,7 @@ class PcbObject:
         self._ensure_coupler_monitor_state()
         self._coupler_monitor_generation += 1
         self._ensure_properties(obj)
-        from .workspace_bus import send_request
+        from .im_client import send_request
         send_request("reload", _resolved_linked_filename(obj),
                      object_label=obj.Label)
         _log_surface_reload(
@@ -12861,7 +12861,7 @@ class PcbObject:
         self._coupler_monitor_generation += 1
         self._ensure_properties(obj)
         try:
-            from .workspace_bus import request_sync
+            from .im_client import request_sync
             reply = request_sync(
                 "reload", filename, object_label=obj.Label)
             self._handle_reload_response(

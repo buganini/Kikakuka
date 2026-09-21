@@ -450,9 +450,9 @@ class OutlineWireOrderTests(unittest.TestCase):
             PrintWarning=mock.Mock(),
             PrintError=mock.Mock(),
         )
-        workspace_bus = types.ModuleType(
-            "FreekiCAD.freecad.FreekiCAD.workspace_bus")
-        workspace_bus.report_error = mock.Mock()
+        im_client = types.ModuleType(
+            "FreekiCAD.freecad.FreekiCAD.im_client")
+        im_client.report_error = mock.Mock()
         blocked_kipy_modules = {
             name: None
             for name in sys.modules
@@ -460,7 +460,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         }
         blocked_kipy_modules["kipy"] = None
         blocked_kipy_modules[
-            "FreekiCAD.freecad.FreekiCAD.workspace_bus"] = workspace_bus
+            "FreekiCAD.freecad.FreekiCAD.im_client"] = im_client
 
         with mock.patch.dict(sys.modules, blocked_kipy_modules):
             result = linked_object.load_board("board.kicad_pcb", "/tmp/kicad")
@@ -468,7 +468,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         error = linked_object.FreeCAD.Console.PrintError.call_args.args[0]
         self.assertIn("Could not import kipy", error)
         self.assertIn("Install kicad-python", error)
-        workspace_bus.report_error.assert_called_once()
+        im_client.report_error.assert_called_once()
         self.assertIsNone(result[0])
 
     def test_single_planar_face_unwraps_boolean_shell(self):
@@ -1989,9 +1989,9 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy._ensure_coupler_monitor_state = mock.Mock()
         proxy._ensure_properties = mock.Mock()
         shape = types.SimpleNamespace(isNull=lambda: False)
-        workspace_bus = types.ModuleType(
-            "FreekiCAD.freecad.FreekiCAD.workspace_bus")
-        workspace_bus.request_sync = mock.Mock(return_value={
+        im_client = types.ModuleType(
+            "FreekiCAD.freecad.FreekiCAD.im_client")
+        im_client.request_sync = mock.Mock(return_value={
             "socket": "/tmp/kicad.sock",
         })
 
@@ -2010,12 +2010,12 @@ class OutlineWireOrderTests(unittest.TestCase):
             proxy._handle_reload_response = mock.Mock(
                 side_effect=finish_reload)
             with mock.patch.dict(sys.modules, {
-                    "FreekiCAD.freecad.FreekiCAD.workspace_bus":
-                    workspace_bus}):
+                    "FreekiCAD.freecad.FreekiCAD.im_client":
+                    im_client}):
                 result = proxy.reload_sync(obj, reposition=False)
 
         self.assertTrue(result)
-        workspace_bus.request_sync.assert_called_once_with(
+        im_client.request_sync.assert_called_once_with(
             "reload", board_file.name, object_label="board")
         proxy._handle_reload_response.assert_called_once_with(
             obj, "/tmp/kicad.sock", reposition=False)
@@ -2134,7 +2134,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         with mock.patch.object(linked_object.time, "monotonic", return_value=100.0), \
                 mock.patch.dict(sys.modules, {
-                    "FreekiCAD.freecad.FreekiCAD.workspace_bus": types.SimpleNamespace(
+                    "FreekiCAD.freecad.FreekiCAD.im_client": types.SimpleNamespace(
                         send_request=send_request),
                 }):
             proxy.reload(obj, force=True)

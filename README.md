@@ -55,7 +55,7 @@ It creates a few more dimensions for KiCad:
     * Solid [stiffeners](##flexible-pcb-stiffener) from annotated `F.Stiffener` and `B.Stiffener` user-layer areas
     * [Flex PCB bending](#flexible-pcb-bending) driven by bend lines and parameters defined in KiCad
     * [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment) using matching `CouplerFixed` and `CouplerMoving` footprints or an absolute `CouplerAt`, with coupler plane markers for inspection
-    * `kicad-python` is used and the workspace manager handles multiple KiCad instances & API sockets
+    * `kicad-python` is used and an on-demand instance mesh handles multiple KiCad instances & API sockets, even without an open Workspace Manager
 
 # Workspace Manager
 The `.kkkk` file saves workspace information in JSON format.
@@ -140,16 +140,18 @@ Drag inside the PCB for moving selected tab, drag outside the PCB for changing t
 ![Manual Tab](screenshots/manual_tab.gif)
 
 # FreeCAD Integration
-Requires **FreeCAD 1.0** or later. Importing STEP files and working with
-`.kkkk_asm` assemblies that contain only STEP objects require no additional
-Python dependencies. KiCad PCB integration requires **KiCad 9.0** or later,
-`kicad-python>=0.8,<0.9`, and `shapely>=2.0.7`. These dependencies are optional
-because they are not used by the STEP-only workflow. When FreekiCAD is
-installed through the FreeCAD Addon Manager, compatible versions are selected
-from FreeCAD's Python package allow list and constraints.
+Requires **FreeCAD 1.0** or later and `psutil>=5.9` for
+instance discovery and FreeCAD document-state publication. KiCad PCB
+integration additionally requires **KiCad 9.0** or later,
+`kicad-python>=0.8,<0.9`, and `shapely>=2.0.7`. The latter two packages are
+optional for STEP-only workflows. FreeCAD Addon Manager may not automatically
+install `psutil` where its allowed-package list excludes it;
+install it manually inside FreeCAD if necessary.
 
-All communication with KiCad and the Kikakuka Workspace Manager uses local IPC
-only. FreekiCAD does not send board, assembly, or usage data to third parties.
+FreekiCAD and Kikakuka discover each other on demand through local Unix sockets
+or Windows named pipes. FreeCAD can manage KiCad
+instances without the Workspace Manager running. No board, assembly, or usage
+data is sent to third parties.
 
 KiCad `.kicad_pcb` boards and STEP models remain external files referenced by
 path. When saved as `.FCStd`, the FreeCAD document caches their generated
@@ -166,14 +168,13 @@ object. The option can be disabled independently for each object.
     * Get the installation path by executing `print(os.path.join(App.getUserAppDataDir(), "Mod"))` in the Python console
     * Create the `Mod` folder if it does not exist
     * Copy the FreekiCAD folder into the `Mod` folder
-    * If you need KiCad integration, install `kicad-python` and `shapely` into FreeCAD by executing the following command in the Python console. The command waits for pip to finish, then prints its output.
+    * Install `psutil` inside FreeCAD. For full KiCad integration, the following command also installs the KiCad extras. It waits for pip to finish, then prints its output.
     ```
-    import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
+    import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=5.9"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
     ```
     * Restart FreeCAD
 
-* Activate `Preferences -> Plugins -> Enable KiCad API`, then close KiCad (let Kikakuka manage instances).
-* **Keep the Kikakuka Workspace Manager running while using FreekiCAD's KiCad integration.** STEP-only workflows do not require it.
+* Activate `Preferences -> Plugins -> Enable KiCad API`. Kikakuka or FreekiCAD can reuse a running matching KiCad editor or start one on demand.
 * FreeCAD
     * Add PCB
         * Switch to the `FreekiCAD` workbench.
