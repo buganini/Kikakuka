@@ -186,10 +186,11 @@ def _open_new(filepath, program, is_board, node):
             if pid is not None:
                 return pid, socket_path
         elif program == "freecad":
-            pid = activate_open_freecad_document(filepath)
+            pid = activate_open_freecad_document(
+                filepath, before_activate=_focus)
             if pid is not None:
                 return pid, None
-            pid = open_in_freecad_node(filepath)
+            pid = open_in_freecad_node(filepath, before_open=_focus)
             if pid is not None:
                 return pid, None
         elif node is not None:

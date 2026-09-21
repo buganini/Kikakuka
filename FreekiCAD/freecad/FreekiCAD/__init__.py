@@ -1,9 +1,17 @@
 """Headless entry point for the FreekiCAD addon."""
 
+import sys
+
 try:
     import FreeCAD
 except ImportError:
     FreeCAD = None
+
+# Older FCStd documents store proxy modules as FreekiCAD.LinkedObject. The
+# installed addon now loads as freecad.FreekiCAD; make the former package name
+# resolve before FreeCAD's guarded document restore tries to import it.
+if FreeCAD is not None and __name__ == "freecad.FreekiCAD":
+    sys.modules["FreekiCAD"] = sys.modules[__name__]
 
 
 if FreeCAD is not None and hasattr(FreeCAD, "addImportType"):

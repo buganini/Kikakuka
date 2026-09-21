@@ -169,7 +169,8 @@ class InstanceBackendTests(unittest.TestCase):
                 mock.patch.object(backend, "_focus") as focus:
             reply = backend.handle({"action": "open-file", "filepath": "/models/part.FCStd"})
         self.assertEqual(reply["pid"], 222)
-        activate.assert_called_once_with("/models/part.FCStd")
+        activate.assert_called_once_with(
+            "/models/part.FCStd", before_activate=focus)
         launch.assert_not_called()
         focus.assert_called_once_with(222)
 
@@ -203,7 +204,8 @@ class InstanceBackendTests(unittest.TestCase):
                 mock.patch.object(backend, "_focus") as focus:
             reply = backend.handle({"action": "open-file", "filepath": "/models/new.step"})
         self.assertEqual(reply["pid"], 222)
-        open_in_node.assert_called_once_with("/models/new.step")
+        open_in_node.assert_called_once_with(
+            "/models/new.step", before_open=focus)
         launch.assert_not_called()
         focus.assert_called_once_with(222)
 

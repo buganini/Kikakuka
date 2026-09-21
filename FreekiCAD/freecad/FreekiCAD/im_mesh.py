@@ -600,14 +600,22 @@ def scan_freecad_documents():
             for pid, paths in sorted(documents_by_pid.items())]
 
 
-def activate_open_freecad_document(filepath, target_pid=None):
-    """Select an open document, optionally in one specific FreeCAD process."""
+def activate_open_freecad_document(filepath, target_pid=None, before_activate=None):
+    """Select an open document, focusing its process before changing MDI tabs."""
     filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
     for peer in discover():
         if (not peer.get("freecad_documents") or
                 (target_pid is not None and peer["pid"] != target_pid)):
             continue
         try:
+            if before_activate is not None:
+                listing = _exchange(peer["endpoint"],
+                                    {"mesh_action": "freecad-list-documents"}, 2500)
+                if (listing.get("status") != "ok" or
+                        listing.get("pid") != peer["pid"] or
+                        filepath not in listing.get("documents", ())):
+                    continue
+                before_activate(peer["pid"])
             reply = _exchange(peer["endpoint"],
                               {"mesh_action": "freecad-activate-document",
                                "filepath": filepath}, 2500)
@@ -620,8 +628,8 @@ def activate_open_freecad_document(filepath, target_pid=None):
     return None
 
 
-def open_in_freecad_node(filepath):
-    """Hand a new document to the lowest-PID responding FreeCAD GUI node."""
+def open_in_freecad_node(filepath, before_open=None):
+    """Focus a GUI node before handing it a new document to open."""
     filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
     candidates = [peer for peer in discover() if peer.get("freecad_documents")]
     if not candidates:
@@ -630,6 +638,8 @@ def open_in_freecad_node(filepath):
     rejected = False
     for peer in candidates:
         try:
+            if before_open is not None:
+                before_open(peer["pid"])
             ack = _exchange(peer["endpoint"],
                             {"mesh_action": "freecad-open-document",
                              "id": request_id, "filepath": filepath})

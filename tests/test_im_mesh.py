@@ -258,6 +258,50 @@ class InstanceMeshTests(unittest.TestCase):
             "filepath": "/models/part.FCStd",
         }, 2500)
 
+    def test_freecad_focus_precedes_activation_of_matching_document(self):
+        peers = [
+            {"pid": 111, "endpoint": "first", "freecad_documents": True},
+            {"pid": 222, "endpoint": "second", "freecad_documents": True},
+        ]
+        events = []
+
+        def exchange(endpoint, request, _timeout=1000):
+            action = request["mesh_action"]
+            events.append((action, endpoint))
+            if action == "freecad-list-documents":
+                return {"status": "ok", "pid": 111 if endpoint == "first" else 222,
+                        "documents": [] if endpoint == "first" else ["/models/part.FCStd"]}
+            return {"status": "ok", "pid": 222, "found": True}
+
+        with mock.patch.object(im_mesh, "discover", return_value=peers), \
+                mock.patch.object(im_mesh, "_exchange", side_effect=exchange), \
+                mock.patch.object(im_mesh, "_alive", return_value=True):
+            self.assertEqual(im_mesh.activate_open_freecad_document(
+                "/models/part.FCStd",
+                before_activate=lambda pid: events.append(("focus", pid))), 222)
+        self.assertEqual(events, [
+            ("freecad-list-documents", "first"),
+            ("freecad-list-documents", "second"),
+            ("focus", 222),
+            ("freecad-activate-document", "second"),
+        ])
+
+    def test_freecad_focus_precedes_open_request(self):
+        peer = {"pid": 222, "endpoint": "second", "freecad_documents": True}
+        events = []
+
+        def exchange(endpoint, request):
+            events.append((request["mesh_action"], endpoint))
+            return {"status": "accepted"}
+
+        with mock.patch.object(im_mesh, "discover", return_value=[peer]), \
+                mock.patch.object(im_mesh, "_exchange", side_effect=exchange):
+            self.assertEqual(im_mesh.open_in_freecad_node(
+                "/models/new.FCStd",
+                before_open=lambda pid: events.append(("focus", pid))), 222)
+        self.assertEqual(events, [("focus", 222),
+                                  ("freecad-open-document", "second")])
+
     def test_freecad_open_targets_gui_node_and_returns_after_acceptance(self):
         nongui = self.node(lambda _: {"status": "ok"})
         gui = self.node(lambda _: {"status": "ok"})

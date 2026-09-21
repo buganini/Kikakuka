@@ -1,6 +1,12 @@
 """Compatibility wrapper for documents saved before PcbObject was renamed."""
 
-from . import PcbObject as _implementation
+if __package__ == "FreekiCAD":
+    # The old package name is an alias for freecad.FreekiCAD. Import the
+    # implementation under its canonical name so a re-saved document records
+    # freecad.FreekiCAD.PcbObject rather than another legacy module path.
+    from freecad.FreekiCAD import PcbObject as _implementation
+else:
+    from . import PcbObject as _implementation
 
 
 # Old FCStd files reference this module and its former class names.  Re-export

@@ -794,13 +794,13 @@ class MainUI(Application):
     def _go_to_monitor_row(self, pid, program, filepath):
         if not psutil.pid_exists(pid):
             return
+        bringToFront(pid)
         if program == "FreeCAD" and filepath:
             try:
                 from FreekiCAD.freecad.FreekiCAD.im_mesh import activate_open_freecad_document
                 activate_open_freecad_document(filepath, target_pid=pid)
             except Exception as exc:
                 print(f"Instance Manager: Could not activate {filepath} in PID {pid}: {exc}")
-        bringToFront(pid)
 
     def _update_pidmap_entry(self, filepath, pid):
         with self.pidmap:
