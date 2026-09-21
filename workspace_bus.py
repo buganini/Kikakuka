@@ -220,17 +220,6 @@ def _unix_socket_connectable(socket_path, timeout=0.2):
         client.close()
 
 
-def _socket_owner_pid(socket_path):
-    """Best-effort lookup of the process owning a Unix-domain socket."""
-    try:
-        for conn in psutil.net_connections(kind="unix"):
-            if conn.pid and conn.laddr == socket_path:
-                return conn.pid
-    except (psutil.Error, OSError, NotImplementedError):
-        pass
-    return None
-
-
 def _existing_kicad_sockets():
     """Return ``(socket_path, pid)`` pairs for running KiCad instances."""
     sock_dir = _kicad_socket_dir()
@@ -260,19 +249,13 @@ def _existing_kicad_sockets():
             generic_path = os.path.join(sock_dir, name)
 
     if generic_path:
-        pid = _socket_owner_pid(generic_path)
+        # The first KiCad instance owns api.sock. Avoid system-wide socket
+        # inspection, which requires elevated privileges on some platforms.
         process_pids = _kicad_process_pids()
-        if pid is None:
-            # api.sock belongs to the first KiCad instance.  If the platform
-            # does not expose Unix socket ownership, use the oldest editor
-            # process which has no PID-named socket.
-            pid = next(
-                (p for p in process_pids if p not in explicit_pids),
-                None,
-            )
-        if pid is not None and pid not in explicit_pids:
+        pid = next((p for p in process_pids if p not in explicit_pids), None)
+        if pid is not None:
             candidates.append((generic_path, pid))
-        elif pid is None and not process_pids:
+        elif not process_pids:
             if _unix_socket_connectable(generic_path) is False:
                 _remove_dead_socket(
                     generic_path, "no listener or running KiCad process"

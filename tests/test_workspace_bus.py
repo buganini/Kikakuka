@@ -175,17 +175,18 @@ class WorkspaceBusResolveSocketTests(unittest.TestCase):
             with mock.patch("workspace_bus._kicad_socket_dir", return_value="/ipc"):
                 with mock.patch("workspace_bus._kicad_pid_state", return_value=True):
                     with mock.patch(
-                        "workspace_bus._socket_owner_pid", return_value=111
+                        "workspace_bus._kicad_process_pids", return_value=[222, 111]
                     ):
                         with mock.patch(
-                            "workspace_bus._kicad_process_pids", return_value=[111, 222]
-                        ):
+                            "workspace_bus.psutil.net_connections"
+                        ) as connections:
                             sockets = workspace_bus._existing_kicad_sockets()
 
         self.assertCountEqual(
             sockets,
             [("/ipc/api.sock", 111), ("/ipc/api-222.sock", 222)],
         )
+        connections.assert_not_called()
 
     def test_existing_kicad_sockets_removes_dead_pid_named_socket(self):
         with mock.patch(
@@ -211,18 +212,17 @@ class WorkspaceBusResolveSocketTests(unittest.TestCase):
     def test_existing_kicad_sockets_removes_generic_without_kicad_process(self):
         with mock.patch("workspace_bus.os.listdir", return_value=["api.sock"]):
             with mock.patch("workspace_bus._kicad_socket_dir", return_value="/ipc"):
-                with mock.patch("workspace_bus._socket_owner_pid", return_value=None):
+                with mock.patch(
+                    "workspace_bus._kicad_process_pids", return_value=[]
+                ):
                     with mock.patch(
-                        "workspace_bus._kicad_process_pids", return_value=[]
+                        "workspace_bus._unix_socket_connectable",
+                        return_value=False,
                     ):
                         with mock.patch(
-                            "workspace_bus._unix_socket_connectable",
-                            return_value=False,
-                        ):
-                            with mock.patch(
-                                "workspace_bus._remove_dead_socket", return_value=True
-                            ) as remove:
-                                sockets = workspace_bus._existing_kicad_sockets()
+                            "workspace_bus._remove_dead_socket", return_value=True
+                        ) as remove:
+                            sockets = workspace_bus._existing_kicad_sockets()
 
         self.assertEqual(sockets, [])
         remove.assert_called_once_with(
