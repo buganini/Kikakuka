@@ -35,10 +35,12 @@ from pcb_diff_tiles import (
     clipped_tile_geometry,
     comparison_regions,
     layers_for_preset,
+    layer_label_color,
     mirrored_view_transform,
     paired_layer_label,
     prioritize_selected_layer,
     sort_layers_in_kicad_ui_order,
+    toggle_selected_layer,
     tile_pixel_bounds,
     visible_tile_indices,
 )
@@ -926,6 +928,11 @@ class DifferUI(Application):
                                                     self.layer_visibility_changed,
                                                     layer,
                                                 )
+                                                Label("■").style(
+                                                    color=layer_label_color(layer)
+                                                ).click(
+                                                    self.select_pcb_layer, layer
+                                                )
                                                 selected = self.state.selected_layer == layer
                                                 layer_label = Label(
                                                     self.state.layer_labels.get(
@@ -1181,7 +1188,9 @@ class DifferUI(Application):
         if not self.state.show_layers.get(layer, True):
             self.state.layer_preset = "Custom"
         self.state.show_layers[layer] = True
-        self.state.selected_layer = layer
+        self.state.selected_layer = toggle_selected_layer(
+            self.state.selected_layer, layer
+        )
         self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
 
     def apply_layer_preset(self, _event):
@@ -1496,7 +1505,9 @@ class DifferUI(Application):
                                     layer: True for layer in layers
                                 }
                                 self.state.layer_preset = "All Layers"
-                            if self.state.selected_layer not in layers:
+                            if (self.state.selected_layer not in layers and
+                                    (self.state.selected_layer is not None or
+                                     not self.state.layers)):
                                 self.state.selected_layer = (
                                     layers[0] if layers else None
                                 )

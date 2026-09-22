@@ -139,6 +139,12 @@ def standard_layer_style(layer):
     return (rgb[2], rgb[1], rgb[0]), _STANDARD_LAYER_ALPHA.get(layer, 1.0)
 
 
+def layer_label_color(layer):
+    """Return the renderer's canonical BGR layer color as a UI RGB value."""
+    blue, green, red = standard_layer_style(layer)[0]
+    return (red << 16) | (green << 8) | blue
+
+
 def find_layer_pdf(cache_dir, layer):
     pattern = os.path.join(
         cache_dir,
@@ -225,6 +231,11 @@ def prioritize_selected_layer(layers, selected_layer):
         ordered_layers.remove(selected_layer)
         ordered_layers.insert(0, selected_layer)
     return tuple(ordered_layers)
+
+
+def toggle_selected_layer(selected_layer, clicked_layer):
+    """A second click removes the temporary top-layer override."""
+    return None if selected_layer == clicked_layer else clicked_layer
 
 
 def display_layer_label(layer, canonical_layers=None):

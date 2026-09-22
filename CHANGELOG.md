@@ -4,6 +4,8 @@
     * Add a default-on Sync Page option that aligns schematic page selections
     * Default the comparison overlap to 13% of the viewport width and accent changed content red for A and blue for B
     * Preserve pan and zoom across diff rebuilds, clipping the old view to the new page and viewport bounds
+    * Toggle the top-rendered PCB layer off by clicking its label again
+    * Show each PCB layer's render color beside its name in the layer list
 * Workspace Manager
     * Open known file locations directly from Instance Manager rows
 

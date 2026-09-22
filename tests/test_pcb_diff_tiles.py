@@ -30,12 +30,14 @@ from pcb_diff_tiles import (
     display_layer_label,
     finish_merged_mask,
     layers_for_preset,
+    layer_label_color,
     mirrored_view_transform,
     paired_layer_label,
     pixel_aligned_page_layout,
     prioritize_selected_layer,
     select_fallback_results,
     sort_layers_in_kicad_ui_order,
+    toggle_selected_layer,
     standard_layer_style,
     tile_bounds,
     visible_tile_indices,
@@ -75,6 +77,11 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
             paired_layer_label("User.3", "Front Stiffener", "Back Stiffener"),
             "Front Stiffener / Back Stiffener (User.3)",
         )
+
+    def test_layer_label_color_matches_renderer_theme_rgb(self):
+        self.assertEqual(layer_label_color("F.Cu"), 0xC83434)
+        self.assertEqual(layer_label_color("B.Cu"), 0x4D7FC4)
+        self.assertEqual(layer_label_color("User.2"), 0x5994DC)
 
     def test_pair_metadata_matches_renamed_layers_by_canonical_id(self):
         layer_names_a = {"User.2": "User.2"}
@@ -237,6 +244,17 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
             prioritize_selected_layer(("F.Cu", "B.Cu"), "Edge.Cuts"),
             ("F.Cu", "B.Cu"),
         )
+
+    def test_clicking_selected_layer_again_restores_normal_order(self):
+        layers = ("F.Cu", "B.Cu", "F.Silkscreen")
+        selected = toggle_selected_layer(None, "B.Cu")
+        self.assertEqual(
+            prioritize_selected_layer(layers, selected),
+            ("B.Cu", "F.Cu", "F.Silkscreen"),
+        )
+        selected = toggle_selected_layer(selected, "B.Cu")
+        self.assertIsNone(selected)
+        self.assertEqual(prioritize_selected_layer(layers, selected), layers)
 
     def test_render_scale_uses_ceiling_discrete_lod(self):
         self.assertEqual(choose_render_scale(0.2), 0.25)
