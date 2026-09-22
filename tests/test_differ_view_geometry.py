@@ -1,14 +1,23 @@
 import unittest
 
 from differ_view_geometry import (
-    DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, clipped_view_transform,
-    overlap_bounds,
+    DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, canvas_priority_point,
+    clipped_view_transform, overlap_bounds,
 )
 
 
 class OverlapGeometryTests(unittest.TestCase):
     def test_default_overlap_is_thirteen_percent(self):
         self.assertEqual(DEFAULT_OVERLAP_PERCENT, 13.0)
+
+    def test_tile_priority_uses_cursor_only_inside_canvas(self):
+        size = (1000, 600)
+        self.assertEqual(canvas_priority_point((12, 34), size), (12, 34))
+        self.assertEqual(canvas_priority_point((0, 0), size), (0, 0))
+        self.assertEqual(canvas_priority_point((1000, 34), size), (500, 300))
+        self.assertEqual(canvas_priority_point((-1, 34), size), (500, 300))
+        self.assertEqual(canvas_priority_point((12, 600), size), (500, 300))
+        self.assertEqual(canvas_priority_point(None, size), (500, 300))
 
     def test_initial_view_fits_and_centers_page(self):
         self.assertEqual(

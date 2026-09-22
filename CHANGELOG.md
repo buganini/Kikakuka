@@ -6,6 +6,7 @@
     * Preserve pan and zoom across diff rebuilds, clipping the old view to the new page and viewport bounds
     * Toggle the top-rendered PCB layer off by clicking its label again
     * Show each PCB layer's render color beside its name in the layer list
+    * Prioritize tiles around the canvas center when the cursor is outside the diff canvas
 * Workspace Manager
     * Open known file locations directly from Instance Manager rows
 

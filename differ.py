@@ -19,8 +19,8 @@ import pcbnew
 from pcb_open import open_kicad_file
 from differ_source import source_paths
 from differ_view_geometry import (
-    DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, clipped_view_transform,
-    overlap_bounds,
+    DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, canvas_priority_point,
+    clipped_view_transform, overlap_bounds,
 )
 from differ_overlap import apply_overlap_color_shift
 import time
@@ -357,8 +357,11 @@ class PdfTileDiffView(PUIView):
         region_a, region_b, region_darker = comparison_regions(
             self.diff_width, x_left, x_right, flipped
         )
-        priority_point = self.state.mousepos
-        if flipped and priority_point is not None:
+        cursor = canvas.ui.mapFromGlobal(QtGui.QCursor.pos())
+        priority_point = canvas_priority_point(
+            (cursor.x(), cursor.y()), (canvas.width, canvas.height)
+        )
+        if flipped:
             priority_point = (
                 canvas.width - priority_point[0], priority_point[1]
             )

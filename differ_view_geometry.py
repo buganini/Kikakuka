@@ -4,6 +4,16 @@
 DEFAULT_OVERLAP_PERCENT = 13.0
 
 
+def canvas_priority_point(cursor_position, canvas_size):
+    """Use the live cursor only while it is inside the canvas."""
+    width, height = canvas_size
+    if cursor_position is not None:
+        x, y = cursor_position
+        if 0 <= x < width and 0 <= y < height:
+            return x, y
+    return width / 2, height / 2
+
+
 def clipped_view_transform(previous, page_size, canvas_size, zoom_limit):
     """Keep the current pan/zoom within the new page and canvas bounds."""
     page_width, page_height = page_size
