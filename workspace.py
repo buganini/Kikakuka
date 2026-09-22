@@ -136,6 +136,15 @@ def windows_open_file(file_path, filters):
     return None
 
 
+def open_folder(location):
+    if platform.system() == 'Darwin':
+        subprocess.run(["open", location])
+    elif platform.system() == 'Windows':
+        subprocess.run(["explorer", location])
+    else:
+        subprocess.run(["xdg-open", location])
+
+
 def windows_bring_pid_to_front(pid):
     """
     Brings the main window of a process with the specified PID to the foreground.
@@ -683,12 +692,7 @@ class WorkspaceUI(PUIView):
         Thread(target=open_with_system, args=[path], daemon=True).start()
 
     def openFolder(self, location):
-        if platform.system() == 'Darwin':
-            subprocess.run(["open", location])
-        elif platform.system() == 'Windows':
-            subprocess.run(["explorer", location])
-        else:
-            subprocess.run(["xdg-open", location])
+        open_folder(location)
 
     def openPanelizer(self, filepath):
         if bringToFront(self.main.pidmap.get(filepath)):
@@ -896,9 +900,14 @@ class MainUI(Application):
                                                 Label(str(pid)).grid(row=row, column=0)
                                                 Label(program).grid(row=row, column=1)
                                                 Label(filepath or "Unknown", selectable=True).grid(row=row, column=2)
-                                                Button("Go to").click(
-                                                    self.go_to_monitor_row, pid, program, filepath
-                                                ).grid(row=row, column=3)
+                                                with HBox().grid(row=row, column=3):
+                                                    Button("Go to").click(
+                                                        self.go_to_monitor_row, pid, program, filepath
+                                                    )
+                                                    if filepath:
+                                                        Button("Open File Location").click(
+                                                            lambda e, path: open_folder(os.path.dirname(path)), filepath
+                                                        )
                                     Spacer()
 
     def newWorkspace(self):
