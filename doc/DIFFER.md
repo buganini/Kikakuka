@@ -87,9 +87,15 @@ cache key; schematic tiles use an empty variant because each selected PDF page
 is already composited.
 
 Ctrl+Wheel adjusts the comparison overlap linearly by one percentage point per
-wheel notch, from 0% (the default) to 30%. The percentage is the total overlap
+wheel notch, from 0% to 30% (default 13%). The percentage is the total overlap
 width relative to the viewport width, so zooming does not change its on-screen
 width. The overlap is centered on the splitter and clipped at the page edges.
+Only the displayed overlap tile receives a red/blue accent: A's red channel
+and B's blue channel are each raised by 128 before the channel-wise minimum
+is taken. Identical pixels retain their original color because the other
+image supplies the unchanged channel. PCB tiles are compared as straight BGRA
+colors and then premultiplied for display; the non-overlap A/B images and
+difference mask are unchanged.
 
 ## PCB viewport tile renderer
 

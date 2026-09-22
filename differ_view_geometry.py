@@ -1,6 +1,9 @@
 """Geometry shared by the schematic and PCB difference views."""
 
 
+DEFAULT_OVERLAP_PERCENT = 13.0
+
+
 def adjust_overlap_percent(current, wheel_delta):
     """Move one percentage point per wheel notch, within the 0–30% range."""
     return max(0.0, min(30.0, current + wheel_delta / 120.0))

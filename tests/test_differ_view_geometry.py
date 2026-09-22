@@ -1,9 +1,14 @@
 import unittest
 
-from differ_view_geometry import adjust_overlap_percent, overlap_bounds
+from differ_view_geometry import (
+    DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, overlap_bounds,
+)
 
 
 class OverlapGeometryTests(unittest.TestCase):
+    def test_default_overlap_is_thirteen_percent(self):
+        self.assertEqual(DEFAULT_OVERLAP_PERCENT, 13.0)
+
     def test_wheel_adjustment_is_linear_and_clamped(self):
         self.assertEqual(adjust_overlap_percent(0.0, 120), 1.0)
         self.assertEqual(adjust_overlap_percent(1.0, 60), 1.5)

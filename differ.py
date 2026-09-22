@@ -18,7 +18,10 @@ import githelper
 import pcbnew
 from pcb_open import open_kicad_file
 from differ_source import source_paths
-from differ_view_geometry import adjust_overlap_percent, overlap_bounds
+from differ_view_geometry import (
+    DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, overlap_bounds,
+)
+from differ_overlap import apply_overlap_color_shift
 import time
 from collections import OrderedDict
 from PySide6 import QtCore, QtGui
@@ -679,7 +682,7 @@ class DifferUI(Application):
         self.state.selected_layer = None
         self.state.highlight_changes = True
         self.state.flip_board_view = False
-        self.state.overlap_percent = 0.0
+        self.state.overlap_percent = DEFAULT_OVERLAP_PERCENT
         self.state.build_time = 0
         self.state.use_workspace = False
         self.state.cached_file_a = ""
@@ -1265,6 +1268,10 @@ class DifferUI(Application):
             composite_buffers=composite_buffers,
             mask_buffer=mask_buffer,
         )
+        apply_overlap_color_shift(
+            image_buffers["a"], image_buffers["b"], image_buffers["darker"],
+            premultiplied=True,
+        )
         return self.finish_tile_resources(
             result, image_resources, mask_resource
         )
@@ -1287,6 +1294,10 @@ class DifferUI(Application):
             task["tile_y"],
             image_buffers=image_buffers,
             mask_buffer=mask_buffer,
+        )
+        apply_overlap_color_shift(
+            image_buffers["a"], image_buffers["b"], image_buffers["darker"],
+            premultiplied=False,
         )
         return self.finish_tile_resources(
             result, image_resources, mask_resource
