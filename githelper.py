@@ -95,6 +95,29 @@ def log(repo_path, file_path=None):
             f"{commit.short_id} {commit.message.strip()}",
         )
 
+
+def revision_at_or_before(revision, available, history):
+    """Keep *revision*, or choose the next older available commit in history.
+
+    Both histories are ordered newest first. An empty or unknown revision
+    falls back to the working tree.
+    """
+    if not revision:
+        return ""
+
+    available_by_id = {str(commit_id): commit_id for commit_id, _ in available}
+    selected_id = str(revision)
+    if selected_id in available_by_id:
+        return available_by_id[selected_id]
+
+    found_selected = False
+    for commit_id, _ in history:
+        if found_selected and str(commit_id) in available_by_id:
+            return available_by_id[str(commit_id)]
+        if str(commit_id) == selected_id:
+            found_selected = True
+    return ""
+
 def _extract_tree_recursive(repo, tree, destination_path):
     """
     Recursively extract all files and directories from a git tree.

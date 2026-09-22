@@ -8,6 +8,41 @@ import githelper
 
 
 class GitLogTests(unittest.TestCase):
+    def test_revision_switch_keeps_commit_when_available(self):
+        history = [("sch-new", ""), ("pcb", ""), ("sch-old", "")]
+        available = [("pcb", "")]
+
+        self.assertEqual(
+            githelper.revision_at_or_before("pcb", available, history), "pcb"
+        )
+        self.assertEqual(
+            githelper.revision_at_or_before("", available, history), ""
+        )
+
+    def test_revision_switch_chooses_nearest_older_filtered_commit(self):
+        history = [
+            ("sch-latest", ""), ("pcb-new", ""),
+            ("sch-middle", ""), ("pcb-old", ""), ("sch-first", ""),
+        ]
+        available = [("pcb-new", ""), ("pcb-old", "")]
+
+        self.assertEqual(
+            githelper.revision_at_or_before("sch-latest", available, history),
+            "pcb-new",
+        )
+        self.assertEqual(
+            githelper.revision_at_or_before("sch-middle", available, history),
+            "pcb-old",
+        )
+        self.assertEqual(
+            githelper.revision_at_or_before("sch-first", available, history),
+            "",
+        )
+        self.assertEqual(
+            githelper.revision_at_or_before("missing", available, history),
+            "",
+        )
+
     def test_log_label_omits_commit_time(self):
         commit = types.SimpleNamespace(
             type=githelper.pygit2.GIT_OBJECT_COMMIT,

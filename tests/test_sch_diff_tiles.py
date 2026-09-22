@@ -5,6 +5,8 @@ import numpy as np
 
 from sch_diff_tiles import (
     SchematicTileRenderer,
+    corresponding_schematic_page,
+    matched_page_shift,
     schematic_page_index,
     synchronized_page_shift,
 )
@@ -14,6 +16,29 @@ class SchematicTileRendererTests(unittest.TestCase):
     def test_thumbnail_name_carries_pdf_page_index(self):
         self.assertEqual(schematic_page_index("sch_00.png"), 0)
         self.assertEqual(schematic_page_index("sch_12.png"), 12)
+
+    def test_sync_page_matches_index_and_clamps_shorter_side(self):
+        pages = ["sch_00.png", "sch_01.png"]
+        self.assertEqual(
+            corresponding_schematic_page(pages, "sch_01.png"), "sch_01.png"
+        )
+        self.assertEqual(
+            corresponding_schematic_page(pages, "sch_04.png"), "sch_01.png"
+        )
+        self.assertIsNone(corresponding_schematic_page([], "sch_00.png"))
+
+    def test_sync_page_arrows_align_b_with_a(self):
+        pages_a = ["sch_00.png", "sch_01.png", "sch_02.png"]
+        pages_b = ["sch_00.png", "sch_01.png"]
+        self.assertEqual(
+            matched_page_shift(pages_a, "sch_00.png", pages_b, 1),
+            ("sch_01.png", "sch_01.png"),
+        )
+        self.assertEqual(
+            matched_page_shift(pages_a, "sch_01.png", pages_b, 1),
+            ("sch_02.png", "sch_01.png"),
+        )
+        self.assertIsNone(matched_page_shift(pages_a, "sch_02.png", pages_b, 1))
 
     def test_synchronized_page_shift_moves_both_sides(self):
         self.assertEqual(

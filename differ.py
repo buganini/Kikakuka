@@ -42,6 +42,8 @@ from pdf_tile_scheduler import PdfTileScheduler
 from sch_diff_tiles import (
     SchematicTileRenderer,
     build_schematic_pair_metadata,
+    corresponding_schematic_page,
+    matched_page_shift,
     synchronized_page_shift,
 )
 
@@ -669,6 +671,7 @@ class DifferUI(Application):
         self.state.commit_b = ""
         self.state.page_a = 0
         self.state.page_b = 0
+        self.state.sync_page = True
         self.state.diff_pair = None
         self.state.layers = []
         self.state.layer_labels = {}
@@ -686,6 +689,8 @@ class DifferUI(Application):
         self.state.message = ""
         self.repo_a = None
         self.repo_b = None
+        self._pending_revision_a = None
+        self._pending_revision_b = None
 
         self.queue = queue.Queue()
         scheduler_options = {
@@ -835,6 +840,9 @@ class DifferUI(Application):
                                 Button("▶").click(
                                     lambda e: self.shift_sch_pages(1)
                                 )
+                                Checkbox("Sync Page", model=self.state("sync_page")).click(
+                                    self.sync_sch_pages
+                                )
                             if self.state.message:
                                 Label(self.state.message).layout(weight=1)
                             else:
@@ -951,6 +959,8 @@ class DifferUI(Application):
                             Spacer()
 
     def pcb_diff(self, e):
+        self._pending_revision_a = self.state.commit_a
+        self._pending_revision_b = self.state.commit_b
         self.state.file_a = os.path.splitext(self.state.file_a)[0] + PCB_SUFFIX
         self.state.file_b = os.path.splitext(self.state.file_b)[0] + PCB_SUFFIX
         self.state.logs_a = None
@@ -960,6 +970,8 @@ class DifferUI(Application):
         self.build()
 
     def sch_diff(self, e):
+        self._pending_revision_a = self.state.commit_a
+        self._pending_revision_b = self.state.commit_b
         self.state.file_a = os.path.splitext(self.state.file_a)[0] + SCH_SUFFIX
         self.state.file_b = os.path.splitext(self.state.file_b)[0] + SCH_SUFFIX
         self.state.logs_a = None
@@ -1006,6 +1018,7 @@ class DifferUI(Application):
         return False
 
     def change_file_a(self):
+        self._pending_revision_a = None
         self.state.logs_a = None
         self.state.cached_file_a = ""
         if not self.state.file_b:
@@ -1015,6 +1028,7 @@ class DifferUI(Application):
         self.build()
 
     def change_file_b(self):
+        self._pending_revision_b = None
         self.state.logs_b = None
         self.state.cached_file_b = ""
         if not self.state.file_a:
@@ -1076,11 +1090,33 @@ class DifferUI(Application):
 
     def select_page_a(self, png):
         self.state.page_a = png
+        if self.state.sync_page:
+            matched = self._corresponding_sch_page(self.state.cached_file_b, png)
+            if matched is not None:
+                self.state.page_b = matched
         self.build()
 
     def select_page_b(self, png):
         self.state.page_b = png
+        if self.state.sync_page:
+            matched = self._corresponding_sch_page(self.state.cached_file_a, png)
+            if matched is not None:
+                self.state.page_a = matched
         self.build()
+
+    @staticmethod
+    def _corresponding_sch_page(cache_dir, selected_page):
+        if not cache_dir:
+            return None
+        try:
+            pages = sorted(os.listdir(os.path.join(cache_dir, "sch")))
+        except OSError:
+            return None
+        return corresponding_schematic_page(pages, selected_page)
+
+    def sync_sch_pages(self, _event):
+        if self.state.sync_page and self.state.page_a:
+            self.select_page_a(self.state.page_a)
 
     def shift_sch_pages(self, offset):
         if not self.state.cached_file_a or not self.state.cached_file_b:
@@ -1094,13 +1130,18 @@ class DifferUI(Application):
             )))
         except OSError:
             return
-        shifted = synchronized_page_shift(
-            pages_a,
-            self.state.page_a,
-            pages_b,
-            self.state.page_b,
-            offset,
-        )
+        if self.state.sync_page:
+            shifted = matched_page_shift(
+                pages_a, self.state.page_a, pages_b, offset
+            )
+        else:
+            shifted = synchronized_page_shift(
+                pages_a,
+                self.state.page_a,
+                pages_b,
+                self.state.page_b,
+                offset,
+            )
         if shifted is None:
             return
         self.state.page_a, self.state.page_b = shifted
@@ -1279,31 +1320,43 @@ class DifferUI(Application):
                 file_b = self.state.file_b
 
                 if file_a and self.state.logs_a is None:
+                    pending_revision = self._pending_revision_a
+                    self._pending_revision_a = None
                     self.repo_a = githelper.repo(file_a)
                     if self.repo_a:
-                        self.state.commit_a = ""
                         history_path = (
                             file_a if file_a.lower().endswith(PCB_SUFFIX) else None
                         )
-                        self.state.logs_a = [
+                        logs = [
                             (hex, msg)
                             for hex, msg in githelper.log(self.repo_a, history_path)
                         ]
+                        self.state.commit_a = githelper.revision_at_or_before(
+                            pending_revision, logs, githelper.log(self.repo_a)
+                        )
+                        self.state.logs_a = logs
                     else:
+                        self.state.commit_a = ""
                         self.state.logs_a = False
 
                 if file_b and self.state.logs_b is None:
+                    pending_revision = self._pending_revision_b
+                    self._pending_revision_b = None
                     self.repo_b = githelper.repo(file_b)
                     if self.repo_b:
-                        self.state.commit_b = ""
                         history_path = (
                             file_b if file_b.lower().endswith(PCB_SUFFIX) else None
                         )
-                        self.state.logs_b = [
+                        logs = [
                             (hex, msg)
                             for hex, msg in githelper.log(self.repo_b, history_path)
                         ]
+                        self.state.commit_b = githelper.revision_at_or_before(
+                            pending_revision, logs, githelper.log(self.repo_b)
+                        )
+                        self.state.logs_b = logs
                     else:
+                        self.state.commit_b = ""
                         self.state.logs_b = False
 
                 if self.state.logs_a and self.state.commit_a is None:

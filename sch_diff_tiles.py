@@ -18,6 +18,26 @@ def schematic_page_index(thumbnail_name):
     return int(stem.rsplit("_", 1)[1])
 
 
+def corresponding_schematic_page(pages, selected_page):
+    """Match a page number, clamping to the final page when necessary."""
+    if not pages:
+        return None
+    return pages[min(schematic_page_index(selected_page), len(pages) - 1)]
+
+
+def matched_page_shift(pages_a, current_a, pages_b, offset):
+    """Shift A and select the corresponding page on B when sync is enabled."""
+    try:
+        index = pages_a.index(current_a) + offset
+    except ValueError:
+        return None
+    if not 0 <= index < len(pages_a):
+        return None
+    page_a = pages_a[index]
+    page_b = corresponding_schematic_page(pages_b, page_a)
+    return (page_a, page_b) if page_b is not None else None
+
+
 def synchronized_page_shift(pages_a, current_a, pages_b, current_b, offset):
     """Return both shifted pages, or None if either side cannot move."""
     try:
