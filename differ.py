@@ -19,7 +19,8 @@ import pcbnew
 from pcb_open import open_kicad_file
 from differ_source import source_paths
 from differ_view_geometry import (
-    DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, overlap_bounds,
+    DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, clipped_view_transform,
+    overlap_bounds,
 )
 from differ_overlap import apply_overlap_color_shift
 import time
@@ -227,19 +228,13 @@ class PdfTileDiffView(PUIView):
         dw, dh = page_size
         self.diff_width, self.diff_height = dw, dh
         self.canvas_width, self.canvas_height = canvas_width, canvas_height
-
-        if dw == 0 or dh == 0:
+        fitted = clipped_view_transform(
+            self.state.scale, page_size, (canvas_width, canvas_height),
+            self.zoom_limit,
+        )
+        if fitted is None:
             return False
-
-        cw = canvas_width
-        ch = canvas_height
-        sw = cw / dw
-        sh = ch / dh
-        scale = min(sw, sh) * 0.75
-        self.scale = scale
-        offx = (cw - (dw) * scale) / 2
-        offy = (ch - (dh) * scale) / 2
-        self.state.scale = (offx, offy, scale)
+        self.state.scale, self.scale = fitted
         return True
 
     def toCanvas(self, x, y):
@@ -326,16 +321,20 @@ class PdfTileDiffView(PUIView):
 
     def painter(self, canvas):
         generation = self.scheduler.generation
-        if self.generation != generation:
+        generation_changed = self.generation != generation
+        if generation_changed:
             self.generation = generation
             self.tile_images.clear()
-            self.state.scale = None
-            self.canvas_width = None
-            self.canvas_height = None
             self._last_tile_log = 0.0
             self._last_tile_log_incomplete = False
 
-        if self.state.scale is None or (self.canvas_width, self.canvas_height) != (canvas.width, canvas.height):
+        page_size = self.page_size()
+        if not page_size:
+            return False
+        if (generation_changed or self.state.scale is None or
+                (self.canvas_width, self.canvas_height) !=
+                (canvas.width, canvas.height) or
+                (self.diff_width, self.diff_height) != page_size):
             return self.autoScale(canvas.width, canvas.height)
 
         immediate = False

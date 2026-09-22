@@ -4,6 +4,34 @@
 DEFAULT_OVERLAP_PERCENT = 13.0
 
 
+def clipped_view_transform(previous, page_size, canvas_size, zoom_limit):
+    """Keep the current pan/zoom within the new page and canvas bounds."""
+    page_width, page_height = page_size
+    canvas_width, canvas_height = canvas_size
+    if min(page_width, page_height, canvas_width, canvas_height) <= 0:
+        return None
+
+    fit_scale = min(
+        canvas_width / page_width, canvas_height / page_height
+    ) * 0.75
+    if previous is None:
+        scale = fit_scale
+        offx = (canvas_width - page_width * scale) / 2
+        offy = (canvas_height - page_height * scale) / 2
+    else:
+        old_offx, old_offy, old_scale = previous
+        scale = min(fit_scale * zoom_limit, max(fit_scale / 8, old_scale))
+
+        def clip_offset(old_offset, page_extent, canvas_extent):
+            gap = canvas_extent - page_extent * scale
+            return min(max(old_offset, min(0.0, gap)), max(0.0, gap))
+
+        offx = clip_offset(old_offx, page_width, canvas_width)
+        offy = clip_offset(old_offy, page_height, canvas_height)
+
+    return (offx, offy, scale), fit_scale
+
+
 def adjust_overlap_percent(current, wheel_delta):
     """Move one percentage point per wheel notch, within the 0–30% range."""
     return max(0.0, min(30.0, current + wheel_delta / 120.0))
