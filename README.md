@@ -46,7 +46,7 @@ It creates a few more dimensions for KiCad:
         * Or direct conversion to .kicad_pcb
         * Compared with KiCad output
             * Better restoration of oval drill holes
-            * Allow attaching BOM/CPL (converted to reference-only footprints)
+            * Allow attaching BOM/CPL (converted to [reference-only footprints](resources/kikakuka-internal.pretty/Footprint.kicad_mod))
     * CLI
         * Convert saved fabrication plans (`.kkkk_fab`, or legacy `.kikit_pnl`) to KiCad files in one command
 
@@ -364,8 +364,6 @@ For coupler length properties (`Z`, `Offset`, `TargetX`, `TargetY`, and `TargetZ
 All three coupler footprints use the `Unspecified` type, placing their helper models under **Virtual Models** in KiCad's 3D Viewer.
 
 The separate Kikakuka Tools IPC plugin provides **Coupler 3D Viewer** and **Hide Couplers** actions. Coupler 3D Viewer applies each coupler's `Z`, `Tilt`, and `Offset` to its helper model and opens KiCad's 3D Viewer; Hide Couplers marks these models hidden without removing them and also opens the Viewer. **Populate Placeholder 3D Models** likewise opens the Viewer after populating models. To omit couplers from STEP export, enable **Ignore 'Unspecified' components**.
-
-The graphics-free [`Footprint`](resources/kikakuka-internal.pretty/Footprint.kicad_mod) placeholder used for BOM/CPL conversion is an internal application resource and is intentionally not included in the public footprint addon.
 
 # Run from source (Linux/macOS)
 Make sure your python can import `pcbnew`
