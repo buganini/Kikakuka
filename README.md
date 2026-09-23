@@ -132,7 +132,9 @@ Single PCB without panelization can be done with frameless setting
 ![Per-PCB Alignment](screenshots/single_alignment.gif)
 
 ## Substrate Hole
-![Substrate Hole](screenshots/substrate_hole.gif)
+![Substrate Hole](screenshots/substrate_hole.png)
+### 3D Output
+![Substrate Hole 3D Output](screenshots/substrate_hole_output_3d.png)
 
 ## Tight Frame + Auto Tab + V-Cuts *or* Mousebites
 ![UI](screenshots/tight_frame_autotab_autocut.png)
