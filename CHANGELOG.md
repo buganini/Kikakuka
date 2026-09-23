@@ -9,6 +9,13 @@
     * Prioritize tiles around the canvas center when the cursor is outside the diff canvas
 * Workspace Manager
     * Open known file locations directly from Instance Manager rows
+* FreekiCAD
+    * Exclude 3D models attached to `CouplerFixed`, `CouplerMoving`, and `CouplerAt` positioning footprints from FreeCAD assemblies while retaining coupler alignment
+* KiCad Addons
+    * Rename the footprint package to Kikakuka Library and include its supporting 3D models in `kikakuka-library.zip`
+    * Add a scalable unit-cube model and the **Populate Placeholder 3D Models** IPC action for footprints with `SizeX`, `SizeY`, and `SizeZ` properties
+    * Add symmetric colored `CouplerFixed` and `CouplerMoving` helper models, classified as virtual models through their `Unspecified` footprints
+    * Add **Coupler 3D Viewer** and **Hide Couplers** actions to update helper transforms from `Z`, `Tilt`, and `Offset`, control their visibility, and open KiCad's 3D Viewer
 
 # 8.0:
 * TL;DR
