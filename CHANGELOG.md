@@ -11,7 +11,7 @@
     * Open known file locations directly from Instance Manager rows
     * Start an Instance Manager node on demand in standalone Kikakuka tools before opening KiCad files
 * Panelizer
-    * Open exported boards automatically and reload an existing editor from disk through KiCad IPC
+    * Open newly exported boards automatically, or refresh and focus them through KiCad IPC when already open
 * FreekiCAD
     * Exclude 3D models attached to `CouplerFixed`, `CouplerMoving`, and `CouplerAt` positioning footprints from FreeCAD assemblies while retaining coupler alignment
 * KiCad Addons
