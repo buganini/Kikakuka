@@ -254,6 +254,8 @@ object. The option can be disabled independently for each object.
 
 ## Coupler-Based PCB Alignment
 
+https://github.com/user-attachments/assets/c20a8d80-be67-4816-9a69-82f348ab255e
+
 ### Positioning Arguments
 ![Coupler-Arguments](screenshots/coupler-args.png)
 
