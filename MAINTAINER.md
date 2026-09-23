@@ -8,7 +8,7 @@ Update all of these files:
 1. `common.py`: `VERSION`
 2. `FreekiCAD/package.xml`: `<version>` and the release `<date>`
 3. `FreekiCAD/pyproject.toml`: `project.version`
-4. `kicad-addon/metadata.json`: the single entry under `versions`
+4. `kicad-library/metadata.json`: the single entry under `versions`
 5. `CHANGELOG.md`: add a section for the new version containing only changes
    since the previous release
 
@@ -31,7 +31,7 @@ https://github.com/buganini/Kikakuka/releases/download/7.5/kikakuka-addon.zip
 Confirm that the four version sources match, then run:
 
 ```sh
-python3 -m json.tool kicad-addon/metadata.json >/dev/null
+python3 -m json.tool kicad-library/metadata.json >/dev/null
 env/bin/python -m unittest discover -s tests
 make archive
 unzip -t kikakuka-addon.zip

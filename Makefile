@@ -8,11 +8,11 @@ sync:
 
 archive:
 	rm -f kikakuka-addon.zip
-	cd kicad-addon && zip -X -r ../kikakuka-addon.zip metadata.json footprints resources
+	cd kicad-library && zip -X -r ../kikakuka-addon.zip metadata.json footprints resources
 	mkdir -p $(dir $(METADATA_WORKDIR))
 	@if [ -d "$(METADATA_WORKDIR)/.git" ]; then \
 		git -C "$(METADATA_WORKDIR)" pull --ff-only; \
 	else \
 		git clone "$(METADATA_REPO_URL)" "$(METADATA_WORKDIR)"; \
 	fi
-	python3 build-kicad-addon-metadata.py "$(METADATA_WORKDIR)"
+	python3 build-kicad-library-metadata.py "$(METADATA_WORKDIR)"
