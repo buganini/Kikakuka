@@ -9,5 +9,6 @@ jlcpcb
 fp-info-cache
 *.dmg
 *.step
+!/kicad-library/3dmodels/**/*.step
 /kikakuka-addon.zip
 /workdir/
