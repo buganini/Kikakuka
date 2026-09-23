@@ -3,6 +3,9 @@
 Kikakuka and each FreekiCAD process host an equivalent Instance Manager
 node. FreekiCAD starts its node on package import, before its workbench is
 selected, including in FreeCADCmd.
+Standalone Kikakuka tools start their local node on demand before opening a
+KiCad file, so the Fabrication Planner and Differ can reuse an existing editor
+without requiring the Workspace Manager to be running.
 GUI FreeCAD processes also publish their open document state; FreeCADCmd does
 not publish its own open documents.
 For the differences between FreeCAD and KiCad document lifecycles, see
@@ -48,6 +51,14 @@ re-probes KiCad's IPC before opening, so a second executor can reuse an editor
 opened by the first. If no node is running, the shared file opener falls back
 to the system file association; a node's explicit error does **not** fall back
 and risk opening a duplicate.
+
+An `open-file` PCB request may set `ensure_fresh`. The executor first waits
+for and verifies the matching board through KiCad IPC, retrying transient
+busy/not-ready responses before considering a new launch. If that board was
+already open, it then calls `RevertDocument` through the same ready board proxy
+before focusing the editor; a board opened by the request already came from
+disk and is not reverted again. The Fabrication Planner uses this after each
+successful export so an existing PCB Editor displays the newly exported file.
 
 Different-file launches of the same editor are serialized by a second,
 per-program OS lock. This keeps process-list PID inference and KiCad's initial

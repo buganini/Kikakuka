@@ -9,6 +9,9 @@
     * Prioritize tiles around the canvas center when the cursor is outside the diff canvas
 * Workspace Manager
     * Open known file locations directly from Instance Manager rows
+    * Start an Instance Manager node on demand in standalone Kikakuka tools before opening KiCad files
+* Panelizer
+    * Open exported boards automatically and reload an existing editor from disk through KiCad IPC
 * FreekiCAD
     * Exclude 3D models attached to `CouplerFixed`, `CouplerMoving`, and `CouplerAt` positioning footprints from FreeCAD assemblies while retaining coupler alignment
 * KiCad Addons

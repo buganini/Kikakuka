@@ -6,6 +6,11 @@ import pcb_open
 
 
 class PcbOpenTests(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch("pcb_open._ensure_instance_node")
+        self.ensure_node = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_workspace_request_uses_instance_mesh(self):
         path = "/boards/panel.kicad_pcb"
         reply = {
@@ -48,6 +53,7 @@ class PcbOpenTests(unittest.TestCase):
                 with mock.patch("pcb_open.open_with_system") as fallback:
                     result = pcb_open.open_pcb_file("/boards/panel.kicad_pcb")
         self.assertEqual(result, "workspace")
+        self.ensure_node.assert_called_once_with()
         fallback.assert_not_called()
 
     def test_schematic_uses_the_same_workspace_first_tool(self):
@@ -57,8 +63,27 @@ class PcbOpenTests(unittest.TestCase):
                 with mock.patch("pcb_open.open_with_system") as fallback:
                     result = pcb_open.open_kicad_file(path)
         self.assertEqual(result, "workspace")
-        request.assert_called_once_with(path)
+        request.assert_called_once_with(path, ensure_fresh=False)
         fallback.assert_not_called()
+
+    def test_ensure_fresh_is_part_of_the_open_request(self):
+        path = "/boards/panel.kicad_pcb"
+        reply = {
+            "status": "ok", "action": "open-file", "filepath": path,
+            "pid": 123,
+        }
+        with mock.patch("pcb_open.os.path.isfile", return_value=True), \
+                mock.patch("pcb_open.im_mesh.request", return_value=reply) as request:
+            result = pcb_open.open_pcb_file(path, ensure_fresh=True)
+        self.assertEqual(result, "workspace")
+        request.assert_called_once_with({
+            "action": "open-file", "filepath": path, "ensure_fresh": True,
+        }, timeout=pcb_open.WORKSPACE_OPEN_TIMEOUT)
+
+    def test_ensure_fresh_rejects_non_pcb_files(self):
+        with self.assertRaisesRegex(ValueError, "ensure_fresh"):
+            pcb_open.open_kicad_file(
+                "/boards/main.kicad_sch", ensure_fresh=True)
 
     def test_pcb_only_entry_point_rejects_schematic(self):
         with self.assertRaises(ValueError):

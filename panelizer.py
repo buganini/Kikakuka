@@ -1635,6 +1635,14 @@ class PanelizerUI(Application):
             completion["event"].wait()
             if completion["error"] is not None:
                 raise completion["error"]
+            exported_path = self.state.last_exported_path
+            if exported_path and os.path.isfile(exported_path):
+                Thread(
+                    target=open_pcb_file,
+                    args=[exported_path],
+                    kwargs={"ensure_fresh": True},
+                    daemon=True,
+                ).start()
 
     def _build(self, export=False, generate_holes=False):
         try:
@@ -3285,16 +3293,6 @@ class PanelizerUI(Application):
     def select_cpl(self, e):
         self.state.focus.cpl_file = OpenFile("Select CPL", dir=os.path.dirname(self.state.focus.file), types="CPL (*.csv)|*.csv")
 
-    def open_exported_file(self, e):
-        path = self.state.last_exported_path
-        if path and os.path.isfile(path):
-            Thread(target=self._open_exported_file, args=[path], daemon=True).start()
-        else:
-            Critical("Exported file not found", "Open Exported File")
-
-    def _open_exported_file(self, path):
-        open_pcb_file(path)
-
     def content(self):
         title = f"Kikakuka v{VERSION} Fabrication Planner (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
@@ -3328,8 +3326,6 @@ class PanelizerUI(Application):
 
                             Spacer()
 
-                            if self.state.last_exported_path:
-                                Button("Open Exported File").click(self.open_exported_file)
                             Button("Export").click(self.build, export=True)
 
                         with HBox():

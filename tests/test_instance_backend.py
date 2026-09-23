@@ -69,7 +69,7 @@ class InstanceBackendTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch.object(im_mesh, "runtime_dir", return_value=Path(directory)), \
-                    mock.patch.object(backend, "_find_board", return_value=(None, None)), \
+                    mock.patch.object(backend, "_find_board", return_value=(None, None, None)), \
                     mock.patch.object(backend, "_launch", side_effect=launch), \
                     mock.patch.object(backend, "_wait_for_board", return_value=(123, "/ipc/api.sock")):
                 threads = [threading.Thread(target=backend._open_new,
@@ -85,7 +85,7 @@ class InstanceBackendTests(unittest.TestCase):
     def test_board_launch_waits_for_verified_path_before_releasing_slot(self):
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch.object(im_mesh, "runtime_dir", return_value=Path(directory)), \
-                    mock.patch.object(backend, "_find_board", return_value=(None, None)), \
+                    mock.patch.object(backend, "_find_board", return_value=(None, None, None)), \
                     mock.patch.object(backend, "_launch", return_value=111), \
                     mock.patch.object(backend, "_wait_for_board", return_value=(222, "/ipc/api-222.sock")) as wait:
                 pid, socket_path = backend._open_new(
@@ -96,22 +96,85 @@ class InstanceBackendTests(unittest.TestCase):
     def test_board_reuses_only_verified_matching_socket(self):
         node = mock.Mock()
         node.snapshot.return_value = {"/boards/main.kicad_pcb": 111}
+        board = mock.Mock()
         with mock.patch.object(backend, "local_node", return_value=node), \
                 mock.patch.object(backend.os.path, "isfile", return_value=True), \
-                mock.patch.object(backend, "_find_board", return_value=(111, "/ipc/api.sock")), \
+                mock.patch.object(
+                    backend, "_find_board",
+                    return_value=(111, "/ipc/api.sock", board),
+                ), \
                 mock.patch.object(backend, "_launch") as launch, \
                 mock.patch.object(backend, "_focus"):
             reply = backend.handle({"action": "open-file", "filepath": "/boards/main.kicad_pcb"})
         self.assertEqual(reply["pid"], 111)
+        board.revert.assert_not_called()
         launch.assert_not_called()
         node.publish.assert_not_called()
+
+    def test_ensure_fresh_reuses_ready_probe_connection_for_revert(self):
+        node = mock.Mock()
+        node.snapshot.return_value = {"/boards/main.kicad_pcb": 111}
+        board = mock.Mock()
+        board.name = "/boards/main.kicad_pcb"
+        with mock.patch.object(backend, "local_node", return_value=node), \
+                mock.patch.object(backend.os.path, "isfile", return_value=True), \
+                mock.patch.object(
+                    backend, "_sockets",
+                    return_value=[(111, "/ipc/api.sock")],
+                ), \
+                mock.patch.object(
+                    backend, "_ready_board", return_value=board,
+                ) as ready, \
+                mock.patch.object(backend, "_launch") as launch, \
+                mock.patch.object(backend, "_focus"):
+            reply = backend.handle({
+                "action": "open-file",
+                "filepath": "/boards/main.kicad_pcb",
+                "ensure_fresh": True,
+            })
+        self.assertEqual(reply["pid"], 111)
+        ready.assert_called_once_with(
+            "/ipc/api.sock",
+            max_retries=backend.FRESH_READY_RETRIES,
+            delay_s=backend.FRESH_READY_DELAY_S,
+        )
+        board.revert.assert_called_once_with()
+        board.get_shapes.assert_called_once_with()
+        launch.assert_not_called()
+
+    def test_ensure_fresh_handles_board_opened_while_waiting_for_launch_lock(self):
+        node = mock.Mock()
+        node.snapshot.return_value = {}
+        board = mock.Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(im_mesh, "runtime_dir", return_value=Path(directory)), \
+                    mock.patch.object(backend, "local_node", return_value=node), \
+                    mock.patch.object(backend.os.path, "isfile", return_value=True), \
+                    mock.patch.object(backend, "_find_board", side_effect=[
+                        (None, None, None),
+                        (111, "/ipc/api.sock", board),
+                    ]), \
+                    mock.patch.object(backend, "_launch") as launch, \
+                    mock.patch.object(backend, "_focus"):
+                reply = backend.handle({
+                    "action": "open-file",
+                    "filepath": "/boards/main.kicad_pcb",
+                    "ensure_fresh": True,
+                })
+        self.assertEqual(reply["pid"], 111)
+        board.revert.assert_called_once_with()
+        board.get_shapes.assert_called_once_with()
+        launch.assert_not_called()
 
     def test_mismatched_board_mapping_is_invalidated(self):
         node = mock.Mock()
         node.snapshot.return_value = {"/boards/main.kicad_pcb": 111}
         with mock.patch.object(backend, "local_node", return_value=node), \
                 mock.patch.object(backend.os.path, "isfile", return_value=True), \
-                mock.patch.object(backend, "_find_board", return_value=(222, "/ipc/api-222.sock")), \
+                mock.patch.object(
+                    backend, "_find_board",
+                    return_value=(222, "/ipc/api-222.sock", mock.Mock()),
+                ), \
                 mock.patch.object(backend, "_launch") as launch, \
                 mock.patch.object(backend, "_focus"):
             reply = backend.handle({"action": "open-file", "filepath": "/boards/main.kicad_pcb"})
@@ -124,7 +187,7 @@ class InstanceBackendTests(unittest.TestCase):
         node.snapshot.return_value = {}
         with mock.patch.object(backend, "local_node", return_value=node), \
                 mock.patch.object(backend.os.path, "isfile", return_value=True), \
-                mock.patch.object(backend, "_find_board", return_value=(None, None)), \
+                mock.patch.object(backend, "_find_board", return_value=(None, None, None)), \
                 mock.patch.object(backend, "_launch") as launch:
             reply = backend.handle({"action": "monitor-couplers", "filepath": "/boards/main.kicad_pcb"})
         self.assertEqual(reply["status"], "error")
@@ -135,7 +198,10 @@ class InstanceBackendTests(unittest.TestCase):
         node.snapshot.return_value = {}
         with mock.patch.object(backend, "local_node", return_value=node), \
                 mock.patch.object(backend.os.path, "isfile", return_value=True), \
-                mock.patch.object(backend, "_find_board", return_value=(123, "/ipc/api.sock")):
+                mock.patch.object(
+                    backend, "_find_board",
+                    return_value=(123, "/ipc/api.sock", mock.Mock()),
+                ):
             reply = backend.handle({"action": "move-component", "filepath": "/boards/main.kicad_pcb",
                                     "object": "Board", "component": "U1"})
         self.assertEqual(reply["socket"], "/ipc/api.sock")
