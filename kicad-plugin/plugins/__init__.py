@@ -1,0 +1,1 @@
+"""Kikakuka KiCad IPC plugin."""

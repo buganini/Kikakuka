@@ -5,10 +5,13 @@
 *.FCBak
 jlcpcb
 .DS_Store
+__pycache__/
+*.pyc
 *-backups
 fp-info-cache
 *.dmg
 *.step
 !/kicad-library/3dmodels/**/*.step
-/kikakuka-addon.zip
+/kikakuka-library.zip
+/kikakuka-plugin.zip
 /workdir/

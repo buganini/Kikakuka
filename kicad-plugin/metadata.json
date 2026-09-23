@@ -1,0 +1,26 @@
+{
+    "$schema": "https://go.kicad.org/pcm/schemas/v2",
+    "name": "Kikakuka Tools",
+    "description": "KiCad actions for Kikakuka workflows.",
+    "description_full": "Adds Kikakuka workflow actions to the KiCad PCB Editor. The placeholder-model action assigns the Kikakuka unit cube to footprints that have no valid 3D model and provide SizeX, SizeY, and SizeZ properties.",
+    "identifier": "com.github.buganini.kikakuka-plugin",
+    "type": "plugin",
+    "author": {
+        "name": "Buganini Chiu",
+        "contact": {
+            "web": "https://github.com/buganini"
+        }
+    },
+    "license": "MIT",
+    "resources": {
+        "homepage": "https://github.com/buganini/Kikakuka"
+    },
+    "versions": [
+        {
+            "version": "8.0",
+            "status": "stable",
+            "kicad_version": "10.0",
+            "runtime": "ipc"
+        }
+    ]
+}

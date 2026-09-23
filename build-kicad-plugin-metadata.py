@@ -3,15 +3,13 @@
 import argparse
 import hashlib
 import json
-import shutil
 from pathlib import Path
 from zipfile import ZipFile
 
 
 ROOT = Path(__file__).resolve().parent
-ARCHIVE = ROOT / "kikakuka-library.zip"
-SOURCE_METADATA = ROOT / "kicad-library" / "metadata.json"
-SOURCE_ICON = ROOT / "kicad-library" / "resources" / "icon.png"
+ARCHIVE = ROOT / "kikakuka-plugin.zip"
+SOURCE_METADATA = ROOT / "kicad-plugin" / "metadata.json"
 DOWNLOAD_BASE = "https://github.com/buganini/Kikakuka/releases/download"
 
 
@@ -72,7 +70,6 @@ def main():
     publish_metadata.write_text(
         json.dumps(metadata, indent=4, ensure_ascii=False) + "\n",
         encoding="utf-8")
-    shutil.copyfile(SOURCE_ICON, package_dir / "icon.png")
     print(f"Wrote {package_dir}")
 
 

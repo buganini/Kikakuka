@@ -1,0 +1,30 @@
+{
+    "$schema": "https://go.kicad.org/api/schemas/v1",
+    "identifier": "com.github.buganini.kikakuka-plugin",
+    "name": "Kikakuka Tools",
+    "description": "KiCad actions for Kikakuka workflows",
+    "runtime": {
+        "type": "python",
+        "min_version": "3.9"
+    },
+    "actions": [
+        {
+            "identifier": "add-placeholder-models",
+            "name": "Add Placeholder 3D Models",
+            "description": "Add scaled unit cubes to footprints without a valid 3D model",
+            "show-button": true,
+            "icons-light": [
+                "kikakuka-24.png",
+                "kikakuka-48.png"
+            ],
+            "icons-dark": [
+                "kikakuka-24.png",
+                "kikakuka-48.png"
+            ],
+            "scopes": [
+                "pcb"
+            ],
+            "entrypoint": "add_placeholder_models.py"
+        }
+    ]
+}
