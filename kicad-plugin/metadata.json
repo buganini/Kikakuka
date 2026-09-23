@@ -2,7 +2,7 @@
     "$schema": "https://go.kicad.org/pcm/schemas/v2",
     "name": "Kikakuka Tools",
     "description": "KiCad actions for Kikakuka workflows.",
-    "description_full": "Adds Kikakuka workflow actions to the KiCad PCB Editor. The placeholder-model action assigns the Kikakuka unit cube to footprints that have no valid 3D model and provide SizeX, SizeY, and SizeZ properties.",
+    "description_full": "Adds Kikakuka workflow actions to the KiCad PCB Editor. The placeholder-model action assigns the Kikakuka unit cube to footprints that have no valid 3D model and provide SizeX, SizeY, and SizeZ properties. Coupler helper actions add, update, show, or hide the CouplerFixed and CouplerMoving 3D markers used to inspect Z, Tilt, and Offset before STEP export.",
     "identifier": "com.github.buganini.kikakuka-plugin",
     "type": "plugin",
     "author": {

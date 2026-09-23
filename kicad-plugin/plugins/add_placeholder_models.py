@@ -13,6 +13,7 @@ def main() -> int:
         kicad = KiCad()
         board = kicad.get_board()
         result = add_placeholder_models(kicad, board)
+        kicad.run_action("common.Control.show3DViewer")
     except Exception as error:
         print(f"Kikakuka: failed to add placeholder models: {error}", file=sys.stderr)
         return 1

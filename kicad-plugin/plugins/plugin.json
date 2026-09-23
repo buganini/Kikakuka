@@ -11,20 +11,56 @@
         {
             "identifier": "add-placeholder-models",
             "name": "Add Placeholder 3D Models",
-            "description": "Add scaled unit cubes to footprints without a valid 3D model",
+            "description": "Add scaled unit cubes to footprints without a valid 3D model, then open the 3D Viewer",
             "show-button": true,
             "icons-light": [
-                "kikakuka-24.png",
-                "kikakuka-48.png"
+                "placeholder-24.png",
+                "placeholder-48.png"
             ],
             "icons-dark": [
-                "kikakuka-24.png",
-                "kikakuka-48.png"
+                "placeholder-24.png",
+                "placeholder-48.png"
             ],
             "scopes": [
                 "pcb"
             ],
             "entrypoint": "add_placeholder_models.py"
+        },
+        {
+            "identifier": "coupler-3d-viewer",
+            "name": "Coupler 3D Viewer",
+            "description": "Update coupler 3D helpers using Z, Tilt, and Offset, then open the 3D Viewer",
+            "show-button": true,
+            "icons-light": [
+                "coupler-3d-viewer-24.png",
+                "coupler-3d-viewer-48.png"
+            ],
+            "icons-dark": [
+                "coupler-3d-viewer-24.png",
+                "coupler-3d-viewer-48.png"
+            ],
+            "scopes": [
+                "pcb"
+            ],
+            "entrypoint": "coupler_3d_viewer.py"
+        },
+        {
+            "identifier": "disable-coupler-helpers",
+            "name": "Hide Couplers",
+            "description": "Hide Kikakuka coupler helper 3D models without removing them, then open the 3D Viewer",
+            "show-button": true,
+            "icons-light": [
+                "disable-coupler-helpers-24.png",
+                "disable-coupler-helpers-48.png"
+            ],
+            "icons-dark": [
+                "disable-coupler-helpers-24.png",
+                "disable-coupler-helpers-48.png"
+            ],
+            "scopes": [
+                "pcb"
+            ],
+            "entrypoint": "disable_coupler_helpers.py"
         }
     ]
 }
