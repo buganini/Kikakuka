@@ -106,7 +106,7 @@
 	)
 	(fp_line
 		(start -0.25 -0.25)
-		(end 0.25 -0.25)
+		(end 0.25 -0.75)
 		(stroke
 			(width 0.1)
 			(type default)
@@ -115,8 +115,8 @@
 		(uuid "520bad0e-b803-4d8f-8d10-f79d45d6b22b")
 	)
 	(fp_line
-		(start 0 -0.5)
-		(end 0 0)
+		(start 0.25 -0.25)
+		(end -0.25 -0.75)
 		(stroke
 			(width 0.1)
 			(type default)

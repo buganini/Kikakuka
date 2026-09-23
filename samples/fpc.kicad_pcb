@@ -446,34 +446,33 @@
 				)
 			)
 		)
-		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_line
 			(start 0 0)
 			(end -1 -1)
 			(stroke
 				(width 0.1)
-				(type default)
+				(type solid)
 			)
 			(layer "Cmts.User")
 			(uuid "e15bdf58-f855-4253-86a0-ff19c3b15136")
 		)
 		(fp_line
 			(start -0.25 -0.25)
-			(end 0.25 -0.25)
+			(end 0.25 -0.75)
 			(stroke
 				(width 0.1)
-				(type default)
+				(type solid)
 			)
 			(layer "Cmts.User")
 			(uuid "ae216a37-1926-4dce-b869-5a6b7b686f93")
 		)
 		(fp_line
-			(start 0 -0.5)
-			(end 0 0)
+			(start 0.25 -0.25)
+			(end -0.25 -0.75)
 			(stroke
 				(width 0.1)
-				(type default)
+				(type solid)
 			)
 			(layer "Cmts.User")
 			(uuid "32d7dea1-0a1f-4b8a-a392-045c3a0df5e8")
@@ -483,7 +482,7 @@
 			(end 1 -1)
 			(stroke
 				(width 0.1)
-				(type default)
+				(type solid)
 			)
 			(layer "Cmts.User")
 			(uuid "f4b6b269-449f-4be4-a678-58e5d0325646")
@@ -493,12 +492,23 @@
 			(end 0 0)
 			(stroke
 				(width 0.1)
-				(type default)
+				(type solid)
 			)
 			(layer "Cmts.User")
 			(uuid "3fe732a4-8357-4aac-b113-17da8c40c2e8")
 		)
 		(embedded_fonts no)
+		(model "${KICAD10_3RD_PARTY}/3dmodels/com_github_buganini_kikakuka-footprints/Kikakuka.3dshapes/coupler-fixed.step"
+			(offset
+				(xyz 0 -0.18 0.64)
+			)
+			(scale
+				(xyz 1 1 1)
+			)
+			(rotate
+				(xyz 90 0 0)
+			)
+		)
 	)
 	(footprint "PCM_Kikakuka:CouplerAt"
 		(layer "F.Cu")
@@ -543,7 +553,7 @@
 				)
 			)
 		)
-		(property "Description" "FreekiCAD alignment plane that positions this PCB at absolute FreeCAD world TargetX/TargetY/TargetZ coordinates. Place it on B.Cu for the usual behavior so the PCB bottom surface is positioned at TargetZ; use F.Cu only to reference the top surface. Unitless lengths default to mm; mm/in/mil/um are supported, and Tilt is in degrees."
+		(property "Description" "FreekiCAD alignment plane that positions this PCB at absolute FreeCAD world TargetX/TargetY/TargetZ coordinates. Place it on B.Cu for the usual behavior so the PCB bottom surface is positioned at TargetZ; use F.Cu only to reference the top surface. Unitless lengths default to mm; mm/in/mil/um are supported, and Tilt rotates around the local X axis on the PCB surface."
 			(at 0 0 0)
 			(unlocked yes)
 			(layer "F.Fab")
@@ -561,7 +571,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "9cf49253-9dbb-46dd-8f4a-6d83514bbcac")
+			(uuid "f1aad39f-20a9-40c6-bf15-1dc1066480b7")
 			(effects
 				(font
 					(size 1 1)
@@ -574,7 +584,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "f1aad39f-20a9-40c6-bf15-1dc1066480b7")
+			(uuid "fa4f3cfe-9b1b-4421-bb40-27b983484ba7")
 			(effects
 				(font
 					(size 1 1)
@@ -587,7 +597,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "fa4f3cfe-9b1b-4421-bb40-27b983484ba7")
+			(uuid "9cf49253-9dbb-46dd-8f4a-6d83514bbcac")
 			(effects
 				(font
 					(size 1 1)
@@ -608,7 +618,6 @@
 				)
 			)
 		)
-		(attr smd)
 		(duplicate_pad_numbers_are_jumpers no)
 		(fp_line
 			(start -1 -1)
@@ -619,6 +628,26 @@
 			)
 			(layer "Cmts.User")
 			(uuid "da21de15-c869-4aea-bf4f-d94fe4382983")
+		)
+		(fp_line
+			(start -0.4 -0.5)
+			(end 0.4 -0.5)
+			(stroke
+				(width 0.1)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "12567af9-d3e2-461d-99e2-66be5e0ce92a")
+		)
+		(fp_line
+			(start 0 -0.9)
+			(end 0 -0.1)
+			(stroke
+				(width 0.1)
+				(type default)
+			)
+			(layer "Cmts.User")
+			(uuid "20bf96ae-10f4-415b-ae16-009f49d8cf22")
 		)
 		(fp_line
 			(start 0 0)
@@ -2165,7 +2194,7 @@
 		(start 90.5 83.5)
 		(end 105.5 83.5)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2175,7 +2204,7 @@
 		(start 90.55 98.49)
 		(end 90.5 83.5)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2185,7 +2214,7 @@
 		(start 93.68 96.85)
 		(end 93.68 98.49)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2195,7 +2224,7 @@
 		(start 93.68 98.49)
 		(end 90.55 98.49)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2205,7 +2234,7 @@
 		(start 99.01 90.01)
 		(end 99.01 91.05)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2215,7 +2244,7 @@
 		(start 99.01 91.05)
 		(end 100.12 91.01)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2225,7 +2254,7 @@
 		(start 100.11 93.15)
 		(end 100.12 93.81)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2235,7 +2264,7 @@
 		(start 100.12 91.01)
 		(end 100.12 92.86)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2245,7 +2274,7 @@
 		(start 100.12 92.86)
 		(end 100.64 92.86)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2255,7 +2284,7 @@
 		(start 100.12 93.81)
 		(end 100.74 93.81)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2265,7 +2294,7 @@
 		(start 100.64 92.86)
 		(end 100.64 93.15)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2275,7 +2304,7 @@
 		(start 100.64 93.15)
 		(end 100.11 93.15)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2285,7 +2314,7 @@
 		(start 100.74 90.72)
 		(end 102.88 90.64)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2295,7 +2324,7 @@
 		(start 100.74 91.96)
 		(end 100.74 90.72)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2305,7 +2334,7 @@
 		(start 100.74 92.45)
 		(end 102.05 92.45)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2315,7 +2344,7 @@
 		(start 100.74 93.81)
 		(end 100.74 92.45)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2325,7 +2354,7 @@
 		(start 100.9 91.01)
 		(end 100.9 91.29)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2335,7 +2364,7 @@
 		(start 100.9 91.29)
 		(end 105.61 91.01)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2345,7 +2374,7 @@
 		(start 102.05 91.96)
 		(end 100.74 91.96)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2355,7 +2384,7 @@
 		(start 102.05 92.45)
 		(end 102.05 91.96)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2365,7 +2394,7 @@
 		(start 102.88 90.64)
 		(end 102.88 90.96)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2375,7 +2404,7 @@
 		(start 102.88 90.96)
 		(end 100.9 91.01)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2385,7 +2414,7 @@
 		(start 105.5 83.5)
 		(end 105.5 90.01)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2395,7 +2424,7 @@
 		(start 105.5 90.01)
 		(end 99.01 90.01)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2405,7 +2434,7 @@
 		(start 105.5 96.75)
 		(end 93.68 96.85)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")
@@ -2415,7 +2444,7 @@
 		(start 105.61 91.01)
 		(end 105.5 96.75)
 		(stroke
-			(width 0)
+			(width 0.1)
 			(type default)
 		)
 		(layer "Edge.Cuts")

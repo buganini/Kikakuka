@@ -18,6 +18,7 @@
     * Rename the footprint package to Kikakuka Library and include its supporting 3D models in `kikakuka-library.zip`
     * Add a scalable unit-cube model and the **Populate Placeholder 3D Models** IPC action for footprints with `SizeX`, `SizeY`, and `SizeZ` properties
     * Add symmetric colored `CouplerFixed` and `CouplerMoving` helper models, classified as virtual models through their `Unspecified` footprints
+    * Refine `CouplerAt` and `CouplerFixed` footprint markers with GD&T-inspired target and cross symbols
     * Add **Coupler 3D Viewer** and **Hide Couplers** actions to update helper transforms from `Z`, `Tilt`, and `Offset`, control their visibility, and open KiCad's 3D Viewer
 
 # 8.0:

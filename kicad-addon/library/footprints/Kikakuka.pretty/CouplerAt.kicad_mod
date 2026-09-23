@@ -149,5 +149,25 @@
 		(layer "Cmts.User")
 		(uuid "f6932333-90a2-468b-bd32-aca1310d7b35")
 	)
+	(fp_line
+		(start -0.4 -0.5)
+		(end 0.4 -0.5)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "Cmts.User")
+		(uuid "f7eb70ad-77a1-4995-b7b3-3fa7eacbbf32")
+	)
+	(fp_line
+		(start 0 -0.9)
+		(end 0 -0.1)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(layer "Cmts.User")
+		(uuid "eb4e9b96-691f-4ddb-abc8-cbac571b8649")
+	)
 	(embedded_fonts no)
 )
