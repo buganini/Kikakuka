@@ -28,7 +28,7 @@ the unit-cube placeholder and optional coupler helper models.
   and
   [`CouplerMoving`](library/footprints/Kikakuka.pretty/CouplerMoving.kicad_mod)
   define matching planes for
-  [coupler-based PCB alignment](../README.md#freecad-integration). Give a pair
+  [coupler-based PCB alignment](../README.md#coupler-based-pcb-alignment). Give a pair
   the same reference and use their `Z`, `Offset`, and `Tilt` properties as
   needed.
 * [`CouplerAt`](library/footprints/Kikakuka.pretty/CouplerAt.kicad_mod) aligns

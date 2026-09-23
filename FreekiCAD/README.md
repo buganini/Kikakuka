@@ -18,13 +18,25 @@ for details.
 
 ## Features
 
-- Opening, importing, or dragging external `.kicad_pcb` files as linked PCB objects
-- Editing board outlines
-- Importing solid stiffeners from annotated `F.Stiffener` and `B.Stiffener` layers
+- Opening, importing, or dragging external `.kicad_pcb` files as linked PCB
+  objects with automatic source reload
+- Adding reloadable linked STEP objects
+- Editing board outlines and synchronizing component placement changes back to
+  KiCad
+- Optionally importing copper, solder mask, and silkscreen display layers
+- Importing solid stiffeners from annotated `F.Stiffener` and `B.Stiffener`
+  layers
 - Bending flexible PCBs from a KiCad user layer named `FreekiCAD`
-- Automatically aligning linked PCBs with KiCad coupler footprints
-- Assembling multiple linked PCBs and STEP models
-- Importing and exporting `.kkkk_asm` assembly files
+- Automatically aligning linked PCBs with matching `CouplerFixed` and
+  `CouplerMoving` footprints or an absolute `CouplerAt`
+- Assembling linked PCBs and STEP models with FreeCAD Assembly, Manipulator,
+  or direct transforms
+- Importing and exporting portable `.kkkk_asm` assembly manifests, including
+  flattened FreeCAD Assembly and `App::Link` placements
+- Exporting `.kkkk_asm` assemblies or individual `.kicad_pcb` boards to STEP
+  with `freecadcmd`
+- Running independently of the Kikakuka main program through the local
+  per-process Instance Manager mesh
 
 Both `.kicad_pcb` boards and STEP models remain linked to their external source
 files. When an assembly is saved as an `.FCStd` document, that document caches
@@ -199,8 +211,8 @@ custom footprint properties:
   back side.
 - `Offset` moves the plane origin on the PCB surface in the direction shown by
   the footprint triangle. Both `Z` and `Offset` default to `0 mm`; unitless
-  values are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and `um` are
-  supported.
+  values are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and `um`/`µm`
+  are supported.
 - `Tilt` rotates the plane around its local X axis, in degrees, and defaults
   to `0`. Placement applies the footprint pose, `Offset`, `Z`, then `Tilt`;
   the tilt axis passes through the offset origin and does not redirect either
@@ -208,7 +220,8 @@ custom footprint properties:
 
 `CouplerAt` also has `TargetX`, `TargetY`, and `TargetZ` properties for its
 absolute FreeCAD world target. All three default to `0 mm`; unitless values
-are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and `um` are supported.
+are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and `um`/`µm` are
+supported.
 It has no local `Z` property. B.Cu is recommended for the usual bottom-surface
 placement at `TargetZ`; use F.Cu only to reference the top surface.
 

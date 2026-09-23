@@ -16,42 +16,41 @@ It creates a few more dimensions for KiCad:
 > Due to [KiCad issue #23994](https://gitlab.com/kicad/code/kicad/-/work_items/23994), only one KiCad instance can currently be accessed through the IPC API on Windows.
 
 # Features
-* Workspace Manager
-    * Organize KiCad projects, FabPlans, FreeCAD documents, assemblies, and STEP files in `.kkkk` workspaces with relative paths and file descriptions
-    * Open related schematic, PCB, and STEP files or launch Differ and FabPlan from the workspace
-    * Inspect project-specific symbol and footprint libraries and convert their paths to `${KIPRJMOD}`-relative references
-* Instance Manager
-    * Discover KiCad and FreeCAD instances on demand and coordinate file-opening requests across Kikakuka and FreekiCAD, even without the Workspace Manager
-    * Navigate KiCad files by reusing open PCB editors or recalling editor windows (macOS and Windows); launch multiple KiCad instances automatically on macOS
-    * Seamlessly navigate FreeCAD files by activating an open document or opening it in an existing instance
-    * Inspect running processes and known file paths in the Instance Manager tab, with one row per FreeCAD document, manual refresh, and Go to actions
-* Differ
-    * Highlight changed areas
-    * [Schematic diff viewer](#schematics-differ)
-    * [PCB diff viewer](#pcb-differ)
-    * Git support
-* Fabrication Planner
-    * Panelizer
-        * Interactive arrangement with real-time preview
-        * Freeform placement not limited to M×N grid configurations
-        * Support for multiple different PCBs in a single panel
-        * [Automatic](#auto-tab) or [manual](#manual-tab) tab creation
-        * Automatic V-cut/mousebites selection
-        * Enable [hole](#substrate-hole) creation in panel substrate for extruded parts
-        * Load [KiKit multiboard files](https://yaqwsx.github.io/KiKit/v1.8/multiboard/) as multiple separate boards
-        * No coding skills required
-    * Build Variants
-        * Single PCB without panelization can be done with frameless setting
-        * Each PCB can have its own flag settings
-* Gerber handling
-    * Available in the fabrication planner (panelizer)
-    * Or direct conversion to .kicad_pcb
-    * Compared with KiCad output
-        * Better restoration of oval drill holes
-        * Allow attaching BOM/CPL (converted to reference-only footprints)
-* CLI
-    * Convert saved fabrication plans (`.kkkk_fab`, or legacy `.kikit_pnl`) to KiCad files in one command
-* FreeCAD Integration (only tested on macOS/Windows)
+* Kikakuka main program
+    * Workspace Manager
+        * Organize KiCad projects, FabPlans, FreeCAD documents, assemblies, and STEP files in `.kkkk` workspaces with relative paths and file descriptions
+        * Open related schematic, PCB, and STEP files or launch Differ and FabPlan from the workspace
+        * Inspect project-specific symbol and footprint libraries and convert their paths to `${KIPRJMOD}`-relative references
+    * Instance Manager UI
+        * Inspect running processes and known file paths in the Instance Manager tab, with one row per FreeCAD document, manual refresh, and Go to actions
+    * Differ
+        * Highlight changed areas
+        * [Schematic diff viewer](#schematics-differ)
+        * [PCB diff viewer](#pcb-differ)
+        * Git support
+    * Fabrication Planner
+        * Panelizer
+            * Interactive arrangement with real-time preview
+            * Freeform placement not limited to M×N grid configurations
+            * Support for multiple different PCBs in a single panel
+            * [Automatic](#auto-tab) or [manual](#manual-tab) tab creation
+            * Automatic V-cut/mousebites selection
+            * Enable [hole](#substrate-hole) creation in panel substrate for extruded parts
+            * Load [KiKit multiboard files](https://yaqwsx.github.io/KiKit/v1.8/multiboard/) as multiple separate boards
+            * No coding skills required
+        * Build Variants
+            * Single PCB without panelization can be done with frameless setting
+            * Each PCB can have its own flag settings
+    * Gerber handling
+        * Available in the fabrication planner (panelizer)
+        * Or direct conversion to .kicad_pcb
+        * Compared with KiCad output
+            * Better restoration of oval drill holes
+            * Allow attaching BOM/CPL (converted to reference-only footprints)
+    * CLI
+        * Convert saved fabrication plans (`.kkkk_fab`, or legacy `.kikit_pnl`) to KiCad files in one command
+
+* FreekiCAD (FreeCAD Addon)
     * Requires FreeCAD 1.0 or later
     * `FreekiCAD` creates linked FreeCAD objects for external `.kicad_pcb` and STEP files; an `.FCStd` document caches generated geometry while retaining the reloadable source paths
     * Import and export lightweight `.kkkk_asm` assembly manifests as JSON; manifests contain no cached geometry, prefer source paths relative to the manifest, and freshly load every external source when imported
@@ -63,7 +62,19 @@ It creates a few more dimensions for KiCad:
     * Solid [stiffeners](##flexible-pcb-stiffener) from annotated `F.Stiffener` and `B.Stiffener` user-layer areas
     * [Flex PCB bending](#flexible-pcb-bending) driven by bend lines and parameters defined in KiCad
     * [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment) using matching `CouplerFixed` and `CouplerMoving` footprints or an absolute `CouplerAt`, with coupler plane markers for inspection
-    * `kicad-python` is used and an on-demand instance mesh handles multiple KiCad instances & API sockets, even without an open Workspace Manager
+    * `kicad-python` is used and an on-demand instance mesh handles multiple KiCad instances & API sockets, even without Kikakuka's main program.
+
+* KiCad Plugin/Library
+    * Coupler footprints for [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment)
+    * Plugin actions for previewing and hiding coupler helpers in the 3D Viewer
+    * Populate scaled placeholder 3D models for footprints without a valid model, using `SizeX`, `SizeY`, and `SizeZ` properties
+
+* Instance Manager
+    * An Instance Manager mesh node runs in every Kikakuka and FreekiCAD host process
+    * Discover KiCad and FreeCAD instances on demand and coordinate file-opening requests across Kikakuka and FreekiCAD, even without the Workspace Manager
+    * Navigate KiCad files by reusing open PCB editors or recalling editor windows (macOS and Windows); launch multiple KiCad instances automatically on macOS
+    * Seamlessly navigate FreeCAD files by activating an open document or opening it in an existing instance
+
 
 # Workspace Manager
 The `.kkkk` file saves workspace information in JSON format.
@@ -77,7 +88,10 @@ The `.kkkk` file saves workspace information in JSON format.
 ![PCB Differ](screenshots/pcb_differ.png)
 * A diff sample of [cynthion-hardware](https://github.com/greatscottgadgets/cynthion-hardware)
 
-# Build Variants
+# Fabrication Planner
+The `.kkkk_fab` file saves panelization and build-variants settings in JSON format, with PCB paths stored relative to the file's location. Legacy `.kikit_pnl` files can still be opened or added; newly saved fabrication plans use `.kkkk_fab`.
+
+# Fabrication Planner - Build Variants
 Example: [`samples/build_variant.kkkk_fab`](samples/build_variant.kkkk_fab) and [`samples/build_variant.kicad_pcb`](samples/build_variant.kicad_pcb).
 
 Set `BUILDEXPR` in footprints' properties. This can be done quickly with `Symbol Fields Table` using the current sheet only scope. Remember to sync them to PCB afterward.
@@ -109,8 +123,7 @@ Single PCB without panelization can be done with frameless setting
 ![Variants-FieldValue](screenshots/variants-fieldvalue.png)
 `Field#Opt=A`, `Field#Opt=B` will be displayed as dropdown options.
 
-# Fabrication Plan
-The `.kkkk_fab` file saves panelization and build-variants settings in JSON format, with PCB paths stored relative to the file's location. Legacy `.kikit_pnl` files can still be opened or added; newly saved fabrication plans use `.kkkk_fab`.
+# Fabrication Planner - Panelizer
 
 ## Global Alignment
 ![Global Alignment](screenshots/global_alignment.gif)
@@ -147,7 +160,7 @@ Auto tab is off for PCB with manual tabs.
 Drag inside the PCB for moving selected tab, drag outside the PCB for changing the direction for the selected tab.
 ![Manual Tab](screenshots/manual_tab.gif)
 
-# FreeCAD Integration
+# FreekiCAD (FreeCAD Addon)
 Requires **FreeCAD 1.0** or later and `psutil>=5.9` for
 instance discovery and FreeCAD document-state publication. KiCad PCB
 integration additionally requires **KiCad 9.0** or later,
@@ -175,7 +188,7 @@ every external source is loaded fresh. `AutoReload` is enabled by default on
 both object types, so changing either source file reloads its linked FreeCAD
 object. The option can be disabled independently for each object.
 
-* Manually install FreekiCAD to FreeCAD
+* Manually install FreekiCAD
     * Open FreeCAD's python console: Menubar -> View -> Panels -> Python Console
     * Get the installation path by executing `print(os.path.join(App.getUserAppDataDir(), "Mod"))` in the Python console
     * Create the `Mod` folder if it does not exist
@@ -186,7 +199,7 @@ object. The option can be disabled independently for each object.
     ```
 
 * Activate `Preferences -> Plugins -> Enable KiCad API`. Kikakuka or FreekiCAD can reuse a running matching KiCad editor or start one on demand.
-* FreeCAD
+* FreekiCAD (FreeCAD Addon)
     * Add PCB
         * Drag and drop / Open / Import
             * Drag a `.kicad_pcb` file into FreeCAD, or use FreeCAD's Open or Import command; switching workbenches is not required.
@@ -343,7 +356,7 @@ The KiCad library is stored under [`kicad-addon/library`](kicad-addon/library). 
 
 * [`Variable`](kicad-addon/library/footprints/Kikakuka.pretty/Variable.kicad_mod) displays its `Value` on the board. In the Kikakuka Fabrication Planner, use build-variant fields such as `Value#Flag` or `Value#Option=Choice` to show a value selected by the active build flags or options.
 * [`StringTemplate`](kicad-addon/library/footprints/Kikakuka.pretty/StringTemplate.kicad_mod) formats its `Value` during Kikakuka Fabrication Planner export. Braced placeholders are replaced with matching footprint properties or build options after build-variant fields have been applied.
-* [`CouplerFixed`](kicad-addon/library/footprints/Kikakuka.pretty/CouplerFixed.kicad_mod) and [`CouplerMoving`](kicad-addon/library/footprints/Kikakuka.pretty/CouplerMoving.kicad_mod) define matching planes for [coupler-based PCB alignment](#freecad-integration). Give a pair the same reference and use their `Z`, `Offset`, and `Tilt` properties as needed.
+* [`CouplerFixed`](kicad-addon/library/footprints/Kikakuka.pretty/CouplerFixed.kicad_mod) and [`CouplerMoving`](kicad-addon/library/footprints/Kikakuka.pretty/CouplerMoving.kicad_mod) define matching planes for [coupler-based PCB alignment](#coupler-based-pcb-alignment). Give a pair the same reference and use their `Z`, `Offset`, and `Tilt` properties as needed.
 * [`CouplerAt`](kicad-addon/library/footprints/Kikakuka.pretty/CouplerAt.kicad_mod) aligns its PCB to absolute FreeCAD world `TargetX`, `TargetY`, and `TargetZ` coordinates, all defaulting to zero. Place it on B.Cu for the usual behavior, where the PCB bottom surface is positioned at `TargetZ`; use F.Cu only to reference the top surface.
 
 For coupler length properties (`Z`, `Offset`, `TargetX`, `TargetY`, and `TargetZ`), unitless values are millimetres; supported suffixes are `mm`, `in`, `mil`, and `um`/`µm`. `Tilt` is in degrees and may optionally use `deg` or `°`.
