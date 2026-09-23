@@ -9,7 +9,8 @@ from unittest import mock
 
 MODULE_PATH = (
     Path(__file__).resolve().parents[1]
-    / "kicad-plugin"
+    / "kicad-addon"
+    / "plugin"
     / "plugins"
     / "placeholder_models.py"
 )

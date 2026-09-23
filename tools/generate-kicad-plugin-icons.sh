@@ -2,7 +2,7 @@
 set -eu
 
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-plugin_dir="$repo_dir/kicad-plugin/plugins"
+plugin_dir="$repo_dir/kicad-addon/plugin/plugins"
 overlay_dir="$repo_dir/tools/kicad-plugin-icons"
 
 command -v magick >/dev/null 2>&1 || {

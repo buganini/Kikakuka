@@ -39,7 +39,7 @@ else:
 pyinstaller_args.extend(["--add-data", f"{os.path.join(kikit_base, 'resources', 'kikit.pretty')}:kikit.pretty"])
 
 # Internal graphics-free placeholder used by BOM/CPL import.  The user-facing
-# footprints live separately under kicad-library/.
+# KiCad footprints live separately under kicad-addon/library/.
 pyinstaller_args.extend([
     "--add-data",
     f"{os.path.join(PKG_BASE, 'resources', 'kikakuka-internal.pretty')}:kikakuka-internal.pretty",

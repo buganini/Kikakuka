@@ -9,7 +9,7 @@ from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parent
 ARCHIVE = ROOT / "kikakuka-plugin.zip"
-SOURCE_METADATA = ROOT / "kicad-plugin" / "metadata.json"
+SOURCE_METADATA = ROOT / "kicad-addon" / "plugin" / "metadata.json"
 DOWNLOAD_BASE = "https://github.com/buganini/Kikakuka/releases/download"
 
 

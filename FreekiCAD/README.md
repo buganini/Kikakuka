@@ -226,7 +226,7 @@ Adding or removing couplers, or changing their identity, takes
 effect after reloading the PCB.
 
 The footprints are available in Kikakuka's
-[`kicad-library` directory][coupler-library].
+[`kicad-addon/library` directory][coupler-library].
 
 ## Flexible PCB Stiffener
 
@@ -322,7 +322,7 @@ This repository is a release mirror. Development takes place in the
 [FreekiCAD directory of the Kikakuka repository][upstream].
 
 [upstream]: https://github.com/buganini/Kikakuka/tree/main/FreekiCAD
-[coupler-library]: https://github.com/buganini/Kikakuka/tree/main/kicad-library
+[coupler-library]: https://github.com/buganini/Kikakuka/tree/main/kicad-addon/library
 [coupler-screenshots]: https://github.com/buganini/Kikakuka/tree/main#coupler-based-pcb-alignment
 [fpc-assembly-example]: https://github.com/buganini/Kikakuka/blob/main/samples/fpc-assembly.kkkk_asm
 [fpc-sample]: https://github.com/buganini/Kikakuka/blob/main/samples/fpc.kicad_pcb

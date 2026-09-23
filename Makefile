@@ -8,8 +8,8 @@ sync:
 
 archive-zips:
 	rm -f kikakuka-library.zip kikakuka-plugin.zip
-	cd kicad-library && zip -X -r ../kikakuka-library.zip metadata.json footprints 3dmodels resources
-	cd kicad-plugin && zip -X -r ../kikakuka-plugin.zip metadata.json plugins -x '*/__pycache__/*' '*.pyc'
+	cd kicad-addon/library && zip -X -r ../../kikakuka-library.zip metadata.json footprints 3dmodels resources
+	cd kicad-addon/plugin && zip -X -r ../../kikakuka-plugin.zip metadata.json plugins -x '*/__pycache__/*' '*.pyc'
 
 archive: archive-zips
 	mkdir -p $(dir $(METADATA_WORKDIR))

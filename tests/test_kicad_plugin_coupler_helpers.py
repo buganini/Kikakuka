@@ -9,7 +9,8 @@ from unittest import mock
 
 PLUGINS_DIR = (
     Path(__file__).resolve().parents[1]
-    / "kicad-plugin"
+    / "kicad-addon"
+    / "plugin"
     / "plugins"
 )
 sys.path.insert(0, str(PLUGINS_DIR))

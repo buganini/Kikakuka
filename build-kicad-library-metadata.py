@@ -10,8 +10,10 @@ from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parent
 ARCHIVE = ROOT / "kikakuka-library.zip"
-SOURCE_METADATA = ROOT / "kicad-library" / "metadata.json"
-SOURCE_ICON = ROOT / "kicad-library" / "resources" / "icon.png"
+SOURCE_METADATA = ROOT / "kicad-addon" / "library" / "metadata.json"
+SOURCE_ICON = (
+    ROOT / "kicad-addon" / "library" / "resources" / "icon.png"
+)
 DOWNLOAD_BASE = "https://github.com/buganini/Kikakuka/releases/download"
 
 

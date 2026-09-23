@@ -11,7 +11,7 @@ __pycache__/
 fp-info-cache
 *.dmg
 *.step
-!/kicad-library/3dmodels/**/*.step
+!/kicad-addon/library/3dmodels/**/*.step
 /kikakuka-library.zip
 /kikakuka-plugin.zip
 /workdir/
