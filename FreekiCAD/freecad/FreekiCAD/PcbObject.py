@@ -1990,6 +1990,16 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                     )
                     continue
 
+                # Coupler footprints are positioning markers, not physical
+                # components. Their optional 3D models are helpers for
+                # KiCad's 3D Viewer and must not enter the FreeCAD assembly.
+                if coupler_type is not None:
+                    FreeCAD.Console.PrintMessage(
+                        f"FreekiCAD:   {ref}: skipped 3D models "
+                        f"({coupler_type} positioning footprint)\n"
+                    )
+                    continue
+
                 pos = fp.position
                 fp_x = pos.x / 1e6
                 fp_y = -pos.y / 1e6

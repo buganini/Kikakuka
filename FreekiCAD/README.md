@@ -185,6 +185,11 @@ A PCB may use only one positioning source: one `CouplerMoving` or one
 recalculated in dependency order after linked boards reload and uses the
 coupler planes after flexible-PCB bending.
 
+FreekiCAD treats `CouplerFixed`, `CouplerMoving`, and `CouplerAt` as
+positioning markers and does not import any 3D models attached to those
+footprints. This keeps the optional KiCad 3D Viewer helper models out of the
+FreeCAD assembly.
+
 The plane is defined by the footprint position, board side, rotation, and
 custom footprint properties:
 

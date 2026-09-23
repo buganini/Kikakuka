@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""KiCad action entrypoint for adding placeholder 3D models."""
+"""KiCad action entrypoint for populating placeholder 3D models."""
 
 import sys
 
@@ -15,7 +15,10 @@ def main() -> int:
         result = add_placeholder_models(kicad, board)
         kicad.run_action("common.Control.show3DViewer")
     except Exception as error:
-        print(f"Kikakuka: failed to add placeholder models: {error}", file=sys.stderr)
+        print(
+            f"Kikakuka: failed to populate placeholder models: {error}",
+            file=sys.stderr,
+        )
         return 1
 
     print(

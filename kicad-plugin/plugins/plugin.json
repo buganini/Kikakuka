@@ -10,7 +10,7 @@
     "actions": [
         {
             "identifier": "add-placeholder-models",
-            "name": "Add Placeholder 3D Models",
+            "name": "Populate Placeholder 3D Models",
             "description": "Add scaled unit cubes to footprints without a valid 3D model, then open the 3D Viewer",
             "show-button": true,
             "icons-light": [
