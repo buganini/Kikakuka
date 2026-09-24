@@ -31,11 +31,12 @@ grammar = Grammar(r"""
 Node = Whitespaces? "(" Whitespaces? Identifier Whitespaces Child Whitespaces? ")" Whitespaces?
 Whitespaces = ~r"\s+"
 Child = Value / Node+
-Value = Identifier / Number / String
+Value = String / Number / Bare
 Identifier = ~r"[A-Z][A-Z0-9_-]*"i
 Number = Float / Integer
-Float = ~r"-?[0-9]+\.[0-9]*"
-Integer = ~r"-?[0-9]+"
+Float = ~r"-?[0-9]+\.[0-9]*(?=[()\s])"
+Integer = ~r"-?[0-9]+(?=[()\s])"
+Bare = ~r"[^()\s\"']+"
 String = ~r'"(?:[^"\\]|\\.)*"' / ~r"'(?:[^'\\]|\\.)*'"
 """)
 
@@ -69,6 +70,9 @@ class SExprVisitor(NodeVisitor):
 
     def visit_Integer(self, node, visited_children):
         return int(node.text)
+
+    def visit_Bare(self, node, visited_children):
+        return node.text
 
     def visit_String(self, node, visited_children):
         return json.loads(node.text)
