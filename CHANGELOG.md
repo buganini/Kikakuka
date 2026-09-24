@@ -15,7 +15,7 @@
 * FreekiCAD
     * Exclude 3D models attached to `CouplerFixed`, `CouplerMoving`, and `CouplerAt` positioning footprints from FreeCAD assemblies while retaining coupler alignment
 * KiCad Addons
-    * Rename the footprint package to Kikakuka Library and include its supporting 3D models in `kikakuka-library.zip`
+    * Rename the footprint package to Kikakuka Library and include its supporting 3D models in the versioned library archive
     * Add a scalable unit-cube model and the **Populate Placeholder 3D Models** IPC action for footprints with `SizeX`, `SizeY`, and `SizeZ` properties
     * Add symmetric colored `CouplerFixed` and `CouplerMoving` helper models, classified as virtual models through their `Unspecified` footprints
     * Refine `CouplerAt` and `CouplerFixed` footprint markers with GD&T-inspired target and cross symbols

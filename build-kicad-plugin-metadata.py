@@ -8,7 +8,6 @@ from zipfile import ZipFile
 
 
 ROOT = Path(__file__).resolve().parent
-ARCHIVE = ROOT / "kikakuka-plugin.zip"
 SOURCE_METADATA = ROOT / "kicad-addon" / "plugin" / "metadata.json"
 DOWNLOAD_BASE = "https://github.com/buganini/Kikakuka/releases/download"
 
@@ -39,15 +38,16 @@ def main():
     identifier = package_metadata["identifier"]
     current_version = dict(package_versions[0])
     version = current_version["version"]
-    archive_data = ARCHIVE.read_bytes()
-    with ZipFile(ARCHIVE) as package:
+    archive = ROOT / f"kikakuka-plugin-{version}.zip"
+    archive_data = archive.read_bytes()
+    with ZipFile(archive) as package:
         install_size = sum(
             entry.file_size for entry in package.infolist()
             if not entry.is_dir())
 
     current_version.update({
         "download_url":
-            f"{DOWNLOAD_BASE}/{version}/{ARCHIVE.name}",
+            f"{DOWNLOAD_BASE}/{version}/{archive.name}",
         "download_sha256": hashlib.sha256(archive_data).hexdigest(),
         "download_size": len(archive_data),
         "install_size": install_size,

@@ -14,4 +14,7 @@ fp-info-cache
 !/kicad-addon/library/3dmodels/**/*.step
 /kikakuka-library.zip
 /kikakuka-plugin.zip
+/Kikakuka-*.tar.gz
+/kikakuka-library-*.zip
+/kikakuka-plugin-*.zip
 /workdir/
