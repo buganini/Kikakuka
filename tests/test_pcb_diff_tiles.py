@@ -48,6 +48,7 @@ from pcb_diff_tiles import (
     standard_layer_style,
     tile_bounds,
     visible_tile_indices,
+    visible_similarity_signature,
 )
 
 
@@ -73,6 +74,30 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
                 (2048.0, 512.0), (512, 512), transform, 1.0
             ),
             [(3, 0)],
+        )
+
+    def test_similarity_signature_ignores_focused_layer_order(self):
+        first = [
+            (3, 2.0, 1, 4, ("F.Cu", "B.Cu")),
+            (3, 2.0, 2, 4, ("F.Cu", "B.Cu")),
+        ]
+        focused = [
+            (3, 2.0, 2, 4, ("B.Cu", "F.Cu")),
+            (3, 2.0, 1, 4, ("B.Cu", "F.Cu")),
+        ]
+
+        self.assertEqual(
+            visible_similarity_signature(first),
+            visible_similarity_signature(focused),
+        )
+
+    def test_similarity_signature_changes_with_visible_layers(self):
+        first = [(3, 2.0, 1, 4, ("F.Cu", "B.Cu"))]
+        hidden = [(3, 2.0, 1, 4, ("F.Cu",))]
+
+        self.assertNotEqual(
+            visible_similarity_signature(first),
+            visible_similarity_signature(hidden),
         )
 
     def test_same_user_layer_in_both_boards_has_one_combined_label(self):

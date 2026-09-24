@@ -569,6 +569,14 @@ def combine_layer_similarity_stats(tile_stats):
     return combined
 
 
+def visible_similarity_signature(tile_keys):
+    """Ignore layer render order while identifying similarity inputs."""
+    return frozenset(
+        (generation, scale, tile_x, tile_y, frozenset(layers))
+        for generation, scale, tile_x, tile_y, layers in tile_keys
+    )
+
+
 def format_layer_similarity(stats):
     if not stats:
         return None

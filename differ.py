@@ -46,6 +46,7 @@ from pcb_diff_tiles import (
     prioritize_selected_layer,
     sort_layers_in_kicad_ui_order,
     toggle_selected_layer,
+    visible_similarity_signature,
     tile_pixel_bounds,
     visible_tile_indices,
 )
@@ -1333,13 +1334,14 @@ class DifferUI(Application):
         self.prime_pcb_coarse()
 
     def select_pcb_layer(self, _event, layer):
-        if not self.state.show_layers.get(layer, True):
+        made_visible = not self.state.show_layers.get(layer, True)
+        if made_visible:
             self.state.layer_preset = "Custom"
         self.state.show_layers[layer] = True
         self.state.selected_layer = toggle_selected_layer(
             self.state.selected_layer, layer
         )
-        self.prime_pcb_coarse()
+        self.prime_pcb_coarse(reset_similarity=made_visible)
 
     def apply_layer_preset(self, _event):
         preset = self.state.layer_preset
@@ -1374,13 +1376,14 @@ class DifferUI(Application):
         self.state.selected_layer = selected
         self.prime_pcb_coarse()
 
-    def prime_pcb_coarse(self):
-        self.state.layer_stats = None
-        self._pcb_similarity_tiles = None
+    def prime_pcb_coarse(self, reset_similarity=True):
+        if reset_similarity:
+            self.state.layer_stats = None
+            self._pcb_similarity_tiles = None
         self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
 
     def update_visible_layer_stats(self, tile_keys, tile_results):
-        signature = frozenset(tile_keys)
+        signature = visible_similarity_signature(tile_keys)
         if signature != self._pcb_similarity_tiles:
             self._pcb_similarity_tiles = signature
             if self.state.layer_stats is not None:
