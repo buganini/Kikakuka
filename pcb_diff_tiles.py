@@ -77,6 +77,7 @@ _STANDARD_USER_RGB = (
 )
 
 PCB_LAYER_PRESETS = (
+    "Fabrication",
     "All Copper Layers",
     "All Layers",
     "Back Assembly View",
@@ -86,6 +87,15 @@ PCB_LAYER_PRESETS = (
     "Inner Copper Layers",
     "No Layers",
 )
+DEFAULT_PCB_LAYER_PRESET = "Fabrication"
+
+_FABRICATION_LAYERS = {
+    "F.Adhesive", "B.Adhesive",
+    "F.Paste", "B.Paste",
+    "F.Silkscreen", "B.Silkscreen",
+    "F.Mask", "B.Mask",
+    "Edge.Cuts",
+}
 
 _FRONT_ASSEMBLY_LAYERS = {
     "F.Silkscreen", "F.Mask", "F.Fab", "F.Courtyard", "Edge.Cuts",
@@ -301,6 +311,8 @@ def layers_for_preset(layers, preset, canonical_layers=None):
             return True
         if preset == "All Copper Layers":
             return layer.endswith(".Cu") or layer == "Edge.Cuts"
+        if preset == "Fabrication":
+            return layer.endswith(".Cu") or layer in _FABRICATION_LAYERS
         if preset == "Inner Copper Layers":
             return (
                 layer.startswith("In") and layer.endswith(".Cu")

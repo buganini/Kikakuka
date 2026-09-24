@@ -30,6 +30,7 @@ from collections import OrderedDict
 from PySide6 import QtCore, QtGui
 
 from pcb_diff_tiles import (
+    DEFAULT_PCB_LAYER_PRESET,
     PCB_LAYER_PRESETS,
     PcbTileRenderer,
     build_pair_metadata,
@@ -687,7 +688,7 @@ class DifferUI(Application):
         self.state.diff_pair = None
         self.state.layers = []
         self.state.layer_labels = {}
-        self.state.layer_preset = "All Layers"
+        self.state.layer_preset = DEFAULT_PCB_LAYER_PRESET
         self.state.selected_layer = None
         self.state.highlight_changes = True
         self.state.flip_board_view = False
@@ -1630,10 +1631,20 @@ class DifferUI(Application):
                                 layer_names_b=layer_names_b,
                             )
                             if self.state.layers != layers:
+                                visible_layers = layers_for_preset(
+                                    layers, DEFAULT_PCB_LAYER_PRESET
+                                )
+                                visible = set(visible_layers)
                                 self.state.show_layers = {
-                                    layer: True for layer in layers
+                                    layer: layer in visible for layer in layers
                                 }
-                                self.state.layer_preset = "All Layers"
+                                self.state.layer_preset = (
+                                    DEFAULT_PCB_LAYER_PRESET
+                                )
+                                if self.state.selected_layer not in visible:
+                                    self.state.selected_layer = next(
+                                        iter(visible_layers), None
+                                    )
                             if (self.state.selected_layer not in layers and
                                     (self.state.selected_layer is not None or
                                      not self.state.layers)):

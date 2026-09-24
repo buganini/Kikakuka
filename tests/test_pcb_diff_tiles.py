@@ -13,6 +13,7 @@ from legacy_pcb_diff import (
     legacy_finish_layer_mask,
 )
 from pcb_diff_tiles import (
+    DEFAULT_PCB_LAYER_PRESET,
     PCB_LAYER_PRESETS,
     PcbTileRenderer,
     _accumulate_coverage,
@@ -184,7 +185,8 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
 
     def test_layer_presets_match_kicad_layer_groups(self):
         layers = (
-            "F.Cu", "In1.Cu", "B.Cu", "F.Silkscreen", "B.Silkscreen",
+            "F.Cu", "In1.Cu", "B.Cu", "F.Adhesive", "B.Adhesive",
+            "F.Paste", "B.Paste", "F.Silkscreen", "B.Silkscreen",
             "F.Mask", "B.Mask", "F.Fab", "B.Fab", "F.Courtyard",
             "B.Courtyard", "User.1", "Edge.Cuts",
         )
@@ -198,6 +200,14 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
             {"In1.Cu", "Edge.Cuts"},
         )
         self.assertEqual(
+            set(layers_for_preset(layers, "Fabrication")),
+            {
+                "F.Cu", "In1.Cu", "B.Cu", "F.Adhesive", "B.Adhesive",
+                "F.Paste", "B.Paste", "F.Silkscreen", "B.Silkscreen",
+                "F.Mask", "B.Mask", "Edge.Cuts",
+            },
+        )
+        self.assertEqual(
             set(layers_for_preset(layers, "Front Assembly View")),
             {
                 "F.Silkscreen", "F.Mask", "F.Fab", "F.Courtyard",
@@ -207,11 +217,12 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
         self.assertEqual(
             set(layers_for_preset(layers, "Back Layers")),
             {
-                "B.Cu", "B.Silkscreen", "B.Mask", "B.Fab",
-                "B.Courtyard", "Edge.Cuts",
+                "B.Cu", "B.Adhesive", "B.Paste", "B.Silkscreen",
+                "B.Mask", "B.Fab", "B.Courtyard", "Edge.Cuts",
             },
         )
         self.assertIn("All Layers", PCB_LAYER_PRESETS)
+        self.assertEqual(DEFAULT_PCB_LAYER_PRESET, "Fabrication")
 
     def test_no_layers_is_the_last_preset_and_hides_every_layer(self):
         self.assertEqual(PCB_LAYER_PRESETS[-1], "No Layers")
