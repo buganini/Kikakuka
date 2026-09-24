@@ -13,6 +13,8 @@
     * Add `kikakuka.py --open [--fresh] FILE...` to open or focus mixed KiCad files through Instance Manager and refresh already-open PCB files from disk
 * Panelizer
     * Open newly exported boards automatically, or refresh and focus them through KiCad IPC when already open
+* Gerber Conversion
+    * Preserve component drills as PTH pads instead of vias, keeping drill and mask rendering accurate while excluding generated drill helpers from BOM and position outputs
 * FreekiCAD
     * Exclude 3D models attached to `CouplerFixed`, `CouplerMoving`, and `CouplerAt` positioning footprints from FreeCAD assemblies while retaining coupler alignment
 * KiCad Addons

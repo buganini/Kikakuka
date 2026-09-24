@@ -213,12 +213,48 @@ def find_CPL(filenames):
 
 def read_gbr_file(path, filename):
     if is_gerber_dir(path):
-        return open(os.path.join(path, filename), "r").read()
+        with open(os.path.join(path, filename), "r") as source:
+            return source.read()
     if is_gerber_zip(path):
         with zipfile.ZipFile(path) as zf:
             path = zipfile.Path(zf, at=filename)
             return path.read_text(encoding='UTF-8')
     return None
+
+
+def excellon_tool_functions(gbr):
+    """Return XNC aperture functions keyed by Excellon tool number."""
+    functions = {}
+    pending_function = None
+
+    for statement in getattr(gbr, "statements", []):
+        if statement.__class__.__name__ == "CommentStmt":
+            comment = getattr(statement, "comment", "")
+            marker = "TA.AperFunction,"
+            if marker in comment:
+                pending_function = comment.split(marker, 1)[1].split(",")[-1]
+                pending_function = pending_function.strip().rstrip("*")
+        elif statement.__class__.__name__ == "ExcellonTool":
+            if pending_function:
+                functions[statement.number] = pending_function
+            pending_function = None
+
+    return functions
+
+
+def new_pth_footprint(board, position):
+    footprint = pcbnew.FOOTPRINT(board)
+    footprint.SetFPIDAsString("PTH")
+    footprint.SetReference("")
+    footprint.SetValue("PTH")
+    footprint.Reference().SetVisible(False)
+    footprint.Value().SetVisible(False)
+    footprint.SetExcludedFromPosFiles(True)
+    footprint.SetExcludedFromBOM(True)
+    footprint.SetPosition(position)
+    board.Add(footprint)
+    return footprint
+
 
 def populate_kicad(board, gbr, layer, errors):
     # print(gbr, dir(gbr))
@@ -235,10 +271,35 @@ def populate_kicad(board, gbr, layer, errors):
         "metric": fromMM,
     }.get(gbr.units)
 
-    for p in gbr.primitives:
-        populate_kicad_by_primitive(board, p, fromUnit, layer, errors)
+    primitives = gbr.primitives
+    hits = getattr(gbr, "hits", None)
+    tool_functions = excellon_tool_functions(gbr) if hits is not None else {}
 
-def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
+    annotated_primitives = []
+    for index, primitive in enumerate(primitives):
+        drill_function = None
+        if hits is not None and index < len(hits):
+            drill_function = tool_functions.get(hits[index].tool.number)
+        annotated_primitives.append((primitive, drill_function))
+
+    pth_footprint = None
+    for primitive, drill_function in annotated_primitives:
+        if (layer is True and drill_function == "ComponentDrill"
+                and isinstance(primitive, gerber.primitives.Drill)):
+            pth_footprint = new_pth_footprint(board, pcbnew.VECTOR2I(
+                fromUnit(primitive.position[0]),
+                -fromUnit(primitive.position[1])
+            ))
+            break
+
+    for primitive, drill_function in annotated_primitives:
+        populate_kicad_by_primitive(
+            board, primitive, fromUnit, layer, errors, drill_function,
+            pth_footprint)
+
+def populate_kicad_by_primitive(
+        board, primitive, fromUnit, layer, errors, drill_function=None,
+        pth_footprint=None):
     if isinstance(primitive, gerber.primitives.Arc):
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
@@ -405,8 +466,8 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
                 fromUnit((primitive.start[0] + primitive.end[0]) / 2),
                 -fromUnit((primitive.start[1] + primitive.end[1]) / 2)
             ))
-            footprint.SetExcludedFromPosFiles(False)
-            footprint.SetExcludedFromBOM(False)
+            footprint.SetExcludedFromPosFiles(True)
+            footprint.SetExcludedFromBOM(True)
             for pad in footprint.Pads():
                 pad.SetShape(pcbnew.PAD_SHAPE_OVAL)
                 pad.SetDrillShape(pcbnew.PAD_DRILL_SHAPE_OBLONG)
@@ -462,7 +523,22 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
         # print(primitive.__class__.__name__, primitive.__dict__)
         # print(dir(primitive))
 
-        if layer: # plated
+        if layer is True and drill_function == "ComponentDrill":
+            pad = pcbnew.PAD(pth_footprint)
+            pad.SetPosition(pcbnew.VECTOR2I(
+                fromUnit(primitive.position[0]),
+                -fromUnit(primitive.position[1])
+            ))
+            diameter = fromUnit(primitive.diameter)
+            pad.SetAttribute(pcbnew.PAD_ATTRIB_PTH)
+            pad.SetShape(pcbnew.PAD_SHAPE_CIRCLE)
+            pad.SetDrillSize(pcbnew.VECTOR2I(diameter, diameter))
+            # Keep the synthetic annulus below Gerber precision.  A non-zero
+            # annulus is needed for KiCad to plot this as a PTH pad; the
+            # imported copper and mask layers remain authoritative.
+            pad.SetSize(pcbnew.VECTOR2I(diameter + 1, diameter + 1))
+            pth_footprint.Add(pad)
+        elif layer: # plated via or an unclassified plated drill
             via = pcbnew.PCB_VIA(board)
 
             via.SetPosition(pcbnew.VECTOR2I(
@@ -476,8 +552,8 @@ def populate_kicad_by_primitive(board, primitive, fromUnit, layer, errors):
             board.Add(via)
         else:
             footprint = pcbnew.FootprintLoad(kikit.common.KIKIT_LIB, "NPTH")
-            footprint.SetExcludedFromPosFiles(False)
-            footprint.SetExcludedFromBOM(False)
+            footprint.SetExcludedFromPosFiles(True)
+            footprint.SetExcludedFromBOM(True)
             footprint.SetPosition(pcbnew.VECTOR2I(
                 fromUnit(primitive.position[0]),
                 -fromUnit(primitive.position[1])
