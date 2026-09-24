@@ -674,6 +674,8 @@ class DifferUI(Application):
         self.state.loading_b = False
         self.state.file_a = ""
         self.state.file_b = ""
+        self.state.source_a = ""
+        self.state.source_b = ""
         self.state.logs_a = None
         self.state.logs_b = None
         self.state.commit_a = ""
@@ -730,11 +732,13 @@ class DifferUI(Application):
                 findFiles(self.workspace, self.base_dir, [SCH_SUFFIX, PCB_SUFFIX])
         elif len(argv) == 2:
             warnings = []
+            self.state.source_a = os.path.abspath(argv[0])
             self.state.file_a, errors = prepare_differ_source(
-                argv[0], "a", self.temp_dir)
+                self.state.source_a, "a", self.temp_dir)
             warnings.extend(errors)
+            self.state.source_b = os.path.abspath(argv[1])
             self.state.file_b, errors = prepare_differ_source(
-                argv[1], "b", self.temp_dir)
+                self.state.source_b, "b", self.temp_dir)
             warnings.extend(errors)
             if warnings:
                 self.state.message = (
@@ -782,25 +786,29 @@ class DifferUI(Application):
                     else:
                         with HBox():
                             Label("File A")
-                            if self.state.file_a:
-                                Label(self.state.file_a).layout(weight=1)
-                            Button("Open KiCad File").click(self.open_file_a)
-                            Button("Open Gerber Folder").click(
-                                self.open_gerber_folder_a)
-                            Button("Open Gerber Zip").click(
-                                self.open_gerber_zip_a)
-                            if not self.state.file_a:
+                            if self.state.source_a:
+                                Label(self.state.source_a).layout(weight=1)
+                                Button("Clear").click(self.clear_file_a)
+                            else:
+                                Button("Open KiCad File").click(
+                                    self.open_file_a)
+                                Button("Open Gerber Folder").click(
+                                    self.open_gerber_folder_a)
+                                Button("Open Gerber Zip").click(
+                                    self.open_gerber_zip_a)
                                 Spacer()
                         with HBox():
                             Label("File B")
-                            if self.state.file_b:
-                                Label(self.state.file_b).layout(weight=1)
-                            Button("Open KiCad File").click(self.open_file_b)
-                            Button("Open Gerber Folder").click(
-                                self.open_gerber_folder_b)
-                            Button("Open Gerber Zip").click(
-                                self.open_gerber_zip_b)
-                            if not self.state.file_b:
+                            if self.state.source_b:
+                                Label(self.state.source_b).layout(weight=1)
+                                Button("Clear").click(self.clear_file_b)
+                            else:
+                                Button("Open KiCad File").click(
+                                    self.open_file_b)
+                                Button("Open Gerber Folder").click(
+                                    self.open_gerber_folder_b)
+                                Button("Open Gerber Zip").click(
+                                    self.open_gerber_zip_b)
                                 Spacer()
 
                 with HBox():
@@ -992,6 +1000,12 @@ class DifferUI(Application):
     def pcb_diff(self, e):
         self._pending_revision_a = self.state.commit_a
         self._pending_revision_b = self.state.commit_b
+        if self.state.source_a == self.state.file_a:
+            self.state.source_a = (
+                os.path.splitext(self.state.source_a)[0] + PCB_SUFFIX)
+        if self.state.source_b == self.state.file_b:
+            self.state.source_b = (
+                os.path.splitext(self.state.source_b)[0] + PCB_SUFFIX)
         self.state.file_a = os.path.splitext(self.state.file_a)[0] + PCB_SUFFIX
         self.state.file_b = os.path.splitext(self.state.file_b)[0] + PCB_SUFFIX
         self.state.logs_a = None
@@ -1003,6 +1017,12 @@ class DifferUI(Application):
     def sch_diff(self, e):
         self._pending_revision_a = self.state.commit_a
         self._pending_revision_b = self.state.commit_b
+        if self.state.source_a == self.state.file_a:
+            self.state.source_a = (
+                os.path.splitext(self.state.source_a)[0] + SCH_SUFFIX)
+        if self.state.source_b == self.state.file_b:
+            self.state.source_b = (
+                os.path.splitext(self.state.source_b)[0] + SCH_SUFFIX)
         self.state.file_a = os.path.splitext(self.state.file_a)[0] + SCH_SUFFIX
         self.state.file_b = os.path.splitext(self.state.file_b)[0] + SCH_SUFFIX
         self.state.logs_a = None
@@ -1028,7 +1048,8 @@ class DifferUI(Application):
                 fn = event.mimeData().urls()[0].toLocalFile()
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in [SCH_SUFFIX, PCB_SUFFIX]:
-                    self.state.file_a = fn
+                    self.state.source_a = os.path.abspath(fn)
+                    self.state.file_a = self.state.source_a
                     self.change_file_a()
                     event.accept()
                     return True
@@ -1041,7 +1062,8 @@ class DifferUI(Application):
                 fn = event.mimeData().urls()[0].toLocalFile()
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in [SCH_SUFFIX, PCB_SUFFIX]:
-                    self.state.file_b = fn
+                    self.state.source_b = os.path.abspath(fn)
+                    self.state.file_b = self.state.source_b
                     self.change_file_b()
                     event.accept()
                     return True
@@ -1049,21 +1071,27 @@ class DifferUI(Application):
         return False
 
     def change_file_a(self):
+        if self.state.use_workspace:
+            self.state.source_a = self.state.file_a
         self._pending_revision_a = None
         self.state.logs_a = None
         self.state.cached_file_a = ""
         if not self.state.file_b:
             self.state.file_b = self.state.file_a
+            self.state.source_b = self.state.source_a
             self.state.logs_b = None
             self.state.cached_file_b = ""
         self.build()
 
     def change_file_b(self):
+        if self.state.use_workspace:
+            self.state.source_b = self.state.file_b
         self._pending_revision_b = None
         self.state.logs_b = None
         self.state.cached_file_b = ""
         if not self.state.file_a:
             self.state.file_a = self.state.file_b
+            self.state.source_a = self.state.source_b
             self.state.logs_a = None
             self.state.cached_file_a = ""
         self.build()
@@ -1071,14 +1099,40 @@ class DifferUI(Application):
     def open_file_a(self, e):
         fn = OpenFile("Open File A", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb|KiCad SCH (*.kicad_sch)|*.kicad_sch")
         if fn:
-            self.state.file_a = fn
+            self.state.source_a = os.path.abspath(fn)
+            self.state.file_a = self.state.source_a
             self.change_file_a()
 
     def open_file_b(self, e):
         fn = OpenFile("Open File B", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb|KiCad SCH (*.kicad_sch)|*.kicad_sch")
         if fn:
-            self.state.file_b = fn
+            self.state.source_b = os.path.abspath(fn)
+            self.state.file_b = self.state.source_b
             self.change_file_b()
+
+    def clear_file_a(self, _event):
+        self._clear_file("a")
+
+    def clear_file_b(self, _event):
+        self._clear_file("b")
+
+    def _clear_file(self, side):
+        setattr(self, f"_pending_revision_{side}", None)
+        setattr(self.state, f"source_{side}", "")
+        setattr(self.state, f"file_{side}", "")
+        setattr(self.state, f"logs_{side}", False)
+        setattr(self.state, f"commit_{side}", "")
+        setattr(self.state, f"cached_file_{side}", "")
+        setattr(self.state, f"loading_{side}", False)
+        setattr(self.state, f"page_{side}", 0)
+        setattr(self, f"repo_{side}", None)
+        self.state.diff_pair = None
+        self.state.loading_diff = False
+        self.state.pcb_page_size = None
+        self.state.sch_page_size = None
+        self.state.message = ""
+        self.pcb_tiles.reset(None)
+        self.sch_tiles.reset(None)
 
     def open_gerber_folder_a(self, _event):
         self._open_gerber("a", "folder")
@@ -1127,6 +1181,7 @@ class DifferUI(Application):
                 + "\n".join(errors),
                 "Gerber conversion warnings",
             )
+        setattr(self.state, f"source_{side}", os.path.abspath(source))
         setattr(self.state, f"file_{side}", output)
         getattr(self, f"change_file_{side}")()
 
