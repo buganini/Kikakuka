@@ -61,6 +61,7 @@ PDF_TILE_CACHE_BYTES = 384 * 1024 * 1024
 PDF_TILE_LOW_RES_CACHE_BYTES = 64 * 1024 * 1024
 PDF_TILE_LOW_RES_MAX_SCALE = 1.0
 DIFFER_TILE_LOG_ENABLED = os.environ.get("KIKAKUKA_DIFFER_TILE_LOG") == "1"
+PCB_DIFF_TOLERANCE_UM = 10.0
 
 
 class LayerList(VBox):
@@ -1402,6 +1403,7 @@ class DifferUI(Application):
             task["tile_y"],
             composite_buffers=composite_buffers,
             mask_buffer=mask_buffer,
+            tolerance_um=PCB_DIFF_TOLERANCE_UM,
         )
         apply_overlap_color_shift(
             image_buffers["a"], image_buffers["b"], image_buffers["darker"],

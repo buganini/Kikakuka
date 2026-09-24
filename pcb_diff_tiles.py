@@ -19,6 +19,8 @@ TILE_SIZE = 512
 TILE_GUTTER = 24
 RENDER_SCALES = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
 LAYER_ALPHA_THRESHOLD = 127
+MICROMETERS_PER_INCH = 25400.0
+PDF_POINTS_PER_INCH = 72.0
 
 
 class _UnexpectedPdfBitmapSize(ValueError):
@@ -494,10 +496,41 @@ def binary_layer_occupancy(image, alpha_threshold=LAYER_ALPHA_THRESHOLD):
 
 
 def binary_layer_difference(image_a, image_b,
-                            alpha_threshold=LAYER_ALPHA_THRESHOLD):
+                            alpha_threshold=LAYER_ALPHA_THRESHOLD,
+                            distance_tolerance_pixels=0.0):
     occupancy_a = binary_layer_occupancy(image_a, alpha_threshold)
     occupancy_b = binary_layer_occupancy(image_b, alpha_threshold)
-    return cv2.bitwise_xor(occupancy_a, occupancy_b)
+    difference = cv2.bitwise_xor(occupancy_a, occupancy_b)
+    if distance_tolerance_pixels <= 0 or not np.any(difference):
+        return difference
+
+    tolerated_difference = np.zeros_like(difference)
+    for source, other in (
+        (occupancy_a, occupancy_b),
+        (occupancy_b, occupancy_a),
+    ):
+        one_sided = cv2.bitwise_and(source, cv2.bitwise_not(other))
+        if not np.any(one_sided):
+            continue
+        if not np.any(other):
+            cv2.bitwise_or(
+                tolerated_difference, one_sided, dst=tolerated_difference
+            )
+            continue
+        distance_to_other = cv2.distanceTransform(
+            cv2.bitwise_not(other), cv2.DIST_L2, cv2.DIST_MASK_PRECISE
+        )
+        one_sided[distance_to_other <= distance_tolerance_pixels] = 0
+        cv2.bitwise_or(
+            tolerated_difference, one_sided, dst=tolerated_difference
+        )
+    return tolerated_difference
+
+
+def physical_tolerance_pixels(tolerance_um, render_scale):
+    return tolerance_um * PDF_POINTS_PER_INCH * render_scale / (
+        MICROMETERS_PER_INCH
+    )
 
 
 def finish_merged_mask(binary_mask, scratch=None):
@@ -892,7 +925,7 @@ class PcbTileRenderer:
     def render_tile(self, metadata, layers, render_scale, tile_x, tile_y,
                     output_root=None, gutter=TILE_GUTTER,
                     return_image_data=False, composite_buffers=None,
-                    mask_buffer=None):
+                    mask_buffer=None, tolerance_um=0.0):
         canvas_size = metadata["canvas_size"]
         pixel_x, pixel_y, pixel_width, pixel_height = tile_pixel_bounds(
             canvas_size, render_scale, tile_x, tile_y
@@ -1046,18 +1079,23 @@ class PcbTileRenderer:
                     reuse_alpha=layer_equal and bounds_darker == bounds_b,
                 )
             if not layer_equal:
-                threshold = 254 - LAYER_ALPHA_THRESHOLD
-                cv2.threshold(
-                    image_a, threshold, 255, cv2.THRESH_BINARY_INV,
-                    dst=image_a
+                distance_tolerance_pixels = 0.0
+                if tolerance_um > 0:
+                    # Distance transforms measure between pixel centers. Add
+                    # one sample so adjacent contour cells have zero boundary
+                    # distance before applying the physical tolerance.
+                    distance_tolerance_pixels = 1.0 + (
+                        physical_tolerance_pixels(tolerance_um, render_scale)
+                    )
+                layer_difference = binary_layer_difference(
+                    image_a,
+                    image_b,
+                    distance_tolerance_pixels=distance_tolerance_pixels,
                 )
-                cv2.threshold(
-                    image_b, threshold, 255, cv2.THRESH_BINARY_INV,
-                    dst=image_b
-                )
-                cv2.bitwise_xor(image_a, image_b, dst=image_a)
                 cv2.max(
-                    merged_binary_mask, image_a, dst=merged_binary_mask
+                    merged_binary_mask,
+                    layer_difference,
+                    dst=merged_binary_mask,
                 )
             composite_seconds += time.perf_counter() - composite_started
 

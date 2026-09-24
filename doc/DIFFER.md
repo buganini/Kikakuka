@@ -145,7 +145,15 @@ The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
    renderer can still convert to straight BGRA and
    write PNG artifacts for tests and benchmarks. The standard color table is
    built in and does not depend on the user's KiCad theme files.
-8. Merge raw binary differences from all visible layers, then run the
+8. Threshold A and B into binary geometry separately for each visible layer.
+   Before merging the layer masks, discard one-sided geometry whose boundary
+   is within 10 µm of the other side. The renderer converts this physical
+   tolerance to pixels at the tile's raster level and accounts for the fact
+   that the distance transform measures between pixel centers. This suppresses
+   the narrow highlight bands produced when equivalent arcs are discretized
+   differently. It is a boundary-distance test rather than an area filter, so
+   an isolated new feature remains highlighted even when it is small. Merge
+   the tolerated binary differences from all visible layers, then run the
    threshold/blur sequence once for the tile.
 9. Cache results by diff generation, raster level, tile coordinate, and the
    visible-layer tuple. The memory cache uses a byte limit rather than an
@@ -217,7 +225,7 @@ rescaling on every zoom, and full-page A/B/overlap/mask PNG intermediates.
 | Raster area | Complete page and every layer | Current visible tiles and visible layers |
 | Raster resolution | Fixed scale 7 | Ceiling physical-pixel viewport LOD, scale 0.25 through 8 |
 | Layer images on disk | Three full-page images per layer | None in the application; four composited PNGs per tile in test/benchmark mode |
-| Mask processing | Blur every layer, then merge | Merge binary layers, then blur once |
+| Mask processing | Blur every layer, then merge | Apply a 10 µm per-layer geometry tolerance, merge binary layers, then blur once |
 | Alpha-only changes | Ignored by grayscale conversion | Included in the binary difference |
 | Layer visibility | Changes display only | Changes both display and difference mask |
 | UI work | Loads and rescales full pages | Draws worker-produced in-memory tile images |

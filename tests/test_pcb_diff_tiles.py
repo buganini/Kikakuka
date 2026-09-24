@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import cv2
 import numpy as np
 
 from legacy_pcb_diff import (
@@ -19,6 +20,7 @@ from pcb_diff_tiles import (
     _coverage_bounds,
     _finish_coverage,
     _union_bounds,
+    binary_layer_difference,
     binary_layer_occupancy,
     build_pair_metadata,
     choose_coarse_render_scale,
@@ -33,6 +35,7 @@ from pcb_diff_tiles import (
     layer_label_color,
     mirrored_view_transform,
     paired_layer_label,
+    physical_tolerance_pixels,
     pixel_aligned_page_layout,
     prioritize_selected_layer,
     select_fallback_results,
@@ -546,6 +549,37 @@ class PcbDiffTileImageTests(unittest.TestCase):
         np.testing.assert_array_equal(
             occupancy,
             np.array([[255, 255, 0, 0]], dtype=np.uint8),
+        )
+
+    def test_distance_tolerance_removes_nearby_arc_contours(self):
+        image_a = np.full((25, 25), 255, dtype=np.uint8)
+        image_b = np.full((25, 25), 255, dtype=np.uint8)
+        cv2.circle(image_a, (12, 12), 7, 0, -1)
+        cv2.circle(image_b, (13, 12), 7, 0, -1)
+
+        difference = binary_layer_difference(
+            image_a, image_b, distance_tolerance_pixels=1.0
+        )
+
+        self.assertFalse(np.any(difference))
+
+    def test_distance_tolerance_keeps_isolated_new_geometry(self):
+        image_a = np.full((12, 12), 255, dtype=np.uint8)
+        image_b = image_a.copy()
+        image_a[2:5, 2:5] = 0
+
+        difference = binary_layer_difference(
+            image_a, image_b, distance_tolerance_pixels=2.0
+        )
+
+        np.testing.assert_array_equal(
+            difference[2:5, 2:5], np.full((3, 3), 255, dtype=np.uint8)
+        )
+        self.assertEqual(np.count_nonzero(difference), 9)
+
+    def test_physical_tolerance_uses_pdf_render_scale(self):
+        self.assertAlmostEqual(
+            physical_tolerance_pixels(10.0, 64.0), 1.8141732283
         )
 
     def test_merged_mask_keeps_shape_and_expands_change(self):
