@@ -8,7 +8,7 @@ PCB editing and mechanical assembly.
 FreekiCAD and Kikakuka discover each other on demand through local Unix sockets
 or Windows named pipes. No board, assembly, or usage data is sent to third
 parties. Kikakuka can find open FreeCAD documents and reuse an existing
-instance when opening a file; see [Instance Manager](https://github.com/buganini/Kikakuka/blob/main/doc/INSTANCE_MANAGER.md)
+instance when opening a file; see [Instance Manager](https://github.com/buganini/Kikakuka/blob/main/im/README.md)
 for details.
 
 > [!CAUTION]

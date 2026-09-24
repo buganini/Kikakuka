@@ -178,7 +178,7 @@ data is sent to third parties.
 
 When opening a FreeCAD file, Kikakuka first looks for an already open document
 or reuses a responding FreeCAD instance; see
-[Instance Manager](doc/INSTANCE_MANAGER.md) for details.
+[Instance Manager](im/README.md) for details.
 
 KiCad `.kicad_pcb` boards and STEP models remain external files referenced by
 path. When saved as `.FCStd`, the FreeCAD document caches their generated

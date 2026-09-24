@@ -9,12 +9,12 @@ without requiring the Workspace Manager to be running.
 GUI FreeCAD processes also publish their open document state; FreeCADCmd does
 not publish its own open documents.
 For the differences between FreeCAD and KiCad document lifecycles, see
-[Instance lifecycle](INSTANCE_LIFECYCLE.md).
+[Instance lifecycle](../doc/INSTANCE_LIFECYCLE.md).
 The common coordination logic is in
-[`im_mesh.py`](../im/im_mesh.py), local transport in
-[`im_transport.py`](../im/im_transport.py), and editor-specific
+[`im_mesh.py`](im_mesh.py), local transport in
+[`im_transport.py`](im_transport.py), and editor-specific
 operations are in
-[`instance_backend.py`](../im/instance_backend.py).
+[`instance_backend.py`](instance_backend.py).
 FreekiCAD exposes these shared modules through relative symlinks in its Python
 package. Standalone FreekiCAD synchronization and release archives dereference
 the links so distributed packages contain regular files.
