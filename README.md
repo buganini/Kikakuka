@@ -59,7 +59,7 @@ It creates a few more dimensions for KiCad:
     * Components moved in FreeCAD are synced to KiCad in real time
     * `AutoReload` is enabled by default for both linked PCB and STEP objects; source-file changes are reloaded automatically, with manual reload also available
     * Optional copper and solder-mask import, with outer copper, inner copper, and mask controlled independently
-    * Solid [stiffeners](##flexible-pcb-stiffener) from annotated `F.Stiffener` and `B.Stiffener` user-layer areas
+    * Solid [stiffeners](#flexible-pcb-stiffener) from annotated `F.Stiffener` and `B.Stiffener` user-layer areas
     * [Flex PCB bending](#flexible-pcb-bending) driven by bend lines and parameters defined in KiCad
     * [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment) using matching `CouplerFixed` and `CouplerMoving` footprints or an absolute `CouplerAt`, with coupler plane markers for inspection
     * `kicad-python` is used and an on-demand instance mesh handles multiple KiCad instances & API sockets, even without Kikakuka's main program.
