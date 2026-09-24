@@ -10,6 +10,7 @@
 * Workspace Manager
     * Open known file locations directly from Instance Manager rows
     * Start an Instance Manager node on demand in standalone Kikakuka tools before opening KiCad files
+    * Add `kikakuka.py --open [--fresh] FILE...` to open or focus mixed KiCad files through Instance Manager and refresh already-open PCB files from disk
 * Panelizer
     * Open newly exported boards automatically, or refresh and focus them through KiCad IPC when already open
 * FreekiCAD
