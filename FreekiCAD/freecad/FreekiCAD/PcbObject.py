@@ -7,6 +7,10 @@ import FreeCAD
 import Part
 
 from .constants import FREEKICAD_LAYER_NAME
+from .kicad_paths import (
+    path_variables as _shared_path_variables,
+    resolve_model_path as _shared_resolve_model_path,
+)
 from .StepLoader import (
     _insert_step_merged,
     _load_step,
@@ -1049,132 +1053,16 @@ def _board_circle_radius_mm(circle):
     return math.hypot(dx, dy) / 1e6
 
 
-def _kicad_config_bases():
-    """Return platform-specific KiCad configuration base directories."""
-    bases = []
-    if os.name == 'nt':
-        bases.append(os.path.join(
-            os.environ.get('APPDATA', ''), 'kicad'))
-    else:
-        bases.append(os.path.expanduser(
-            '~/Library/Preferences/kicad'))
-        bases.append(os.path.expanduser('~/.config/kicad'))
-    return bases
-
-
-def _kicad_data_bases():
-    """Return platform-specific KiCad user data base directories."""
-    bases = []
-    if os.name == 'nt':
-        bases.append(os.path.join(
-            os.environ.get('USERPROFILE', ''), 'Documents', 'KiCad'))
-    else:
-        bases.append(os.path.expanduser('~/Documents/KiCad'))
-        bases.append(os.path.expanduser('~/.local/share/kicad'))
-    return bases
-
-
-def _discover_kicad_versions(base_dirs):
-    """Scan *base_dirs* for versioned sub-directories (e.g. '9.0', '10.0').
-    Returns a sorted list of (major_int, 'X.0') tuples found on disk,
-    newest first."""
-    import re
-    found = set()
-    for base in base_dirs:
-        if not os.path.isdir(base):
-            continue
-        try:
-            for name in os.listdir(base):
-                m = re.match(r'^(\d+)\.0$', name)
-                if m and os.path.isdir(os.path.join(base, name)):
-                    found.add((int(m.group(1)), name))
-        except OSError:
-            pass
-    return sorted(found, reverse=True)
-
-
-def _load_kicad_env_vars(kicad):
-    """Load KiCad path variables from the running KiCad instance and
-    its configuration files.  Returns a dict of variable name -> value."""
-    import json
-    import re
-    env = {}
-
-    # 1. Derive built-in paths from kicad-cli binary location
-    try:
-        bin_path = kicad.get_kicad_binary_path('kicad-cli')
-        bin_dir = os.path.dirname(bin_path)
-        parent = os.path.dirname(bin_dir)
-
-        # 3D models — set KICAD<V>_3DMODEL_DIR for every version
-        # whose config directory exists, plus the running version.
-        model_dir = None
-        for d in [os.path.join(parent, 'SharedSupport', '3dmodels'),
-                  os.path.join(parent, 'share', 'kicad', '3dmodels')]:
-            if os.path.isdir(d):
-                model_dir = d
-                break
-        if model_dir:
-            # Discover installed config versions so we cover all of them
-            config_bases = _kicad_config_bases()
-            versions = _discover_kicad_versions(config_bases)
-            # Always include a reasonable range in case no config dirs
-            # exist yet (fresh install).
-            major_set = {v for v, _ in versions} | {6, 7, 8, 9}
-            for v in major_set:
-                env[f'KICAD{v}_3DMODEL_DIR'] = model_dir
-    except Exception:
-        pass
-
-    # 2. Read user-defined variables from kicad_common.json
-    try:
-        config_bases = _kicad_config_bases()
-        versions = _discover_kicad_versions(config_bases)
-        for _major, ver_dir in versions:
-            for base in config_bases:
-                cfg = os.path.join(base, ver_dir, 'kicad_common.json')
-                if os.path.isfile(cfg):
-                    with open(cfg, 'r') as f:
-                        data = json.load(f)
-                    user_vars = (data.get('environment', {})
-                                 or {}).get('vars', {})
-                    if user_vars:
-                        env.update(user_vars)
-    except Exception:
-        pass
-
-    # 3. Derive KICAD*_3RD_PARTY from the user data directory
-    #    (set by PCM / Plugin Content Manager).
-    try:
-        data_bases = _kicad_data_bases()
-        versions = _discover_kicad_versions(data_bases)
-        thirdparty_path = None
-        for _major, ver_dir in versions:
-            for base in data_bases:
-                candidate = os.path.join(base, ver_dir, '3rdparty')
-                if os.path.isdir(candidate):
-                    thirdparty_path = candidate
-                    break
-            if thirdparty_path:
-                break
-
-        if thirdparty_path:
-            majors = {v for v, _ in versions} | {6, 7, 8, 9}
-            for v in sorted(majors, reverse=True):
-                key = f'KICAD{v}_3RD_PARTY'
-                if key not in env:
-                    env[key] = thirdparty_path
-    except Exception:
-        pass
-
-    # 4. Environment variables from the OS (highest priority)
-    for key in list(env.keys()):
-        os_val = os.environ.get(key)
-        if os_val:
-            env[key] = os_val
-
+def _load_kicad_env_vars(kicad, board=None):
+    """Load the path variables needed to resolve KiCad model references."""
+    env = _shared_path_variables(
+        kicad, board, source_path=__file__)
+    visible = {
+        key: value for key, value in env.items()
+        if key == 'KIPRJMOD' or key.startswith('KICAD')
+    }
     FreeCAD.Console.PrintMessage(
-        f"FreekiCAD: Loaded path variables: {env}\n"
+        f"FreekiCAD: Loaded path variables: {visible}\n"
     )
     return env
 
@@ -1182,37 +1070,9 @@ def _load_kicad_env_vars(kicad):
 def _resolve_model_path(filename, board, kicad_vars):
     """Resolve a KiCad 3D model filename, expanding variables like
     ${KICAD9_3DMODEL_DIR}.  Returns an absolute path or None."""
-    import re
-
-    try:
-        resolved = board.expand_text_variables(filename)
-    except Exception:
-        resolved = filename
-
-    # Substitute ${VAR} using our collected variables, then OS env
-    def _var_sub(m):
-        var = m.group(1)
-        val = kicad_vars.get(var) or os.environ.get(var)
-        if not val:
-            FreeCAD.Console.PrintWarning(
-                f"FreekiCAD: Unresolved variable '${{{var}}}', "
-                f"kicad_vars keys: {list(kicad_vars.keys())}\n"
-            )
-        return val if val else m.group(0)
-    resolved = re.sub(r'\$\{(\w+)\}', _var_sub, resolved)
-
-    # Prefer .step over .wrl – FreeCAD handles STEP reliably but
-    # may fail silently on VRML (.wrl) files.
-    base, ext = os.path.splitext(resolved)
-    if ext.lower() == '.wrl':
-        for alt in [base + '.step', base + '.stp', base + '.STEP', base + '.STP']:
-            if os.path.isfile(alt):
-                return alt
-        # No STEP sibling found; fall through to return .wrl as-is
-    if os.path.isfile(resolved):
-        return resolved
-
-    return None
+    path = _shared_resolve_model_path(
+        filename, board, kicad_vars, prefer_step=True)
+    return str(path) if path is not None else None
 
 
 def _footprint_is_dnp(footprint):
@@ -1621,10 +1481,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         board = _kipy_ready_board(kicad)
 
         # Load KiCad path variables
-        kicad_vars = _load_kicad_env_vars(kicad)
-        FreeCAD.Console.PrintMessage(
-            f"FreekiCAD: KiCad path variables: {kicad_vars}\n"
-        )
+        kicad_vars = _load_kicad_env_vars(kicad, board)
 
         # --- Board outline ---
         edges = []

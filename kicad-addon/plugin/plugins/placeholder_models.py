@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import math
-import os
 import re
-import sys
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Mapping, Optional
+
+from kicad_paths import (
+    path_variables as _shared_path_variables,
+    resolve_model_path,
+)
 
 
 PLACEHOLDER_MODEL = (
@@ -23,9 +24,6 @@ _LENGTH_RE = re.compile(
     r"(?:\s*(mm|in|mil))?\s*",
     re.IGNORECASE,
 )
-_VARIABLE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
-
-
 @dataclass
 class ScanResult:
     scanned: int = 0
@@ -106,147 +104,8 @@ def footprint_label(footprint) -> str:
     return "<unnamed footprint>"
 
 
-def _config_directories() -> list[Path]:
-    home = Path.home()
-    if sys.platform == "darwin":
-        return [home / "Library" / "Preferences" / "kicad"]
-    if os.name == "nt":
-        appdata = os.environ.get("APPDATA")
-        return [Path(appdata) / "kicad"] if appdata else []
-    xdg_config = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
-    return [xdg_config / "kicad"]
-
-
-def _load_user_path_variables() -> dict[str, str]:
-    result = {}
-    for config_root in _config_directories():
-        try:
-            configs = config_root.glob("*/kicad_common.json")
-            for config in configs:
-                try:
-                    data = json.loads(config.read_text(encoding="utf-8"))
-                    variables = (data.get("environment", {}) or {}).get(
-                        "vars", {}) or {}
-                    result.update({
-                        str(key): str(value)
-                        for key, value in variables.items()
-                        if value is not None
-                    })
-                except (OSError, ValueError, TypeError):
-                    continue
-        except OSError:
-            continue
-    return result
-
-
-def _third_party_roots() -> dict[int, Path]:
-    """Find the usual PCM roots, preferring the root containing this plugin."""
-    roots = {}
-    source_paths = [Path(__file__).absolute(), Path(__file__).resolve()]
-    for source in source_paths:
-        for parent in source.parents:
-            if parent.name.lower() == "3rdparty":
-                version = parent.parent.name.split(".", 1)[0]
-                if version.isdigit():
-                    roots[int(version)] = parent
-                break
-
-    home = Path.home()
-    if sys.platform == "darwin" or os.name == "nt":
-        data_root = home / "Documents" / "KiCad"
-    else:
-        data_root = Path(
-            os.environ.get("XDG_DATA_HOME", home / ".local" / "share")
-        ) / "KiCad"
-
-    for major in range(6, 12):
-        candidate = data_root / f"{major}.0" / "3rdparty"
-        if candidate.is_dir() and major not in roots:
-            roots[major] = candidate
-    return roots
-
-
-def _installed_3d_model_directory(kicad) -> Optional[Path]:
-    try:
-        binary = Path(kicad.get_kicad_binary_path("kicad-cli")).resolve()
-    except Exception:
-        return None
-
-    candidates = [
-        binary.parent.parent / "SharedSupport" / "3dmodels",
-        binary.parent.parent / "share" / "kicad" / "3dmodels",
-        binary.parent / "3dmodels",
-    ]
-    return next((path for path in candidates if path.is_dir()), None)
-
-
 def path_variables(kicad, board) -> dict[str, str]:
-    variables = _load_user_path_variables()
-    variables.update({key: value for key, value in os.environ.items()})
-
-    try:
-        project_path = board.document.project.path
-    except Exception:
-        try:
-            project_path = board.get_project().path
-        except Exception:
-            project_path = ""
-    if project_path:
-        variables["KIPRJMOD"] = str(project_path)
-
-    for major, root in _third_party_roots().items():
-        variables.setdefault(f"KICAD{major}_3RD_PARTY", str(root))
-
-    model_dir = _installed_3d_model_directory(kicad)
-    if model_dir is not None:
-        for major in range(6, 12):
-            variables.setdefault(f"KICAD{major}_3DMODEL_DIR", str(model_dir))
-    return variables
-
-
-def _expand_variables(value: str, variables: Mapping[str, str]) -> str:
-    result = value
-    for _ in range(10):
-        expanded = _VARIABLE_RE.sub(
-            lambda match: variables.get(match.group(1), match.group(0)),
-            result,
-        )
-        if expanded == result:
-            break
-        result = expanded
-    return result
-
-
-def resolve_model_path(
-    filename: str,
-    board,
-    variables: Mapping[str, str],
-) -> Optional[Path]:
-    """Resolve a model reference and return it only when the file exists."""
-    value = str(filename or "").strip()
-    if not value:
-        return None
-
-    try:
-        value = board.expand_text_variables(value, expand_env_vars=True)
-    except TypeError:
-        try:
-            value = board.expand_text_variables(value)
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-    value = _expand_variables(value, variables)
-    if _VARIABLE_RE.search(value):
-        return None
-
-    path = Path(os.path.expanduser(value))
-    if not path.is_absolute():
-        project_dir = variables.get("KIPRJMOD")
-        if project_dir:
-            path = Path(project_dir) / path
-    return path if path.is_file() else None
+    return _shared_path_variables(kicad, board, source_path=__file__)
 
 
 def has_valid_model(footprint, board, variables: Mapping[str, str]) -> bool:
