@@ -65,7 +65,7 @@ PDF_TILE_CACHE_BYTES = 384 * 1024 * 1024
 PDF_TILE_LOW_RES_CACHE_BYTES = 64 * 1024 * 1024
 PDF_TILE_LOW_RES_MAX_SCALE = 1.0
 DIFFER_TILE_LOG_ENABLED = os.environ.get("KIKAKUKA_DIFFER_TILE_LOG") == "1"
-PCB_DIFF_TOLERANCE_UM = 10.0
+PCB_DIFF_TOLERANCE_UM = 5.0
 
 
 class LayerList(VBox):
@@ -269,6 +269,7 @@ class PdfTileDiffView(PUIView):
         self.state.scale
         self.tile_variant()
         self.main.state.highlight_changes
+        self.main.state.pcb_tolerance_enabled
         self.flip_horizontal()
         self.main.state.build_time
 
@@ -720,6 +721,7 @@ class DifferUI(Application):
         self.state.selected_layer = None
         self.state.highlight_changes = True
         self.state.flip_board_view = False
+        self.state.pcb_tolerance_enabled = True
         self.state.overlap_percent = DEFAULT_OVERLAP_PERCENT
         self.state.build_time = 0
         self.state.use_workspace = False
@@ -968,7 +970,11 @@ class DifferUI(Application):
                             with Scroll(horizontal=None).layout(width=250):
                                 with VBox():
                                     Checkbox("Highlight Changes", model=self.state("highlight_changes"))
-                                    Checkbox("Flip board view", model=self.state("flip_board_view"))
+                                    Checkbox("Flip Board View", model=self.state("flip_board_view"))
+                                    Checkbox(
+                                        "5 µm Tolerance",
+                                        model=self.state("pcb_tolerance_enabled"),
+                                    ).click(self.pcb_tolerance_changed)
                                     Label("Presets")
                                     with ComboBox(
                                         text_model=self.state("layer_preset")
@@ -1403,6 +1409,13 @@ class DifferUI(Application):
             self._pcb_similarity_tiles = None
         self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
 
+    def pcb_tolerance_changed(self, _event):
+        self.state.layer_stats = None
+        self._pcb_similarity_tiles = None
+        self.pcb_tiles.reset(self.pcb_tiles.metadata)
+        self.prime_pcb_coarse()
+        self.build()
+
     def update_visible_layer_stats(self, tile_keys, tile_results):
         signature = visible_similarity_signature(tile_keys)
         if signature != self._pcb_similarity_tiles:
@@ -1466,7 +1479,10 @@ class DifferUI(Application):
             task["tile_y"],
             composite_buffers=composite_buffers,
             mask_buffer=mask_buffer,
-            tolerance_um=PCB_DIFF_TOLERANCE_UM,
+            tolerance_um=(
+                PCB_DIFF_TOLERANCE_UM
+                if self.state.pcb_tolerance_enabled else 0.0
+            ),
             collect_layer_stats=not task.get("coarse", False),
         )
         apply_overlap_color_shift(

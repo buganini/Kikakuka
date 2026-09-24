@@ -7,7 +7,7 @@
     * Toggle the top-rendered PCB layer off by clicking its label again
     * Show each PCB layer's render color beside its name in the layer list
     * Prioritize tiles around the canvas center when the cursor is outside the diff canvas
-    * Suppress narrow highlights from equivalent curve discretization with a 10 µm per-layer geometry tolerance while preserving isolated changes
+    * Add a default-on 5 µm per-layer geometry tolerance to suppress narrow highlights from equivalent curve discretization while preserving isolated changes
     * Add a default Fabrication preset containing all copper, adhesive, paste, silkscreen, mask, and Edge.Cuts layers
     * Show tolerance-aware visual similarity for each enabled PCB layer over the currently visible detailed tiles
     * Normalize drilled Paste flashes only in Differ's temporary Gerber conversion so KiCad's native PDF drill overlay renders source and converted boards consistently

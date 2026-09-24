@@ -153,7 +153,8 @@ The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
    built in and does not depend on the user's KiCad theme files.
 8. Threshold A and B into binary geometry separately for each visible layer.
    Before merging the layer masks, discard one-sided geometry whose boundary
-   is within 10 µm of the other side. The renderer converts this physical
+   is within 5 µm of the other side when the **5 µm Tolerance** option is
+   enabled. The renderer converts this physical
    tolerance to pixels at the tile's raster level and accounts for the fact
    that the distance transform measures between pixel centers. This suppresses
    the narrow highlight bands produced when equivalent arcs are discretized
@@ -191,11 +192,12 @@ visible tiles.
 
 Each enabled layer shows **Visible Similarity (%)** for the detailed tiles that
 intersect the current viewport. The renderer measures binary geometry after
-applying the 10 µm tolerance described above. The score is the A/B intersection
-area divided by their union area, equivalently 100% minus the tolerated
-difference area divided by the union area. A score of `100.00` therefore means
-that no difference remains in those tiles. Disabled layers show no score. The
-score displays `...` until every visible tile at the current raster level is
+applying the optional 5 µm tolerance described above. The score is the A/B
+intersection area divided by their union area, equivalently 100% minus the
+tolerated difference area divided by the union area. A score of `100.00`
+therefore means that no difference remains in those tiles. Disabled layers
+show no score. The score displays `...` until every visible tile at the current
+raster level is
 ready, and is recalculated after panning, zooming, or changing layer visibility.
 Because it follows the current raster level and complete tiles intersecting the
 viewport, it is a viewing aid rather than a whole-board metrology result.
@@ -242,7 +244,7 @@ rescaling on every zoom, and full-page A/B/overlap/mask PNG intermediates.
 | Raster area | Complete page and every layer | Current visible tiles and visible layers |
 | Raster resolution | Fixed scale 7 | Ceiling physical-pixel viewport LOD, scale 0.25 through 8 |
 | Layer images on disk | Three full-page images per layer | None in the application; four composited PNGs per tile in test/benchmark mode |
-| Mask processing | Blur every layer, then merge | Apply a 10 µm per-layer geometry tolerance, merge binary layers, then blur once |
+| Mask processing | Blur every layer, then merge | Optionally apply a 5 µm per-layer geometry tolerance, merge binary layers, then blur once |
 | Alpha-only changes | Ignored by grayscale conversion | Included in the binary difference |
 | Layer visibility | Changes display only | Changes both display and difference mask |
 | UI work | Loads and rescales full pages | Draws worker-produced in-memory tile images |
