@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 import sys
+
+inputs = sys.argv[1:]
+if "--open" in inputs or "--fresh" in inputs:
+    from pcb_open import open_requested_kicad_files
+
+    open_requested_kicad_files(inputs)
+    sys.exit(0)
+
 from differ import *
 from workspace import *
 from panelizer import *
 from gerber import *
 
-inputs = sys.argv[1:]
 if inputs:
     if inputs[0] == "--differ":
         ui = DifferUI(*inputs[1:])
@@ -17,6 +24,10 @@ if inputs:
         print()
         print("  # Start with PCB files")
         print(f"  {sys.argv[0]} a.kicad_pcb b.kicad_pcb...")
+        print()
+        print("  # Open KiCad files through the instance manager")
+        print(f"  {sys.argv[0]} --open [--fresh] a.kicad_pcb [b.kicad_pcb ...]")
+        print("  # --fresh reloads only already-open .kicad_pcb files from disk")
         print()
         print("  # Load file (.kkkk, .kkkk_fab, or legacy .kikit_pnl)")
         print(f"  {sys.argv[0]} a.kkkk_fab")

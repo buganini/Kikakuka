@@ -124,6 +124,78 @@ class PcbOpenTests(unittest.TestCase):
                     pcb_open.open_pcb_file("/boards/missing.kicad_pcb")
         request.assert_not_called()
 
+    def test_open_cli_accepts_fresh_after_open(self):
+        for arguments in (
+            ["--open", "--fresh", "/boards/main.kicad_pcb"],
+            ["--open", "/boards/main.kicad_pcb", "--fresh"],
+        ):
+            with self.subTest(arguments=arguments):
+                self.assertEqual(
+                    pcb_open.parse_open_arguments(arguments),
+                    (["/boards/main.kicad_pcb"], True),
+                )
+
+    def test_open_cli_requires_open_as_first_argument(self):
+        with self.assertRaisesRegex(ValueError, "--open must be the first"):
+            pcb_open.parse_open_arguments([
+                "--fresh", "--open", "/boards/main.kicad_pcb",
+            ])
+
+    def test_open_cli_forwards_all_files_to_instance_open(self):
+        paths = ["/boards/a.kicad_pcb", "/boards/b.kicad_pcb"]
+        with mock.patch("pcb_open.open_kicad_file") as open_file:
+            handled = pcb_open.open_requested_kicad_files(
+                ["--open", "--fresh", *paths])
+
+        self.assertTrue(handled)
+        self.assertEqual(open_file.call_args_list, [
+            mock.call(paths[0], ensure_fresh=True),
+            mock.call(paths[1], ensure_fresh=True),
+        ])
+
+    def test_open_cli_applies_fresh_only_to_pcbs_in_mixed_list(self):
+        paths = [
+            "/boards/a.kicad_sch",
+            "/boards/a.kicad_pcb",
+            "/boards/a.kicad_pro",
+        ]
+        with mock.patch("pcb_open.open_kicad_file") as open_file:
+            handled = pcb_open.open_requested_kicad_files(
+                ["--open", *paths, "--fresh"])
+
+        self.assertTrue(handled)
+        self.assertEqual(open_file.call_args_list, [
+            mock.call(paths[0], ensure_fresh=False),
+            mock.call(paths[1], ensure_fresh=True),
+            mock.call(paths[2], ensure_fresh=False),
+        ])
+
+    def test_open_cli_fresh_requires_a_pcb_before_opening_anything(self):
+        with mock.patch("pcb_open.open_kicad_file") as open_file:
+            with self.assertRaisesRegex(ValueError, "at least one .kicad_pcb"):
+                pcb_open.open_requested_kicad_files([
+                    "--open", "--fresh", "/boards/a.kicad_sch",
+                    "/boards/a.kicad_pro",
+                ])
+        open_file.assert_not_called()
+
+    def test_open_cli_is_not_selected_without_open_flag(self):
+        with mock.patch("pcb_open.open_kicad_file") as open_file:
+            self.assertFalse(pcb_open.open_requested_kicad_files([
+                "/boards/main.kicad_pcb",
+            ]))
+        open_file.assert_not_called()
+
+    def test_open_cli_rejects_fresh_without_open(self):
+        with self.assertRaisesRegex(ValueError, "--fresh requires --open"):
+            pcb_open.parse_open_arguments([
+                "--fresh", "/boards/main.kicad_pcb",
+            ])
+
+    def test_open_cli_requires_a_path(self):
+        with self.assertRaisesRegex(ValueError, "at least one KiCad file"):
+            pcb_open.parse_open_arguments(["--open", "--fresh"])
+
 
 if __name__ == "__main__":
     unittest.main()

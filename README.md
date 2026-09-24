@@ -420,6 +420,14 @@ git submodule update --init --recursive
 # Start with PCB files
 ./env/bin/python3 kikakuka.py a.kicad_pcb b.kicad_pcb...
 
+# Open KiCad files through the instance manager
+./env/bin/python3 kikakuka.py --open a.kicad_pcb
+
+# Open or focus a PCB and reload it from disk once its IPC API is ready
+./env/bin/python3 kikakuka.py --open --fresh a.kicad_pcb
+# In a mixed list, --fresh affects only .kicad_pcb files; schematics and
+# projects are opened normally.
+
 # Load file (.kkkk, .kkkk_fab, or legacy .kikit_pnl)
 ./env/bin/python3 kikakuka.py a.kkkk_fab
 
