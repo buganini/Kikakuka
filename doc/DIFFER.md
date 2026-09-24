@@ -38,6 +38,12 @@ display color, so the viewport renderer rasterizes it directly to one-channel
 grayscale coverage. PDF export is shared by both renderers and should be timed
 separately when comparing them.
 
+Gerber inputs use a Differ-only conversion mode. When a circular Paste flash is
+concentric with a plated drill, the temporary board associates that flash with
+the synthetic PTH pad. KiCad's normal PDF drill overlay can then render the
+source board and imported Paste Gerber consistently without changing regular
+Gerber conversion or requiring a separate Paste export pass.
+
 The pair metadata contains:
 
 - the PDF path for each layer on side A and side B

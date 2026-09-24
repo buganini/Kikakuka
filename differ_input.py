@@ -18,5 +18,5 @@ def prepare_differ_source(source, side, temp_dir):
     output = os.path.join(
         output_dir, f"{source_name or 'gerber'}.kicad_pcb")
     errors = convert_to_kicad(
-        source, output, required_edge_cuts=False)
+        source, output, required_edge_cuts=False, differ_mode=True)
     return output, errors

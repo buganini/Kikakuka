@@ -33,7 +33,8 @@ class DifferInputTests(unittest.TestCase):
         self.assertIn(f"{os.sep}gerber-b-", prepared)
         self.assertEqual(errors, ["warning"])
         convert.assert_called_once_with(
-            os.path.abspath(source), prepared, required_edge_cuts=False)
+            os.path.abspath(source), prepared, required_edge_cuts=False,
+            differ_mode=True)
 
     def test_gerber_zip_drops_zip_suffix_from_output(self):
         with tempfile.TemporaryDirectory() as temp_dir, \
@@ -49,7 +50,8 @@ class DifferInputTests(unittest.TestCase):
         self.assertEqual(os.path.basename(prepared), "production.kicad_pcb")
         self.assertEqual(errors, [])
         convert.assert_called_once_with(
-            os.path.abspath(source), prepared, required_edge_cuts=False)
+            os.path.abspath(source), prepared, required_edge_cuts=False,
+            differ_mode=True)
 
 
 if __name__ == "__main__":

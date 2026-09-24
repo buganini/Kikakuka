@@ -256,6 +256,58 @@ def new_pth_footprint(board, position):
     return footprint
 
 
+def prepare_differ_paste_drills(board, position_tolerance=1000):
+    """Make drilled Paste flashes use KiCad's native pad plotting.
+
+    Gerber Paste flashes are normally imported as board graphics.  KiCad's PDF
+    plotter only applies its drill overlay to pad-owned Paste geometry, so a
+    converted Gerber and its source board otherwise render differently.  This
+    normalization is intentionally reserved for Differ's temporary boards.
+    """
+    pth_pads = [
+        pad
+        for footprint in board.GetFootprints()
+        for pad in footprint.Pads()
+        if pad.GetAttribute() == pcbnew.PAD_ATTRIB_PTH
+    ]
+
+    matches = [(pad, []) for pad in pth_pads]
+    for shape in list(board.GetDrawings()):
+        if (shape.GetLayer() not in (pcbnew.F_Paste, pcbnew.B_Paste)
+                or shape.GetShape() != pcbnew.SHAPE_T_CIRCLE
+                or not shape.IsSolidFill()):
+            continue
+
+        center = shape.GetCenter()
+        match = next((
+            entry for entry in matches
+            if abs(entry[0].GetPosition().x - center.x)
+            <= position_tolerance
+            and abs(entry[0].GetPosition().y - center.y)
+            <= position_tolerance
+        ), None)
+        if match is None:
+            continue
+        match[1].append(shape)
+
+    for pad, shapes in matches:
+        if not shapes:
+            continue
+        diameters = [shape.GetRadius() * 2 for shape in shapes]
+        if max(diameters) - min(diameters) > position_tolerance:
+            continue
+
+        diameter = diameters[0]
+        pad.SetShape(pcbnew.PAD_SHAPE_CIRCLE)
+        pad.SetSize(pcbnew.VECTOR2I(diameter, diameter))
+        layers = pad.GetLayerSet()
+        for shape in shapes:
+            layers.AddLayer(shape.GetLayer())
+        pad.SetLayerSet(layers)
+        for shape in shapes:
+            board.Remove(shape)
+
+
 def populate_kicad(board, gbr, layer, errors):
     # print(gbr, dir(gbr))
     # print(gbr.__dict__)
@@ -569,7 +621,9 @@ def populate_kicad_by_primitive(
         # print(dir(primitive))
         errors.append(f"Unhandled primitive {primitive.__class__.__name__}")
 
-def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False, bom_file=None, cpl_file=None, extra_files=None):
+def convert_to_kicad(
+        input, output, required_edge_cuts=True, outline_only=False,
+        bom_file=None, cpl_file=None, extra_files=None, differ_mode=False):
     filenames = list_gerber_files(input)
     if extra_files:
         filenames.extend(extra_files)
@@ -768,6 +822,9 @@ def convert_to_kicad(input, output, required_edge_cuts=True, outline_only=False,
                     ref.SetVisible(True)
                     board.Add(footprint)
         print(filenames)
+
+    if differ_mode:
+        prepare_differ_paste_drills(board)
 
     board.Save(output)
 

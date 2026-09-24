@@ -78,9 +78,40 @@ class GerberDrillTests(unittest.TestCase):
             for pad in pth_pads
         ))
         self.assertTrue(all(
+            not pad.GetLayerSet().Contains(pcbnew.F_Paste)
+            and not pad.GetLayerSet().Contains(pcbnew.B_Paste)
+            for pad in pth_pads
+        ))
+        self.assertTrue(all(
             pad.GetSize().x == pad.GetDrillSize().x + 1
             and pad.GetSize().y == pad.GetDrillSize().y + 1
             for pad in pth_pads
+        ))
+
+    def test_differ_mode_promotes_drilled_paste_flashes_to_pads(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = os.path.join(temp_dir, "converted.kicad_pcb")
+            errors = convert_to_kicad(
+                "samples/gerber/export", output,
+                required_edge_cuts=False, differ_mode=True)
+            board = pcbnew.LoadBoard(output)
+
+        pth_pads = [
+            pad for footprint in board.GetFootprints()
+            for pad in footprint.Pads()
+            if pad.GetAttribute() == pcbnew.PAD_ATTRIB_PTH
+        ]
+        paste_pads = [
+            pad for pad in pth_pads
+            if pad.GetLayerSet().Contains(pcbnew.F_Paste)
+            or pad.GetLayerSet().Contains(pcbnew.B_Paste)
+        ]
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(paste_pads), 12)
+        self.assertTrue(all(
+            pad.GetSizeX() > pad.GetDrillSizeX()
+            for pad in paste_pads
         ))
 
 
