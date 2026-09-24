@@ -49,7 +49,7 @@ jobs:
 
           find source -name .git -prune -exec rm -rf {} +
           mv source "$archive"
-          tar -czf "${archive}.tar.gz" "$archive"
+          tar --dereference -czf "${archive}.tar.gz" "$archive"
 
           echo "ARCHIVE=${archive}.tar.gz" >> "$GITHUB_ENV"
 

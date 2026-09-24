@@ -4,14 +4,14 @@ import os
 import platform
 import subprocess
 
-from FreekiCAD.freecad.FreekiCAD import im_mesh
+from im import im_mesh
 
 WORKSPACE_OPEN_TIMEOUT = 120.0
 
 
 def _ensure_instance_node():
     """Make standalone Kikakuka tools participate in the instance mesh."""
-    from FreekiCAD.freecad.FreekiCAD.instance_backend import handle
+    from im.instance_backend import handle
 
     return im_mesh.start_node(handle)
 

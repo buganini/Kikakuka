@@ -4,7 +4,7 @@ METADATA_REPO_URL ?= git@gitlab.com:buganini/metadata.git
 METADATA_WORKDIR ?= workdir/metadata
 
 sync:
-	rsync -av8 --delete --exclude='.git/' --exclude='__pycache__/' FreekiCAD/ ../FreekiCAD/
+	rsync -av8L --delete --exclude='.git/' --exclude='__pycache__/' FreekiCAD/ ../FreekiCAD/
 
 archive-zips:
 	rm -f kikakuka-library.zip kikakuka-plugin.zip

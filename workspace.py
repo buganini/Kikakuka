@@ -713,14 +713,14 @@ class WorkspaceUI(PUIView):
         Thread(target=self._openFreeCAD, args=[filepath], daemon=True).start()
 
     def _openFreeCAD(self, filepath):
-        from FreekiCAD.freecad.FreekiCAD import im_mesh
+        from im import im_mesh
         from pcb_open import open_with_system
         try:
             reply = im_mesh.request({"action": "open-file", "filepath": filepath})
             if reply.get("status") == "error":
                 print(f"Instance mesh: {reply.get('message', 'could not open FreeCAD file')}")
         except ConnectionError:
-            from FreekiCAD.freecad.FreekiCAD.instance_backend import _editors
+            from im.instance_backend import _editors
             if _editors("freecad"):
                 print("Instance mesh unavailable: FreeCAD is running but its "
                       "FreekiCAD instance node cannot be reached")
@@ -764,8 +764,8 @@ class MainUI(Application):
         # permanent leader is required for FreekiCAD to resolve KiCad IPC.
         self._bus = None
         try:
-            from FreekiCAD.freecad.FreekiCAD.im_mesh import start_node
-            from FreekiCAD.freecad.FreekiCAD.instance_backend import handle
+            from im.im_mesh import start_node
+            from im.instance_backend import handle
             self._bus = start_node(handle, self._mesh_mapping_changed)
             import atexit
             atexit.register(self._shutdown_bus)
@@ -775,10 +775,10 @@ class MainUI(Application):
         self.refresh_monitor()
 
     def refresh_monitor(self, _event=None):
-        from FreekiCAD.freecad.FreekiCAD.instance_backend import scan_open_kicad_boards
+        from im.instance_backend import scan_open_kicad_boards
         boards = scan_open_kicad_boards()
         if self._bus:
-            from FreekiCAD.freecad.FreekiCAD.im_mesh import scan_freecad_documents
+            from im.im_mesh import scan_freecad_documents
             self._bus.refresh()
             scans = scan_freecad_documents()
         else:
@@ -801,7 +801,7 @@ class MainUI(Application):
         bringToFront(pid)
         if program == "FreeCAD" and filepath:
             try:
-                from FreekiCAD.freecad.FreekiCAD.im_mesh import activate_open_freecad_document
+                from im.im_mesh import activate_open_freecad_document
                 activate_open_freecad_document(filepath, target_pid=pid)
             except Exception as exc:
                 print(f"Instance Manager: Could not activate {filepath} in PID {pid}: {exc}")

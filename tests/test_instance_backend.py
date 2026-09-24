@@ -7,9 +7,9 @@ import time
 from pathlib import Path
 from unittest import mock
 
-from FreekiCAD.freecad.FreekiCAD import instance_backend as backend
-from FreekiCAD.freecad.FreekiCAD import im_mesh
-from FreekiCAD.freecad.FreekiCAD.kicad_api_retry import retry_kicad_call
+from im import im_mesh
+from im import instance_backend as backend
+from im.kicad_api_retry import retry_kicad_call
 from kipy.errors import ApiError
 from kipy.proto.common import ApiStatusCode
 
@@ -24,7 +24,7 @@ class RetryKicadCallTests(unittest.TestCase):
                 raise ApiError("busy", code=ApiStatusCode.AS_BUSY)
             return "ok"
 
-        with mock.patch("FreekiCAD.freecad.FreekiCAD.kicad_api_retry.time.sleep"):
+        with mock.patch("im.kicad_api_retry.time.sleep"):
             self.assertEqual(retry_kicad_call(func, max_retries=5), "ok")
         self.assertEqual(attempts["count"], 3)
 

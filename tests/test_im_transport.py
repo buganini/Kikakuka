@@ -3,7 +3,7 @@
 import socket
 import unittest
 
-from FreekiCAD.freecad.FreekiCAD import im_transport
+from im import im_transport
 
 
 class InstanceTransportTests(unittest.TestCase):

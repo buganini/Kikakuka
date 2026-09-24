@@ -12,7 +12,7 @@ import types
 import unittest
 from unittest import mock
 
-from FreekiCAD.freecad.FreekiCAD import im_mesh
+from im import im_mesh
 
 
 def _child_node(runtime_path, ready, stop):
