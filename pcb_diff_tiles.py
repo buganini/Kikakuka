@@ -512,6 +512,13 @@ def binary_layer_difference(image_a, image_b,
                             distance_tolerance_pixels=0.0):
     occupancy_a = binary_layer_occupancy(image_a, alpha_threshold)
     occupancy_b = binary_layer_occupancy(image_b, alpha_threshold)
+    return binary_occupancy_difference(
+        occupancy_a, occupancy_b, distance_tolerance_pixels
+    )
+
+
+def binary_occupancy_difference(occupancy_a, occupancy_b,
+                                distance_tolerance_pixels=0.0):
     difference = cv2.bitwise_xor(occupancy_a, occupancy_b)
     if distance_tolerance_pixels <= 0 or not np.any(difference):
         return difference
@@ -537,6 +544,44 @@ def binary_layer_difference(image_a, image_b,
             tolerated_difference, one_sided, dst=tolerated_difference
         )
     return tolerated_difference
+
+
+def layer_similarity_stats(occupancy_a, occupancy_b, difference):
+    data_pixels = int(np.count_nonzero(cv2.bitwise_or(
+        occupancy_a, occupancy_b
+    )))
+    difference_pixels = int(np.count_nonzero(difference))
+    return {
+        "difference_pixels": difference_pixels,
+        "data_pixels": data_pixels,
+    }
+
+
+def combine_layer_similarity_stats(tile_stats):
+    combined = {}
+    for layers in tile_stats:
+        for layer, stats in layers.items():
+            total = combined.setdefault(
+                layer, {"difference_pixels": 0, "data_pixels": 0}
+            )
+            total["difference_pixels"] += stats["difference_pixels"]
+            total["data_pixels"] += stats["data_pixels"]
+    return combined
+
+
+def format_layer_similarity(stats):
+    if not stats:
+        return None
+    difference_pixels = stats["difference_pixels"]
+    data_pixels = stats["data_pixels"]
+    if data_pixels <= 0:
+        return None
+    if difference_pixels == 0:
+        return "100.00"
+    percent = max(
+        0.0, 100.0 * (1.0 - difference_pixels / data_pixels)
+    )
+    return f"{min(percent, 99.99):.2f}"
 
 
 def physical_tolerance_pixels(tolerance_um, render_scale):
@@ -937,7 +982,8 @@ class PcbTileRenderer:
     def render_tile(self, metadata, layers, render_scale, tile_x, tile_y,
                     output_root=None, gutter=TILE_GUTTER,
                     return_image_data=False, composite_buffers=None,
-                    mask_buffer=None, tolerance_um=0.0):
+                    mask_buffer=None, tolerance_um=0.0,
+                    collect_layer_stats=False):
         canvas_size = metadata["canvas_size"]
         pixel_x, pixel_y, pixel_width, pixel_height = tile_pixel_bounds(
             canvas_size, render_scale, tile_x, tile_y
@@ -992,6 +1038,7 @@ class PcbTileRenderer:
             6, extended_pixel_height, extended_pixel_width
         )
         merged_binary_mask.fill(0)
+        per_layer_stats = {}
         has_layers = False
         dirty_bounds = (0, 0, 0, 0)
         pdf_render_seconds = 0.0
@@ -1099,16 +1146,41 @@ class PcbTileRenderer:
                     distance_tolerance_pixels = 1.0 + (
                         physical_tolerance_pixels(tolerance_um, render_scale)
                     )
-                layer_difference = binary_layer_difference(
-                    image_a,
-                    image_b,
-                    distance_tolerance_pixels=distance_tolerance_pixels,
+                occupancy_a = binary_layer_occupancy(image_a)
+                occupancy_b = binary_layer_occupancy(image_b)
+                layer_difference = binary_occupancy_difference(
+                    occupancy_a, occupancy_b, distance_tolerance_pixels
                 )
+                if collect_layer_stats:
+                    per_layer_stats[layer] = layer_similarity_stats(
+                        occupancy_a[
+                            crop_y:crop_y + crop_height,
+                            crop_x:crop_x + crop_width,
+                        ],
+                        occupancy_b[
+                            crop_y:crop_y + crop_height,
+                            crop_x:crop_x + crop_width,
+                        ],
+                        layer_difference[
+                            crop_y:crop_y + crop_height,
+                            crop_x:crop_x + crop_width,
+                        ],
+                    )
                 cv2.max(
                     merged_binary_mask,
                     layer_difference,
                     dst=merged_binary_mask,
                 )
+            elif collect_layer_stats:
+                occupancy = binary_layer_occupancy(image_a)
+                occupancy = occupancy[
+                    crop_y:crop_y + crop_height,
+                    crop_x:crop_x + crop_width,
+                ]
+                per_layer_stats[layer] = {
+                    "difference_pixels": 0,
+                    "data_pixels": int(np.count_nonzero(occupancy)),
+                }
             composite_seconds += time.perf_counter() - composite_started
 
         if not has_layers:
@@ -1170,6 +1242,8 @@ class PcbTileRenderer:
             "pdf_render_ms": pdf_render_seconds * 1000,
             "composite_ms": composite_seconds * 1000,
         }
+        if collect_layer_stats:
+            result["layer_stats"] = per_layer_stats
         if return_image_data:
             result["image_data"] = image_data
             result["mask_data"] = mask

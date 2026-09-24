@@ -28,12 +28,15 @@ from pcb_diff_tiles import (
     choose_render_scale,
     choose_fallback_scale,
     clipped_tile_geometry,
+    combine_layer_similarity_stats,
     comparison_regions,
     combine_layer_images,
     display_layer_label,
     finish_merged_mask,
+    format_layer_similarity,
     layers_for_preset,
     layer_label_color,
+    layer_similarity_stats,
     mirrored_view_transform,
     paired_layer_label,
     physical_tolerance_pixels,
@@ -593,6 +596,55 @@ class PcbDiffTileImageTests(unittest.TestCase):
             physical_tolerance_pixels(10.0, 64.0), 1.8141732283
         )
 
+    def test_layer_similarity_uses_union_data_area(self):
+        occupancy_a = np.array([[255, 255, 0, 0]], dtype=np.uint8)
+        occupancy_b = np.array([[0, 255, 255, 0]], dtype=np.uint8)
+        difference = np.array([[255, 0, 255, 0]], dtype=np.uint8)
+
+        stats = layer_similarity_stats(
+            occupancy_a, occupancy_b, difference
+        )
+
+        self.assertEqual(
+            stats, {"difference_pixels": 2, "data_pixels": 3}
+        )
+        self.assertEqual(format_layer_similarity(stats), "33.33")
+
+    def test_layer_similarity_only_reports_100_for_zero_difference(self):
+        self.assertEqual(
+            format_layer_similarity({
+                "difference_pixels": 0,
+                "data_pixels": 10,
+            }),
+            "100.00",
+        )
+        self.assertEqual(
+            format_layer_similarity({
+                "difference_pixels": 1,
+                "data_pixels": 1_000_000,
+            }),
+            "99.99",
+        )
+        self.assertIsNone(format_layer_similarity({
+            "difference_pixels": 0,
+            "data_pixels": 0,
+        }))
+
+    def test_layer_similarity_combines_visible_tile_areas(self):
+        self.assertEqual(
+            combine_layer_similarity_stats((
+                {"F.Cu": {"difference_pixels": 2, "data_pixels": 10}},
+                {
+                    "F.Cu": {"difference_pixels": 1, "data_pixels": 5},
+                    "B.Cu": {"difference_pixels": 0, "data_pixels": 4},
+                },
+            )),
+            {
+                "F.Cu": {"difference_pixels": 3, "data_pixels": 15},
+                "B.Cu": {"difference_pixels": 0, "data_pixels": 4},
+            },
+        )
+
     def test_merged_mask_keeps_shape_and_expands_change(self):
         binary_mask = np.zeros((64, 64), dtype=np.uint8)
         binary_mask[32, 32] = 255
@@ -693,6 +745,30 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
         self.assertEqual(result["mask_data"].shape, (4, 4, 4))
         self.assertGreaterEqual(result["pdf_render_ms"], 0.0)
         self.assertGreaterEqual(result["composite_ms"], 0.0)
+
+    def test_viewport_block_collects_per_layer_similarity_stats(self):
+        renderer = PcbTileRenderer()
+        renderer._render_layer = mock.Mock(
+            side_effect=lambda path, *_args, **_kwargs: (
+                self.image_a.copy() if path == "a.pdf"
+                else self.image_b.copy()
+            )
+        )
+
+        result = renderer.render_tile(
+            self.metadata,
+            ["F.Cu"],
+            1.0,
+            0,
+            0,
+            return_image_data=True,
+            collect_layer_stats=True,
+        )
+
+        self.assertEqual(
+            result["layer_stats"]["F.Cu"],
+            {"difference_pixels": 1, "data_pixels": 1},
+        )
 
     def test_viewport_block_renders_empty_layer_selection(self):
         result = PcbTileRenderer().render_tile(

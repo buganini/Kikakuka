@@ -36,7 +36,9 @@ from pcb_diff_tiles import (
     build_pair_metadata,
     choose_render_scale,
     clipped_tile_geometry,
+    combine_layer_similarity_stats,
     comparison_regions,
+    format_layer_similarity,
     layers_for_preset,
     layer_label_color,
     mirrored_view_transform,
@@ -388,6 +390,9 @@ class PdfTileDiffView(PUIView):
             elif "error" not in result:
                 tile_results.append(result)
 
+        if isinstance(self, PcbDiffView):
+            self.main.update_visible_layer_stats(tile_keys, tile_results)
+
         viewport_bounds = (
             max(0.0, (0.0 - view_offx) / scale),
             max(0.0, (0.0 - offy) / scale),
@@ -688,6 +693,7 @@ class DifferUI(Application):
         self.state.diff_pair = None
         self.state.layers = []
         self.state.layer_labels = {}
+        self.state.layer_stats = None
         self.state.layer_preset = DEFAULT_PCB_LAYER_PRESET
         self.state.selected_layer = None
         self.state.highlight_changes = True
@@ -704,6 +710,7 @@ class DifferUI(Application):
         self.repo_b = None
         self._pending_revision_a = None
         self._pending_revision_b = None
+        self._pcb_similarity_tiles = None
 
         self.queue = queue.Queue()
         scheduler_options = {
@@ -948,7 +955,10 @@ class DifferUI(Application):
                                             ComboBoxItem("Custom")
                                         for preset in PCB_LAYER_PRESETS:
                                             ComboBoxItem(preset)
-                                    Label("Display Layers")
+                                    with HBox():
+                                        Label("Layer")
+                                        Spacer()
+                                        Label("Visible Similarity (%)")
                                     with LayerList():
                                         for layer in self.state.layers:
                                             with HBox():
@@ -970,8 +980,6 @@ class DifferUI(Application):
                                                     self.state.layer_labels.get(
                                                         layer, layer
                                                     )
-                                                ).layout(
-                                                    weight=1
                                                 ).click(
                                                     self.select_pcb_layer, layer
                                                 )
@@ -981,6 +989,17 @@ class DifferUI(Application):
                                                             "font-weight": "bold"
                                                         }
                                                     )
+                                                Spacer()
+                                                if self.state.show_layers.get(
+                                                    layer, True
+                                                ):
+                                                    if self.state.layer_stats is None:
+                                                        Label("...")
+                                                    else:
+                                                        similarity = format_layer_similarity(
+                                                            self.state.layer_stats.get(layer)
+                                                        )
+                                                        Label(similarity or "—")
                                     Spacer()
                 else:
                     with HBox():
@@ -1311,7 +1330,7 @@ class DifferUI(Application):
                 ),
                 None,
             )
-        self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
+        self.prime_pcb_coarse()
 
     def select_pcb_layer(self, _event, layer):
         if not self.state.show_layers.get(layer, True):
@@ -1320,7 +1339,7 @@ class DifferUI(Application):
         self.state.selected_layer = toggle_selected_layer(
             self.state.selected_layer, layer
         )
-        self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
+        self.prime_pcb_coarse()
 
     def apply_layer_preset(self, _event):
         preset = self.state.layer_preset
@@ -1353,7 +1372,26 @@ class DifferUI(Application):
         if selected is None:
             selected = next(iter(visible_layers), None)
         self.state.selected_layer = selected
+        self.prime_pcb_coarse()
+
+    def prime_pcb_coarse(self):
+        self.state.layer_stats = None
+        self._pcb_similarity_tiles = None
         self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
+
+    def update_visible_layer_stats(self, tile_keys, tile_results):
+        signature = frozenset(tile_keys)
+        if signature != self._pcb_similarity_tiles:
+            self._pcb_similarity_tiles = signature
+            if self.state.layer_stats is not None:
+                self.state.layer_stats = None
+        if len(tile_results) != len(tile_keys):
+            return
+        stats = combine_layer_similarity_stats(
+            result.get("layer_stats", {}) for result in tile_results
+        )
+        if stats != self.state.layer_stats:
+            self.state.layer_stats = stats
 
     def build(self):
         self.queue.put(1)
@@ -1405,6 +1443,7 @@ class DifferUI(Application):
             composite_buffers=composite_buffers,
             mask_buffer=mask_buffer,
             tolerance_um=PCB_DIFF_TOLERANCE_UM,
+            collect_layer_stats=not task.get("coarse", False),
         )
         apply_overlap_color_shift(
             image_buffers["a"], image_buffers["b"], image_buffers["darker"],
@@ -1661,12 +1700,12 @@ class DifferUI(Application):
                                 for layer in layers
                             }
                             self.state.pcb_page_size = metadata["canvas_size"]
+                            self.state.layer_stats = None
+                            self._pcb_similarity_tiles = None
                             self.state.sch_page_size = None
                             self.sch_tiles.reset(None)
                             self.pcb_tiles.reset(metadata)
-                            self.pcb_tiles.prime_coarse(
-                                self.pcb_layer_variant()
-                            )
+                            self.prime_pcb_coarse()
                             self.state.diff_pair = diff_pair
                             self.state.loading_diff = False
 

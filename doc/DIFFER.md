@@ -183,6 +183,17 @@ Changing a layer checkbox creates or reuses tiles for that exact layer set.
 Pan and zoom reuse cached tiles at the same raster level and request only newly
 visible tiles.
 
+Each enabled layer shows **Visible Similarity (%)** for the detailed tiles that
+intersect the current viewport. The renderer measures binary geometry after
+applying the 10 µm tolerance described above. The score is the A/B intersection
+area divided by their union area, equivalently 100% minus the tolerated
+difference area divided by the union area. A score of `100.00` therefore means
+that no difference remains in those tiles. Disabled layers show no score. The
+score displays `...` until every visible tile at the current raster level is
+ready, and is recalculated after panning, zooming, or changing layer visibility.
+Because it follows the current raster level and complete tiles intersecting the
+viewport, it is a viewing aid rather than a whole-board metrology result.
+
 Immediately after pair metadata is ready, the worker renders one pinned coarse
 tile covering the complete page. It uses at most scale 0.5 and automatically
 selects a lower scale when necessary to keep the entire page inside 512 x 512

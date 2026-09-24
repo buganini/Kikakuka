@@ -7,6 +7,9 @@
     * Toggle the top-rendered PCB layer off by clicking its label again
     * Show each PCB layer's render color beside its name in the layer list
     * Prioritize tiles around the canvas center when the cursor is outside the diff canvas
+    * Suppress narrow highlights from equivalent curve discretization with a 10 µm per-layer geometry tolerance while preserving isolated changes
+    * Add a default Fabrication preset containing all copper, adhesive, paste, silkscreen, mask, and Edge.Cuts layers
+    * Show tolerance-aware visual similarity for each enabled PCB layer over the currently visible detailed tiles
 * Workspace Manager
     * Open known file locations directly from Instance Manager rows
     * Start an Instance Manager node on demand in standalone Kikakuka tools before opening KiCad files
