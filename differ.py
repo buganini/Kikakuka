@@ -17,6 +17,7 @@ import shutil
 import githelper
 import pcbnew
 from pcb_open import open_kicad_file
+from gerber import convert_to_kicad, is_gerber_dir, is_gerber_zip
 from differ_source import source_paths
 from differ_view_geometry import (
     DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, canvas_priority_point,
@@ -773,14 +774,22 @@ class DifferUI(Application):
                             Label("File A")
                             if self.state.file_a:
                                 Label(self.state.file_a).layout(weight=1)
-                            Button("Open").click(self.open_file_a)
+                            Button("Open KiCad File").click(self.open_file_a)
+                            Button("Open Gerber Folder").click(
+                                self.open_gerber_folder_a)
+                            Button("Open Gerber Zip").click(
+                                self.open_gerber_zip_a)
                             if not self.state.file_a:
                                 Spacer()
                         with HBox():
                             Label("File B")
                             if self.state.file_b:
                                 Label(self.state.file_b).layout(weight=1)
-                            Button("Open").click(self.open_file_b)
+                            Button("Open KiCad File").click(self.open_file_b)
+                            Button("Open Gerber Folder").click(
+                                self.open_gerber_folder_b)
+                            Button("Open Gerber Zip").click(
+                                self.open_gerber_zip_b)
                             if not self.state.file_b:
                                 Spacer()
 
@@ -1060,6 +1069,63 @@ class DifferUI(Application):
         if fn:
             self.state.file_b = fn
             self.change_file_b()
+
+    def open_gerber_folder_a(self, _event):
+        self._open_gerber("a", "folder")
+
+    def open_gerber_folder_b(self, _event):
+        self._open_gerber("b", "folder")
+
+    def open_gerber_zip_a(self, _event):
+        self._open_gerber("a", "zip")
+
+    def open_gerber_zip_b(self, _event):
+        self._open_gerber("b", "zip")
+
+    def _open_gerber(self, side, source_type):
+        if source_type == "folder":
+            source = OpenDirectory("Open Gerber Folder")
+            valid = is_gerber_dir
+            description = "folder"
+        else:
+            source = OpenFile(
+                "Open Gerber Zip", types="Gerber Zip (*.zip)|*.zip")
+            valid = is_gerber_zip
+            description = "zip"
+        if not source:
+            return
+        if not valid(source):
+            Critical(
+                f"Invalid Gerber {description}: {source}",
+                f"Invalid Gerber {description}",
+            )
+            return
+
+        output_dir = tempfile.mkdtemp(
+            prefix=f"gerber-{side}-", dir=self.temp_dir)
+        source_name = os.path.basename(os.path.normpath(source))
+        if source_type == "zip":
+            source_name = os.path.splitext(source_name)[0]
+        output = os.path.join(
+            output_dir, f"{source_name or 'gerber'}.kicad_pcb")
+        try:
+            errors = convert_to_kicad(
+                source, output, required_edge_cuts=False)
+        except Exception as exc:
+            Critical(
+                f"Could not convert Gerber {description}: {exc}",
+                "Gerber conversion failed",
+            )
+            return
+
+        if errors:
+            Critical(
+                "Gerber conversion completed with warnings:\n\n"
+                + "\n".join(errors),
+                "Gerber conversion warnings",
+            )
+        setattr(self.state, f"file_{side}", output)
+        getattr(self, f"change_file_{side}")()
 
     def open_selected_file_a(self, _event):
         self._open_selected_file(
