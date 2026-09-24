@@ -32,7 +32,7 @@ class PdfTileSchedulerTests(unittest.TestCase):
             scheduler.pending[second_keys[1]][1], 1
         )
 
-    def test_reordering_keeps_pending_tiles_without_better_priority(self):
+    def test_reordering_replaces_every_changed_pending_priority(self):
         scheduler = self.make_scheduler()
         scheduler.reset({"canvas_size": (2048.0, 1024.0)})
         keys = scheduler.request(1.0, [(0, 0), (1, 0), (2, 0)])
@@ -42,12 +42,28 @@ class PdfTileSchedulerTests(unittest.TestCase):
 
         scheduler.request(1.0, [(2, 0), (1, 0), (0, 0)])
 
-        self.assertEqual(scheduler.pending[keys[0]][0], original_tokens[keys[0]])
+        self.assertNotEqual(
+            scheduler.pending[keys[0]][0], original_tokens[keys[0]]
+        )
         self.assertEqual(scheduler.pending[keys[1]][0], original_tokens[keys[1]])
         self.assertNotEqual(
             scheduler.pending[keys[2]][0], original_tokens[keys[2]]
         )
-        self.assertEqual(scheduler.queue.qsize(), 4)
+        self.assertEqual(scheduler.queue.qsize(), 5)
+
+    def test_demoted_cursor_tiles_do_not_block_new_center_priority(self):
+        scheduler = self.make_scheduler()
+        scheduler.reset({"canvas_size": (2048.0, 1024.0)})
+        keys = scheduler.request(1.0, [(0, 0), (1, 0), (2, 0)])
+
+        scheduler.request(1.0, [(2, 0), (1, 0), (0, 0)])
+
+        while True:
+            _priority, _sequence, task = scheduler.queue.get_nowait()
+            pending = scheduler.pending.get(task["key"])
+            if pending is not None and pending[0] == task["token"]:
+                break
+        self.assertEqual(task["key"], keys[2])
 
     def test_coarse_tile_stays_pending_when_viewport_changes(self):
         scheduler = self.make_scheduler()

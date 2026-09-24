@@ -351,18 +351,15 @@ def visible_tile_indices(canvas_size, viewport_size, view_transform,
     last_y = int(math.floor(math.nextafter(bottom, -math.inf) / tile_points))
 
     if priority_point is None:
-        center_x = (left + right) / (2.0 * tile_points)
-        center_y = (top + bottom) / (2.0 * tile_points)
-        cursor_tile = None
-    else:
-        priority_x = (priority_point[0] - offx) / view_scale
-        priority_y = (priority_point[1] - offy) / view_scale
-        center_x = math.floor(priority_x / tile_points) + 0.5
-        center_y = math.floor(priority_y / tile_points) + 0.5
-        cursor_tile = (
-            int(math.floor(priority_x / tile_points)),
-            int(math.floor(priority_y / tile_points)),
-        )
+        priority_point = (viewport_width / 2.0, viewport_height / 2.0)
+    priority_x = (priority_point[0] - offx) / view_scale
+    priority_y = (priority_point[1] - offy) / view_scale
+    center_x = math.floor(priority_x / tile_points) + 0.5
+    center_y = math.floor(priority_y / tile_points) + 0.5
+    cursor_tile = (
+        int(math.floor(priority_x / tile_points)),
+        int(math.floor(priority_y / tile_points)),
+    )
     tiles = [
         (tx, ty)
         for ty in range(first_y, last_y + 1)
@@ -384,8 +381,7 @@ def visible_tile_indices(canvas_size, viewport_size, view_transform,
             (tile_x + 0.5 - center_x) ** 2 +
             (tile_y + 0.5 - center_y) ** 2
         )
-        if (cursor_tile is not None and
-                abs(tile_x - cursor_tile[0]) <= 1 and
+        if (abs(tile_x - cursor_tile[0]) <= 1 and
                 abs(tile_y - cursor_tile[1]) <= 1):
             return 0, distance
         if tile_x in line_columns:

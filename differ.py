@@ -22,7 +22,7 @@ from differ_input import prepare_differ_source
 from differ_source import source_paths
 from differ_view_geometry import (
     DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, canvas_priority_point,
-    clipped_view_transform, overlap_bounds,
+    clipped_view_transform, overlap_bounds, viewport_center_splitter_fraction,
 )
 from differ_overlap import apply_overlap_color_shift
 import time
@@ -207,6 +207,7 @@ class PdfTileDiffView(PUIView):
         self.generation = None
         self.tile_images = OrderedDict()
         self.mousehold = False
+        self.cursor_position = None
         self._last_tile_log = 0.0
         self._last_tile_log_incomplete = False
 
@@ -276,7 +277,27 @@ class PdfTileDiffView(PUIView):
          .mousedown(self.mousedown)
          .mouseup(self.mouseup)
          .mousemove(self.mousemove)
+         .mouseenter(self.mouseenter)
+         .mouseleave(self.mouseleave)
          .wheel(self.wheel))
+
+    def mouseenter(self, e):
+        self.cursor_position = (e.x, e.y)
+        self.redraw()
+
+    def mouseleave(self, e):
+        self.cursor_position = None
+        self.mousehold = False
+        self.state.mousepos = None
+        if (self.state.scale is not None and self.canvas_width is not None
+                and self.diff_width is not None):
+            offx, _offy, scale = self.state.scale
+            self.state.splitter_x = viewport_center_splitter_fraction(
+                self.diff_width, self.canvas_width, offx, scale
+            )
+        else:
+            self.state.splitter_x = 0.5
+        self.redraw()
 
     def mousedown(self, e):
         self.state.mousepos = e.x, e.y
@@ -286,6 +307,7 @@ class PdfTileDiffView(PUIView):
         self.mousehold = False
 
     def mousemove(self, e):
+        self.cursor_position = (e.x, e.y)
         if self.state.scale is None:
             return
         if self.canvas_width is None:
@@ -364,9 +386,8 @@ class PdfTileDiffView(PUIView):
         region_a, region_b, region_darker = comparison_regions(
             self.diff_width, x_left, x_right, flipped
         )
-        cursor = canvas.ui.mapFromGlobal(QtGui.QCursor.pos())
         priority_point = canvas_priority_point(
-            (cursor.x(), cursor.y()), (canvas.width, canvas.height)
+            self.cursor_position, (canvas.width, canvas.height)
         )
         if flipped:
             priority_point = (
@@ -635,8 +656,8 @@ class PdfTileDiffView(PUIView):
         for result in tile_results:
             draw_result(result, allow_load=True, draw_mask=True)
 
-        cursor_left = round(offx + x_left * scale)
-        cursor_right = round(offx + x_right * scale)
+        cursor_left = round(view_offx + region_darker[0] * scale)
+        cursor_right = round(view_offx + region_darker[1] * scale)
         canvas.drawLine(
             cursor_left, 0, cursor_left, canvas.height,
             color=self.cursor_color, width=1,

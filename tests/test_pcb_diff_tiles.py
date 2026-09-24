@@ -369,6 +369,22 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
 
         self.assertEqual(tiles[0], (1, 1))
 
+    def test_missing_cursor_uses_viewport_center_priority(self):
+        arguments = {
+            "canvas_size": (2560.0, 2560.0),
+            "viewport_size": (1536, 1024),
+            "view_transform": (-512.0, -256.0, 1.0),
+            "render_scale": 1.0,
+            "priority_lines": (1800.0,),
+        }
+
+        self.assertEqual(
+            visible_tile_indices(**arguments),
+            visible_tile_indices(
+                **arguments, priority_point=(768.0, 512.0)
+            ),
+        )
+
     def test_cursor_tile_precedes_viewport_center(self):
         tiles = visible_tile_indices(
             canvas_size=(1536.0, 1536.0),

@@ -140,8 +140,7 @@ class PdfTileScheduler:
                 if key in self.results:
                     continue
                 pending = self.pending.get(key)
-                # Keep queued work unless this tile gained priority.
-                if pending is not None and pending[1] <= priority:
+                if pending is not None and pending[1] == priority:
                     continue
                 task = {
                     "key": key,

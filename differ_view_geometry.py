@@ -14,6 +14,15 @@ def canvas_priority_point(cursor_position, canvas_size):
     return width / 2, height / 2
 
 
+def viewport_center_splitter_fraction(
+        page_width, viewport_width, view_offset_x, view_scale):
+    """Return the page fraction displayed at the viewport's horizontal center."""
+    if page_width <= 0 or view_scale <= 0:
+        return 0.5
+    source_x = (viewport_width / 2.0 - view_offset_x) / view_scale
+    return max(0.0, min(1.0, source_x / page_width))
+
+
 def clipped_view_transform(previous, page_size, canvas_size, zoom_limit):
     """Keep the current pan/zoom within the new page and canvas bounds."""
     page_width, page_height = page_size
