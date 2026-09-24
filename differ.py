@@ -17,7 +17,8 @@ import shutil
 import githelper
 import pcbnew
 from pcb_open import open_kicad_file
-from gerber import convert_to_kicad, is_gerber_dir, is_gerber_zip
+from gerber import is_gerber_dir, is_gerber_zip
+from differ_input import prepare_differ_source
 from differ_source import source_paths
 from differ_view_geometry import (
     DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, canvas_priority_point,
@@ -728,8 +729,17 @@ class DifferUI(Application):
                         project["path"] = os.path.join(self.base_dir, project["path"])
                 findFiles(self.workspace, self.base_dir, [SCH_SUFFIX, PCB_SUFFIX])
         elif len(argv) == 2:
-            self.state.file_a = os.path.abspath(argv[0])
-            self.state.file_b = os.path.abspath(argv[1])
+            warnings = []
+            self.state.file_a, errors = prepare_differ_source(
+                argv[0], "a", self.temp_dir)
+            warnings.extend(errors)
+            self.state.file_b, errors = prepare_differ_source(
+                argv[1], "b", self.temp_dir)
+            warnings.extend(errors)
+            if warnings:
+                self.state.message = (
+                    "Gerber conversion warnings: " + "; ".join(warnings)
+                )
             self.build()
 
     def cleanup(self):
@@ -1101,16 +1111,9 @@ class DifferUI(Application):
             )
             return
 
-        output_dir = tempfile.mkdtemp(
-            prefix=f"gerber-{side}-", dir=self.temp_dir)
-        source_name = os.path.basename(os.path.normpath(source))
-        if source_type == "zip":
-            source_name = os.path.splitext(source_name)[0]
-        output = os.path.join(
-            output_dir, f"{source_name or 'gerber'}.kicad_pcb")
         try:
-            errors = convert_to_kicad(
-                source, output, required_edge_cuts=False)
+            output, errors = prepare_differ_source(
+                source, side, self.temp_dir)
         except Exception as exc:
             Critical(
                 f"Could not convert Gerber {description}: {exc}",

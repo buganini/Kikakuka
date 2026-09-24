@@ -436,6 +436,8 @@ git submodule update --init --recursive
 
 # Differ
 ./env/bin/python3 kikakuka.py --differ a.kicad_sch b.kicad_sch
+./env/bin/python3 kikakuka.py --differ a.kicad_pcb gerber_folder
+./env/bin/python3 kikakuka.py --differ gerber.zip b.kicad_pcb
 
 # Gerber to KiCAD Conversion
 ./env/bin/python3 kikakuka.py gerber.gbr out.kicad_pcb

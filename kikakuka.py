@@ -37,6 +37,8 @@ if inputs:
         print()
         print("  # Differ")
         print(f"  {sys.argv[0]} --differ a.kicad_sch b.kicad_sch")
+        print(f"  {sys.argv[0]} --differ a.kicad_pcb gerber_folder")
+        print(f"  {sys.argv[0]} --differ gerber.zip b.kicad_pcb")
         print()
         print("  # Gerber to KiCAD Conversion")
         print(f"  {sys.argv[0]} gerber.gbr out.kicad_pcb")
