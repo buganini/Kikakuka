@@ -397,6 +397,36 @@ class InstanceMeshTests(unittest.TestCase):
         reply = im_mesh.request({"action": "open-file", "filepath": "/boards/main.kicad_pcb"})
         self.assertEqual(reply["owner"], "with-kipy")
 
+    def test_activate_or_open_uses_published_owner(self):
+        node = self.node(lambda _: {"status": "ok"})
+        path = os.path.realpath(os.path.join(self.directory.name, "panel.kkkk_fab"))
+        node.publish(path, os.getpid())
+        opener = mock.Mock()
+        activator = mock.Mock()
+
+        with mock.patch.object(im_mesh, "_local_node", node):
+            pid, opened = im_mesh.activate_or_open_published_file(
+                path, opener, activator)
+
+        self.assertEqual(pid, os.getpid())
+        self.assertFalse(opened)
+        opener.assert_not_called()
+        activator.assert_called_once_with(os.getpid())
+
+    def test_activate_or_open_publishes_new_owner(self):
+        node = self.node(lambda _: {"status": "ok"})
+        path = os.path.realpath(os.path.join(self.directory.name, "panel.kkkk_fab"))
+        opener = mock.Mock(return_value=os.getpid())
+
+        with mock.patch.object(im_mesh, "_local_node", node):
+            pid, opened = im_mesh.activate_or_open_published_file(
+                path, opener, mock.Mock())
+
+        self.assertEqual(pid, os.getpid())
+        self.assertTrue(opened)
+        opener.assert_called_once_with(path)
+        self.assertEqual(node.snapshot()[path], os.getpid())
+
     def test_concurrent_nodes_serialize_the_same_file_open(self):
         path = os.path.realpath(os.path.join(self.directory.name, "part.FCStd"))
         launched = []

@@ -6,6 +6,10 @@ selected, including in FreeCADCmd.
 Standalone Kikakuka tools start their local node on demand before opening a
 KiCad file, so the Fabrication Planner and Differ can reuse an existing editor
 without requiring the Workspace Manager to be running.
+GUI Fabrication Planner processes also publish their open FabPlan path. The
+Workspace Manager uses that mapping to activate the owning process instead of
+opening the same FabPlan in another process. Headless FabPlan builds do not
+start an instance node or publish files.
 GUI FreeCAD processes also publish their open document state; FreeCADCmd does
 not publish its own open documents.
 For the differences between FreeCAD and KiCad document lifecycles, see

@@ -54,6 +54,12 @@ class WorkspaceMonitorTests(unittest.TestCase):
         update_pidmap_entry(pidmap, "/boards/new.kicad_pcb", 12)
         self.assertEqual(pidmap, {"/boards/new.kicad_pcb": 12})
 
+    def test_panelizer_replaces_previous_active_plan_for_same_pid(self):
+        pidmap = {}
+        update_pidmap_entry(pidmap, "/boards/old.kkkk_fab", 12)
+        update_pidmap_entry(pidmap, "/boards/new.kkkk_fab", 12)
+        self.assertEqual(pidmap, {"/boards/new.kkkk_fab": 12})
+
     def test_classifies_gui_editors_but_not_cli_or_unrelated_processes(self):
         self.assertEqual(program_for_process("pcbnew.exe"), "KiCad")
         self.assertEqual(program_for_process("PCB Editor"), "KiCad")
@@ -83,6 +89,7 @@ class WorkspaceMonitorTests(unittest.TestCase):
         self.assertEqual(rows, (
             (12, "KiCad", "/boards/main.kicad_pcb"),
             (30, "FreeCAD", "/models/assembly.FCStd"),
+            (60, "Fabrication Planner", "/boards/panel.kkkk_fab"),
         ))
 
     def test_uses_command_line_for_untracked_editor_and_marks_unknown(self):

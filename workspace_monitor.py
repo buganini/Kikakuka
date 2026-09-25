@@ -1,4 +1,4 @@
-"""Best-effort inventory of running KiCad and FreeCAD editors."""
+"""Best-effort inventory of running Kikakuka-supported editors."""
 
 import os
 
@@ -8,17 +8,20 @@ import psutil
 FILE_SUFFIXES = {
     "KiCad": (".kicad_pcb", ".kicad_sch", ".kicad_pro"),
     "FreeCAD": (".fcstd", ".step", ".stp", ".kkkk_asm"),
+    "Fabrication Planner": (".kkkk_fab", ".kikit_pnl"),
 }
 
 
 def update_pidmap_entry(pidmap, filepath, pid):
-    """Keep all FreeCAD documents; KiCad's editor tracks one active file."""
+    """Keep all FreeCAD documents; track one active file for other editors."""
     filepath = os.path.abspath(filepath)
-    if filepath.lower().endswith(FILE_SUFFIXES["KiCad"]):
-        for existing_path, existing_pid in list(pidmap.items()):
-            if (existing_pid == pid and existing_path != filepath and
-                    existing_path.lower().endswith(FILE_SUFFIXES["KiCad"])):
-                pidmap.pop(existing_path, None)
+    for program in ("KiCad", "Fabrication Planner"):
+        if filepath.lower().endswith(FILE_SUFFIXES[program]):
+            for existing_path, existing_pid in list(pidmap.items()):
+                if (existing_pid == pid and existing_path != filepath and
+                        existing_path.lower().endswith(FILE_SUFFIXES[program])):
+                    pidmap.pop(existing_path, None)
+            break
     pidmap[filepath] = pid
 
 
@@ -77,10 +80,16 @@ def snapshot_editor_processes(pidmap):
             try:
                 pid = process.info["pid"]
                 name = process.info.get("name")
-                program = program_for_process(name)
+                tracked = tracked_by_pid.get(pid, ())
+                panel_paths = _file_paths(
+                    tracked, "Fabrication Planner")
+                program = (
+                    "Fabrication Planner" if panel_paths
+                    else program_for_process(name)
+                )
                 if program is None:
                     continue
-                paths = _file_paths(tracked_by_pid.get(pid, ()), program)
+                paths = panel_paths or _file_paths(tracked, program)
                 if not paths:
                     try:
                         arguments = process.cmdline()

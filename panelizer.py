@@ -920,6 +920,8 @@ class PanelizerUI(Application):
         super().__init__(icon=resource_path("icon.ico"))
 
         self.temp_dir = tempfile.mkdtemp(prefix="kikakuka_panelizer_")
+        self._instance_node = None
+        self._published_fabplan = None
         self._background_stop = Event()
         self._build_request_lock = Lock()
         self._build_requests = []
@@ -1000,6 +1002,34 @@ class PanelizerUI(Application):
         )
         self._pcb_file_watcher.start()
 
+    def run(self):
+        try:
+            from im.im_mesh import start_node
+            from im.instance_backend import handle
+            self._instance_node = start_node(handle)
+            self._publish_fabplan(self.state.target_path)
+        except Exception as exc:
+            print(f"Instance mesh: Could not start Panelizer node: {exc}")
+        try:
+            return super().run()
+        finally:
+            self._publish_fabplan(None)
+
+    def _publish_fabplan(self, filepath):
+        if self._instance_node is None:
+            return
+        filepath = (
+            os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
+            if filepath else None
+        )
+        if filepath == self._published_fabplan:
+            return
+        if self._published_fabplan:
+            self._instance_node.publish(self._published_fabplan, None)
+        self._published_fabplan = filepath
+        if filepath:
+            self._instance_node.publish(filepath, os.getpid())
+
     def set_defaults(self):
         self.state.netRenamePattern = "B{n}-{orig}"
         self.state.refRenamePattern = "B{n}-{orig}"
@@ -1053,6 +1083,7 @@ class PanelizerUI(Application):
 
 
     def cleanup(self):
+        self._publish_fabplan(None)
         self._background_stop.set()
         try:
             self._build_semaphore.release()
@@ -1376,6 +1407,7 @@ class PanelizerUI(Application):
         }
         with open(target, "w") as f:
             json.dump(data, f, indent=4)
+        self._publish_fabplan(target)
 
 
     def load(self, e, target=None):
@@ -1549,6 +1581,7 @@ class PanelizerUI(Application):
                 self.state.pcb.append(pcb)
             self.state.scale = None
             self.build()
+            self._publish_fabplan(target)
 
     def use_frame_pcb(self, e):
         frame_pcb = OpenFile("Use Frame PCB", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")

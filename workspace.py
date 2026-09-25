@@ -702,19 +702,7 @@ class WorkspaceUI(PUIView):
         open_folder(location)
 
     def openPanelizer(self, filepath):
-        if bringToFront(self.main.pidmap.get(filepath)):
-            return
-        Thread(target=self._openPanelizer, args=[filepath], daemon=True).start()
-
-    def _openPanelizer(self, filepath):
-        kwargs = {}
-        if platform.system() == "Windows":
-            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        p = subprocess.Popen([*ARGV0, filepath], **kwargs)
-        pid = p.pid
-        self.main.pidmap[filepath] = pid
-        p.wait()
-        self.main.pidmap.pop(filepath, None)
+        self.main.openPanelizer(filepath)
 
     def openFreeCAD(self, filepath):
         Thread(target=self._openFreeCAD, args=[filepath], daemon=True).start()
@@ -950,19 +938,37 @@ class MainUI(Application):
             self.quit()
 
     def openPanelizer(self, filepath):
-        if bringToFront(self.pidmap.get(filepath)):
-            return
         Thread(target=self._openPanelizer, args=[filepath], daemon=True).start()
 
     def _openPanelizer(self, filepath):
+        from im.im_mesh import activate_or_open_published_file
+
+        filepath = os.path.normcase(
+            os.path.realpath(os.path.abspath(filepath))
+        )
         kwargs = {}
         if platform.system() == "Windows":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-        p = subprocess.Popen([*ARGV0, filepath], **kwargs)
-        pid = p.pid
+        launched = {}
+
+        def opener(path):
+            process = subprocess.Popen([*ARGV0, path], **kwargs)
+            launched["process"] = process
+            return process.pid
+
+        pid, opened = activate_or_open_published_file(
+            filepath, opener, bringToFront
+        )
+        if pid is None or not opened:
+            return
+
+        process = launched["process"]
         self.pidmap[filepath] = pid
-        p.wait()
-        self.pidmap.pop(filepath, None)
+        process.wait()
+        if self._bus and self._bus.snapshot().get(filepath) == pid:
+            self._bus.publish(filepath, None)
+        if self.pidmap.get(filepath) == pid:
+            self.pidmap.pop(filepath, None)
 
     def openDiffer(self):
         if bringToFront(self.pidmap.get(":differ")):
