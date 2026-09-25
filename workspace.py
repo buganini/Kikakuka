@@ -571,25 +571,32 @@ class WorkspaceUI(PUIView):
 
     def handleDragEnter(self, event):
         if event.mimeData().hasUrls():
-            print("Drag enter", "accent", event)
             event.accept()
-        else:
-            print("Drag enter", "ignore", event)
-            event.ignore()
+            return True
+        event.ignore()
+        return False
 
     def handleDrop(self, event):
-        print("Dropped", event)
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
-                filepath = url.toLocalFile()
-                if re.match(r".+?\.kicad_(pro|sch|pcb|prl)$", filepath):
-                    filepath = re.sub(r"\.kicad_(pro|sch|pcb|prl)$", ".kicad_pro", filepath)
-                    self.addFile(filepath)
+                filepath = os.path.abspath(url.toLocalFile())
+                lower = filepath.lower()
+                for suffix in (
+                        ".kicad_pro", ".kicad_sch", ".kicad_pcb",
+                        ".kicad_prl"):
+                    if lower.endswith(suffix):
+                        filepath = filepath[:-len(suffix)] + ".kicad_pro"
+                        break
                 else:
-                    print("Dropped unknown file", filepath)
+                    if not lower.endswith((*PNL_SUFFIXES,
+                                           *FREECAD_SUFFIXES)):
+                        continue
+                if os.path.exists(filepath):
+                    self.addFile(filepath)
             event.accept()
-        else:
-            event.ignore()
+            return True
+        event.ignore()
+        return False
 
     def openDiffer(self):
         if bringToFront(self.main.pidmap.get(":differ")):

@@ -3293,6 +3293,64 @@ class PanelizerUI(Application):
     def select_cpl(self, e):
         self.state.focus.cpl_file = OpenFile("Select CPL", dir=os.path.dirname(self.state.focus.file), types="CPL (*.csv)|*.csv")
 
+    def handleDragEnter(self, event):
+        if event.mimeData().hasUrls():
+            event.accept()
+            return True
+        event.ignore()
+        return False
+
+    def handleDrop(self, event):
+        if not event.mimeData().hasUrls():
+            event.ignore()
+            return False
+
+        paths = [
+            os.path.abspath(url.toLocalFile())
+            for url in event.mimeData().urls()
+        ]
+        kinds = []
+        for path in paths:
+            if not os.path.exists(path):
+                kinds.append(None)
+            elif path.lower().endswith(PNL_SUFFIXES):
+                kinds.append("plan")
+            elif (path.lower().endswith(PCB_SUFFIX)
+                  or is_gerber_dir(path)
+                  or is_gerber_zip(path)
+                  or is_gerber_file(path)):
+                kinds.append("source")
+            else:
+                kinds.append(None)
+        if not kinds or not all(kinds) or ("plan" in kinds and len(kinds) != 1):
+            event.ignore()
+            return False
+
+        try:
+            if kinds[0] == "plan":
+                self.load(None, paths[0])
+            else:
+                added = set()
+                for path in paths:
+                    if is_gerber_file(path) and is_gerber_dir(os.path.dirname(path)):
+                        path = os.path.dirname(path)
+                    path = os.path.realpath(path)
+                    if path not in added:
+                        self.addFile(path)
+                        added.add(path)
+        except Exception:
+            traceback_text = traceback.format_exc()
+            traceback.print_exc()
+            Critical(
+                f"Error loading dropped input:\n\n{traceback_text}",
+                "Error loading dropped input",
+            )
+            event.ignore()
+            return False
+
+        event.accept()
+        return True
+
     def content(self):
         title = f"Kikakuka v{VERSION} Fabrication Planner (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
@@ -3310,6 +3368,8 @@ class PanelizerUI(Application):
                     self.state.focus_tab
                     self.state.crosshair
                     (Canvas(self.painter)
+                        .dragEnter(self.handleDragEnter)
+                        .drop(self.handleDrop)
                         .dblclick(self.dblclicked)
                         .mousedown(self.mousedown)
                         .mouseup(self.mouseup)
