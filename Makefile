@@ -30,7 +30,7 @@ archive-source:
 archive-zips:
 	rm -f kikakuka-library.zip kikakuka-plugin.zip "$(LIBRARY_ARCHIVE)" "$(PLUGIN_ARCHIVE)"
 	cd kicad-addon/library && zip -X -r "../../$(LIBRARY_ARCHIVE)" metadata.json footprints 3dmodels resources
-	cd kicad-addon/plugin && zip -X -r "../../$(PLUGIN_ARCHIVE)" metadata.json plugins -x '*/__pycache__/*' '*.pyc'
+	cd kicad-addon/plugin && zip -X -r "../../$(PLUGIN_ARCHIVE)" metadata.json plugins resources -x '*/__pycache__/*' '*.pyc'
 
 archive: archive-source archive-zips
 	mkdir -p $(dir $(METADATA_WORKDIR))
