@@ -941,7 +941,7 @@ class MainUI(Application):
         Thread(target=self._openPanelizer, args=[filepath], daemon=True).start()
 
     def _openPanelizer(self, filepath):
-        from im.im_mesh import activate_or_open_published_file
+        from im.im_mesh import activate_or_open_file
 
         filepath = os.path.normcase(
             os.path.realpath(os.path.abspath(filepath))
@@ -956,7 +956,7 @@ class MainUI(Application):
             launched["process"] = process
             return process.pid
 
-        pid, opened = activate_or_open_published_file(
+        pid, opened = activate_or_open_file(
             filepath, opener, bringToFront
         )
         if pid is None or not opened:

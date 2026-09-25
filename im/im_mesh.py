@@ -579,8 +579,8 @@ def local_node():
     return _local_node
 
 
-def activate_or_open_published_file(filepath, opener, activator):
-    """Activate a published file owner, or open and publish one atomically."""
+def activate_or_open_file(filepath, opener, activator):
+    """Activate a file owner, or open and register one atomically."""
     filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
     node = local_node()
     if node is None:

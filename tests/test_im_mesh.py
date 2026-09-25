@@ -405,7 +405,7 @@ class InstanceMeshTests(unittest.TestCase):
         activator = mock.Mock()
 
         with mock.patch.object(im_mesh, "_local_node", node):
-            pid, opened = im_mesh.activate_or_open_published_file(
+            pid, opened = im_mesh.activate_or_open_file(
                 path, opener, activator)
 
         self.assertEqual(pid, os.getpid())
@@ -419,7 +419,7 @@ class InstanceMeshTests(unittest.TestCase):
         opener = mock.Mock(return_value=os.getpid())
 
         with mock.patch.object(im_mesh, "_local_node", node):
-            pid, opened = im_mesh.activate_or_open_published_file(
+            pid, opened = im_mesh.activate_or_open_file(
                 path, opener, mock.Mock())
 
         self.assertEqual(pid, os.getpid())
