@@ -18,13 +18,11 @@ It creates a few more dimensions for KiCad:
 > Close all running KiCad applications before first using Kikakuka or
 > FreekiCAD. Instance Manager creates a persistent filesystem sentinel that
 > makes subsequently launched instances use PID-specific named pipes.
-
-> [!CAUTION]
+>
 > With an older Kikakuka or FreekiCAD release, close all KiCad applications,
 > create the `%TEMP%\kicad` directory if it does not exist, and create an empty
 > regular file named `%TEMP%\kicad\api.sock`. Leave this sentinel file in place
-> for future KiCad launches. Do not create a directory, symbolic link, socket,
-> or named pipe at that path.
+> for future KiCad launches.
 
 # Features
 * Kikakuka main program
