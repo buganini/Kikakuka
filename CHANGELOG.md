@@ -10,6 +10,7 @@
     * Add a default-on 5 µm per-layer geometry tolerance to suppress narrow highlights from equivalent curve discretization while preserving isolated changes
     * Add a default Fabrication preset containing all copper, adhesive, paste, silkscreen, mask, and Edge.Cuts layers
     * Show tolerance-aware visual similarity for each enabled PCB layer over the currently visible detailed tiles
+    * Calculate and cache 2304 DPI (32x) full-board similarity for every PCB layer with progress reported in the message area
     * Normalize drilled Paste flashes only in Differ's temporary Gerber conversion so KiCad's native PDF drill overlay renders source and converted boards consistently
 * Workspace Manager
     * Open known file locations directly from Instance Manager rows

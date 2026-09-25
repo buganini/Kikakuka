@@ -3,6 +3,7 @@ from PUI.PySide6 import *
 import PUI
 from common import *
 import json
+import math
 import platform
 import subprocess
 from threading import Thread
@@ -33,6 +34,7 @@ from pcb_diff_tiles import (
     DEFAULT_PCB_LAYER_PRESET,
     PCB_LAYER_PRESETS,
     PcbTileRenderer,
+    TILE_SIZE,
     build_pair_metadata,
     choose_render_scale,
     clipped_tile_geometry,
@@ -66,6 +68,7 @@ PDF_TILE_LOW_RES_CACHE_BYTES = 64 * 1024 * 1024
 PDF_TILE_LOW_RES_MAX_SCALE = 1.0
 DIFFER_TILE_LOG_ENABLED = os.environ.get("KIKAKUKA_DIFFER_TILE_LOG") == "1"
 PCB_DIFF_TOLERANCE_UM = 5.0
+FULL_BOARD_SIMILARITY_RENDER_SCALE = 32.0
 
 
 class LayerList(VBox):
@@ -282,11 +285,24 @@ class PdfTileDiffView(PUIView):
          .mouseleave(self.mouseleave)
          .wheel(self.wheel))
 
+    def mouse_events_enabled(self):
+        return True
+
     def mouseenter(self, e):
+        if not self.mouse_events_enabled():
+            self.cursor_position = None
+            self.mousehold = False
+            self.state.mousepos = None
+            return
         self.cursor_position = (e.x, e.y)
         self.redraw()
 
     def mouseleave(self, e):
+        if not self.mouse_events_enabled():
+            self.cursor_position = None
+            self.mousehold = False
+            self.state.mousepos = None
+            return
         self.cursor_position = None
         self.mousehold = False
         self.state.mousepos = None
@@ -301,13 +317,24 @@ class PdfTileDiffView(PUIView):
         self.redraw()
 
     def mousedown(self, e):
+        if not self.mouse_events_enabled():
+            self.mousehold = False
+            self.state.mousepos = None
+            return
         self.state.mousepos = e.x, e.y
         self.mousehold = True
 
     def mouseup(self, e):
         self.mousehold = False
+        if not self.mouse_events_enabled():
+            self.state.mousepos = None
 
     def mousemove(self, e):
+        if not self.mouse_events_enabled():
+            self.cursor_position = None
+            self.mousehold = False
+            self.state.mousepos = None
+            return
         self.cursor_position = (e.x, e.y)
         if self.state.scale is None:
             return
@@ -328,6 +355,8 @@ class PdfTileDiffView(PUIView):
         self.state.mousepos = e.x, e.y
 
     def wheel(self, e):
+        if not self.mouse_events_enabled():
+            return
         if e.modifiers & KeyModifier.CTRL:
             self.main.state.overlap_percent = adjust_overlap_percent(
                 self.main.state.overlap_percent, e.v_delta
@@ -681,6 +710,9 @@ class PcbDiffView(PdfTileDiffView):
     def flip_horizontal(self):
         return self.main.state.flip_board_view
 
+    def mouse_events_enabled(self):
+        return not self.main.state.full_board_similarity_calculating
+
 
 class SchDiffView(PdfTileDiffView):
     scheduler_attribute = "sch_tiles"
@@ -717,6 +749,9 @@ class DifferUI(Application):
         self.state.layers = []
         self.state.layer_labels = {}
         self.state.layer_stats = None
+        self.state.full_board_layer_stats = None
+        self.state.similarity_scope = "visible"
+        self.state.full_board_similarity_calculating = False
         self.state.layer_preset = DEFAULT_PCB_LAYER_PRESET
         self.state.selected_layer = None
         self.state.highlight_changes = True
@@ -735,6 +770,10 @@ class DifferUI(Application):
         self._pending_revision_a = None
         self._pending_revision_b = None
         self._pcb_similarity_tiles = None
+        self._full_board_similarity_cache = {}
+        self._full_board_similarity_token = None
+        self._full_board_similarity_running_key = None
+        self._full_board_message = None
 
         self.queue = queue.Queue()
         scheduler_options = {
@@ -967,68 +1006,85 @@ class DifferUI(Application):
                         with HBox():
                             with VBox().layout(weight=1):
                                 PcbDiffView(self)
-                            with Scroll(horizontal=None).layout(width=250):
-                                with VBox():
-                                    Checkbox("Highlight Changes", model=self.state("highlight_changes"))
-                                    Checkbox("Flip Board View", model=self.state("flip_board_view"))
-                                    Checkbox(
-                                        "5 µm Tolerance",
-                                        model=self.state("pcb_tolerance_enabled"),
-                                    ).click(self.pcb_tolerance_changed)
-                                    Label("Presets")
-                                    with ComboBox(
-                                        text_model=self.state("layer_preset")
-                                    ).change(self.apply_layer_preset):
-                                        if self.state.layer_preset == "Custom":
-                                            ComboBoxItem("Custom")
-                                        for preset in PCB_LAYER_PRESETS:
-                                            ComboBoxItem(preset)
-                                    with HBox():
-                                        Label("Layer")
-                                        Spacer()
-                                        Label("Visible Similarity (%)")
-                                    with LayerList():
-                                        for layer in self.state.layers:
-                                            with HBox():
-                                                Checkbox(
-                                                    "", model=self.state.show_layers(layer)
-                                                ).qt(
-                                                    StyleSheet={"spacing": "0px"}
-                                                ).click(
-                                                    self.layer_visibility_changed,
-                                                    layer,
-                                                )
-                                                Label("■").style(
-                                                    color=layer_label_color(layer)
-                                                ).click(
-                                                    self.select_pcb_layer, layer
-                                                )
-                                                selected = self.state.selected_layer == layer
-                                                layer_label = Label(
-                                                    self.state.layer_labels.get(
-                                                        layer, layer
+                            with VBox():
+                                Checkbox("Highlight Changes", model=self.state("highlight_changes"))
+                                Checkbox("Flip Board View", model=self.state("flip_board_view"))
+                                Checkbox(
+                                    "5 µm Tolerance",
+                                    model=self.state("pcb_tolerance_enabled"),
+                                ).click(self.pcb_tolerance_changed)
+                                Label("Presets")
+                                with ComboBox(
+                                    text_model=self.state("layer_preset")
+                                ).change(self.apply_layer_preset):
+                                    if self.state.layer_preset == "Custom":
+                                        ComboBoxItem("Custom")
+                                    for preset in PCB_LAYER_PRESETS:
+                                        ComboBoxItem(preset)
+                                with Scroll(horizontal=None).layout(width=250):
+                                    with VBox():
+                                        with HBox():
+                                            Label("Layer")
+                                            Spacer()
+                                            if self.state.similarity_scope == "full-board":
+                                                Label("Full-Board Similarity (%)")
+                                            else:
+                                                Label("Visible Similarity (%)")
+                                        with LayerList():
+                                            for layer in self.state.layers:
+                                                with HBox():
+                                                    Checkbox(
+                                                        "", model=self.state.show_layers(layer)
+                                                    ).qt(
+                                                        StyleSheet={"spacing": "0px"}
+                                                    ).click(
+                                                        self.layer_visibility_changed,
+                                                        layer,
                                                     )
-                                                ).click(
-                                                    self.select_pcb_layer, layer
-                                                )
-                                                if selected:
-                                                    layer_label.qt(
-                                                        StyleSheet={
-                                                            "font-weight": "bold"
-                                                        }
+                                                    Label("■").style(
+                                                        color=layer_label_color(layer)
+                                                    ).click(
+                                                        self.select_pcb_layer, layer
                                                     )
-                                                Spacer()
-                                                if self.state.show_layers.get(
-                                                    layer, True
-                                                ):
-                                                    if self.state.layer_stats is None:
-                                                        Label("...")
-                                                    else:
-                                                        similarity = format_layer_similarity(
-                                                            self.state.layer_stats.get(layer)
+                                                    selected = self.state.selected_layer == layer
+                                                    layer_label = Label(
+                                                        self.state.layer_labels.get(
+                                                            layer, layer
                                                         )
-                                                        Label(similarity or "—")
-                                    Spacer()
+                                                    ).click(
+                                                        self.select_pcb_layer, layer
+                                                    )
+                                                    if selected:
+                                                        layer_label.qt(
+                                                            StyleSheet={
+                                                                "font-weight": "bold"
+                                                            }
+                                                        )
+                                                    Spacer()
+                                                    full_board = (
+                                                        self.state.similarity_scope ==
+                                                        "full-board"
+                                                    )
+                                                    if (full_board or
+                                                            self.state.show_layers.get(
+                                                                layer, True
+                                                            )):
+                                                        stats = (
+                                                            self.state.full_board_layer_stats
+                                                            if full_board else
+                                                            self.state.layer_stats
+                                                        )
+                                                        if stats is None:
+                                                            Label("...")
+                                                        else:
+                                                            similarity = format_layer_similarity(
+                                                                stats.get(layer)
+                                                            )
+                                                            Label(similarity or "—")
+                                        Spacer()
+                                Button("Calculate Full-Board Similarity").click(
+                                    self.calculate_full_board_similarity
+                                )
                 else:
                     with HBox():
                         with VBox().dragEnter(self.handleDragEnter).drop(self.drop_file_a):
@@ -1120,6 +1176,7 @@ class DifferUI(Application):
         return False
 
     def change_file_a(self):
+        self.invalidate_full_board_similarity()
         if self.state.use_workspace:
             self.state.source_a = self.state.file_a
         self._pending_revision_a = None
@@ -1133,6 +1190,7 @@ class DifferUI(Application):
         self.build()
 
     def change_file_b(self):
+        self.invalidate_full_board_similarity()
         if self.state.use_workspace:
             self.state.source_b = self.state.file_b
         self._pending_revision_b = None
@@ -1166,6 +1224,7 @@ class DifferUI(Application):
         self._clear_file("b")
 
     def _clear_file(self, side):
+        self.invalidate_full_board_similarity()
         setattr(self, f"_pending_revision_{side}", None)
         setattr(self.state, f"source_{side}", "")
         setattr(self.state, f"file_{side}", "")
@@ -1410,16 +1469,136 @@ class DifferUI(Application):
         self.pcb_tiles.prime_coarse(self.pcb_layer_variant())
 
     def pcb_tolerance_changed(self, _event):
+        self.invalidate_full_board_similarity()
         self.state.layer_stats = None
         self._pcb_similarity_tiles = None
         self.pcb_tiles.reset(self.pcb_tiles.metadata)
         self.prime_pcb_coarse()
         self.build()
 
+    def invalidate_full_board_similarity(self):
+        self._full_board_similarity_token = None
+        self._full_board_similarity_running_key = None
+        self.state.full_board_similarity_calculating = False
+        self._full_board_similarity_cache.clear()
+        self.state.full_board_layer_stats = None
+        self.state.similarity_scope = "visible"
+        self.clear_full_board_message()
+
+    def set_full_board_message(self, message):
+        self._full_board_message = message
+        self.state.message = message
+        self.state.build_time = time.time()
+
+    def clear_full_board_message(self):
+        if (self._full_board_message is not None and
+                self.state.message == self._full_board_message):
+            self.state.message = ""
+        self._full_board_message = None
+
+    def full_board_similarity_key(self):
+        return (
+            self.pcb_tiles.generation,
+            FULL_BOARD_SIMILARITY_RENDER_SCALE,
+            PCB_DIFF_TOLERANCE_UM if self.state.pcb_tolerance_enabled else 0.0,
+        )
+
+    def calculate_full_board_similarity(self, _event):
+        metadata = self.pcb_tiles.metadata
+        if metadata is None or not self.state.layers:
+            return
+        key = self.full_board_similarity_key()
+        cached = self._full_board_similarity_cache.get(key)
+        if cached is not None:
+            self.state.full_board_layer_stats = cached
+            self.state.similarity_scope = "full-board"
+            self.set_full_board_message(
+                "Showing cached full-board similarity."
+            )
+            return
+        if (self._full_board_similarity_token is not None and
+                self._full_board_similarity_running_key == key):
+            return
+        token = object()
+        self._full_board_similarity_token = token
+        self._full_board_similarity_running_key = key
+        self.state.full_board_similarity_calculating = True
+        self.set_full_board_message(
+            "Preparing full-board similarity at 2304 DPI..."
+        )
+        Thread(
+            target=self.calculate_full_board_similarity_worker,
+            args=(token, key, metadata, tuple(self.state.layers)),
+            daemon=True,
+        ).start()
+
+    def calculate_full_board_similarity_worker(self, token, key, metadata,
+                                               layers):
+        renderer = PcbTileRenderer()
+        render_scale = FULL_BOARD_SIMILARITY_RENDER_SCALE
+        tolerance_um = key[2]
+        width, height = metadata["canvas_size"]
+        columns = max(1, math.ceil(width * render_scale / TILE_SIZE))
+        rows = max(1, math.ceil(height * render_scale / TILE_SIZE))
+        total = columns * rows
+        combined = {}
+        last_progress = 0.0
+        try:
+            for completed, (tile_x, tile_y) in enumerate(
+                    ((x, y) for y in range(rows) for x in range(columns)),
+                    start=1):
+                if self._full_board_similarity_token is not token:
+                    return
+                tile_stats = renderer.render_similarity_tile(
+                    metadata,
+                    layers,
+                    render_scale,
+                    tile_x,
+                    tile_y,
+                    tolerance_um=tolerance_um,
+                )
+                combined = combine_layer_similarity_stats((
+                    combined, tile_stats
+                ))
+                now = time.monotonic()
+                if (completed == 1 or completed == total or
+                        now - last_progress >= 0.25):
+                    percent = 100.0 * completed / total
+                    self.set_full_board_message(
+                        "Calculating Full-Board Similarity: "
+                        f"{completed}/{total} tiles ({percent:.1f}%)"
+                    )
+                    last_progress = now
+            if self._full_board_similarity_token is not token:
+                return
+            self._full_board_similarity_cache[key] = combined
+            self.state.full_board_layer_stats = combined
+            self.state.similarity_scope = "full-board"
+            self.set_full_board_message(
+                f"Full-board similarity calculated at "
+                f"{int(72 * render_scale)} DPI."
+            )
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            if self._full_board_similarity_token is token:
+                self.set_full_board_message(
+                    "Could not calculate full-board similarity: "
+                    f"{str(exc) or type(exc).__name__}"
+                )
+        finally:
+            renderer.close()
+            if self._full_board_similarity_token is token:
+                self._full_board_similarity_token = None
+                self._full_board_similarity_running_key = None
+                self.state.full_board_similarity_calculating = False
+
     def update_visible_layer_stats(self, tile_keys, tile_results):
         signature = visible_similarity_signature(tile_keys)
         if signature != self._pcb_similarity_tiles:
             self._pcb_similarity_tiles = signature
+            self.state.similarity_scope = "visible"
+            self.clear_full_board_message()
             if self.state.layer_stats is not None:
                 self.state.layer_stats = None
         if len(tile_results) != len(tile_keys):
@@ -1742,6 +1921,7 @@ class DifferUI(Application):
                             self.state.pcb_page_size = metadata["canvas_size"]
                             self.state.layer_stats = None
                             self._pcb_similarity_tiles = None
+                            self.invalidate_full_board_similarity()
                             self.state.sch_page_size = None
                             self.sch_tiles.reset(None)
                             self.pcb_tiles.reset(metadata)

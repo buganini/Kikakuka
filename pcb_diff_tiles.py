@@ -1252,3 +1252,84 @@ class PcbTileRenderer:
             result["image_data"] = image_data
             result["mask_data"] = mask
         return result
+
+    def render_similarity_tile(self, metadata, layers, render_scale,
+                               tile_x, tile_y, tolerance_um=0.0):
+        """Measure one tile without building display composites or a mask."""
+        canvas_size = metadata["canvas_size"]
+        pixel_x, pixel_y, pixel_width, pixel_height = tile_pixel_bounds(
+            canvas_size, render_scale, tile_x, tile_y
+        )
+        canvas_pixel_width = max(
+            1, int(round(canvas_size[0] * render_scale))
+        )
+        canvas_pixel_height = max(
+            1, int(round(canvas_size[1] * render_scale))
+        )
+        extended_pixel_x = max(0, pixel_x - TILE_GUTTER)
+        extended_pixel_y = max(0, pixel_y - TILE_GUTTER)
+        extended_pixel_right = min(
+            canvas_pixel_width, pixel_x + pixel_width + TILE_GUTTER
+        )
+        extended_pixel_bottom = min(
+            canvas_pixel_height, pixel_y + pixel_height + TILE_GUTTER
+        )
+        extended_width = extended_pixel_right - extended_pixel_x
+        extended_height = extended_pixel_bottom - extended_pixel_y
+        extended_bounds = (
+            extended_pixel_x / render_scale,
+            extended_pixel_y / render_scale,
+            extended_width / render_scale,
+            extended_height / render_scale,
+        )
+        crop_x = pixel_x - extended_pixel_x
+        crop_y = pixel_y - extended_pixel_y
+        crop = np.s_[
+            crop_y:crop_y + pixel_height,
+            crop_x:crop_x + pixel_width,
+        ]
+        image_a_buffer, image_b_buffer = self._uint8_buffers(
+            2, extended_height, extended_width
+        )
+        distance_tolerance_pixels = 0.0
+        if tolerance_um > 0:
+            distance_tolerance_pixels = 1.0 + physical_tolerance_pixels(
+                tolerance_um, render_scale
+            )
+        stats = {}
+        for layer in layers:
+            path_a, path_b = metadata["layer_pdfs"].get(
+                layer, (None, None)
+            )
+            image_a = self._render_layer(
+                path_a,
+                metadata["page_size_a"],
+                canvas_size,
+                extended_bounds,
+                render_scale,
+                output=image_a_buffer,
+            )
+            image_b = self._render_layer(
+                path_b,
+                metadata["page_size_b"],
+                canvas_size,
+                extended_bounds,
+                render_scale,
+                output=image_b_buffer,
+            )
+            occupancy_a = binary_layer_occupancy(image_a)
+            if np.array_equal(image_a, image_b):
+                occupancy = occupancy_a[crop]
+                stats[layer] = {
+                    "difference_pixels": 0,
+                    "data_pixels": int(np.count_nonzero(occupancy)),
+                }
+                continue
+            occupancy_b = binary_layer_occupancy(image_b)
+            difference = binary_occupancy_difference(
+                occupancy_a, occupancy_b, distance_tolerance_pixels
+            )
+            stats[layer] = layer_similarity_stats(
+                occupancy_a[crop], occupancy_b[crop], difference[crop]
+            )
+        return stats

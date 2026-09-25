@@ -197,10 +197,18 @@ intersection area divided by their union area, equivalently 100% minus the
 tolerated difference area divided by the union area. A score of `100.00`
 therefore means that no difference remains in those tiles. Disabled layers
 show no score. The score displays `...` until every visible tile at the current
-raster level is
-ready, and is recalculated after panning, zooming, or changing layer visibility.
+raster level is ready, and is recalculated after panning, zooming, or changing
+layer visibility.
 Because it follows the current raster level and complete tiles intersecting the
 viewport, it is a viewing aid rather than a whole-board metrology result.
+
+**Calculate Full-Board Similarity** measures every layer over the complete PDF
+canvas at scale 32 (2304 DPI), including layers disabled in the viewport. Its
+progress is reported in the message area. When complete, the layer heading
+changes to **Full-Board Similarity (%)**. The result is cached for the current
+pair and tolerance; pressing the button again displays it immediately. A new
+visible-similarity calculation switches the heading and values back to the
+viewport result.
 
 Immediately after pair metadata is ready, the worker renders one pinned coarse
 tile covering the complete page. It uses at most scale 0.5 and automatically

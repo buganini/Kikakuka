@@ -811,6 +811,24 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
             {"difference_pixels": 1, "data_pixels": 1},
         )
 
+    def test_similarity_only_tile_matches_viewport_statistics(self):
+        renderer = PcbTileRenderer()
+        renderer._render_layer = mock.Mock(
+            side_effect=lambda path, *_args, **_kwargs: (
+                self.image_a.copy() if path == "a.pdf"
+                else self.image_b.copy()
+            )
+        )
+
+        stats = renderer.render_similarity_tile(
+            self.metadata, ["F.Cu"], 1.0, 0, 0
+        )
+
+        self.assertEqual(
+            stats["F.Cu"],
+            {"difference_pixels": 1, "data_pixels": 1},
+        )
+
     def test_viewport_block_renders_empty_layer_selection(self):
         result = PcbTileRenderer().render_tile(
             self.metadata, [], 1.0, 0, 0, return_image_data=True
