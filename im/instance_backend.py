@@ -3,6 +3,7 @@
 import os
 import platform
 import re
+import stat
 import subprocess
 import tempfile
 import time
@@ -17,10 +18,53 @@ EDITOR_NAMES = ("kicad", "pcbnew", "eeschema", "pcb editor")
 FREECAD_SUFFIXES = (".fcstd", ".step", ".stp", ".kkkk_asm")
 FRESH_READY_RETRIES = 12
 FRESH_READY_DELAY_S = 0.25
+WINDOWS_KICAD_API_SENTINEL = (
+    b"Kikakuka KiCad IPC compatibility sentinel for issue #23994.\r\n"
+)
 
 
 def _normal(path):
     return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+
+
+def _kicad_socket_directory():
+    return os.path.join(tempfile.gettempdir(), "kicad")
+
+
+def ensure_windows_kicad_api_sentinel():
+    """Force affected Windows builds to choose PID-specific named pipes."""
+    if platform.system() != "Windows":
+        return None
+    directory = _kicad_socket_directory()
+    sentinel = os.path.join(directory, "api.sock")
+    try:
+        os.makedirs(directory, exist_ok=True)
+        try:
+            mode = os.lstat(sentinel).st_mode
+        except FileNotFoundError:
+            mode = None
+        if mode is not None:
+            return sentinel if stat.S_ISREG(mode) else None
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        descriptor = os.open(sentinel, flags, 0o600)
+        try:
+            os.write(descriptor, WINDOWS_KICAD_API_SENTINEL)
+        finally:
+            os.close(descriptor)
+        return sentinel
+    except FileExistsError:
+        try:
+            return sentinel if stat.S_ISREG(os.lstat(sentinel).st_mode) else None
+        except OSError:
+            return None
+    except OSError:
+        return None
+
+
+if platform.system() == "Windows":
+    ensure_windows_kicad_api_sentinel()
 
 
 def _editors(program="kicad"):
@@ -40,14 +84,17 @@ def _editors(program="kicad"):
 
 
 def _sockets():
-    directory = os.path.join(tempfile.gettempdir(), "kicad") if os.name == "nt" else "/tmp/kicad"
+    is_windows = platform.system() == "Windows"
+    directory = _kicad_socket_directory() if is_windows else "/tmp/kicad"
+    if is_windows:
+        ensure_windows_kicad_api_sentinel()
     try:
         names = os.listdir(directory)
     except OSError:
         names = []
-    if os.name == "nt":
-        # KiCad/nng may expose the endpoint as a named pipe instead of a
-        # directory entry. Keep the canonical ipc:// path for kipy.
+    if is_windows:
+        # KiCad/nng exposes endpoints as named pipes instead of directory
+        # entries. Keep the canonical ipc:// filesystem-style path for kipy.
         try:
             for pipe in os.listdir(r"\\.\pipe"):
                 for candidate in re.findall(r"api(?:-\d+)?\.sock", pipe):
@@ -160,6 +207,8 @@ def _focus(pid):
 
 
 def _launch(filepath, program="kicad"):
+    if platform.system() == "Windows" and program == "kicad":
+        ensure_windows_kicad_api_sentinel()
     before = _editors(program)
     if platform.system() == "Darwin":
         if program == "freecad":

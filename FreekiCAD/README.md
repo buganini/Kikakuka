@@ -11,8 +11,19 @@ parties. Kikakuka can find open FreeCAD documents and reuse an existing
 instance when opening a file; see [Instance Manager](https://github.com/buganini/Kikakuka/blob/main/im/README.md)
 for details.
 
+> [!NOTE]
+> Affected Windows builds expose only one IPC endpoint for multiple instances
+> due to [KiCad issue #23994](https://gitlab.com/kicad/code/kicad/-/work_items/23994).
+> Close all running KiCad applications before first using Kikakuka or
+> FreekiCAD. Instance Manager creates a persistent filesystem sentinel that
+> makes subsequently launched instances use PID-specific named pipes.
+
 > [!CAUTION]
-> Due to [KiCad issue #23994](https://gitlab.com/kicad/code/kicad/-/work_items/23994), only one KiCad instance can currently be accessed through the IPC API on Windows.
+> With an older Kikakuka or FreekiCAD release, close all KiCad applications,
+> create the `%TEMP%\kicad` directory if it does not exist, and create an empty
+> regular file named `%TEMP%\kicad\api.sock`. Leave this sentinel file in place
+> for future KiCad launches. Do not create a directory, symbolic link, socket,
+> or named pipe at that path.
 
 ![Bending+Assembly](https://github.com/buganini/Kikakuka/raw/main/screenshots/freekicad_bending_assembly.png)
 

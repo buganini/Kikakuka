@@ -1,5 +1,6 @@
 """Tests for the editor logic executed by each mesh node."""
 
+import os
 import unittest
 import tempfile
 import threading
@@ -30,6 +31,68 @@ class RetryKicadCallTests(unittest.TestCase):
 
 
 class InstanceBackendTests(unittest.TestCase):
+    def test_windows_kicad_api_sentinel_is_created_once(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(
+                    backend.platform, "system", return_value="Windows"
+                ), \
+                mock.patch.object(
+                    backend, "_kicad_socket_directory", return_value=directory
+                ):
+            sentinel = backend.ensure_windows_kicad_api_sentinel()
+            self.assertEqual(sentinel, str(Path(directory) / "api.sock"))
+            self.assertEqual(
+                Path(sentinel).read_bytes(),
+                backend.WINDOWS_KICAD_API_SENTINEL,
+            )
+            Path(sentinel).write_bytes(b"existing")
+            self.assertEqual(
+                backend.ensure_windows_kicad_api_sentinel(), sentinel
+            )
+            self.assertEqual(Path(sentinel).read_bytes(), b"existing")
+
+    def test_windows_kicad_api_sentinel_does_not_replace_directory(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(
+                    backend.platform, "system", return_value="Windows"
+                ), \
+                mock.patch.object(
+                    backend, "_kicad_socket_directory", return_value=directory
+                ):
+            sentinel = Path(directory) / "api.sock"
+            sentinel.mkdir()
+            self.assertIsNone(
+                backend.ensure_windows_kicad_api_sentinel()
+            )
+            self.assertTrue(sentinel.is_dir())
+
+    def test_windows_socket_candidates_come_from_named_pipe_enumeration(self):
+        directory = r"C:\Temp\kicad"
+        with mock.patch.object(
+                    backend.platform, "system", return_value="Windows"
+                ), \
+                mock.patch.object(
+                    backend, "_kicad_socket_directory", return_value=directory
+                ), \
+                mock.patch.object(
+                    backend, "ensure_windows_kicad_api_sentinel"
+                ), \
+                mock.patch.object(
+                    backend.os, "listdir", side_effect=[
+                        ["api.sock"],
+                        [r"C:\Temp\kicad\api-222.sock"],
+                    ]
+                ), \
+                mock.patch.object(
+                    backend, "_editors", return_value={111: 1, 222: 2}
+                ), \
+                mock.patch.object(backend.psutil, "net_connections") as privileged:
+            self.assertEqual(backend._sockets(), [
+                (222, os.path.join(directory, "api-222.sock")),
+                (111, os.path.join(directory, "api.sock")),
+            ])
+        privileged.assert_not_called()
+
     def test_scan_open_boards_reads_each_reachable_kicad_endpoint(self):
         with mock.patch.object(backend, "_sockets", return_value=[
                 (111, "/tmp/kicad/api.sock"),
@@ -51,6 +114,25 @@ class InstanceBackendTests(unittest.TestCase):
             self.assertEqual(backend._launch("/models/part.FCStd", "freecad"), 321)
         popen.assert_called_once_with([
             "open", "-a", "FreeCAD", "-n", "-W", "--args", "/models/part.FCStd"])
+
+    def test_windows_kicad_launch_ensures_api_sentinel(self):
+        with mock.patch.object(
+                    backend.platform, "system", return_value="Windows"
+                ), \
+                mock.patch.object(
+                    backend, "ensure_windows_kicad_api_sentinel"
+                ) as ensure, \
+                mock.patch.object(
+                    backend, "_editors", side_effect=[{}, {321: 1}]
+                ), \
+                mock.patch.object(
+                    backend.os, "startfile", create=True
+                ) as startfile:
+            self.assertEqual(
+                backend._launch("C:/boards/test.kicad_pcb"), 321
+            )
+        ensure.assert_called_once_with()
+        startfile.assert_called_once_with("C:/boards/test.kicad_pcb")
 
     def test_different_board_files_do_not_overlap_editor_launch(self):
         active = 0

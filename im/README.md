@@ -84,6 +84,38 @@ ordinary process list on demand to find KiCad editor PIDs and creation times:
   editor process that has not already been matched to a PID-specific socket.
   This is a hacky process-order heuristic, not a PID supplied by KiCad IPC.
 
+### Windows named-pipe workaround
+
+[KiCad issue #23994](https://gitlab.com/kicad/code/kicad/-/work_items/23994)
+causes affected Windows builds to expose only one IPC endpoint when several
+instances run on Windows. NNG implements an `ipc://` endpoint as a Windows
+named pipe, but the affected KiCad code checks only the ordinary filesystem
+for `%TEMP%\kicad\api.sock`. Because those namespaces are independent, a
+second instance does not see the first instance's named pipe and tries to bind
+the same name instead of falling back to `api-<PID>.sock`.
+
+The Instance Manager ensures that an ordinary sentinel file exists at
+`%TEMP%\kicad\api.sock` before launching KiCad. On affected builds,
+the filesystem check sees the sentinel and every newly launched instance
+selects `%TEMP%\kicad\api-<PID>.sock`; NNG then creates a named pipe with that
+path without conflicting with the sentinel in the separate filesystem
+namespace. The sentinel must remain in place while the workaround is active.
+If the path already exists but is not a regular file, it must not be replaced.
+Instance Manager leaves the sentinel on disk permanently and recreates it the
+next time Kikakuka or FreekiCAD starts if the temporary directory was cleaned.
+Close all running KiCad applications before activating the workaround for the
+first time so every instance starts after the sentinel exists.
+
+Discovery must not treat the sentinel itself as a live IPC endpoint. It probes
+`api.sock` to cover an instance started before the sentinel was created, and
+enumerates `\\.\pipe` for the PID-specific named pipes created after the
+sentinel takes effect. A candidate is retained only when its PID belongs to a
+live KiCad editor and its IPC API responds with a usable document. The current
+upstream HEAD remains affected. A build with the named-pipe collision fix
+applied uses `WaitNamedPipeW()` instead of the filesystem check; such a
+build ignores the sentinel and handles the fallback itself, so the file is
+harmless but unnecessary.
+
 For each candidate socket, the backend asks KiCad's API for the open board
 name (and project path if the name is relative). Only a path matching the
 requested PCB is accepted for reuse, focus, or PCB IPC operations; a saved
@@ -191,10 +223,11 @@ macOS starts a new FreeCAD with `open -a FreeCAD -n -W --args <file>` and
 uses AppleScript for best-effort focus; other new editors use `open -n`.
 Windows uses file associations and Win32 foreground APIs; Linux uses
 `xdg-open` and currently has no reliable cross-desktop focus operation.
-File-to-PID discovery uses ordinary process enumeration and KiCad's IPC. No
-`psutil.net_connections(kind="unix")` or other privileged process/socket
-inspection is used. An inaccessible process is treated as unavailable, never
-as a reason to request elevation.
+File-to-PID discovery uses ordinary process enumeration and KiCad's IPC. It
+does not use `psutil.net_connections()`, `Process.connections()`,
+`Process.open_files()`, `Process.environ()`, or other privileged
+process/socket inspection. An inaccessible process is treated as unavailable,
+never as a reason to request elevation.
 
 The private runtime directory and request token provide best-effort local-user
 isolation, not an authentication boundary against malicious processes running
