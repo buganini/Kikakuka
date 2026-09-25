@@ -17,8 +17,11 @@
     * Start an Instance Manager node on demand in standalone Kikakuka tools before opening KiCad files
     * Add `kikakuka.py --open [--fresh] FILE...` to open or focus mixed KiCad files through Instance Manager and refresh already-open PCB files from disk
     * Work around KiCad's Windows multi-instance IPC collision by creating a filesystem sentinel that selects PID-specific named pipes
+    * Accept supported project and design files dropped onto the workspace tree
 * Panelizer
     * Open newly exported boards automatically, or refresh and focus them through KiCad IPC when already open
+    * Accept FabPlans, KiCad boards, and Gerber inputs dropped onto the canvas
+    * Publish GUI-open FabPlans through Instance Manager so Workspace Manager activates an existing Fabrication Planner instead of opening a duplicate; headless builds remain unpublished
 * Gerber Conversion
     * Preserve component drills as PTH pads instead of vias, keeping drill and mask rendering accurate while excluding generated drill helpers from BOM and position outputs
 * FreekiCAD
