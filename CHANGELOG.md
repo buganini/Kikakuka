@@ -1,3 +1,8 @@
+# 8.1.1:
+* Fix Windows Instance Manager lock sharing, FreeCAD file launching, and add-on management errors
+* Keep FreekiCAD-triggered KiCad launches in the background unless KiCad may require **Open Anyway** confirmation
+* Improve Windows add-on permission guidance and normalize KiCad/FreeCAD names in status messages
+
 # 8.1:
 * TL;DR
     * Smoother PCB and schematic diff navigation with synchronized views, layer presets, tolerance-aware highlights, and similarity metrics
