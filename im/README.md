@@ -23,6 +23,20 @@ FreekiCAD exposes these shared modules through relative symlinks in its Python
 package. Standalone FreekiCAD synchronization and release archives dereference
 the links so distributed packages contain regular files.
 
+## Standalone node
+
+Run a foreground mesh node from the repository root with either command:
+
+```sh
+python3 -m im
+python3 im
+```
+
+Both forms run the same entry point. The process logs its PID, local endpoint,
+KiCad API availability, dispatched editor requests and replies, mapping
+changes, and shutdown. Press Ctrl-C (or send SIGTERM) to close the listener and
+remove its Unix socket. Use `--log-level` to change the default `info` level.
+
 ## Discovery and election
 
 On macOS and Linux, each node listens at
