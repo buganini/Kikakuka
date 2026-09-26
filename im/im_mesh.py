@@ -332,6 +332,52 @@ def _exchange(endpoint, message, timeout_ms=ACK_TIMEOUT_MS, token=None):
         return connection.receive(timeout_ms)
 
 
+def _open_windows_shared_lock_file(path):
+    """Open a Windows lock file while allowing other IM nodes to open it."""
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create_file.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    invalid_handle = ctypes.c_void_p(-1).value
+    while True:
+        handle = create_file(
+            str(path),
+            0x80000000 | 0x40000000,  # GENERIC_READ | GENERIC_WRITE
+            0x00000001 | 0x00000002,  # FILE_SHARE_READ | FILE_SHARE_WRITE
+            None,
+            4,  # OPEN_ALWAYS
+            0x00000080,  # FILE_ATTRIBUTE_NORMAL
+            None,
+        )
+        if handle != invalid_handle:
+            break
+        error = ctypes.get_last_error()
+        if error != 32:  # ERROR_SHARING_VIOLATION from an older IM runtime
+            raise ctypes.WinError(error)
+        time.sleep(0.05)
+    try:
+        return msvcrt.open_osfhandle(
+            handle, os.O_RDWR | getattr(os, "O_BINARY", 0))
+    except Exception:
+        kernel32.CloseHandle(handle)
+        raise
+
+
 @contextmanager
 def _file_lock(filepath):
     """Cross-process lock, retained across elected-node failover.
@@ -341,7 +387,11 @@ def _file_lock(filepath):
     """
     name = hashlib.sha256(filepath.encode("utf-8")).hexdigest() + ".lock"
     path = _ensure_runtime_dir() / name
-    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    fd = (
+        _open_windows_shared_lock_file(path)
+        if os.name == "nt"
+        else os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    )
     try:
         if os.name == "nt":
             import msvcrt

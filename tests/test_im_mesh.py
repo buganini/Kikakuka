@@ -1,6 +1,8 @@
 """Integration checks for the on-demand instance mesh."""
 
+import ctypes
 import os
+import sys
 from pathlib import Path
 import hashlib
 import socket
@@ -26,6 +28,69 @@ def _child_node(runtime_path, ready, stop):
 
 
 class InstanceMeshTests(unittest.TestCase):
+    def test_windows_lock_file_open_allows_read_write_sharing(self):
+        create_file = mock.Mock(return_value=123)
+        close_handle = mock.Mock(return_value=True)
+        kernel32 = mock.Mock(
+            CreateFileW=create_file,
+            CloseHandle=close_handle,
+        )
+        open_osfhandle = mock.Mock(return_value=456)
+        fake_msvcrt = mock.Mock(open_osfhandle=open_osfhandle)
+
+        with mock.patch.object(im_mesh.os, "name", "nt"), \
+                mock.patch.object(
+                    ctypes, "WinDLL", create=True, return_value=kernel32
+                ), \
+                mock.patch.dict(sys.modules, {"msvcrt": fake_msvcrt}):
+            descriptor = im_mesh._open_windows_shared_lock_file(
+                r"C:\Users\user\AppData\Local\Kikakuka\instances\file.lock"
+            )
+
+        self.assertEqual(descriptor, 456)
+        self.assertEqual(create_file.call_args.args[2], 0x00000003)
+        open_osfhandle.assert_called_once_with(
+            123, os.O_RDWR | getattr(os, "O_BINARY", 0)
+        )
+        close_handle.assert_not_called()
+
+    def test_windows_lock_file_waits_for_older_exclusive_opener(self):
+        invalid_handle = ctypes.c_void_p(-1).value
+        create_file = mock.Mock(side_effect=[invalid_handle, 123])
+        kernel32 = mock.Mock(
+            CreateFileW=create_file,
+            CloseHandle=mock.Mock(return_value=True),
+        )
+        fake_msvcrt = mock.Mock(
+            open_osfhandle=mock.Mock(return_value=456)
+        )
+
+        with mock.patch.object(im_mesh.os, "name", "nt"), \
+                mock.patch.object(
+                    ctypes, "WinDLL", create=True, return_value=kernel32
+                ), \
+                mock.patch.object(
+                    ctypes, "get_last_error", create=True, return_value=32
+                ), \
+                mock.patch.object(im_mesh.time, "sleep") as sleep, \
+                mock.patch.dict(sys.modules, {"msvcrt": fake_msvcrt}):
+            descriptor = im_mesh._open_windows_shared_lock_file("file.lock")
+
+        self.assertEqual(descriptor, 456)
+        self.assertEqual(create_file.call_count, 2)
+        sleep.assert_called_once_with(0.05)
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows file sharing")
+    def test_windows_lock_file_can_be_opened_twice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "shared.lock"
+            first = im_mesh._open_windows_shared_lock_file(path)
+            try:
+                second = im_mesh._open_windows_shared_lock_file(path)
+                os.close(second)
+            finally:
+                os.close(first)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.runtime_patch = mock.patch.object(
