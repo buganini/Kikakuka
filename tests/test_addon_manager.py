@@ -321,7 +321,7 @@ class AddonManagerTest(unittest.TestCase):
         ):
             status = addon_manager.kicad_addon_status(addon_manager.KICAD_PLUGIN)
 
-        self.assertEqual(status.status_text, "Cannot find kicad installation")
+        self.assertEqual(status.status_text, "Cannot find KiCad installation")
         self.assertEqual(status.action, "")
         self.assertEqual(status.uninstall_action, "")
 
@@ -803,7 +803,7 @@ class AddonManagerTest(unittest.TestCase):
         with mock.patch.object(addon_manager, "freecad_commands", return_value=[]):
             status = addon_manager.freekicad_status()
 
-        self.assertEqual(status.status_text, "Cannot find freecad installation")
+        self.assertEqual(status.status_text, "Cannot find FreeCAD installation")
         self.assertEqual(status.action, "")
         self.assertEqual(status.uninstall_action, "")
 

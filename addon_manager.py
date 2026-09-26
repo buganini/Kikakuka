@@ -601,7 +601,7 @@ def kicad_addon_status(key: str) -> AddonStatus:
             f"Unsupported KiCad version {detected_version}; "
             f"requires {version.split('.', 1)[0]}.x"
             if detected_version is not None
-            else "Cannot find kicad installation"
+            else "Cannot find KiCad installation"
         )
         return AddonStatus(
             key,
@@ -1138,7 +1138,7 @@ def freekicad_status(*, query_freecad: bool = False) -> AddonStatus:
             ADDON_LABELS[FREEKICAD],
             bundled_version(FREEKICAD),
             None,
-            "Cannot find freecad installation",
+            "Cannot find FreeCAD installation",
             False,
         )
     freecad_version = freecad_installation_version(commands)
