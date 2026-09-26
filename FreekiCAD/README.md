@@ -87,6 +87,13 @@ linked STEP object is wanted.
 
 ## Manual Installation
 
+You can install FreekiCAD from Kikakuka's **Add-ons** tab, which installs
+FreekiCAD and its required Python dependencies together. Kikakuka release
+builds already contain the addon package. When running Kikakuka from source,
+generate the packages with
+`python3 build_addon_archives.py` (or `make archive-zips`) before using its
+Add-ons tab.
+
 FreekiCAD requires FreeCAD 1.0 or later and `psutil>=7.2.2`
 for instance discovery and FreeCAD document-state publication. KiCad PCB
 integration additionally requires KiCad 9.0 or later plus
@@ -95,14 +102,20 @@ for STEP-only workflows. FreeCAD Addon Manager may not automatically install
 `psutil` where its allowed-package list excludes it; install
 it manually inside FreeCAD if necessary.
 
-After copying the `FreekiCAD` folder into FreeCAD's `Mod` folder, open **View >
-Panels > Python Console** and install `psutil`. For full KiCad
-integration, this single line also installs the KiCad extras. It waits for pip
-to finish, then prints its output:
+For a fully manual installation:
 
-```python
-import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=7.2.2"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
-```
+1. Open **View > Panels > Python Console** in FreeCAD.
+2. Run `print(os.path.join(App.getUserAppDataDir(), "Mod"))` to find the addon
+   installation directory.
+3. Create the `Mod` directory if it does not exist, then copy the `FreekiCAD`
+   folder into it.
+4. Install `psutil` inside FreeCAD. For full KiCad integration, this single
+   line also installs the KiCad extras. It waits for pip to finish, then prints
+   its output:
+
+   ```python
+   import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=7.2.2"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
+   ```
 
 ## Headless STEP Export
 

@@ -203,15 +203,17 @@ every external source is loaded fresh. `AutoReload` is enabled by default on
 both object types, so changing either source file reloads its linked FreeCAD
 object. The option can be disabled independently for each object.
 
-* Manually install FreekiCAD
-    * Open FreeCAD's python console: Menubar -> View -> Panels -> Python Console
-    * Get the installation path by executing `print(os.path.join(App.getUserAppDataDir(), "Mod"))` in the Python console
-    * Create the `Mod` folder if it does not exist
-    * Copy the FreekiCAD folder into the `Mod` folder
-    * Install `psutil` inside FreeCAD. For full KiCad integration, the following command also installs the KiCad extras. It waits for pip to finish, then prints its output.
-    ```
-    import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=7.2.2"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
-    ```
+> [!TIP]
+> You can use Kikakuka's **Add-ons** tab to install, update, or uninstall the
+> bundled KiCad plugin, KiCad library, and FreekiCAD addon. Close all instances
+> of the affected application before using an install or uninstall button.
+> Release builds already contain the addon packages. When running Kikakuka
+> from source, generate them first with `python3 build_addon_archives.py` (or
+> `make archive-zips`); the GUI loads the resulting runtime packages from
+> `build/addons/`.
+
+For a standalone FreekiCAD deployment without Kikakuka, follow the
+[FreekiCAD manual installation instructions](FreekiCAD/README.md#manual-installation).
 
 * Activate `Preferences -> Plugins -> Enable KiCad API`. Kikakuka or FreekiCAD can reuse a running matching KiCad editor or start one on demand.
 * FreekiCAD (FreeCAD Addon)
@@ -367,7 +369,12 @@ For the implementation details of the bending pipeline, see [`FreekiCAD/ARCHITEC
 ![FreekiCAD-Bending-Assembly](screenshots/freekicad_bending_assembly.png)
 
 # Kikakuka Library
-The KiCad library is stored under [`kicad-addon/library`](kicad-addon/library). Add [`kicad-addon/library/footprints/Kikakuka.pretty`](kicad-addon/library/footprints/Kikakuka.pretty) to KiCad's footprint library table (for example, as `Kikakuka`). Its [`Kikakuka.3dshapes`](kicad-addon/library/3dmodels/Kikakuka.3dshapes) directory contains the unit-cube placeholder and optional coupler helper models.
+The KiCad library is stored under [`kicad-addon/library`](kicad-addon/library).
+You can install it from Kikakuka's **Add-ons** tab. For a manual installation,
+add [`kicad-addon/library/footprints/Kikakuka.pretty`](kicad-addon/library/footprints/Kikakuka.pretty)
+to KiCad's footprint library table (for example, as `Kikakuka`). Its
+[`Kikakuka.3dshapes`](kicad-addon/library/3dmodels/Kikakuka.3dshapes) directory
+contains the unit-cube placeholder and optional coupler helper models.
 
 * [`Variable`](kicad-addon/library/footprints/Kikakuka.pretty/Variable.kicad_mod) displays its `Value` on the board. In the Kikakuka Fabrication Planner, use build-variant fields such as `Value#Flag` or `Value#Option=Choice` to show a value selected by the active build flags or options.
 * [`StringTemplate`](kicad-addon/library/footprints/Kikakuka.pretty/StringTemplate.kicad_mod) formats its `Value` during Kikakuka Fabrication Planner export. Braced placeholders are replaced with matching footprint properties or build options after build-variant fields have been applied.
