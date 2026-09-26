@@ -105,6 +105,7 @@ elif platform.system() == "Windows":
 else:
     kicad_cli = "/usr/bin/kicad-cli"
 
+kicad_cli_source = "System"
 try:
     base_path = sys._MEIPASS
     cands = None
@@ -114,6 +115,7 @@ try:
         cands = glob.glob(os.path.join(base_path, "KiCad", "bin", "kicad-cli*"))
     if cands:
         kicad_cli = cands[0]
+        kicad_cli_source = "Bundled"
 except Exception:
     pass
 
@@ -835,7 +837,7 @@ class DifferUI(Application):
     def content(self):
         title = (
             f"Kikakuka v{VERSION} Differ "
-            f"(KiCad CLI {get_kicad_cli_version()}, "
+            f"({kicad_cli_source} KiCad CLI {get_kicad_cli_version()}, "
             f"Pypdfium2 {pdfium.version.PYPDFIUM_INFO}, "
             f"OpenCV {cv2.__version__}, "
             f"PUI {PUI.__version__} {PUI_BACKEND})"
