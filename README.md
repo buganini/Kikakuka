@@ -31,7 +31,7 @@ It creates a few more dimensions for KiCad:
         * Open related schematic, PCB, and STEP files or launch Differ and FabPlan from the workspace
         * Inspect project-specific symbol and footprint libraries and convert their paths to `${KIPRJMOD}`-relative references
     * Instance Manager UI
-        * Inspect running processes and known file paths in the Instance Manager tab, with one row per FreeCAD document, manual refresh, and Go to actions
+        * Inspect same-user KiCad and FreeCAD processes and known file paths, with one row per FreeCAD document, the matched KiCad IPC socket basename, automatic mesh-event updates, manual reconciliation, and Go to actions
     * Differ
         * Highlight changed areas
         * [Schematic diff viewer](#schematics-differ)
@@ -82,6 +82,8 @@ It creates a few more dimensions for KiCad:
 * Instance Manager
     * An Instance Manager mesh node runs in every Kikakuka and FreekiCAD host process
     * Discover KiCad and FreeCAD instances on demand and coordinate file-opening requests across Kikakuka and FreekiCAD, even without the Workspace Manager
+    * Publish verified KiCad PCB PID/socket mappings between nodes so editors opened for FreekiCAD appear automatically in the Instance Manager UI
+    * Restrict process inspection, socket ownership checks, reuse, and focus to current-user processes; helper executables such as `kicad-api` and `kicad-cli` are not treated as editors
     * Navigate KiCad files by reusing open PCB editors or recalling editor windows (macOS and Windows); launch multiple KiCad instances automatically on macOS
     * Seamlessly navigate FreeCAD files by activating an open document or opening it in an existing instance
 
@@ -432,6 +434,10 @@ git submodule update --init --recursive
 
 # Open KiCad files through the instance manager
 ./env/bin/python3 kikakuka.py --open a.kicad_pcb
+
+# Run a foreground Instance Manager node with request/mapping logs
+./env/bin/python3 -m im
+# The equivalent directory entry point is: ./env/bin/python3 im
 
 # Open or focus a PCB and reload it from disk once its IPC API is ready
 ./env/bin/python3 kikakuka.py --open --fresh a.kicad_pcb

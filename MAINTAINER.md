@@ -64,6 +64,25 @@ The source archive contains only tracked files. Checked-out submodules are
 expanded recursively, and symlinks are dereferenced so archive consumers get
 regular files.
 
+## Shared Instance Manager modules
+
+FreekiCAD is a separate deployment and cannot import modules from the
+Kikakuka repository root. During development,
+`FreekiCAD/freecad/FreekiCAD/{im_mesh,im_transport,instance_backend,kicad_api_retry}.py`
+are relative symlinks into `im/`, and `kicad_paths.py` links to the
+repository-root implementation. Edit those targets rather than creating
+divergent copies under FreekiCAD. Release archives and `make sync` must
+dereference all five links so the standalone addon contains ordinary
+package-local files.
+
+Keep imports between these shared modules package-relative. In particular,
+they must not depend on `workspace.py`, `workspace_monitor.py`, or other
+Kikakuka-only modules. The isolated import regression can be run directly with:
+
+```sh
+env/bin/python -m unittest tests.test_freekicad_entrypoint
+```
+
 Check that each package archive contains `metadata.json` at its root and that
 its metadata has exactly one version without any `download_*` fields. Each
 publish metadata file must contain `download_url`, `download_sha256`,

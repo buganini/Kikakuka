@@ -47,6 +47,22 @@ for details.
 - Running independently of the Kikakuka main program through the local
   per-process Instance Manager mesh
 
+## Independent Instance Manager deployment
+
+FreekiCAD is packaged and deployed independently from the Kikakuka application.
+Its release contains regular package-local copies of the shared Instance
+Manager modules (`im_mesh.py`, `im_transport.py`, `instance_backend.py`, and
+`kicad_api_retry.py`) plus `kicad_paths.py`; it never imports Kikakuka-root
+modules at runtime. Every FreeCAD process starts its node when the FreekiCAD
+package is imported, including FreeCADCmd, so KiCad PCB operations do not
+require the Workspace Manager.
+
+When a FreekiCAD request resolves or opens a KiCad PCB, its mesh event carries
+the verified editor PID and full IPC socket path. A concurrently running
+Kikakuka Instance Manager therefore updates the row and displayed socket
+basename automatically. Process discovery and socket inspection remain limited
+to current-user editor processes.
+
 Both `.kicad_pcb` boards and STEP models remain linked to their external source
 files. When an assembly is saved as an `.FCStd` document, that document caches
 the generated objects and geometry while retaining each source path so the

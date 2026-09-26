@@ -37,6 +37,24 @@ KiCad API availability, dispatched editor requests and replies, mapping
 changes, and shutdown. Press Ctrl-C (or send SIGTERM) to close the listener and
 remove its Unix socket. Use `--log-level` to change the default `info` level.
 
+This entry point runs the same editor backend as nodes embedded in Kikakuka and
+FreekiCAD. It is useful for diagnostics or for keeping a visible executor in
+the foreground; it is not a permanent leader, and normal applications do not
+require it to be running.
+
+## Shared-package boundary
+
+FreekiCAD is deployed independently from Kikakuka. In this repository its
+`im_mesh.py`, `im_transport.py`, `instance_backend.py`, and
+`kicad_api_retry.py` entries are relative symlinks into `im/`, while
+`kicad_paths.py` links to the repository-root implementation. Release and
+Addon Manager packaging dereferences all five into regular files inside the
+FreekiCAD Python package. Shared IM modules must therefore use only the Python
+standard library, declared FreekiCAD dependencies, and package-relative IM
+imports. They must not import Kikakuka-root modules such as
+`workspace_monitor.py`. A standalone-package import test enforces this
+boundary without placing the Kikakuka repository root on `PYTHONPATH`.
+
 ## Discovery and election
 
 On macOS and Linux, each node listens at
@@ -101,17 +119,21 @@ ordinary process list on demand to find KiCad editor PIDs and creation times:
 - `api.sock` contains no PID. On Unix, the backend first checks the Unix-domain
   sockets of same-user KiCad processes that have not already been matched to a
   PID-specific socket. Because a newly created socket may take a moment to
-  appear in the process socket table, this ownership check is retried briefly
-  before falling back. On Windows, if the matching generic named pipe exists,
+  appear in the process socket table, this ownership check makes one initial
+  attempt plus four retries at 0.1-second intervals before falling back. On
+  Windows, if the matching generic named pipe exists,
   the backend opens it and asks `GetNamedPipeServerProcessId()` for its server
   PID. The returned PID must still match a live, same-user KiCad process and its
   recorded creation time. If exact socket ownership is unavailable, it assigns
   `api.sock` to the oldest unmatched KiCad editor process as a best-effort
   fallback. This fallback is a process-order heuristic, not a PID supplied by
   KiCad IPC.
-- The Instance Manager keeps its PID-to-socket lookup in reactive state. After
-  opening a PCB it refreshes immediately, then retries briefly until the
-  matching socket appears so the row does not require a manual refresh.
+- The Workspace Manager keeps its PID-to-socket lookup in reactive state. Its
+  own PCB-open worker refreshes immediately, then retries up to 12 times at
+  0.5-second intervals until the matching socket appears. PCB operations
+  executed by any IM node publish the resolved socket directly, so a KiCad
+  instance opened for FreekiCAD updates a running Instance Manager row without
+  waiting for this scan or a manual refresh.
 
 ### Windows named-pipe workaround
 
@@ -215,13 +237,19 @@ confirms the request was queued, not that document loading has finished.
 
 ## State and refresh
 
-Successful KiCad and FreeCAD opens broadcast file-to-editor-PID events directly
-to every currently discovered node. KiCad PCB events also carry the full IPC
-socket path from the backend reply, allowing the Instance Manager's reactive
-PID-to-socket state to update without another process scan. Deletions use
-timestamped tombstones so an old snapshot cannot revive a removed mapping. A
-joining node and an executor refresh snapshots from peers on demand; the
-Instance Manager tab does
+Successful KiCad and FreeCAD operations broadcast mapping events directly to
+every currently discovered node. Each event contains a canonical `filepath`,
+an editor `pid`, and a total-order `stamp`; successful KiCad PCB replies also
+add the full `socket` path. A node snapshot retains the complete event, while
+the public `snapshot()` view remains a file-to-PID map. Workspace callbacks
+receive `(filepath, pid, socket)` and write the optional socket directly into
+the reactive PID-to-socket state. The `socket` field is additive JSON data, so
+older peers that do not use it can still process the path/PID event.
+Replacing a PID or applying a tombstone removes an unreferenced old socket.
+
+Deletions use timestamped tombstones with `pid: null` and no socket, so an old
+snapshot cannot revive a removed mapping or socket. A joining node and an
+executor refresh snapshots from peers on demand; the Instance Manager tab does
 the same at startup and on manual Refresh. The tab probes KiCad PCB IPC
 endpoints to rebuild paths for boards opened outside Kikakuka and requests
 `freecad-list-documents` from responding GUI FreeCAD nodes. It reconciles each
@@ -281,8 +309,9 @@ temporary directory private.
 
 ## Dependencies and limitations
 
-Instance Manager requires `psutil`. FreeCAD Addon Manager may not install it
-automatically on builds whose allowed-package list excludes it.
+Instance Manager requires `psutil>=7.2.2` on macOS, Linux, and Windows. FreeCAD
+Addon Manager may not install it automatically on builds whose allowed-package
+list excludes it.
 
 The current backend can verify a PCB's open document through KiCad IPC. KiCad
 schematics do not have an equivalent verified-document probe here, so a live
