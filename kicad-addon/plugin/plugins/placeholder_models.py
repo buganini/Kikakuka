@@ -7,17 +7,16 @@ import re
 from dataclasses import dataclass, field
 from typing import Mapping, Optional
 
+from kicad_compat import KICAD10_COMPAT, get_kicad_compat
 from kicad_paths import (
     path_variables as _shared_path_variables,
     resolve_model_path,
 )
 
 
-PLACEHOLDER_MODEL = (
-    "${KICAD10_3RD_PARTY}/3dmodels/"
-    "com_github_buganini_kikakuka-footprints/"
-    "Kikakuka.3dshapes/unit-cube.step"
-)
+# Retained as the public KiCad 10 constant used by existing tests and boards.
+# Runtime code selects the value from the connected system KiCad version.
+PLACEHOLDER_MODEL = KICAD10_COMPAT.placeholder_model_uri
 
 _LENGTH_RE = re.compile(
     r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))"
@@ -121,17 +120,20 @@ def has_valid_model(footprint, board, variables: Mapping[str, str]) -> bool:
     return False
 
 
-def _new_placeholder_model(size_x: float, size_y: float, size_z: float):
+def _new_placeholder_model(
+    size_x: float,
+    size_y: float,
+    size_z: float,
+    compatibility=KICAD10_COMPAT,
+):
     from kipy.board_types import Footprint3DModel
     from kipy.geometry import Vector3D
 
     model = Footprint3DModel()
-    model.filename = PLACEHOLDER_MODEL
+    model.filename = compatibility.placeholder_model_uri
     model.scale = Vector3D.from_xyz(size_x, size_y, size_z)
     model.visible = True
-    # kicad-python 0.8 exposes opacity as read-only, although the protobuf
-    # field itself is writable.
-    model._proto.opacity = 1.0
+    compatibility.set_model_opacity(model, 1.0)
     return model
 
 
@@ -140,6 +142,7 @@ def _replace_models_with_placeholder(
     size_x: float,
     size_y: float,
     size_z: float,
+    compatibility=KICAD10_COMPAT,
 ):
     from kipy.board_types import Footprint3DModel
 
@@ -148,13 +151,16 @@ def _replace_models_with_placeholder(
         if not isinstance(item, Footprint3DModel)
     ]
     footprint.definition.add_item(
-        _new_placeholder_model(size_x, size_y, size_z))
+        _new_placeholder_model(
+            size_x, size_y, size_z, compatibility=compatibility))
 
 
 def add_placeholder_models(kicad, board) -> ScanResult:
     """Scan the board and add scaled unit cubes in one undoable operation."""
+    compatibility = get_kicad_compat(kicad.get_version())
     variables = path_variables(kicad, board)
-    placeholder = resolve_model_path(PLACEHOLDER_MODEL, board, variables)
+    placeholder_model = compatibility.placeholder_model_uri
+    placeholder = resolve_model_path(placeholder_model, board, variables)
     if placeholder is None:
         raise FileNotFoundError(
             "Kikakuka unit-cube.step was not found. Install the "
@@ -189,7 +195,12 @@ def add_placeholder_models(kicad, board) -> ScanResult:
             continue
 
         _replace_models_with_placeholder(
-            footprint, size_x, size_y, size_z)
+            footprint,
+            size_x,
+            size_y,
+            size_z,
+            compatibility=compatibility,
+        )
         updates.append(footprint)
 
     if not updates:

@@ -7,6 +7,7 @@ import FreeCAD
 import Part
 
 from .constants import FREEKICAD_LAYER_NAME
+from .kicad_compat import KICAD10_COMPAT, get_kicad_compat
 from .kicad_paths import (
     path_variables as _shared_path_variables,
     resolve_model_path as _shared_resolve_model_path,
@@ -1223,7 +1224,7 @@ def _ensure_component_transform_cache_property(comp_obj):
 
 
 def _set_footprint_pose_preserving_definition(
-        footprint, position, orientation):
+        footprint, position, orientation, compatibility=KICAD10_COMPAT):
     """Set a kipy footprint pose without dropping non-geometric items.
 
     kicad-python 0.8's FootprintInstance.orientation setter replaces
@@ -1232,10 +1233,7 @@ def _set_footprint_pose_preserving_definition(
     modified in place, so restoring the original list preserves both those
     edits and every item the setter otherwise drops.
     """
-    definition_items = list(footprint.definition.items)
-    footprint.position = position
-    footprint.orientation = orientation
-    footprint.definition.items = definition_items
+    compatibility.set_footprint_pose(footprint, position, orientation)
 
 
 # Default solder mask color when stackup has no color set.
@@ -12837,6 +12835,7 @@ class PcbObject:
             from kipy.geometry import Vector2, Angle
 
             kicad = KiCad(socket_path=f"ipc://{socket_path}")
+            compatibility = get_kicad_compat(kicad.get_version())
             board = _kipy_ready_board(kicad)
 
             # Find the footprint by reference designator
@@ -12866,6 +12865,7 @@ class PcbObject:
                 target_fp,
                 Vector2.from_xy_mm(new_x, new_y),
                 Angle.from_degrees(new_angle),
+                compatibility=compatibility,
             )
             board.update_items([target_fp])
             board.push_commit(commit,

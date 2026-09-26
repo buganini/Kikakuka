@@ -7,9 +7,11 @@ import stat
 import subprocess
 import tempfile
 import time
+from weakref import WeakKeyDictionary
 
 import psutil
 
+from .kicad_compat import KICAD10_COMPAT, get_kicad_compat
 from .im_mesh import (activate_open_freecad_document, bind_freecad_source,
                       is_kicad_editor_process, launch_lock, local_node,
                       open_in_freecad_node, owned_pid_exists, owned_process,
@@ -24,6 +26,7 @@ SOCKET_OWNER_RETRY_DELAY_S = 0.1
 WINDOWS_KICAD_API_SENTINEL = (
     b"Kikakuka KiCad IPC compatibility sentinel for issue #23994.\r\n"
 )
+_BOARD_COMPATIBILITY = WeakKeyDictionary()
 
 
 def _normal(path):
@@ -240,23 +243,34 @@ def _ready_board(socket_path, max_retries=0, delay_s=1.0):
     from kipy.kicad import KiCad
     from .kicad_api_retry import get_ready_kicad_board
 
-    return get_ready_kicad_board(
-        KiCad(socket_path=f"ipc://{socket_path}", timeout_ms=1000),
+    kicad = KiCad(socket_path=f"ipc://{socket_path}", timeout_ms=1000)
+    board = get_ready_kicad_board(
+        kicad,
         max_retries=max_retries,
         delay_s=delay_s,
         retry_connection_timeout=True,
     )
+    compatibility = get_kicad_compat(kicad.get_version())
+    try:
+        _BOARD_COMPATIBILITY[board] = compatibility
+        board._kikakuka_compatibility = compatibility
+    except TypeError:
+        try:
+            board._kikakuka_compatibility = compatibility
+        except (AttributeError, TypeError):
+            pass
+    return board
 
 
 def _board_path_from_ready_board(board):
-    name = getattr(board, "name", "") or getattr(getattr(board, "document", None), "board_filename", "")
-    if not name:
-        return None
-    if os.path.isabs(name):
-        return _normal(name)
-    project = board.get_project()
-    project_path = getattr(project, "path", "")
-    return _normal(os.path.join(project_path, name)) if project_path else None
+    try:
+        compatibility = _BOARD_COMPATIBILITY.get(board)
+    except TypeError:
+        compatibility = None
+    if compatibility is None:
+        compatibility = getattr(board, "__dict__", {}).get(
+            "_kikakuka_compatibility", KICAD10_COMPAT)
+    return compatibility.board_path(board, _normal)
 
 
 def _board_path(socket_path):

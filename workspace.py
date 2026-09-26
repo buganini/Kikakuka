@@ -20,9 +20,15 @@ from addon_manager import (
     KICAD_LIBRARY,
     KICAD_PLUGIN,
     addon_statuses,
+    find_any_kicad_version,
     freekicad_status,
     install_addon,
     uninstall_addon,
+)
+from kicad_compat import (
+    KICAD10_COMPAT,
+    UnsupportedKiCadVersion,
+    get_kicad_compat,
 )
 
 FREECAD_SUFFIXES = (ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX)
@@ -312,7 +318,25 @@ def bringToFront(pid):
         return False
 
 
-def populateProject(project, root, types=None):
+def _workspace_kicad_compatibility(strict=False):
+    system_version = find_any_kicad_version()
+    if system_version is None:
+        if strict:
+            raise RuntimeError("Cannot find system KiCad installation")
+        return KICAD10_COMPAT
+    try:
+        return get_kicad_compat(system_version)
+    except UnsupportedKiCadVersion:
+        if strict:
+            raise
+        # Project browsing remains available even when the installed KiCad is
+        # not supported for mutations.
+        return KICAD10_COMPAT
+
+
+def populateProject(project, root, types=None, compatibility=None):
+    if compatibility is None:
+        compatibility = _workspace_kicad_compatibility()
     if types is None:
         types = [SCH_SUFFIX, PCB_SUFFIX, STEP_SUFFIX]
     project["files"] = []
@@ -352,13 +376,8 @@ def populateProject(project, root, types=None):
                 # print(fp_lib_table)
                 for libnode in fp_lib_table.get_all("lib"):
                     # print(libnode)
-                    lib = StateDict({
-                        "name": libnode.get("name").value,
-                        "uri": libnode.get("uri").value,
-                        "type": libnode.get("type").value,
-                        "options": libnode.get("options").value,
-                        "descr": libnode.get("descr").value,
-                    })
+                    lib = StateDict(
+                        compatibility.read_library_node(libnode))
                     # print(lib)
                     project["fp_lib_table"]["lib"].append(lib)
             except:
@@ -374,13 +393,8 @@ def populateProject(project, root, types=None):
                 # print(sym_lib_table)
                 for libnode in sym_lib_table.get_all("lib"):
                     # print(libnode)
-                    lib = StateDict({
-                        "name": libnode.get("name").value,
-                        "uri": libnode.get("uri").value,
-                        "type": libnode.get("type").value,
-                        "options": libnode.get("options").value,
-                        "descr": libnode.get("descr").value,
-                    })
+                    lib = StateDict(
+                        compatibility.read_library_node(libnode))
                     # print(lib)
                     project["sym_lib_table"]["lib"].append(lib)
             except:
@@ -388,41 +402,31 @@ def populateProject(project, root, types=None):
                 traceback.print_exc()
 
 def populateWorkspace(workspace, root, types=None):
+    compatibility = _workspace_kicad_compatibility()
     for project in workspace["projects"]:
-        populateProject(project, root, types)
+        populateProject(project, root, types, compatibility)
 
-def commitLibTable(project, root):
-    with open(os.path.join(os.path.dirname(project["project_path"]), "fp-lib-table"), "w") as f:
-        f.write("(fp_lib_table\n")
-        f.write(f"  (version {project['fp_lib_table']['version']})\n")
-        for lib in project["fp_lib_table"]["lib"]:
-            f.write(f"  (lib (name {json.dumps(lib['name'])})(type {json.dumps(lib['type'])})(uri {json.dumps(lib['uri'])})(options {json.dumps(lib['options'])})(descr {json.dumps(lib['descr'])}))\n")
-        f.write(")\n")
-    with open(os.path.join(os.path.dirname(project["project_path"]), "sym-lib-table"), "w") as f:
-        f.write("(sym_lib_table\n")
-        f.write(f"  (version {project['sym_lib_table']['version']})\n")
-        for lib in project["sym_lib_table"]["lib"]:
-            f.write(f"  (lib (name {json.dumps(lib['name'])})(type {json.dumps(lib['type'])})(uri {json.dumps(lib['uri'])})(options {json.dumps(lib['options'])})(descr {json.dumps(lib['descr'])}))\n")
-        f.write(")\n")
+def commitLibTable(project, root, compatibility):
+    project_dir = os.path.dirname(project["project_path"])
+    for table_name, filename in (
+        ("fp_lib_table", "fp-lib-table"),
+        ("sym_lib_table", "sym-lib-table"),
+    ):
+        table = compatibility.render_library_table(
+            table_name, project[table_name])
+        with open(os.path.join(project_dir, filename), "w") as f:
+            f.write(table)
 
-    populateProject(project, root)
+    populateProject(project, root, compatibility=compatibility)
 
 def convertToRelativePath(project, root):
-    for lib in project["sym_lib_table"]["lib"]:
-        if os.path.isabs(lib["uri"]) and os.path.exists(lib["uri"]):
-            # print(lib, os.path.dirname(project["project_path"]))
-            reluri = relpath(lib["uri"], os.path.dirname(project["project_path"]), allow_outside=True)
-            reluri = "${KIPRJMOD}/" + reluri
-            print(lib["uri"], "->", reluri)
-            lib["uri"] = reluri
-    for lib in project["fp_lib_table"]["lib"]:
-        if os.path.isabs(lib["uri"]) and os.path.exists(lib["uri"]):
-            # print(lib, os.path.dirname(project["project_path"]))
-            reluri = relpath(lib["uri"], os.path.dirname(project["project_path"]), allow_outside=True)
-            reluri = "${KIPRJMOD}/" + reluri
-            print(lib["uri"], "->", reluri)
-            lib["uri"] = reluri
-    commitLibTable(project, root)
+    compatibility = _workspace_kicad_compatibility(strict=True)
+    project_dir = os.path.dirname(project["project_path"])
+    changes = compatibility.convert_library_paths_to_project_relative(
+        project, project_dir, relpath)
+    for old_uri, new_uri in changes:
+        print(old_uri, "->", new_uri)
+    commitLibTable(project, root, compatibility)
 
 
 

@@ -54,6 +54,9 @@ class FakeBoard:
 
 
 class FakeKiCad:
+    def get_version(self):
+        return "10.0"
+
     def get_kicad_binary_path(self, _name):
         raise FileNotFoundError
 

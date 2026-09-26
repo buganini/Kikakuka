@@ -18,6 +18,8 @@ import time
 from typing import Iterable, Mapping, Optional
 import zipfile
 
+from kicad_compat import get_kicad_compat
+
 
 KICAD_PLUGIN = "kicad_plugin"
 KICAD_LIBRARY = "kicad_library"
@@ -796,20 +798,13 @@ def _remove_pcm_install(path: Path, identifier: str) -> None:
     _atomic_json_write(path, data)
 
 
-def _ensure_footprint_table(path: Path, major: str, clean_id: str) -> None:
-    uri = (
-        f"${{KICAD{major}_3RD_PARTY}}/footprints/"
-        f"{clean_id}/Kikakuka.pretty"
-    )
-    entry = (
-        f'  (lib (name "PCM_Kikakuka") (type "KiCad") '
-        f'(uri "{uri}") (options "") '
-        f'(descr "Added by Kikakuka"))'
-    )
+def _ensure_footprint_table(path: Path, compatibility, clean_id: str) -> None:
+    uri = compatibility.footprint_library_uri(clean_id)
+    entry = compatibility.footprint_library_entry(clean_id)
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
-        text = "(fp_lib_table\n  (version 7)\n)\n"
+        text = compatibility.empty_footprint_library_table()
 
     if uri in text:
         return
@@ -829,15 +824,16 @@ def _ensure_footprint_table(path: Path, major: str, clean_id: str) -> None:
     os.replace(temporary, path)
 
 
-def _remove_footprint_table_entry(path: Path, major: str, clean_id: str) -> None:
+def _remove_footprint_table_entry(
+    path: Path,
+    compatibility,
+    clean_id: str,
+) -> None:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return
-    uri = (
-        f"${{KICAD{major}_3RD_PARTY}}/footprints/"
-        f"{clean_id}/Kikakuka.pretty"
-    )
+    uri = compatibility.footprint_library_uri(clean_id)
     lines = text.splitlines(keepends=True)
     remaining = [
         line
@@ -857,6 +853,7 @@ def install_kicad_addon(key: str) -> AddonStatus:
     metadata = _read_json_metadata(key)
     version = str(metadata["versions"][0]["version"])
     kicad_version = _kicad_version(metadata)
+    compatibility = get_kicad_compat(kicad_version)
     paths = resolve_kicad_paths(kicad_version)
     identifier = str(metadata["identifier"])
     _extract_pcm_archive(bundle_archive(key), paths.third_party_dir, identifier)
@@ -864,7 +861,7 @@ def install_kicad_addon(key: str) -> AddonStatus:
     if key == KICAD_LIBRARY:
         _ensure_footprint_table(
             paths.footprint_table,
-            kicad_version.split(".", 1)[0],
+            compatibility,
             identifier.replace(".", "_"),
         )
     status = kicad_addon_status(key)
@@ -876,6 +873,7 @@ def uninstall_kicad_addon(key: str) -> AddonStatus:
         raise ValueError(f"Not a KiCad addon: {key}")
     metadata = _read_json_metadata(key)
     kicad_version = _kicad_version(metadata)
+    compatibility = get_kicad_compat(kicad_version)
     paths = resolve_kicad_paths(kicad_version)
     identifier = str(metadata["identifier"])
     clean_id = identifier.replace(".", "_")
@@ -890,7 +888,7 @@ def uninstall_kicad_addon(key: str) -> AddonStatus:
     if key == KICAD_LIBRARY:
         _remove_footprint_table_entry(
             paths.footprint_table,
-            kicad_version.split(".", 1)[0],
+            compatibility,
             clean_id,
         )
     return kicad_addon_status(key)

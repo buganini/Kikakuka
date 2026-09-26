@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from kicad_compat import KICAD10_COMPAT, get_kicad_compat
 from placeholder_models import (
     footprint_label,
     footprint_properties,
@@ -15,15 +16,9 @@ from placeholder_models import (
 )
 
 
-_MODEL_ROOT = (
-    "${KICAD10_3RD_PARTY}/3dmodels/"
-    "com_github_buganini_kikakuka-footprints/"
-    "Kikakuka.3dshapes"
-)
-COUPLER_MODELS = {
-    "CouplerFixed": f"{_MODEL_ROOT}/coupler-fixed.step",
-    "CouplerMoving": f"{_MODEL_ROOT}/coupler-moving.step",
-}
+# Retained as the public KiCad 10 mapping used by existing tests and boards.
+# Runtime code selects the mapping from the connected system KiCad version.
+COUPLER_MODELS = KICAD10_COMPAT.coupler_model_uris
 _LENGTH_RE = re.compile(
     r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))"
     r"(?:\s*(mm|in|mil|um|µm))?\s*",
@@ -111,9 +106,9 @@ def _normalise_model_filename(filename) -> str:
     return str(filename or "").strip().replace("\\", "/")
 
 
-def _helper_model_type(filename) -> Optional[str]:
+def _helper_model_type(filename, models=COUPLER_MODELS) -> Optional[str]:
     value = _normalise_model_filename(filename)
-    for coupler_type, helper in COUPLER_MODELS.items():
+    for coupler_type, helper in models.items():
         normalised = _normalise_model_filename(helper)
         if value == normalised:
             return coupler_type
@@ -125,12 +120,18 @@ def _helper_model_type(filename) -> Optional[str]:
     return None
 
 
-def _new_helper_model(coupler_type: str, z: float, tilt: float, offset: float):
+def _new_helper_model(
+    coupler_type: str,
+    z: float,
+    tilt: float,
+    offset: float,
+    compatibility=KICAD10_COMPAT,
+):
     from kipy.board_types import Footprint3DModel
     from kipy.geometry import Vector3D
 
     model = Footprint3DModel()
-    model.filename = COUPLER_MODELS[coupler_type]
+    model.filename = compatibility.coupler_model_uris[coupler_type]
     model.scale = Vector3D.from_xyz(1.0, 1.0, 1.0)
     # Positive Offset follows the footprint triangle.  In KiCad's footprint
     # coordinates that is local -Y.  Z remains along the board normal and is
@@ -138,7 +139,7 @@ def _new_helper_model(coupler_type: str, z: float, tilt: float, offset: float):
     model.offset = Vector3D.from_xyz(0.0, -offset, z)
     model.rotation = Vector3D.from_xyz(tilt, 0.0, 0.0)
     model.visible = True
-    model.opacity = 1.0
+    compatibility.set_model_opacity(model, 1.0)
     return model
 
 
@@ -168,23 +169,23 @@ def _model_matches(model, expected) -> bool:
     )
 
 
-def _replace_helper_models(footprint, helper) -> None:
+def _replace_helper_models(footprint, helper, models=COUPLER_MODELS) -> None:
     from kipy.board_types import Footprint3DModel
 
     footprint.definition.items = [
         item for item in footprint.definition.items
         if not (
             isinstance(item, Footprint3DModel)
-            and _helper_model_type(item.filename) is not None
+            and _helper_model_type(item.filename, models) is not None
         )
     ]
     footprint.definition.add_item(helper)
 
 
-def _hide_helper_models(footprint) -> int:
+def _hide_helper_models(footprint, models=COUPLER_MODELS) -> int:
     hidden = 0
     for model in footprint.definition.models:
-        if _helper_model_type(model.filename) is None or not model.visible:
+        if _helper_model_type(model.filename, models) is None or not model.visible:
             continue
         model.visible = False
         hidden += 1
@@ -208,6 +209,8 @@ def _push_updates(board, updates, message: str) -> None:
 
 def enable_update_coupler_helpers(kicad, board) -> EnableResult:
     """Add or update helper models using each coupler's transform fields."""
+    compatibility = get_kicad_compat(kicad.get_version())
+    models = compatibility.coupler_model_uris
     footprints = list(board.get_footprints())
     result = EnableResult(scanned=len(footprints))
     couplers = []
@@ -220,7 +223,7 @@ def enable_update_coupler_helpers(kicad, board) -> EnableResult:
     variables = path_variables(kicad, board)
     missing = []
     for coupler_type in sorted({item[1] for item in couplers}):
-        filename = COUPLER_MODELS[coupler_type]
+        filename = models[coupler_type]
         if resolve_model_path(filename, board, variables) is None:
             missing.append(filename.rsplit("/", 1)[-1])
     if missing:
@@ -242,10 +245,16 @@ def enable_update_coupler_helpers(kicad, board) -> EnableResult:
             result.details.append(f"{footprint_label(footprint)}: {error}")
             continue
 
-        expected = _new_helper_model(coupler_type, z, tilt, offset)
+        expected = _new_helper_model(
+            coupler_type,
+            z,
+            tilt,
+            offset,
+            compatibility=compatibility,
+        )
         existing = [
             model for model in footprint.definition.models
-            if _helper_model_type(model.filename) is not None
+            if _helper_model_type(model.filename, models) is not None
         ]
         if len(existing) == 1 and _model_matches(existing[0], expected):
             result.unchanged += 1
@@ -255,7 +264,7 @@ def enable_update_coupler_helpers(kicad, board) -> EnableResult:
             result.updated += 1
         else:
             result.added += 1
-        _replace_helper_models(footprint, expected)
+        _replace_helper_models(footprint, expected, models)
         updates.append(footprint)
 
     _push_updates(board, updates, "Update Coupler 3D Viewer helpers")
@@ -264,12 +273,12 @@ def enable_update_coupler_helpers(kicad, board) -> EnableResult:
 
 def hide_coupler_helpers(kicad, board) -> HideResult:
     """Hide Kikakuka coupler helper models without removing them."""
-    del kicad  # Kept in the action API for symmetry with enable/update.
+    models = get_kicad_compat(kicad.get_version()).coupler_model_uris
     footprints = list(board.get_footprints())
     result = HideResult(scanned=len(footprints))
     updates = []
     for footprint in footprints:
-        hidden = _hide_helper_models(footprint)
+        hidden = _hide_helper_models(footprint, models)
         if hidden:
             result.changed += 1
             result.hidden += hidden
