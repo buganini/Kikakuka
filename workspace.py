@@ -11,6 +11,7 @@ import psutil
 from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
 from common import *
+from im.im_mesh import owned_pid_exists, owned_pids, owned_process
 from pcb_open import system_open_command
 from workspace_monitor import (replace_freecad_documents,
                                snapshot_editor_processes, update_pidmap_entry)
@@ -85,7 +86,7 @@ def windows_open_file(file_path, filters):
         int: PID of the opened application, or None if unsuccessful
     """
     # Get initial set of PIDs before launching
-    initial_pids = set(psutil.pids())
+    initial_pids = owned_pids()
 
     # Open the file with the default application (non-blocking)
     os.startfile(file_path)
@@ -94,7 +95,7 @@ def windows_open_file(file_path, filters):
     time.sleep(3)
 
     # Get new set of PIDs after launching
-    new_pids = set(psutil.pids())
+    new_pids = owned_pids()
 
     # Find newly created processes
     new_processes = new_pids - initial_pids
@@ -110,12 +111,15 @@ def windows_open_file(file_path, filters):
         processes = []
         for pid in new_processes:
             try:
-                proc = psutil.Process(pid)
+                proc = owned_process(pid)
+                if proc is None:
+                    continue
                 processes.append((pid, proc.name(), proc.create_time()))
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except (psutil.Error, OSError):
                 continue
 
-        processes = [p for p in processes if any([f in psutil.Process(p[0]).name().lower() for f in filters])]
+        processes = [p for p in processes
+                     if any(f in p[1].lower() for f in filters)]
 
         if processes:
             pid = processes[0][0]
@@ -126,12 +130,15 @@ def windows_open_file(file_path, filters):
         # Only one new process, return its PID
         pid = list(new_processes)[0]
         try:
-            proc_name = psutil.Process(pid).name()
+            process = owned_process(pid)
+            if process is None:
+                return None
+            proc_name = process.name()
             print(f"File opened with: {proc_name} (PID: {pid})")
             return pid
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except (psutil.Error, OSError):
             print(f"Process with PID {pid} was created but can't access its info")
-            return pid
+            return None
 
     return None
 
@@ -197,7 +204,7 @@ def posix_open_file(filepath, filters, *open_args):
         int: PID of the opened application, or None if unsuccessful
     """
     # Get initial set of PIDs before launching
-    initial_pids = set(psutil.pids())
+    initial_pids = owned_pids()
 
     # Open the file with the default application
     open_command = system_open_command(filepath, mac_args=open_args)
@@ -207,7 +214,7 @@ def posix_open_file(filepath, filters, *open_args):
     time.sleep(3)
 
     # Get new set of PIDs after launching
-    new_pids = set(psutil.pids())
+    new_pids = owned_pids()
 
     # Find newly created processes
     new_processes = new_pids - initial_pids
@@ -223,12 +230,15 @@ def posix_open_file(filepath, filters, *open_args):
         processes = []
         for pid in new_processes:
             try:
-                proc = psutil.Process(pid)
+                proc = owned_process(pid)
+                if proc is None:
+                    continue
                 processes.append((pid, proc.name(), proc.create_time()))
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except (psutil.Error, OSError):
                 continue
 
-        processes = [p for p in processes if any([f in psutil.Process(p[0]).name().lower() for f in filters])]
+        processes = [p for p in processes
+                     if any(f in p[1].lower() for f in filters)]
 
         if processes:
             pid = processes[0][0]
@@ -239,12 +249,15 @@ def posix_open_file(filepath, filters, *open_args):
         # Only one new process, return its PID
         pid = list(new_processes)[0]
         try:
-            proc_name = psutil.Process(pid).name()
+            process = owned_process(pid)
+            if process is None:
+                return None
+            proc_name = process.name()
             print(f"File opened with: {proc_name} (PID: {pid})")
             return pid
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except (psutil.Error, OSError):
             print(f"Process with PID {pid} was created but can't access its info")
-            return pid
+            return None
 
     return None
 
@@ -276,7 +289,7 @@ def macos_bring_pid_to_front(pid):
         return False
 
 def bringToFront(pid):
-    if not pid:
+    if not pid or not owned_pid_exists(pid):
         return False
     import platform
     if platform.system() == 'Darwin':
@@ -693,7 +706,7 @@ class WorkspaceUI(PUIView):
                 if bringToFront(pid):
                     return
             else:
-                if psutil.pid_exists(pid):
+                if owned_pid_exists(pid):
                     return
         from pcb_open import open_with_system
         Thread(target=open_with_system, args=[path], daemon=True).start()
@@ -795,7 +808,7 @@ class MainUI(Application):
                args=(pid, program, filepath), daemon=True).start()
 
     def _go_to_monitor_row(self, pid, program, filepath):
-        if not psutil.pid_exists(pid):
+        if not owned_pid_exists(pid):
             return
         bringToFront(pid)
         if program == "FreeCAD" and filepath:

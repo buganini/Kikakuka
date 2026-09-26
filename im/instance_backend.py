@@ -10,8 +10,9 @@ import time
 
 import psutil
 
-from .im_mesh import (activate_open_freecad_document, bind_freecad_source, launch_lock,
-                      local_node, open_in_freecad_node)
+from .im_mesh import (activate_open_freecad_document, bind_freecad_source,
+                      launch_lock, local_node, open_in_freecad_node,
+                      owned_pid_exists, owned_process, owned_process_iter)
 
 
 EDITOR_NAMES = ("kicad", "pcbnew", "eeschema", "pcb editor")
@@ -69,33 +70,9 @@ if platform.system() == "Windows":
 
 def _editors(program="kicad"):
     editors = {}
-    is_windows = platform.system() == "Windows"
-    current_uid = (
-        os.geteuid() if not is_windows and hasattr(os, "geteuid") else None
-    )
-    current_username = None
-    if is_windows:
-        try:
-            current_username = psutil.Process().username().casefold()
-        except (psutil.Error, OSError):
-            return editors
-    attributes = ["pid", "name", "create_time"]
-    if current_uid is not None:
-        attributes.append("uids")
-    elif current_username is not None:
-        attributes.append("username")
     try:
-        for process in psutil.process_iter(attributes):
+        for process in owned_process_iter(["pid", "name", "create_time"]):
             try:
-                if current_uid is not None:
-                    uids = process.info.get("uids")
-                    if uids is None or uids.effective != current_uid:
-                        continue
-                elif current_username is not None:
-                    username = process.info.get("username")
-                    if (not username
-                            or username.casefold() != current_username):
-                        continue
                 name = (process.info["name"] or "").lower()
                 match = (name.startswith("freecad") and not name.startswith("freecadcmd")) if program == "freecad" else any(token in name for token in EDITOR_NAMES)
                 if match:
@@ -112,18 +89,14 @@ def _unix_socket_owner(socket_path, editors, excluded_pids=()):
     if platform.system() == "Windows" or not hasattr(os, "geteuid"):
         return None
 
-    current_uid = os.geteuid()
     target = _normal(socket_path)
     excluded_pids = set(excluded_pids)
     for pid, expected_create_time in sorted(editors.items(), key=lambda pair: pair[1]):
         if pid in excluded_pids:
             continue
         try:
-            process = psutil.Process(pid)
-            if process.uids().effective != current_uid:
-                continue
-            if (expected_create_time
-                    and process.create_time() != expected_create_time):
+            process = owned_process(pid, expected_create_time)
+            if process is None:
                 continue
             connections = process.net_connections(kind="unix")
         except (psutil.Error, OSError, RuntimeError, NotImplementedError):
@@ -190,10 +163,8 @@ def _windows_named_pipe_owner(pipe_path, editors, excluded_pids=()):
         pid = _windows_named_pipe_server_pid(pipe_path)
         if pid is None or pid in excluded_pids or pid not in editors:
             return None
-        process = psutil.Process(pid)
         expected_create_time = editors[pid]
-        if (expected_create_time
-                and process.create_time() != expected_create_time):
+        if owned_process(pid, expected_create_time) is None:
             return None
         return pid
     except (psutil.Error, OSError, RuntimeError):
@@ -307,6 +278,8 @@ def scan_open_kicad_boards():
 
 
 def _focus(pid):
+    if not owned_pid_exists(pid):
+        return
     if platform.system() == "Darwin":
         try:
             subprocess.run(["osascript", "-e", f'tell application "System Events" to set frontmost of (first process whose unix id is {int(pid)}) to true'],
@@ -409,7 +382,7 @@ def _open_new(filepath, program, is_board, node, ensure_fresh=False):
                 return pid, None
         elif node is not None:
             pid = node.snapshot().get(filepath)
-            if pid is not None and psutil.pid_exists(pid):
+            if pid is not None and owned_pid_exists(pid):
                 return pid, None
 
         if program == "freecad" and _editors("freecad"):
@@ -462,7 +435,8 @@ def handle(request):
         # A live PID alone does not prove that the editor still has this
         # board open. The KiCad API's filename is authoritative.
         node.publish(filepath, None)
-    if pid is None and mapped and psutil.pid_exists(mapped) and not is_board and not is_freecad:
+    if (pid is None and mapped and owned_pid_exists(mapped)
+            and not is_board and not is_freecad):
         pid = mapped
     if pid is None and action == "monitor-couplers":
         return {"status": "error", "message": "file is not open in KiCad"}
@@ -484,7 +458,7 @@ def handle(request):
         return {"status": "error", "message": "KiCad IPC requires a PCB file"}
     deadline = time.monotonic() + 30
     while socket_path is None and time.monotonic() < deadline:
-        if not psutil.pid_exists(pid):
+        if not owned_pid_exists(pid):
             return {"status": "error", "message": "KiCad editor exited before IPC was ready"}
         time.sleep(0.5)
         verified_pid, socket_path, _board = _find_board(filepath)

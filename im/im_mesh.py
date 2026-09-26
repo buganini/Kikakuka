@@ -33,6 +33,74 @@ _secret_cache = {}
 _active_endpoints = set()
 
 
+def _current_process_owner():
+    """Return the psutil owner field and value for the current process."""
+    if os.name == "nt":
+        username = psutil.Process().username()
+        if not username:
+            raise psutil.AccessDenied(pid=os.getpid())
+        return "username", username.casefold()
+    return "uids", os.geteuid()
+
+
+def _owner_matches(info, owner_field, owner_value):
+    owner = info.get(owner_field)
+    if owner_field == "username":
+        return bool(owner) and owner.casefold() == owner_value
+    return owner is not None and owner.effective == owner_value
+
+
+def owned_process_iter(attributes):
+    """Yield current-user processes, reading other details only after filtering."""
+    attributes = list(dict.fromkeys(attributes))
+    try:
+        owner_field, owner_value = _current_process_owner()
+        owner_attributes = ["pid", owner_field]
+        detail_attributes = list(dict.fromkeys([*attributes, owner_field]))
+        for process in psutil.process_iter(owner_attributes):
+            try:
+                if not _owner_matches(
+                        process.info, owner_field, owner_value):
+                    continue
+                details = process.as_dict(attrs=detail_attributes)
+                if not _owner_matches(details, owner_field, owner_value):
+                    continue
+                process.info = details
+                yield process
+            except (psutil.Error, OSError, AttributeError, TypeError):
+                continue
+    except (psutil.Error, OSError, AttributeError, TypeError):
+        return
+
+
+def owned_process(pid, expected_create_time=None):
+    """Return a current-user process, optionally rejecting PID reuse."""
+    try:
+        process = psutil.Process(pid)
+        owner_field, owner_value = _current_process_owner()
+        owner = (process.username() if owner_field == "username"
+                 else process.uids())
+        if not _owner_matches(
+                {owner_field: owner}, owner_field, owner_value):
+            return None
+        if (expected_create_time
+                and process.create_time() != expected_create_time):
+            return None
+        return process
+    except (psutil.Error, OSError, AttributeError, TypeError, ValueError):
+        return None
+
+
+def owned_pid_exists(pid):
+    """Return whether PID identifies a live process owned by this user."""
+    return owned_process(pid) is not None
+
+
+def owned_pids():
+    """Return the live PID set for the current user only."""
+    return {process.pid for process in owned_process_iter(["pid"])}
+
+
 def _has_kicad_api():
     try:
         return importlib.util.find_spec("kipy") is not None
@@ -126,7 +194,10 @@ def _ensure_runtime_dir():
 
 
 def _started_ms(pid):
-    return round(psutil.Process(pid).create_time() * 1000)
+    process = owned_process(pid)
+    if process is None:
+        raise psutil.AccessDenied(pid=pid)
+    return round(process.create_time() * 1000)
 
 
 def _endpoint_name(pid, started_ms, suffix=""):
@@ -196,7 +267,7 @@ def _candidate_endpoints():
         return list(dict.fromkeys(endpoints))
     # Pipe namespace enumeration is not guaranteed by the public Win32 API.
     # Fall back to deterministic names derived from ordinary process data.
-    for process in psutil.process_iter(["pid", "create_time"]):
+    for process in owned_process_iter(["pid", "create_time"]):
         try:
             endpoints.append(_endpoint(process.pid,
                                        round(process.info["create_time"] * 1000)))
@@ -528,7 +599,7 @@ class InstanceNode:
                 continue
         with self._lock:
             stale = [(path, value["pid"]) for path, value in self._mappings.items()
-                     if value.get("pid") and not psutil.pid_exists(value["pid"])]
+                     if value.get("pid") and not owned_pid_exists(value["pid"])]
         for path, _ in stale:
             self.publish(path, None)
 
@@ -588,7 +659,7 @@ def activate_or_open_file(filepath, opener, activator):
 
     with _file_lock(filepath):
         pid = node.snapshot().get(filepath)
-        if pid is not None and psutil.pid_exists(pid):
+        if pid is not None and owned_pid_exists(pid):
             try:
                 activator(pid)
             except Exception:
@@ -683,7 +754,7 @@ def bind_freecad_source(pid, filepath, timeout=45):
     """Wait for a newly launched GUI node to identify its imported file."""
     filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline and psutil.pid_exists(pid):
+    while time.monotonic() < deadline and owned_pid_exists(pid):
         for peer in discover():
             if peer["pid"] != pid or not peer.get("freecad_documents"):
                 continue

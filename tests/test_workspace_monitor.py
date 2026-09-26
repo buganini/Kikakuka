@@ -25,7 +25,7 @@ class WorkspaceMonitorTests(unittest.TestCase):
         pidmap = {}
         update_pidmap_entry(pidmap, "/models/first.FCStd", 30)
         update_pidmap_entry(pidmap, "/models/second.FCStd", 30)
-        with mock.patch("workspace_monitor.psutil.process_iter", return_value=[
+        with mock.patch("workspace_monitor.owned_process_iter", return_value=[
                 FakeProcess(30, "FreeCAD")]):
             rows = snapshot_editor_processes(pidmap)
         self.assertEqual(rows, (
@@ -83,7 +83,7 @@ class WorkspaceMonitorTests(unittest.TestCase):
             "/boards/panel.kkkk_fab": 60,
         }
 
-        with mock.patch("workspace_monitor.psutil.process_iter", return_value=processes):
+        with mock.patch("workspace_monitor.owned_process_iter", return_value=processes):
             rows = snapshot_editor_processes(pidmap)
 
         self.assertEqual(rows, (
@@ -98,7 +98,7 @@ class WorkspaceMonitorTests(unittest.TestCase):
             FakeProcess(9, "FreeCAD", ("FreeCAD",)),
         ]
 
-        with mock.patch("workspace_monitor.psutil.process_iter", return_value=processes):
+        with mock.patch("workspace_monitor.owned_process_iter", return_value=processes):
             rows = snapshot_editor_processes({})
 
         self.assertEqual(rows, (
@@ -110,7 +110,7 @@ class WorkspaceMonitorTests(unittest.TestCase):
         process = FakeProcess(42, "pcbnew")
         process.cmdline = mock.Mock(side_effect=psutil.AccessDenied(pid=42))
 
-        with mock.patch("workspace_monitor.psutil.process_iter", return_value=[process]):
+        with mock.patch("workspace_monitor.owned_process_iter", return_value=[process]):
             rows = snapshot_editor_processes({})
 
         self.assertEqual(rows, ((42, "KiCad", ""),))

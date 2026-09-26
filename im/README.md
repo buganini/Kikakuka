@@ -239,9 +239,13 @@ uses AppleScript for best-effort focus; other new editors use `open -n`.
 Windows uses file associations and Win32 foreground APIs; Linux uses
 `xdg-open` and currently has no reliable cross-desktop focus operation.
 File-to-PID discovery uses ordinary process enumeration and KiCad's IPC. On
-Unix it may call `psutil.Process.net_connections(kind="unix")` for unmatched KiCad
-processes, but only after confirming that each process belongs to the current
-user. It does not use system-wide `psutil.net_connections()`,
+all platforms, process enumeration first reads only the PID and OS owner field;
+name, creation time, command line, current directory, and socket details are
+read only after the process is confirmed to belong to the current user. On
+Unix it may call `psutil.Process.net_connections(kind="unix")` for unmatched
+same-user KiCad processes. Stored or WinAPI-returned PIDs are owner-checked
+again before they are inspected, reused, or focused. It does not use
+system-wide `psutil.net_connections()`,
 `Process.open_files()`, `Process.environ()`, or privileged process/socket
 inspection. An inaccessible process is treated as unavailable, never as a
 reason to request elevation.

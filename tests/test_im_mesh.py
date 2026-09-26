@@ -44,6 +44,76 @@ class InstanceMeshTests(unittest.TestCase):
         self.nodes.append(node)
         return node
 
+    def test_owned_process_iter_filters_before_reading_posix_details(self):
+        own_uids = types.SimpleNamespace(effective=1000)
+        other_uids = types.SimpleNamespace(effective=2000)
+        own = mock.Mock(pid=111, info={"pid": 111, "uids": own_uids})
+        own.as_dict.return_value = {
+            "pid": 111, "name": "pcbnew", "uids": own_uids,
+        }
+        other = mock.Mock(pid=222, info={"pid": 222, "uids": other_uids})
+        fake_os = types.SimpleNamespace(name="posix", geteuid=lambda: 1000)
+
+        with mock.patch.object(im_mesh, "os", fake_os), \
+                mock.patch.object(
+                    im_mesh.psutil, "process_iter", return_value=[own, other]
+                ) as process_iter:
+            self.assertEqual(
+                list(im_mesh.owned_process_iter(["pid", "name"])), [own]
+            )
+
+        process_iter.assert_called_once_with(["pid", "uids"])
+        own.as_dict.assert_called_once_with(
+            attrs=["pid", "name", "uids"]
+        )
+        other.as_dict.assert_not_called()
+
+    def test_owned_process_iter_filters_windows_usernames_case_insensitively(self):
+        current = mock.Mock()
+        current.username.return_value = r"WORKSTATION\Alice"
+        own = mock.Mock(
+            pid=111,
+            info={"pid": 111, "username": r"workstation\alice"},
+        )
+        own.as_dict.return_value = {
+            "pid": 111,
+            "name": "pcbnew.exe",
+            "username": r"Workstation\Alice",
+        }
+        other = mock.Mock(
+            pid=222,
+            info={"pid": 222, "username": r"WORKSTATION\Bob"},
+        )
+        fake_os = types.SimpleNamespace(name="nt")
+
+        with mock.patch.object(im_mesh, "os", fake_os), \
+                mock.patch.object(im_mesh.psutil, "Process", return_value=current), \
+                mock.patch.object(
+                    im_mesh.psutil, "process_iter", return_value=[own, other]
+                ) as process_iter:
+            self.assertEqual(
+                list(im_mesh.owned_process_iter(["pid", "name"])), [own]
+            )
+
+        process_iter.assert_called_once_with(["pid", "username"])
+        own.as_dict.assert_called_once_with(
+            attrs=["pid", "name", "username"]
+        )
+        other.as_dict.assert_not_called()
+
+    def test_owned_process_rejects_other_owner_before_create_time(self):
+        process = mock.Mock()
+        process.uids.return_value = types.SimpleNamespace(effective=2000)
+        fake_os = types.SimpleNamespace(name="posix", geteuid=lambda: 1000)
+
+        with mock.patch.object(im_mesh, "os", fake_os), \
+                mock.patch.object(
+                    im_mesh.psutil, "Process", return_value=process
+                ):
+            self.assertIsNone(im_mesh.owned_process(222, 12.5))
+
+        process.create_time.assert_not_called()
+
     def test_elects_live_node_and_fails_over_after_close(self):
         first = self.node(lambda _: {"status": "ok", "owner": "first"})
         second = self.node(lambda _: {"status": "ok", "owner": "second"})
@@ -130,7 +200,9 @@ class InstanceMeshTests(unittest.TestCase):
                                   return_value="S-1-5-21-123-456"), \
                 mock.patch.object(im_mesh, "runtime_dir",
                                   return_value=Path(self.directory.name)), \
-                mock.patch.object(im_mesh.psutil, "process_iter", return_value=[process]):
+                mock.patch.object(
+                    im_mesh, "owned_process_iter", return_value=[process]
+                ):
             self.assertEqual(im_mesh._candidate_endpoints(),
                              [im_mesh._endpoint(123, 456789)])
 

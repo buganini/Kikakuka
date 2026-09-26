@@ -52,15 +52,12 @@ class InstanceBackendTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-                    backend.os, "geteuid", return_value=1000, create=True
-                ), \
-                mock.patch.object(
-                    backend.psutil, "process_iter", return_value=[own, other]
+                    backend, "owned_process_iter", return_value=[own]
                 ) as process_iter:
             self.assertEqual(backend._editors(), {111: 1})
 
         process_iter.assert_called_once_with(
-            ["pid", "name", "create_time", "uids"]
+            ["pid", "name", "create_time"]
         )
 
     def test_windows_editors_excludes_processes_owned_by_other_users(self):
@@ -82,20 +79,13 @@ class InstanceBackendTests(unittest.TestCase):
                 "username": r"WORKSTATION\bob",
             },
         )
-        current = mock.Mock()
-        current.username.return_value = r"Workstation\Alice"
-
         with mock.patch.object(
-                    backend.platform, "system", return_value="Windows"
-                ), \
-                mock.patch.object(backend.psutil, "Process", return_value=current), \
-                mock.patch.object(
-                    backend.psutil, "process_iter", return_value=[own, other]
+                    backend, "owned_process_iter", return_value=[own]
                 ) as process_iter:
             self.assertEqual(backend._editors(), {111: 1})
 
         process_iter.assert_called_once_with(
-            ["pid", "name", "create_time", "username"]
+            ["pid", "name", "create_time"]
         )
 
     def test_windows_kicad_api_sentinel_is_created_once(self):
@@ -206,7 +196,7 @@ class InstanceBackendTests(unittest.TestCase):
                     return_value=222,
                 ), \
                 mock.patch.object(
-                    backend.psutil, "Process", return_value=process
+                    backend, "owned_process", return_value=process
                 ):
             self.assertEqual(
                 backend._windows_named_pipe_owner(
@@ -249,8 +239,6 @@ class InstanceBackendTests(unittest.TestCase):
         close_handle.assert_called_once_with(123)
 
     def test_windows_named_pipe_owner_ignores_unknown_or_reused_pid(self):
-        process = mock.Mock()
-        process.create_time.return_value = 99
         pipe_path = r"\\.\pipe\C:\Temp\kicad\api.sock"
 
         with mock.patch.object(
@@ -261,36 +249,28 @@ class InstanceBackendTests(unittest.TestCase):
                     side_effect=[333, 222],
                 ), \
                 mock.patch.object(
-                    backend.psutil, "Process", return_value=process
-                ) as ps_process:
+                    backend, "owned_process", return_value=None
+                ) as owned_process:
             self.assertIsNone(
                 backend._windows_named_pipe_owner(pipe_path, {222: 2})
             )
-            ps_process.assert_not_called()
+            owned_process.assert_not_called()
             self.assertIsNone(
                 backend._windows_named_pipe_owner(pipe_path, {222: 2})
             )
-            ps_process.assert_called_once_with(222)
+            owned_process.assert_called_once_with(222, 2)
 
     def test_unix_socket_owner_scans_only_same_user_unmapped_editors(self):
-        other_user = mock.Mock()
-        other_user.uids.return_value = mock.Mock(effective=2000)
-        mapped = mock.Mock()
         owner = mock.Mock()
-        owner.uids.return_value = mock.Mock(effective=1000)
-        owner.create_time.return_value = 3
         owner.net_connections.return_value = [
             mock.Mock(laddr="/tmp/kicad/api.sock"),
         ]
-        processes = {111: other_user, 222: mapped, 333: owner}
+        processes = {111: None, 333: owner}
 
         with mock.patch.object(backend.platform, "system", return_value="Linux"), \
                 mock.patch.object(
-                    backend.os, "geteuid", return_value=1000, create=True
-                ), \
-                mock.patch.object(
-                    backend.psutil, "Process",
-                    side_effect=lambda pid: processes[pid],
+                    backend, "owned_process",
+                    side_effect=lambda pid, _created: processes[pid],
                 ) as process:
             self.assertEqual(
                 backend._unix_socket_owner(
@@ -301,9 +281,8 @@ class InstanceBackendTests(unittest.TestCase):
                 333,
             )
 
-        self.assertEqual([call.args[0] for call in process.call_args_list], [111, 333])
-        other_user.net_connections.assert_not_called()
-        mapped.net_connections.assert_not_called()
+        self.assertEqual(process.call_args_list, [mock.call(111, 1),
+                                                  mock.call(333, 3)])
         owner.net_connections.assert_called_once_with(kind="unix")
 
     def test_unix_socket_owner_continues_after_process_error(self):
@@ -314,19 +293,16 @@ class InstanceBackendTests(unittest.TestCase):
             pid=111
         )
         owner = mock.Mock()
-        owner.uids.return_value = mock.Mock(effective=1000)
-        owner.create_time.return_value = 2
         owner.net_connections.return_value = [
             mock.Mock(laddr="/tmp/kicad/api.sock"),
         ]
 
         with mock.patch.object(backend.platform, "system", return_value="Darwin"), \
                 mock.patch.object(
-                    backend.os, "geteuid", return_value=1000, create=True
-                ), \
-                mock.patch.object(
-                    backend.psutil, "Process",
-                    side_effect=lambda pid: {111: inaccessible, 222: owner}[pid],
+                    backend, "owned_process",
+                    side_effect=lambda pid, _created: {
+                        111: inaccessible, 222: owner
+                    }[pid],
                 ):
             self.assertEqual(
                 backend._unix_socket_owner(
@@ -552,7 +528,7 @@ class InstanceBackendTests(unittest.TestCase):
         node.snapshot.return_value = {"/models/part.FCStd": 111}
         with mock.patch.object(backend, "local_node", return_value=node), \
                 mock.patch.object(backend.os.path, "isfile", return_value=True), \
-                mock.patch.object(backend.psutil, "pid_exists", return_value=True), \
+                mock.patch.object(backend, "owned_pid_exists", return_value=True), \
                 mock.patch.object(backend, "activate_open_freecad_document",
                                   return_value=222) as activate, \
                 mock.patch.object(backend, "_launch") as launch, \
@@ -569,7 +545,7 @@ class InstanceBackendTests(unittest.TestCase):
         node.snapshot.return_value = {"/models/part.FCStd": 111}
         with mock.patch.object(backend, "local_node", return_value=node), \
                 mock.patch.object(backend.os.path, "isfile", return_value=True), \
-                mock.patch.object(backend.psutil, "pid_exists", return_value=True), \
+                mock.patch.object(backend, "owned_pid_exists", return_value=True), \
                 mock.patch.object(backend, "activate_open_freecad_document",
                                   return_value=None), \
                 mock.patch.object(backend, "open_in_freecad_node", return_value=None), \

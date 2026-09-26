@@ -4,6 +4,8 @@ import os
 
 import psutil
 
+from im.im_mesh import owned_process_iter
+
 
 FILE_SUFFIXES = {
     "KiCad": (".kicad_pcb", ".kicad_sch", ".kicad_pro"),
@@ -75,7 +77,7 @@ def snapshot_editor_processes(pidmap):
 
     rows = []
     try:
-        processes = psutil.process_iter(["pid", "name"])
+        processes = owned_process_iter(["pid", "name"])
         for process in processes:
             try:
                 pid = process.info["pid"]
