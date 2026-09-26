@@ -30,6 +30,7 @@ FILE_ORDER = [*PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, ".kicad_pro"]
 WINDOWS_FREECAD_EXE = r"C:\Program Files\FreeCAD 1.0\bin\FreeCAD.exe"
 KICAD_SOCKET_REFRESH_RETRIES = 12
 KICAD_SOCKET_REFRESH_DELAY_S = 0.5
+ADDON_ROW_HEIGHT = 32
 
 try:
     KIPY_VERSION = package_version("kicad-python")
@@ -1065,11 +1066,12 @@ class MainUI(Application):
                                         Label(addon["label"]).grid(
                                             row=addon_row, column=0
                                         )
-                                        with HBox().layout(weight=1).grid(
+                                        with HBox().layout(
+                                            weight=1, height=ADDON_ROW_HEIGHT
+                                        ).grid(
                                             row=addon_row, column=1
                                         ):
                                             Label(addon["status"], selectable=True)
-                                            Spacer()
                                             if addon["action"]:
                                                 Button(addon["action"]).click(
                                                     self.manage_addon, key, "install"
