@@ -11,9 +11,9 @@ import time
 import psutil
 
 from .im_mesh import (activate_open_freecad_document, bind_freecad_source,
-                      launch_lock, local_node, open_in_freecad_node,
-                      owned_pid_exists, owned_process, owned_process_iter)
-from workspace_monitor import is_kicad_editor_process
+                      is_kicad_editor_process, launch_lock, local_node,
+                      open_in_freecad_node, owned_pid_exists, owned_process,
+                      owned_process_iter)
 
 
 FREECAD_SUFFIXES = (".fcstd", ".step", ".stp", ".kkkk_asm")

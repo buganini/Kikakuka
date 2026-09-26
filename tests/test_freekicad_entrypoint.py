@@ -1,8 +1,11 @@
 """FreeCAD process registration must not depend on workbench activation."""
 
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from unittest import mock
@@ -13,6 +16,20 @@ PACKAGE_NAME = "FreekiCAD.freecad.FreekiCAD"
 
 
 class FreekiCADEntrypointTests(unittest.TestCase):
+    def test_shared_instance_backend_has_no_kikakuka_root_dependency(self):
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(PACKAGE_DIR.parent)
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [sys.executable, "-c", "import FreekiCAD.instance_backend"],
+                cwd=directory,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_package_import_starts_instance_node_without_document_observer_api(self):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_freecad.addImportType = mock.Mock()

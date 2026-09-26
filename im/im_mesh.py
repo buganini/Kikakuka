@@ -31,6 +31,14 @@ _nodes_lock = threading.RLock()
 _local_node = None
 _secret_cache = {}
 _active_endpoints = set()
+KICAD_EDITOR_PROCESS_NAMES = {"kicad", "pcbnew", "eeschema", "pcb editor"}
+
+
+def is_kicad_editor_process(name):
+    """Return whether a process name is a KiCad GUI editor executable."""
+    basename = os.path.basename(name or "")
+    executable, _extension = os.path.splitext(basename)
+    return executable.casefold() in KICAD_EDITOR_PROCESS_NAMES
 
 
 def _current_process_owner():

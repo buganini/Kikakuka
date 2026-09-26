@@ -4,7 +4,7 @@ import os
 
 import psutil
 
-from im.im_mesh import owned_process_iter
+from im.im_mesh import is_kicad_editor_process, owned_process_iter
 
 
 FILE_SUFFIXES = {
@@ -12,16 +12,6 @@ FILE_SUFFIXES = {
     "FreeCAD": (".fcstd", ".step", ".stp", ".kkkk_asm"),
     "Fabrication Planner": (".kkkk_fab", ".kikit_pnl"),
 }
-KICAD_EDITOR_PROCESS_NAMES = {"kicad", "pcbnew", "eeschema", "pcb editor"}
-
-
-def is_kicad_editor_process(name):
-    """Return whether a process name is a KiCad GUI editor executable."""
-    basename = os.path.basename(name or "")
-    executable, _extension = os.path.splitext(basename)
-    return executable.casefold() in KICAD_EDITOR_PROCESS_NAMES
-
-
 def update_pidmap_entry(pidmap, filepath, pid):
     """Keep all FreeCAD documents; track one active file for other editors."""
     filepath = os.path.abspath(filepath)
