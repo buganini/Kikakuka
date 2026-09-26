@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -106,17 +107,47 @@ def install(archive_path: Path):
     emit(ok=True, version=version, dependencies=specs)
 
 
-def uninstall():
-    from Addon import Addon
-    from addonmanager_uninstaller import AddonUninstaller
+def _missing_pyside(exc: ImportError) -> bool:
+    text = str(exc).casefold()
+    return "pyside" in text and (
+        "no viable" in text
+        or "no module named" in text
+        or "cannot import" in text
+    )
 
+
+def _remove_freekicad_directory(path: Path):
+    """Remove only the known user-addon directory without following links."""
+    if path.name.casefold() != "freekicad":
+        raise RuntimeError(f"Refusing to remove unexpected addon path: {path}")
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
+def uninstall():
     path = installed_package_xml().parent
     if not path.exists() and not path.is_symlink():
         emit(ok=True, removed=False)
         return
-    addon = Addon("FreekiCAD")
-    if not AddonUninstaller(addon).run():
-        raise RuntimeError("FreeCAD Addon Manager could not uninstall FreekiCAD")
+    try:
+        from Addon import Addon
+        from addonmanager_uninstaller import AddonUninstaller
+
+        addon = Addon("FreekiCAD")
+        if not AddonUninstaller(addon).run():
+            raise RuntimeError(
+                "FreeCAD Addon Manager could not uninstall FreekiCAD"
+            )
+    except ImportError as exc:
+        if not _missing_pyside(exc):
+            raise
+        # Some Windows FreeCADCmd distributions do not expose PySide, while
+        # AddonUninstaller inherits QtCore.QObject even in its documented
+        # non-GUI mode. All GUI instances are already required to be closed,
+        # so removing this known addon directory is the equivalent safe action.
+        _remove_freekicad_directory(path)
     emit(ok=True, removed=True)
 
 

@@ -1,4 +1,5 @@
 import json
+import builtins
 from pathlib import Path
 import sys
 import tempfile
@@ -427,6 +428,77 @@ class AddonManagerTest(unittest.TestCase):
 
             self.assertEqual(seen, ["FreekiCAD"])
             emit.assert_called_once_with(ok=True, removed=True)
+
+    def test_freecad_uninstall_falls_back_when_headless_pyside_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package_xml = root / "Mod/FreekiCAD/package.xml"
+            package_xml.parent.mkdir(parents=True)
+            package_xml.write_text("<package/>")
+            sibling = root / "Mod/Keep/file.txt"
+            sibling.parent.mkdir(parents=True)
+            sibling.write_text("keep")
+            real_import = builtins.__import__
+
+            def import_without_pyside(name, *args, **kwargs):
+                if name == "addonmanager_uninstaller":
+                    raise ImportError(
+                        "No viable version of PySide was found "
+                        "(tried the FreeCAD PySide wrapper, PySide6 and PySide2)"
+                    )
+                return real_import(name, *args, **kwargs)
+
+            fake_addon = types.SimpleNamespace(Addon=lambda name: name)
+            with (
+                mock.patch.dict(sys.modules, {"Addon": fake_addon}),
+                mock.patch.object(
+                    freecad_addon_installer,
+                    "installed_package_xml",
+                    return_value=package_xml,
+                ),
+                mock.patch.object(
+                    builtins, "__import__", side_effect=import_without_pyside
+                ),
+                mock.patch.object(freecad_addon_installer, "emit") as emit,
+            ):
+                freecad_addon_installer.uninstall()
+
+            self.assertFalse(package_xml.parent.exists())
+            self.assertEqual(sibling.read_text(), "keep")
+            emit.assert_called_once_with(ok=True, removed=True)
+
+    def test_freecad_uninstall_does_not_hide_unrelated_import_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package_xml = Path(directory) / "FreekiCAD/package.xml"
+            package_xml.parent.mkdir(parents=True)
+            package_xml.write_text("<package/>")
+            real_import = builtins.__import__
+
+            def broken_import(name, *args, **kwargs):
+                if name == "addonmanager_uninstaller":
+                    raise ImportError("unexpected addon manager failure")
+                return real_import(name, *args, **kwargs)
+
+            with (
+                mock.patch.dict(
+                    sys.modules,
+                    {"Addon": types.SimpleNamespace(Addon=lambda name: name)},
+                ),
+                mock.patch.object(
+                    freecad_addon_installer,
+                    "installed_package_xml",
+                    return_value=package_xml,
+                ),
+                mock.patch.object(
+                    builtins, "__import__", side_effect=broken_import
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    ImportError, "unexpected addon manager failure"
+                ):
+                    freecad_addon_installer.uninstall()
+
+            self.assertTrue(package_xml.parent.exists())
 
     def test_freecad_install_status_does_not_prompt_for_restart(self):
         with (
