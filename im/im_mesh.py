@@ -367,7 +367,10 @@ def _open_windows_shared_lock_file(path):
         if handle != invalid_handle:
             break
         error = ctypes.get_last_error()
-        if error != 32:  # ERROR_SHARING_VIOLATION from an older IM runtime
+        # Older CRT openers may surface an incompatible sharing mode as
+        # ERROR_ACCESS_DENIED or ERROR_SHARING_VIOLATION. Elevated privileges
+        # do not bypass either conflict; wait for that short-lived opener.
+        if error not in (5, 32):
             raise ctypes.WinError(error)
         time.sleep(0.05)
     try:

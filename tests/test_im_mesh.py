@@ -56,29 +56,37 @@ class InstanceMeshTests(unittest.TestCase):
 
     def test_windows_lock_file_waits_for_older_exclusive_opener(self):
         invalid_handle = ctypes.c_void_p(-1).value
-        create_file = mock.Mock(side_effect=[invalid_handle, 123])
-        kernel32 = mock.Mock(
-            CreateFileW=create_file,
-            CloseHandle=mock.Mock(return_value=True),
-        )
-        fake_msvcrt = mock.Mock(
-            open_osfhandle=mock.Mock(return_value=456)
-        )
+        for error in (5, 32):
+            with self.subTest(error=error):
+                create_file = mock.Mock(side_effect=[invalid_handle, 123])
+                kernel32 = mock.Mock(
+                    CreateFileW=create_file,
+                    CloseHandle=mock.Mock(return_value=True),
+                )
+                fake_msvcrt = mock.Mock(
+                    open_osfhandle=mock.Mock(return_value=456)
+                )
 
-        with mock.patch.object(im_mesh.os, "name", "nt"), \
-                mock.patch.object(
-                    ctypes, "WinDLL", create=True, return_value=kernel32
-                ), \
-                mock.patch.object(
-                    ctypes, "get_last_error", create=True, return_value=32
-                ), \
-                mock.patch.object(im_mesh.time, "sleep") as sleep, \
-                mock.patch.dict(sys.modules, {"msvcrt": fake_msvcrt}):
-            descriptor = im_mesh._open_windows_shared_lock_file("file.lock")
+                with mock.patch.object(im_mesh.os, "name", "nt"), \
+                        mock.patch.object(
+                            ctypes, "WinDLL", create=True,
+                            return_value=kernel32
+                        ), \
+                        mock.patch.object(
+                            ctypes, "get_last_error", create=True,
+                            return_value=error
+                        ), \
+                        mock.patch.object(im_mesh.time, "sleep") as sleep, \
+                        mock.patch.dict(
+                            sys.modules, {"msvcrt": fake_msvcrt}
+                        ):
+                    descriptor = im_mesh._open_windows_shared_lock_file(
+                        "file.lock"
+                    )
 
-        self.assertEqual(descriptor, 456)
-        self.assertEqual(create_file.call_count, 2)
-        sleep.assert_called_once_with(0.05)
+                self.assertEqual(descriptor, 456)
+                self.assertEqual(create_file.call_count, 2)
+                sleep.assert_called_once_with(0.05)
 
     @unittest.skipUnless(os.name == "nt", "requires Windows file sharing")
     def test_windows_lock_file_can_be_opened_twice(self):
