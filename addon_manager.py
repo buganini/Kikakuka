@@ -863,12 +863,13 @@ def _owned_freecad_executables() -> Iterable[Path]:
 
 
 def freecad_commands(system: Optional[str] = None) -> list[list[str]]:
-    """Return FreeCAD console invocations, preferring freecadcmd."""
+    """Return supported FreeCADCmd invocations."""
     system = system or platform.system()
     cmd_candidates: list[Path] = []
-    gui_candidates: list[Path] = []
 
     for executable in _owned_freecad_executables():
+        if Path(executable).stem.casefold() == "freecadcmd":
+            cmd_candidates.append(executable)
         if system == "Darwin" and ".app" in str(executable):
             app = next(
                 (parent for parent in executable.parents if parent.suffix == ".app"),
@@ -876,44 +877,32 @@ def freecad_commands(system: Optional[str] = None) -> list[list[str]]:
             )
             if app:
                 cmd_candidates.append(app / "Contents/Resources/bin/freecadcmd")
-                gui_candidates.append(app / "Contents/Resources/bin/freecad")
         cmd_candidates.extend(
             [executable.with_name("freecadcmd"), executable.with_name("FreeCADCmd.exe")]
         )
-        gui_candidates.append(executable)
 
     for name in ("freecadcmd", "FreeCADCmd", "FreeCADCmd.exe"):
         found = shutil.which(name)
         if found:
             cmd_candidates.append(Path(found))
-    for name in ("freecad", "FreeCAD", "FreeCAD.exe"):
-        found = shutil.which(name)
-        if found:
-            gui_candidates.append(Path(found))
 
     if system == "Darwin":
         applications = [Path("/Applications"), Path.home() / "Applications"]
         for applications_dir in applications:
             for app in applications_dir.glob("FreeCAD*.app"):
                 cmd_candidates.append(app / "Contents/Resources/bin/freecadcmd")
-                gui_candidates.append(app / "Contents/Resources/bin/freecad")
     elif system == "Windows":
         associated = _windows_associated_executable(".FCStd")
         if associated:
             cmd_candidates.append(associated.with_name("FreeCADCmd.exe"))
-            gui_candidates.append(associated)
         roots = [os.environ.get("ProgramFiles"), os.environ.get("LOCALAPPDATA")]
         for root in filter(None, roots):
             base = Path(root)
             cmd_candidates.extend(sorted(base.glob("FreeCAD*/bin/FreeCADCmd.exe"), reverse=True))
-            gui_candidates.extend(sorted(base.glob("FreeCAD*/bin/FreeCAD.exe"), reverse=True))
 
     commands: list[list[str]] = []
     seen = set()
-    for candidate, console_flag in [
-        *((path, False) for path in cmd_candidates),
-        *((path, True) for path in gui_candidates),
-    ]:
+    for candidate in cmd_candidates:
         try:
             key = str(candidate.resolve())
         except OSError:
@@ -921,7 +910,7 @@ def freecad_commands(system: Optional[str] = None) -> list[list[str]]:
         if key in seen or not candidate.is_file():
             continue
         seen.add(key)
-        commands.append([str(candidate), "-c"] if console_flag else [str(candidate)])
+        commands.append([str(candidate)])
     return commands
 
 
@@ -1032,7 +1021,7 @@ def run_freecad_helper(action: str, archive: Optional[Path] = None) -> dict:
     errors = []
     commands = freecad_commands()
     if not commands:
-        raise FileNotFoundError("FreeCADCmd or FreeCAD console executable was not found")
+        raise FileNotFoundError("FreeCADCmd executable was not found")
     helper_env = os.environ.copy()
     helper_env["KIKAKUKA_ADDON_ACTION"] = action
     if archive is not None:

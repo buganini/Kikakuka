@@ -334,6 +334,119 @@ class AddonManagerTest(unittest.TestCase):
             ["psutil>=7.2.2", "example>=1.0,<2.0"],
         )
 
+    def test_freecad_dependencies_fall_back_without_headless_pyside(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            python = root / "freecad/bin/python3"
+            python.parent.mkdir(parents=True)
+            python.touch()
+            user_data = root / "user"
+            fake_freecad = types.SimpleNamespace(
+                getHomePath=lambda: str(root / "freecad"),
+                ConfigGet=lambda key: str(user_data) if key == "UserAppData" else "",
+            )
+            real_import = builtins.__import__
+
+            def import_without_pyside(name, *args, **kwargs):
+                if name == "addonmanager_utilities":
+                    raise ImportError("No viable version of PySide was found")
+                return real_import(name, *args, **kwargs)
+
+            completed = mock.Mock(stdout="", stderr="", returncode=0)
+            with (
+                mock.patch.dict(sys.modules, {"FreeCAD": fake_freecad}),
+                mock.patch.object(
+                    builtins, "__import__", side_effect=import_without_pyside
+                ),
+                mock.patch.object(
+                    freecad_addon_installer.subprocess,
+                    "run",
+                    return_value=completed,
+                ) as run,
+            ):
+                freecad_addon_installer.install_dependencies(
+                    ["psutil>=7.2.2"]
+                )
+
+            command = run.call_args.args[0]
+            self.assertEqual(command[:4], [str(python), "-m", "pip", "--disable-pip-version-check"])
+            self.assertIn("psutil>=7.2.2", command)
+            self.assertIn(
+                str(
+                    user_data
+                    / "AdditionalPythonPackages"
+                    / f"py{sys.version_info.major}{sys.version_info.minor}"
+                ),
+                command,
+            )
+
+    def test_freecad_install_falls_back_when_headless_pyside_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "freekicad.zip"
+            with zipfile.ZipFile(archive, "w") as output:
+                output.writestr(
+                    "package.xml",
+                    '<package xmlns="https://wiki.freecad.org/Package_Metadata">'
+                    '<version>8.0</version>'
+                    '<depend type="python" version_gte="7.2.2">psutil</depend>'
+                    "</package>",
+                )
+                output.writestr("freecad/FreekiCAD/module.py", "VALUE = 1\n")
+            package_xml = root / "user/Mod/FreekiCAD/package.xml"
+            package_xml.parent.mkdir(parents=True)
+            (package_xml.parent / "old.py").write_text("old\n")
+            real_import = builtins.__import__
+
+            def import_without_pyside(name, *args, **kwargs):
+                if name == "addonmanager_installer":
+                    raise ImportError("No viable version of PySide was found")
+                return real_import(name, *args, **kwargs)
+
+            with (
+                mock.patch.dict(
+                    sys.modules,
+                    {"Addon": types.SimpleNamespace(Addon=lambda *args, **kwargs: None)},
+                ),
+                mock.patch.object(
+                    freecad_addon_installer,
+                    "installed_package_xml",
+                    return_value=package_xml,
+                ),
+                mock.patch.object(freecad_addon_installer, "install_dependencies"),
+                mock.patch.object(
+                    builtins, "__import__", side_effect=import_without_pyside
+                ),
+                mock.patch.object(freecad_addon_installer, "emit") as emit,
+            ):
+                freecad_addon_installer.install(archive)
+
+            self.assertEqual(
+                (package_xml.parent / "freecad/FreekiCAD/module.py").read_text(),
+                "VALUE = 1\n",
+            )
+            self.assertFalse((package_xml.parent / "old.py").exists())
+            emit.assert_called_once_with(
+                ok=True,
+                version="8.0",
+                dependencies=["psutil>=7.2.2"],
+            )
+
+    def test_direct_freecad_install_rejects_archive_traversal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "freekicad.zip"
+            with zipfile.ZipFile(archive, "w") as output:
+                output.writestr("package.xml", "<package/>")
+                output.writestr("../escaped.py", "bad\n")
+
+            with self.assertRaisesRegex(ValueError, "Unsafe archive path"):
+                freecad_addon_installer._install_archive_direct(
+                    archive, root / "Mod/FreekiCAD"
+                )
+
+            self.assertFalse((root / "escaped.py").exists())
+
     def test_freecad_helper_inputs_use_environment_not_cli_arguments(self):
         completed = mock.Mock(
             stdout=(
@@ -365,6 +478,31 @@ class AddonManagerTest(unittest.TestCase):
         self.assertEqual(
             kwargs["env"]["KIKAKUKA_ADDON_ARCHIVE"], str(archive)
         )
+
+    def test_freecad_commands_do_not_fall_back_to_gui_console_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            console = root / "freecadcmd"
+            gui = root / "freecad"
+            console.touch()
+            gui.touch()
+
+            def which(name):
+                if name == "freecadcmd":
+                    return str(console)
+                if name == "freecad":
+                    return str(gui)
+                return None
+
+            with (
+                mock.patch.object(
+                    addon_manager, "_owned_freecad_executables", return_value=[]
+                ),
+                mock.patch.object(addon_manager.shutil, "which", side_effect=which),
+            ):
+                commands = addon_manager.freecad_commands(system="Linux")
+
+            self.assertEqual(commands, [[str(console)]])
 
     def test_freecad_helper_main_reads_environment_action(self):
         with (

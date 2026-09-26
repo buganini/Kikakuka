@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -62,17 +63,25 @@ def installed_package_xml() -> Path:
     return Path(FreeCAD.ConfigGet("UserAppData")) / "Mod" / "FreekiCAD" / "package.xml"
 
 
-def install_dependencies(specs):
-    if not specs:
-        return
-    import addonmanager_utilities as utils
+def _missing_pyside(exc: ImportError) -> bool:
+    text = str(exc).casefold()
+    return "pyside" in text and (
+        "no viable" in text
+        or "no module named" in text
+        or "cannot import" in text
+    )
 
-    target = Path(utils.get_pip_target_directory())
+
+def _run_pip_specs(specs, target: Path, create_command):
     target.mkdir(parents=True, exist_ok=True)
     for spec in specs:
-        command = utils.create_pip_call(
-            ["install", "--upgrade", "--target", str(target), spec]
-        )
+        command = create_command([
+            "install",
+            "--upgrade",
+            "--target",
+            str(target),
+            spec,
+        ])
         completed = subprocess.run(command, text=True, capture_output=True)
         if completed.stdout:
             print(completed.stdout, end="")
@@ -84,6 +93,117 @@ def install_dependencies(specs):
             )
 
 
+def _freecad_python_executable() -> Path:
+    import FreeCAD
+
+    home = Path(FreeCAD.getHomePath())
+    names = (
+        ("python.exe", "python3.exe", "python", "python3")
+        if os.name == "nt"
+        else ("python3", "python")
+    )
+    candidates = [home / "bin" / name for name in names]
+    candidates.extend(Path(sys.executable).with_name(name) for name in names)
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            candidates.append(Path(found))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise RuntimeError("Could not locate FreeCAD's Python executable")
+
+
+def _headless_pip_target() -> Path:
+    import FreeCAD
+
+    return (
+        Path(FreeCAD.ConfigGet("UserAppData"))
+        / "AdditionalPythonPackages"
+        / f"py{sys.version_info.major}{sys.version_info.minor}"
+    )
+
+
+def install_dependencies(specs):
+    if not specs:
+        return
+    try:
+        import addonmanager_utilities as utils
+
+        target = Path(utils.get_pip_target_directory())
+        create_command = utils.create_pip_call
+    except ImportError as exc:
+        if not _missing_pyside(exc):
+            raise
+        target = _headless_pip_target()
+        command_prefix = [
+            str(_freecad_python_executable()),
+            "-m",
+            "pip",
+            "--disable-pip-version-check",
+        ]
+        create_command = lambda args: [*command_prefix, *args]
+    _run_pip_specs(specs, target, create_command)
+
+
+def _safe_archive_parts(name: str):
+    normalized = name.replace("\\", "/")
+    if normalized.startswith("/") or (
+        len(normalized) >= 2 and normalized[1] == ":"
+    ):
+        raise ValueError(f"Unsafe archive path: {name}")
+    parts = tuple(part for part in normalized.split("/") if part not in ("", "."))
+    if not parts or any(part == ".." for part in parts):
+        raise ValueError(f"Unsafe archive path: {name}")
+    return parts
+
+
+def _remove_path(path: Path):
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
+def _install_archive_direct(archive_path: Path, destination: Path):
+    parent = destination.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    staging_root = Path(tempfile.mkdtemp(prefix=".FreekiCAD-", dir=parent))
+    staged = staging_root / "FreekiCAD"
+    staged.mkdir()
+    backup = destination.with_name(destination.name + ".kikakuka-old")
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            for member in archive.infolist():
+                parts = _safe_archive_parts(member.filename)
+                if (member.external_attr >> 16) & 0o170000 == 0o120000:
+                    raise ValueError(
+                        f"Archive symlink is not allowed: {member.filename}"
+                    )
+                output = staged.joinpath(*parts)
+                if member.is_dir():
+                    output.mkdir(parents=True, exist_ok=True)
+                    continue
+                output.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(member) as source, output.open("wb") as target:
+                    shutil.copyfileobj(source, target)
+
+        if not (staged / "package.xml").is_file():
+            raise ValueError("FreekiCAD archive has no package.xml")
+        _remove_path(backup)
+        if destination.exists() or destination.is_symlink():
+            destination.rename(backup)
+        try:
+            staged.rename(destination)
+        except Exception:
+            if backup.exists() and not destination.exists():
+                backup.rename(destination)
+            raise
+        _remove_path(backup)
+    finally:
+        shutil.rmtree(staging_root, ignore_errors=True)
+
+
 def install(archive_path: Path):
     archive_path = archive_path.resolve()
     with zipfile.ZipFile(archive_path) as archive:
@@ -91,39 +211,35 @@ def install(archive_path: Path):
     specs = dependency_specs(package_xml)
     install_dependencies(specs)
 
-    from Addon import Addon
-    from addonmanager_installer import AddonInstaller, InstallationMethod
+    destination = installed_package_xml().parent
+    try:
+        from Addon import Addon
+        from addonmanager_installer import AddonInstaller, InstallationMethod
 
-    addon = Addon("FreekiCAD", str(archive_path), branch="main")
-    allowed = [spec.split("<", 1)[0].split(">", 1)[0].split("=", 1)[0]
-               for spec in specs]
-    installer = AddonInstaller(addon, allow_list=allowed)
-    if not installer.run(InstallationMethod.ZIP):
-        raise RuntimeError("FreeCAD Addon Manager could not install FreekiCAD")
+        addon = Addon("FreekiCAD", str(archive_path), branch="main")
+        allowed = [spec.split("<", 1)[0].split(">", 1)[0].split("=", 1)[0]
+                   for spec in specs]
+        installer = AddonInstaller(addon, allow_list=allowed)
+        if not installer.run(InstallationMethod.ZIP):
+            raise RuntimeError(
+                "FreeCAD Addon Manager could not install FreekiCAD"
+            )
+    except ImportError as exc:
+        if not _missing_pyside(exc):
+            raise
+        _install_archive_direct(archive_path, destination)
 
-    version = package_version(installed_package_xml())
+    version = package_version(destination / "package.xml")
     if version is None:
         raise RuntimeError("FreekiCAD package.xml was not installed")
     emit(ok=True, version=version, dependencies=specs)
-
-
-def _missing_pyside(exc: ImportError) -> bool:
-    text = str(exc).casefold()
-    return "pyside" in text and (
-        "no viable" in text
-        or "no module named" in text
-        or "cannot import" in text
-    )
 
 
 def _remove_freekicad_directory(path: Path):
     """Remove only the known user-addon directory without following links."""
     if path.name.casefold() != "freekicad":
         raise RuntimeError(f"Refusing to remove unexpected addon path: {path}")
-    if path.is_symlink() or path.is_file():
-        path.unlink()
-    elif path.is_dir():
-        shutil.rmtree(path)
+    _remove_path(path)
 
 
 def uninstall():

@@ -25,7 +25,7 @@
 * Add-on Management
     * Add an Add-ons tab for installing, updating, and uninstalling the bundled KiCad plugin, KiCad library, and FreekiCAD addon from offline packages
     * Detect supported KiCad 10 and FreeCAD 1.0-or-later installations, require their instances to be closed before changes, and install required FreekiCAD Python dependencies through FreeCAD's console runtime
-    * Generate portable versioned addon archives from Python for release and source-tree use, and support FreekiCAD removal through PySide-less Windows FreeCADCmd builds
+    * Generate portable versioned addon archives from Python for release and source-tree use, and support FreekiCAD installation and removal through PySide-less Windows FreeCADCmd builds
 * Panelizer
     * Open newly exported boards automatically, or refresh and focus them through KiCad IPC when already open
     * Accept FabPlans, KiCad boards, and Gerber inputs dropped onto the canvas
