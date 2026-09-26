@@ -379,6 +379,27 @@ class InstanceBackendTests(unittest.TestCase):
         popen.assert_called_once_with([
             "open", "-a", "FreeCAD", "-n", "-W", "--args", "/models/part.FCStd"])
 
+    def test_windows_freecad_launch_does_not_require_kkkk_asm_association(self):
+        filepath = "C:/models/assembly.kkkk_asm"
+        executable = "C:/Program Files/FreeCAD 1.1/bin/FreeCAD.exe"
+        with mock.patch.object(
+                    backend.platform, "system", return_value="Windows"
+                ), \
+                mock.patch.object(
+                    backend, "_windows_freecad_executable",
+                    return_value=executable
+                ), \
+                mock.patch.object(
+                    backend, "_editors", side_effect=[{}, {321: 1}]
+                ), \
+                mock.patch.object(backend.subprocess, "Popen") as popen, \
+                mock.patch.object(
+                    backend.os, "startfile", create=True
+                ) as startfile:
+            self.assertEqual(backend._launch(filepath, "freecad"), 321)
+        popen.assert_called_once_with([executable, filepath])
+        startfile.assert_not_called()
+
     def test_windows_kicad_launch_ensures_api_sentinel(self):
         with mock.patch.object(
                     backend.platform, "system", return_value="Windows"

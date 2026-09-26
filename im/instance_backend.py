@@ -3,10 +3,12 @@
 import os
 import platform
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 from weakref import WeakKeyDictionary
 
 import psutil
@@ -91,6 +93,68 @@ def _editors(program="kicad"):
     except (psutil.Error, OSError):
         pass
     return editors
+
+
+def _windows_associated_executable(extension):
+    """Return the executable registered for a Windows file extension."""
+    if platform.system() != "Windows":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        query = ctypes.windll.shlwapi.AssocQueryStringW
+        query.argtypes = (
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        )
+        query.restype = wintypes.LONG
+        length = wintypes.DWORD()
+        # ASSOCSTR_EXECUTABLE = 2
+        query(0, 2, extension, None, None, ctypes.byref(length))
+        if not length.value:
+            return None
+        buffer = ctypes.create_unicode_buffer(length.value)
+        if query(0, 2, extension, None, buffer, ctypes.byref(length)) != 0:
+            return None
+        return Path(buffer.value) if buffer.value else None
+    except (AttributeError, OSError):
+        return None
+
+
+def _windows_freecad_executable():
+    """Find the FreeCAD GUI without relying on a FreekiCAD file association."""
+    candidates = []
+    associated = _windows_associated_executable(".FCStd")
+    if associated:
+        candidates.append(associated)
+    for name in ("FreeCAD.exe", "freecad.exe"):
+        found = shutil.which(name)
+        if found:
+            candidates.append(Path(found))
+    for root in filter(None, (
+            os.environ.get("ProgramFiles"),
+            os.environ.get("ProgramW6432"),
+            os.environ.get("LOCALAPPDATA"))):
+        candidates.extend(sorted(
+            Path(root).glob("FreeCAD*/bin/FreeCAD.exe"), reverse=True))
+
+    seen = set()
+    for candidate in candidates:
+        try:
+            key = str(candidate.resolve())
+        except OSError:
+            key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.is_file():
+            return str(candidate)
+    return None
 
 
 def _unix_socket_owner(
@@ -353,7 +417,11 @@ def _launch(filepath, program="kicad"):
         else:
             subprocess.Popen(["open", "-n", "-g", filepath])
     elif platform.system() == "Windows":
-        os.startfile(filepath)
+        freecad = _windows_freecad_executable() if program == "freecad" else None
+        if freecad:
+            subprocess.Popen([freecad, filepath])
+        else:
+            os.startfile(filepath)
     else:
         subprocess.Popen(["xdg-open", filepath])
     deadline = time.monotonic() + (20 if program == "freecad" else 8)
