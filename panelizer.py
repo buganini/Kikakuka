@@ -41,6 +41,7 @@ from panelizer_freekicad import (
 )
 
 BUILDEXPR = "BUILDEXPR"
+KICAD_RUNTIME_SOURCE = "Bundled" if getattr(sys, "_MEIPASS", None) else "System"
 
 MAX_BOARD_SIZE = 10000*mm
 MIN_SPACING = 0.0
@@ -3385,7 +3386,13 @@ class PanelizerUI(Application):
         return True
 
     def content(self):
-        title = f"Kikakuka v{VERSION} Fabrication Planner (KiCad {pcbnew.Version()}, KiKit {kikit.__version__}, Shapely {shapely.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
+        title = (
+            f"Kikakuka v{VERSION} Fabrication Planner "
+            f"({KICAD_RUNTIME_SOURCE} KiCad {pcbnew.Version()}, "
+            f"KiKit {kikit.__version__}, "
+            f"Shapely {shapely.__version__}, "
+            f"PUI {PUI.__version__} {PUI_BACKEND})"
+        )
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
             with VBox():
                 with HBox().layout(weight=1):
