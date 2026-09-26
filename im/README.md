@@ -37,6 +37,23 @@ KiCad API availability, dispatched editor requests and replies, mapping
 changes, and shutdown. Press Ctrl-C (or send SIGTERM) to close the listener and
 remove its Unix socket. Use `--log-level` to change the default `info` level.
 
+Compare the two KiCad PID/socket discovery paths without starting a mesh node:
+
+```sh
+python3 -m im test
+python3 im test
+```
+
+The `enumerate` section scans the Unix socket directory or Windows named-pipe
+namespace and reads PID-specific endpoint ownership only from endpoint names.
+A generic `api.sock` is shown with `?` because enumeration alone cannot identify
+its owner. The second section obtains ownership independently and directly:
+`psutil.Process(pid).net_connections(kind="unix")` on macOS/Linux, and
+`GetNamedPipeServerProcessId()` on Windows. Both process paths are restricted
+to same-user KiCad editor processes and ignore inaccessible processes. These
+probes are implemented separately from the production backend so the test does
+not reuse or alter Instance Manager's normal discovery path.
+
 This entry point runs the same editor backend as nodes embedded in Kikakuka and
 FreekiCAD. It is useful for diagnostics or for keeping a visible executor in
 the foreground; it is not a permanent leader, and normal applications do not

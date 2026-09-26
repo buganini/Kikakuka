@@ -18,6 +18,8 @@ if __package__ in (None, ""):
 
 from im.im_mesh import start_node
 from im.instance_backend import handle as instance_handle
+from im.socket_discovery_test import (enumerated_kicad_sockets,
+                                      owner_kicad_sockets)
 
 
 LOGGER = logging.getLogger("im")
@@ -74,7 +76,35 @@ def _parse_arguments(arguments):
         choices=("debug", "info", "warning", "error"),
         default="info",
     )
+    parser.add_argument(
+        "command",
+        choices=("run", "test"),
+        default="run",
+        nargs="?",
+        help="run a mesh node (default), or test KiCad socket discovery",
+    )
     return parser.parse_args(arguments)
+
+
+def _print_socket_results(label, sockets):
+    print(f"{label}:")
+    if not sockets:
+        print("  (none)")
+        return
+    for pid, socket_path in sorted(
+            sockets, key=lambda item: (item[0] is None, item[0] or 0, item[1])):
+        print(f"  {pid if pid is not None else '?'}\t{socket_path}")
+
+
+def _test_socket_discovery():
+    _print_socket_results("enumerate", enumerated_kicad_sockets())
+    owner_method = (
+        "GetNamedPipeServerProcessId"
+        if sys.platform == "win32"
+        else 'psutil.Process.net_connections(kind="unix")'
+    )
+    _print_socket_results(owner_method, owner_kicad_sockets())
+    return 0
 
 
 def main(arguments=None):
@@ -86,6 +116,8 @@ def main(arguments=None):
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
         stream=sys.stdout,
     )
+    if options.command == "test":
+        return _test_socket_discovery()
     try:
         node = start_node(_handle, _mapping_changed)
     except Exception:
