@@ -31,6 +31,52 @@ class RetryKicadCallTests(unittest.TestCase):
 
 
 class InstanceBackendTests(unittest.TestCase):
+    def test_kicad_lock_path_matches_kicad_convention(self):
+        self.assertEqual(
+            backend._kicad_lock_path("/boards/main.kicad_pcb"),
+            Path("/boards/~main.kicad_pcb.lck"),
+        )
+
+    def test_foreign_kicad_lock_may_prompt_open_anyway(self):
+        with tempfile.TemporaryDirectory() as directory:
+            board = Path(directory) / "main.kicad_pcb"
+            backend._kicad_lock_path(board).write_text(
+                '{"username":"someone-else","hostname":"another-host"}',
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                backend._kicad_file_may_prompt_open_anyway(board))
+
+    def test_stale_owned_kicad_lock_does_not_require_foreground(self):
+        with tempfile.TemporaryDirectory() as directory:
+            board = Path(directory) / "main.kicad_pcb"
+            backend._kicad_lock_path(board).write_text(
+                '{"username":"current-user","hostname":"current-host"}',
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                    backend.getpass, "getuser", return_value="current-user"), \
+                    mock.patch.object(
+                        backend.socket, "gethostname", return_value="current-host"), \
+                    mock.patch.object(backend, "_editors", return_value={}):
+                self.assertFalse(
+                    backend._kicad_file_may_prompt_open_anyway(board))
+
+    def test_owned_kicad_lock_prompts_when_another_kicad_is_running(self):
+        with tempfile.TemporaryDirectory() as directory:
+            board = Path(directory) / "main.kicad_pcb"
+            backend._kicad_lock_path(board).write_text(
+                '{"username":"current-user","hostname":"current-host"}',
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                    backend.getpass, "getuser", return_value="current-user"), \
+                    mock.patch.object(
+                        backend.socket, "gethostname", return_value="current-host"), \
+                    mock.patch.object(backend, "_editors", return_value={123: 1.0}):
+                self.assertTrue(
+                    backend._kicad_file_may_prompt_open_anyway(board))
+
     def test_editors_excludes_processes_owned_by_other_users(self):
         own = mock.Mock(
             pid=111,
@@ -435,7 +481,8 @@ class InstanceBackendTests(unittest.TestCase):
                 backend._launch("C:/boards/test.kicad_pcb"), 321
             )
         ensure.assert_called_once_with()
-        startfile.assert_called_once_with("C:/boards/test.kicad_pcb")
+        startfile.assert_called_once_with(
+            "C:/boards/test.kicad_pcb", show_cmd=4)
 
     def test_different_board_files_do_not_overlap_editor_launch(self):
         active = 0
@@ -478,6 +525,73 @@ class InstanceBackendTests(unittest.TestCase):
         self.assertEqual((pid, socket_path), (222, "/ipc/api-222.sock"))
         wait.assert_called_once_with("/boards/main.kicad_pcb")
 
+    def test_locked_board_is_focused_before_waiting_for_ipc(self):
+        events = []
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(im_mesh, "runtime_dir", return_value=Path(directory)), \
+                    mock.patch.object(backend, "_find_board", return_value=(None, None, None)), \
+                    mock.patch.object(
+                        backend, "_kicad_file_may_prompt_open_anyway",
+                        side_effect=lambda _path: events.append("lock") or True,
+                    ), \
+                    mock.patch.object(
+                        backend, "_launch",
+                        side_effect=lambda _path, _program: events.append("launch") or 111,
+                    ), \
+                    mock.patch.object(
+                        backend, "_focus",
+                        side_effect=lambda _pid: events.append("focus"),
+                    ) as focus, \
+                    mock.patch.object(
+                        backend, "_wait_for_board",
+                        side_effect=lambda _path: events.append("wait") or
+                        (111, "/ipc/api.sock"),
+                    ):
+                result = backend._open_new(
+                    "/boards/main.kicad_pcb", "kicad", True, None)
+        self.assertEqual(result, (111, "/ipc/api.sock"))
+        self.assertEqual(events, ["lock", "launch", "focus", "wait"])
+        focus.assert_called_once_with(111)
+
+    def test_unlocked_linked_board_launch_stays_in_background(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(im_mesh, "runtime_dir", return_value=Path(directory)), \
+                    mock.patch.object(backend, "_find_board", return_value=(None, None, None)), \
+                    mock.patch.object(
+                        backend, "_kicad_file_may_prompt_open_anyway",
+                        return_value=False,
+                    ), \
+                    mock.patch.object(backend, "_launch", return_value=111), \
+                    mock.patch.object(
+                        backend, "_wait_for_board",
+                        return_value=(111, "/ipc/api.sock"),
+                    ), \
+                    mock.patch.object(backend, "_focus") as focus:
+                result = backend._open_new(
+                    "/boards/main.kicad_pcb", "kicad", True, None)
+        self.assertEqual(result, (111, "/ipc/api.sock"))
+        focus.assert_not_called()
+
+    def test_freekicad_linked_action_does_not_focus_ready_board(self):
+        node = mock.Mock()
+        node.snapshot.return_value = {}
+        with mock.patch.object(backend, "local_node", return_value=node), \
+                mock.patch.object(backend.os.path, "isfile", return_value=True), \
+                mock.patch.object(
+                    backend, "_find_board", return_value=(None, None, None)), \
+                mock.patch.object(
+                    backend, "_open_new",
+                    return_value=(111, "/ipc/api.sock"),
+                ), \
+                mock.patch.object(backend, "_focus") as focus:
+            reply = backend.handle({
+                "action": "reload",
+                "filepath": "/boards/main.kicad_pcb",
+            })
+        self.assertEqual(reply["status"], "ok")
+        self.assertEqual(reply["pid"], 111)
+        focus.assert_not_called()
+
     def test_board_reuses_only_verified_matching_socket(self):
         node = mock.Mock()
         node.snapshot.return_value = {"/boards/main.kicad_pcb": 111}
@@ -489,13 +603,14 @@ class InstanceBackendTests(unittest.TestCase):
                     return_value=(111, "/ipc/api.sock", board),
                 ), \
                 mock.patch.object(backend, "_launch") as launch, \
-                mock.patch.object(backend, "_focus"):
+                mock.patch.object(backend, "_focus") as focus:
             reply = backend.handle({"action": "open-file", "filepath": "/boards/main.kicad_pcb"})
         self.assertEqual(reply["pid"], 111)
         self.assertEqual(reply["socket"], "/ipc/api.sock")
         board.revert.assert_not_called()
         launch.assert_not_called()
         node.publish.assert_not_called()
+        focus.assert_called_once_with(111)
 
     def test_ensure_fresh_reuses_ready_probe_connection_for_revert(self):
         node = mock.Mock()

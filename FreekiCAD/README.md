@@ -61,7 +61,12 @@ When a FreekiCAD request resolves or opens a KiCad PCB, its mesh event carries
 the verified editor PID and full IPC socket path. A concurrently running
 Kikakuka Instance Manager therefore updates the row and displayed socket
 basename automatically. Process discovery and socket inspection remain limited
-to current-user editor processes.
+to current-user editor processes. FreekiCAD-linked operations do not normally
+activate the KiCad window. If a pre-existing KiCad lock may show an **Open
+Anyway** prompt, Instance Manager brings that newly launched KiCad process to
+the foreground before waiting for its IPC endpoint. User-initiated file opens
+always activate KiCad; the complete policy is documented in
+[Instance Manager](https://github.com/buganini/Kikakuka/blob/main/im/README.md#kicad-foreground-policy).
 
 Both `.kicad_pcb` boards and STEP models remain linked to their external source
 files. When an assembly is saved as an `.FCStd` document, that document caches

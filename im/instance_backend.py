@@ -1,9 +1,12 @@
 """KiCad editor operations shared by Kikakuka and FreekiCAD mesh nodes."""
 
+import getpass
+import json
 import os
 import platform
 import re
 import shutil
+import socket
 import stat
 import subprocess
 import tempfile
@@ -419,6 +422,32 @@ def freecad_process_environment(executable):
     return environment
 
 
+def _windows_open_kicad_background(filepath):
+    """Open an associated KiCad file without activating its new window."""
+    try:
+        os.startfile(filepath, show_cmd=4)  # SW_SHOWNOACTIVATE
+    except TypeError:
+        # ``show_cmd`` was added after Python 3.9. Keep source runs on older
+        # embedded Python versions background-capable without a dependency.
+        import ctypes
+        from ctypes import wintypes
+
+        shell_execute = ctypes.windll.shell32.ShellExecuteW
+        shell_execute.argtypes = (
+            wintypes.HWND,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            ctypes.c_int,
+        )
+        shell_execute.restype = wintypes.HINSTANCE
+        result = shell_execute(None, "open", filepath, None, None, 4) or 0
+        if result <= 32:
+            raise OSError(
+                result, f"could not open associated KiCad file: {filepath}")
+
+
 def _launch(filepath, program="kicad"):
     if platform.system() == "Windows" and program == "kicad":
         ensure_windows_kicad_api_sentinel()
@@ -436,7 +465,7 @@ def _launch(filepath, program="kicad"):
         if freecad:
             subprocess.Popen([freecad, filepath], env=freecad_process_environment(freecad))
         else:
-            os.startfile(filepath)
+            _windows_open_kicad_background(filepath)
     else:
         subprocess.Popen(["xdg-open", filepath])
     deadline = time.monotonic() + (20 if program == "freecad" else 8)
@@ -458,6 +487,47 @@ def _wait_for_board(filepath, timeout=30):
             return pid, socket_path
         time.sleep(0.5)
     return None, None
+
+
+def _kicad_lock_path(filepath):
+    """Return KiCad's lock-file path for an editor document."""
+    path = Path(filepath)
+    return path.with_name(f"~{path.name}.lck")
+
+
+def _kicad_file_may_prompt_open_anyway(filepath):
+    """Whether KiCad may show its Open Anyway prompt for this file."""
+    lock_path = _kicad_lock_path(filepath)
+    try:
+        if not lock_path.is_file():
+            return False
+        with lock_path.open(encoding="utf-8") as lock_file:
+            owner = json.load(lock_file)
+        username = owner.get("username", "")
+        hostname = owner.get("hostname", "")
+        if not isinstance(username, str) or not isinstance(hostname, str):
+            username = hostname = ""
+    except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+        # KiCad treats an unreadable/partial cloud-sync record as its own stale
+        # lock, then only prompts when another KiCad process is running.
+        username = hostname = ""
+
+    try:
+        owned_by_current_user = (
+            (not username and not hostname)
+            or (
+                username.casefold() == getpass.getuser().casefold()
+                and hostname.casefold() == socket.gethostname().casefold()
+            )
+        )
+    except (KeyError, OSError):
+        return True
+    if owned_by_current_user:
+        return bool(_editors("kicad"))
+    try:
+        return lock_path.is_file()
+    except OSError:
+        return False
 
 
 def _revert_ready_board(board):
@@ -499,7 +569,17 @@ def _open_new(filepath, program, is_board, node, ensure_fresh=False):
         if program == "freecad" and _editors("freecad"):
             raise RuntimeError(
                 "FreeCAD is running but its FreekiCAD instance node is unavailable")
+        # Check before launching: KiCad creates this file itself during a
+        # normal open, so checking afterwards would flag every new editor.
+        may_prompt_open_anyway = (
+            program == "kicad"
+            and _kicad_file_may_prompt_open_anyway(filepath)
+        )
         pid = _launch(filepath, program)
+        if pid is not None and may_prompt_open_anyway:
+            # The modal prompt blocks IPC startup. Bring it forward before
+            # waiting for the board to become discoverable.
+            _focus(pid)
         if is_board:
             return _wait_for_board(filepath)
         if program == "freecad" and pid is not None:

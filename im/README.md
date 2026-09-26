@@ -124,6 +124,33 @@ launches have no equivalent document probe, so they keep a short settling
 period before the next KiCad launch. The outer request may wait up to 120
 seconds to accommodate queued opens.
 
+### KiCad foreground policy
+
+Bringing KiCad to the foreground is part of the request semantics, not a side
+effect of discovering or launching an editor:
+
+- A user-initiated `open-file` request must bring the reused or newly opened
+  KiCad editor to the foreground.
+- FreekiCAD integration requests such as `reload`, `open-sketch`,
+  `move-component`, and `update-coupler` must not bring KiCad to the
+  foreground during normal operation. New KiCad processes are therefore
+  launched without activation on macOS (`open -g`) and Windows
+  (`SW_SHOWNOACTIVATE`). On Linux, Instance Manager does not issue an explicit
+  focus request; final activation is controlled by the desktop and
+  `xdg-open` implementation.
+- The exception for an integration request is a KiCad lock that may produce an
+  **Open Anyway** prompt. Before launching, the backend checks KiCad's sibling
+  lock path (`~<filename>.<ext>.lck`) and reads its `username` and `hostname`
+  fields. A lock owned by the current user and host with no other same-user
+  KiCad editor is treated as a stale lock that KiCad can reclaim without a
+  prompt. A foreign lock, or a current-user lock while another KiCad editor is
+  running, may require user input; the newly launched process is focused
+  immediately, before waiting for PCB IPC, so the modal prompt is visible.
+
+The lock check must happen before process launch because KiCad creates its own
+lock file during every successful open. Checking afterwards would incorrectly
+classify every new editor as requiring foreground attention.
+
 ## Finding a pcbnew PID
 
 KiCad's PCB IPC sockets are separate from the Instance Manager mesh sockets.

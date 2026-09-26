@@ -7,12 +7,10 @@ import PUI
 import re
 import subprocess
 import platform
-import psutil
 from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
 from common import *
-from im.im_mesh import owned_pid_exists, owned_pids, owned_process
-from pcb_open import system_open_command
+from im.im_mesh import owned_pid_exists
 from workspace_monitor import (replace_freecad_documents,
                                snapshot_editor_processes, update_pidmap_entry)
 from addon_manager import (
@@ -33,7 +31,6 @@ from kicad_compat import (
 
 FREECAD_SUFFIXES = (ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX)
 FILE_ORDER = [*PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, ".kicad_pro"]
-WINDOWS_FREECAD_EXE = r"C:\Program Files\FreeCAD 1.0\bin\FreeCAD.exe"
 KICAD_SOCKET_REFRESH_RETRIES = 12
 KICAD_SOCKET_REFRESH_DELAY_S = 0.5
 ADDON_ROW_HEIGHT = 32
@@ -53,113 +50,6 @@ if platform.system() == 'Windows':
     import win32gui
     import win32process
     import win32con
-
-def windows_associated_executable(extension):
-    """Return the executable registered for a Windows file extension."""
-    import ctypes
-    from ctypes import wintypes
-
-    assoc_query_string = ctypes.windll.shlwapi.AssocQueryStringW
-    assoc_query_string.argtypes = (
-        wintypes.DWORD,
-        wintypes.DWORD,
-        wintypes.LPCWSTR,
-        wintypes.LPCWSTR,
-        wintypes.LPWSTR,
-        ctypes.POINTER(wintypes.DWORD),
-    )
-    assoc_query_string.restype = wintypes.LONG
-
-    assocstr_executable = 2
-    length = wintypes.DWORD()
-    assoc_query_string(
-        0, assocstr_executable, extension, None, None, ctypes.byref(length)
-    )
-    if not length.value:
-        return None
-
-    executable = ctypes.create_unicode_buffer(length.value)
-    result = assoc_query_string(
-        0,
-        assocstr_executable,
-        extension,
-        None,
-        executable,
-        ctypes.byref(length),
-    )
-    if result != 0:
-        return None
-    return executable.value or None
-
-def windows_open_file(file_path, filters):
-    """
-    Opens a file with its default application and returns the PID
-    of the launched process.
-
-    Args:
-        file_path (str): Path to the file to be opened
-        filters ([str]): List of process filter keyword
-
-    Returns:
-        int: PID of the opened application, or None if unsuccessful
-    """
-    # Get initial set of PIDs before launching
-    initial_pids = owned_pids()
-
-    # Open the file with the default application (non-blocking)
-    os.startfile(file_path)
-
-    # Wait a moment for the application to launch
-    time.sleep(3)
-
-    # Get new set of PIDs after launching
-    new_pids = owned_pids()
-
-    # Find newly created processes
-    new_processes = new_pids - initial_pids
-
-    # If no new process was created, return None
-    if not new_processes:
-        print("No new process detected")
-        return None
-
-    # If multiple processes were created, find the most likely parent process
-    if len(new_processes) > 1:
-        # Get process info for all new processes
-        processes = []
-        for pid in new_processes:
-            try:
-                proc = owned_process(pid)
-                if proc is None:
-                    continue
-                processes.append((pid, proc.name(), proc.create_time()))
-            except (psutil.Error, OSError):
-                continue
-
-        processes = [p for p in processes
-                     if any(f in p[1].lower() for f in filters)]
-
-        if processes:
-            pid = processes[0][0]
-            print(f"Multiple processes created. Using newest: PID {pid} ({processes[0][1]})")
-            print(f"All new processes: {processes}")
-            return pid
-    else:
-        # Only one new process, return its PID
-        pid = list(new_processes)[0]
-        try:
-            process = owned_process(pid)
-            if process is None:
-                return None
-            proc_name = process.name()
-            print(f"File opened with: {proc_name} (PID: {pid})")
-            return pid
-        except (psutil.Error, OSError):
-            print(f"Process with PID {pid} was created but can't access its info")
-            return None
-
-    return None
-
 
 def open_folder(location):
     if platform.system() == 'Darwin':
@@ -209,75 +99,6 @@ def windows_bring_pid_to_front(pid):
     win32gui.SetForegroundWindow(hwnd)
     print(f"Successfully brought window for PID {pid} to front")
     return True
-
-def posix_open_file(filepath, filters, *open_args):
-    """
-    Opens a file with its default application and finds the launched PID.
-    macOS accepts *open_args*; Linux uses xdg-open instead.
-
-    Args:
-        file_path (str): Path to the file to be opened
-
-    Returns:
-        int: PID of the opened application, or None if unsuccessful
-    """
-    # Get initial set of PIDs before launching
-    initial_pids = owned_pids()
-
-    # Open the file with the default application
-    open_command = system_open_command(filepath, mac_args=open_args)
-    subprocess.Popen(open_command)
-
-    # Wait a moment for the application to launch
-    time.sleep(3)
-
-    # Get new set of PIDs after launching
-    new_pids = owned_pids()
-
-    # Find newly created processes
-    new_processes = new_pids - initial_pids
-
-    # If no new process was created, return None
-    if not new_processes:
-        print("No new process detected")
-        return None
-
-    # If multiple processes were created, find the most likely parent process
-    if len(new_processes) > 1:
-        # Get process info for all new processes
-        processes = []
-        for pid in new_processes:
-            try:
-                proc = owned_process(pid)
-                if proc is None:
-                    continue
-                processes.append((pid, proc.name(), proc.create_time()))
-            except (psutil.Error, OSError):
-                continue
-
-        processes = [p for p in processes
-                     if any(f in p[1].lower() for f in filters)]
-
-        if processes:
-            pid = processes[0][0]
-            print(f"Multiple processes created. Using newest: PID {pid} ({processes[0][1]})")
-            print(f"All new processes: {processes}")
-            return pid
-    else:
-        # Only one new process, return its PID
-        pid = list(new_processes)[0]
-        try:
-            process = owned_process(pid)
-            if process is None:
-                return None
-            proc_name = process.name()
-            print(f"File opened with: {proc_name} (PID: {pid})")
-            return pid
-        except (psutil.Error, OSError):
-            print(f"Process with PID {pid} was created but can't access its info")
-            return None
-
-    return None
 
 def macos_bring_pid_to_front(pid):
     applescript = f'''
@@ -956,37 +777,6 @@ class MainUI(Application):
             if socket_path:
                 self.kicad_sockets[pid] = socket_path
             self._update_pidmap_entry(filepath, pid)
-
-    def _open_kicad_file(self, filepath, bring_to_front=False):
-        """Open a KiCad board or schematic in a new editor instance.
-
-        Called from WorkspaceBus when a resolve request arrives for a
-        file not yet in the pidmap.  Returns the PID on success, or None.
-
-        When *bring_to_front* is False (the default for WorkspaceBus callers),
-        macOS uses ``-g`` so KiCad launches in the background.
-        """
-        print(f"MainUI: opening KiCad for {filepath}")
-        if platform.system() in ['Darwin', 'Linux']:
-            open_args = ["-n"]
-            if not bring_to_front:
-                open_args.append("-g")
-            pid = posix_open_file(filepath, ["kicad", "pcbnew", "eeschema"], *open_args)
-            if pid and bring_to_front:
-                bringToFront(pid)
-        elif platform.system() == 'Windows':
-            pid = windows_open_file(filepath, ["kicad", "pcbnew", "eeschema"])
-            if pid and bring_to_front:
-                bringToFront(pid)
-        else:
-            subprocess.Popen(('xdg-open', filepath))
-            pid = None
-        if pid:
-            self.pidmap[filepath] = pid
-            print(f"MainUI: KiCad started, PID {pid}")
-        else:
-            print(f"MainUI: could not determine KiCad PID")
-        return pid
 
     def _shutdown_bus(self):
         if self._bus:
