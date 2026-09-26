@@ -1065,7 +1065,7 @@ class MainUI(Application):
                                 Label(
                                     "You may need to temporarily run Kikakuka as administrator "
                                     "to install/uninstall addons"
-                                ).style(color="red")
+                                ).style(color=0xFF0000)
                             with HBox():
                                 with Grid():
                                     for addon_row, key in enumerate(
