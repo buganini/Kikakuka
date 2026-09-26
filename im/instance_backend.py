@@ -69,16 +69,32 @@ if platform.system() == "Windows":
 
 def _editors(program="kicad"):
     editors = {}
-    current_uid = os.geteuid() if hasattr(os, "geteuid") else None
+    is_windows = platform.system() == "Windows"
+    current_uid = (
+        os.geteuid() if not is_windows and hasattr(os, "geteuid") else None
+    )
+    current_username = None
+    if is_windows:
+        try:
+            current_username = psutil.Process().username().casefold()
+        except (psutil.Error, OSError):
+            return editors
     attributes = ["pid", "name", "create_time"]
     if current_uid is not None:
         attributes.append("uids")
+    elif current_username is not None:
+        attributes.append("username")
     try:
         for process in psutil.process_iter(attributes):
             try:
                 if current_uid is not None:
                     uids = process.info.get("uids")
                     if uids is None or uids.effective != current_uid:
+                        continue
+                elif current_username is not None:
+                    username = process.info.get("username")
+                    if (not username
+                            or username.casefold() != current_username):
                         continue
                 name = (process.info["name"] or "").lower()
                 match = (name.startswith("freecad") and not name.startswith("freecadcmd")) if program == "freecad" else any(token in name for token in EDITOR_NAMES)
@@ -120,6 +136,70 @@ def _unix_socket_owner(socket_path, editors, excluded_pids=()):
     return None
 
 
+def _windows_named_pipe_server_pid(pipe_path):
+    """Return a named pipe's server PID via Kernel32, or None on failure."""
+    if platform.system() != "Windows" or not pipe_path:
+        return None
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        create_file = kernel32.CreateFileW
+        create_file.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        create_file.restype = wintypes.HANDLE
+        get_server_pid = kernel32.GetNamedPipeServerProcessId
+        get_server_pid.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(wintypes.ULONG),
+        ]
+        get_server_pid.restype = wintypes.BOOL
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = [wintypes.HANDLE]
+        close_handle.restype = wintypes.BOOL
+
+        handle = create_file(pipe_path, 0, 0, None, 3, 0, None)
+        if handle == ctypes.c_void_p(-1).value:
+            return None
+        try:
+            pid = wintypes.ULONG()
+            if not get_server_pid(handle, ctypes.byref(pid)):
+                return None
+            return int(pid.value)
+        finally:
+            close_handle(handle)
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+
+
+def _windows_named_pipe_owner(pipe_path, editors, excluded_pids=()):
+    """Return the validated same-user editor PID serving a named pipe."""
+    if platform.system() != "Windows" or not pipe_path:
+        return None
+
+    try:
+        pid = _windows_named_pipe_server_pid(pipe_path)
+        if pid is None or pid in excluded_pids or pid not in editors:
+            return None
+        process = psutil.Process(pid)
+        expected_create_time = editors[pid]
+        if (expected_create_time
+                and process.create_time() != expected_create_time):
+            return None
+        return pid
+    except (psutil.Error, OSError, RuntimeError):
+        return None
+
+
 def _sockets():
     is_windows = platform.system() == "Windows"
     directory = _kicad_socket_directory() if is_windows else "/tmp/kicad"
@@ -129,6 +209,7 @@ def _sockets():
         names = os.listdir(directory)
     except OSError:
         names = []
+    windows_pipe_paths = {}
     if is_windows:
         # KiCad/nng exposes endpoints as named pipes instead of directory
         # entries. Keep the canonical ipc:// filesystem-style path for kipy.
@@ -136,6 +217,9 @@ def _sockets():
             for pipe in os.listdir(r"\\.\pipe"):
                 for candidate in re.findall(r"api(?:-\d+)?\.sock", pipe):
                     names.append(candidate)
+                    windows_pipe_paths.setdefault(
+                        candidate, rf"\\.\pipe\{pipe}"
+                    )
         except OSError:
             pass
     editors = _editors()
@@ -148,10 +232,17 @@ def _sockets():
         elif name == "api.sock":
             generic = os.path.join(directory, name)
     if generic:
-        candidate = (
-            None if is_windows
-            else _unix_socket_owner(generic, editors, explicit)
-        )
+        if is_windows:
+            pipe_path = windows_pipe_paths.get("api.sock")
+            candidate = (
+                _windows_named_pipe_owner(
+                    pipe_path, editors, set(explicit)
+                ) if pipe_path else None
+            )
+        else:
+            candidate = _unix_socket_owner(
+                generic, editors, set(explicit)
+            )
         if candidate is None:
             candidate = next((pid for pid, _ in sorted(editors.items(), key=lambda pair: pair[1])
                               if pid not in explicit), None)

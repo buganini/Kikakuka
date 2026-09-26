@@ -86,10 +86,13 @@ ordinary process list on demand to find KiCad editor PIDs and creation times:
   requires a matching live KiCad editor process before using it.
 - `api.sock` contains no PID. On Unix, the backend first checks the Unix-domain
   sockets of same-user KiCad processes that have not already been matched to a
-  PID-specific socket. If socket ownership is unavailable, and on Windows where
-  NNG uses named pipes instead, it assigns `api.sock` to the oldest unmatched
-  KiCad editor process as a best-effort fallback. This fallback is a process-order
-  heuristic, not a PID supplied by KiCad IPC.
+  PID-specific socket. On Windows, if the matching generic named pipe exists,
+  the backend opens it and asks `GetNamedPipeServerProcessId()` for its server
+  PID. The returned PID must still match a live, same-user KiCad process and its
+  recorded creation time. If exact socket ownership is unavailable, it assigns
+  `api.sock` to the oldest unmatched KiCad editor process as a best-effort
+  fallback. This fallback is a process-order heuristic, not a PID supplied by
+  KiCad IPC.
 
 ### Windows named-pipe workaround
 
@@ -115,13 +118,15 @@ first time so every instance starts after the sentinel exists.
 
 Discovery must not treat the sentinel itself as a live IPC endpoint. It probes
 `api.sock` to cover an instance started before the sentinel was created, and
-enumerates `\\.\pipe` for the PID-specific named pipes created after the
-sentinel takes effect. A candidate is retained only when its PID belongs to a
-live KiCad editor and its IPC API responds with a usable document. The current
-upstream HEAD remains affected. A build with the named-pipe collision fix
-applied uses `WaitNamedPipeW()` instead of the filesystem check; such a
-build ignores the sentinel and handles the fallback itself, so the file is
-harmless but unnecessary.
+enumerates `\\.\pipe` for the actual named pipes. When a generic pipe is found,
+the standard-library `ctypes` module calls Kernel32's
+`GetNamedPipeServerProcessId()`; no additional Python dependency is required.
+A candidate is retained only when its PID belongs to a live KiCad editor and
+its IPC API responds with a usable document.
+The current upstream HEAD remains affected. A build with the named-pipe
+collision fix applied uses `WaitNamedPipeW()` instead of the filesystem check;
+such a build ignores the sentinel and handles the fallback itself, so the file
+is harmless but unnecessary.
 
 For each candidate socket, the backend asks KiCad's API for the open board
 name (and project path if the name is relative). Only a path matching the
@@ -137,7 +142,8 @@ process lists before and after launch to infer the new PID. For a PCB, that
 inference is not the final answer: the backend waits up to 30 seconds for the
 requested board to appear through KiCad IPC and uses the PID assigned to that
 socket. Process-list enumeration is still needed to validate PID-specific
-sockets and to assign a PID to `api.sock`; it is not a background monitor.
+sockets and to provide the fallback PID for `api.sock`; it is not a background
+monitor.
 
 ## Finding an eeschema PID (KiCad 10)
 

@@ -63,6 +63,41 @@ class InstanceBackendTests(unittest.TestCase):
             ["pid", "name", "create_time", "uids"]
         )
 
+    def test_windows_editors_excludes_processes_owned_by_other_users(self):
+        own = mock.Mock(
+            pid=111,
+            info={
+                "pid": 111,
+                "name": "pcbnew.exe",
+                "create_time": 1,
+                "username": r"WORKSTATION\alice",
+            },
+        )
+        other = mock.Mock(
+            pid=222,
+            info={
+                "pid": 222,
+                "name": "pcbnew.exe",
+                "create_time": 2,
+                "username": r"WORKSTATION\bob",
+            },
+        )
+        current = mock.Mock()
+        current.username.return_value = r"Workstation\Alice"
+
+        with mock.patch.object(
+                    backend.platform, "system", return_value="Windows"
+                ), \
+                mock.patch.object(backend.psutil, "Process", return_value=current), \
+                mock.patch.object(
+                    backend.psutil, "process_iter", return_value=[own, other]
+                ) as process_iter:
+            self.assertEqual(backend._editors(), {111: 1})
+
+        process_iter.assert_called_once_with(
+            ["pid", "name", "create_time", "username"]
+        )
+
     def test_windows_kicad_api_sentinel_is_created_once(self):
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(
@@ -118,12 +153,124 @@ class InstanceBackendTests(unittest.TestCase):
                 mock.patch.object(
                     backend, "_editors", return_value={111: 1, 222: 2}
                 ), \
-                mock.patch.object(backend, "_unix_socket_owner") as owner:
+                mock.patch.object(
+                    backend, "_windows_named_pipe_owner"
+                ) as owner:
             self.assertEqual(backend._sockets(), [
                 (222, os.path.join(directory, "api-222.sock")),
                 (111, os.path.join(directory, "api.sock")),
             ])
         owner.assert_not_called()
+
+    def test_windows_generic_pipe_uses_server_pid(self):
+        directory = r"C:\Temp\kicad"
+        editors = {111: 1, 222: 2}
+        pipe_name = r"C:\Temp\kicad\api.sock"
+        with mock.patch.object(
+                    backend.platform, "system", return_value="Windows"
+                ), \
+                mock.patch.object(
+                    backend, "_kicad_socket_directory", return_value=directory
+                ), \
+                mock.patch.object(
+                    backend, "ensure_windows_kicad_api_sentinel"
+                ), \
+                mock.patch.object(
+                    backend.os, "listdir", side_effect=[
+                        ["api.sock"],
+                        [pipe_name],
+                    ]
+                ), \
+                mock.patch.object(backend, "_editors", return_value=editors), \
+                mock.patch.object(
+                    backend, "_windows_named_pipe_owner", return_value=222
+                ) as owner:
+            self.assertEqual(backend._sockets(), [
+                (222, os.path.join(directory, "api.sock")),
+            ])
+
+        owner.assert_called_once_with(
+            rf"\\.\pipe\{pipe_name}", editors, set()
+        )
+
+    def test_windows_named_pipe_owner_validates_live_editor(self):
+        process = mock.Mock()
+        process.create_time.return_value = 2
+        pipe_path = r"\\.\pipe\C:\Temp\kicad\api.sock"
+
+        with mock.patch.object(
+                    backend.platform, "system", return_value="Windows"
+                ), \
+                mock.patch.object(
+                    backend, "_windows_named_pipe_server_pid",
+                    return_value=222,
+                ), \
+                mock.patch.object(
+                    backend.psutil, "Process", return_value=process
+                ):
+            self.assertEqual(
+                backend._windows_named_pipe_owner(
+                    pipe_path, {111: 1, 222: 2}, excluded_pids={111}
+                ),
+                222,
+            )
+
+    def test_windows_named_pipe_server_pid_closes_handle(self):
+        create_file = mock.Mock(return_value=123)
+        get_server_pid = mock.Mock()
+
+        def return_pid(_handle, pid_pointer):
+            pid_pointer._obj.value = 222
+            return True
+
+        get_server_pid.side_effect = return_pid
+        close_handle = mock.Mock(return_value=True)
+        kernel32 = mock.Mock(
+            CreateFileW=create_file,
+            GetNamedPipeServerProcessId=get_server_pid,
+            CloseHandle=close_handle,
+        )
+        pipe_path = r"\\.\pipe\C:\Temp\kicad\api.sock"
+
+        with mock.patch.object(
+                    backend.platform, "system", return_value="Windows"
+                ), \
+                mock.patch(
+                    "ctypes.WinDLL", return_value=kernel32, create=True
+                ):
+            self.assertEqual(
+                backend._windows_named_pipe_server_pid(pipe_path), 222
+            )
+
+        create_file.assert_called_once_with(
+            pipe_path, 0, 0, None, 3, 0, None
+        )
+        get_server_pid.assert_called_once()
+        close_handle.assert_called_once_with(123)
+
+    def test_windows_named_pipe_owner_ignores_unknown_or_reused_pid(self):
+        process = mock.Mock()
+        process.create_time.return_value = 99
+        pipe_path = r"\\.\pipe\C:\Temp\kicad\api.sock"
+
+        with mock.patch.object(
+                    backend.platform, "system", return_value="Windows"
+                ), \
+                mock.patch.object(
+                    backend, "_windows_named_pipe_server_pid",
+                    side_effect=[333, 222],
+                ), \
+                mock.patch.object(
+                    backend.psutil, "Process", return_value=process
+                ) as ps_process:
+            self.assertIsNone(
+                backend._windows_named_pipe_owner(pipe_path, {222: 2})
+            )
+            ps_process.assert_not_called()
+            self.assertIsNone(
+                backend._windows_named_pipe_owner(pipe_path, {222: 2})
+            )
+            ps_process.assert_called_once_with(222)
 
     def test_unix_socket_owner_scans_only_same_user_unmapped_editors(self):
         other_user = mock.Mock()
