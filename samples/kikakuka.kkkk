@@ -1,6 +1,22 @@
 {
     "projects": [
         {
+            "path": "assembly-led.kicad_pro",
+            "description": ""
+        },
+        {
+            "path": "assembly-mcu.kicad_pro",
+            "description": ""
+        },
+        {
+            "path": "assembly-mezzanine.kicad_pro",
+            "description": ""
+        },
+        {
+            "path": "assembly-power.kicad_pro",
+            "description": ""
+        },
+        {
             "path": "fpc.kicad_pro",
             "description": ""
         },
