@@ -1,7 +1,7 @@
 # 8.1:
 * TL;DR
     * Smoother PCB and schematic diff navigation with synchronized views, layer presets, tolerance-aware highlights, and similarity metrics
-    * More reliable cross-platform KiCad and FreeCAD instance discovery, focusing, refresh, and standalone operation
+    * More reliable cross-platform KiCad and FreeCAD instance discovery, focusing, refresh, and standalone operation, including a workaround for KiCad's Windows multi-instance named-pipe collision
     * Built-in offline installation, update, and removal for Kikakuka's KiCad and FreekiCAD add-ons
     * New KiCad placeholder and coupler 3D tools, bundled models, and improved Panelizer and Gerber workflows
 * Differ
