@@ -62,6 +62,8 @@ Invalid model entries are replaced. Dimensions may use `mm`, `in`, or `mil`;
 values without a unit are interpreted as millimetres. The action opens or
 focuses KiCad's 3D Viewer when it finishes.
 
+[![Kikakuka - Placeholder 3D Models](https://img.youtube.com/vi/83lFW3Dl-wk/0.jpg)](https://www.youtube.com/watch?v=83lFW3Dl-wk)
+
 ### Coupler 3D Viewer
 
 <img src="plugin/plugins/coupler-3d-viewer-48.png"
