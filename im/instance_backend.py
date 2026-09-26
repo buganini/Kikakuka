@@ -466,7 +466,12 @@ def handle(request):
         if ensure_fresh and board is not None:
             _revert_ready_board(board)
         _focus(pid)
-        return {"status": "ok", "action": action, "filepath": filepath, "pid": pid}
+        reply = {
+            "status": "ok", "action": action, "filepath": filepath, "pid": pid,
+        }
+        if socket_path:
+            reply["socket"] = socket_path
+        return reply
 
     if not is_board:
         return {"status": "error", "message": "KiCad IPC requires a PCB file"}

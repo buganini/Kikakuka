@@ -539,7 +539,11 @@ class InstanceNode:
                             reply.get("status") != "error"):
                         # Publish while still holding the file lock so the
                         # next executor sees the mapping before it can open.
-                        self.publish(filepath, reply["pid"])
+                        self.publish(
+                            filepath,
+                            reply["pid"],
+                            socket_path=reply.get("socket"),
+                        )
             else:
                 reply = self.handle(request)
             if not isinstance(reply, dict):
@@ -577,12 +581,14 @@ class InstanceNode:
             # resurrect a mapping after an editor closes.
             self._mappings[path] = event
         if self.on_change:
-            self.on_change(path, event.get("pid"))
+            self.on_change(path, event.get("pid"), event.get("socket"))
 
-    def publish(self, filepath, pid):
+    def publish(self, filepath, pid, socket_path=None):
         filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
         event = {"filepath": filepath, "pid": pid,
                  "stamp": [time.time_ns(), self.pid, self.id]}
+        if pid is not None and socket_path:
+            event["socket"] = socket_path
         self._apply_event(event)
         for peer in discover():
             if peer["id"] == self.id:

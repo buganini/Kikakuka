@@ -453,6 +453,7 @@ class InstanceBackendTests(unittest.TestCase):
                 mock.patch.object(backend, "_focus"):
             reply = backend.handle({"action": "open-file", "filepath": "/boards/main.kicad_pcb"})
         self.assertEqual(reply["pid"], 111)
+        self.assertEqual(reply["socket"], "/ipc/api.sock")
         board.revert.assert_not_called()
         launch.assert_not_called()
         node.publish.assert_not_called()

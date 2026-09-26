@@ -216,9 +216,12 @@ confirms the request was queued, not that document loading has finished.
 ## State and refresh
 
 Successful KiCad and FreeCAD opens broadcast file-to-editor-PID events directly
-to every currently discovered node. Deletions use timestamped tombstones so
-an old snapshot cannot revive a removed mapping. A joining node and an
-executor refresh snapshots from peers on demand; the Instance Manager tab does
+to every currently discovered node. KiCad PCB events also carry the full IPC
+socket path from the backend reply, allowing the Instance Manager's reactive
+PID-to-socket state to update without another process scan. Deletions use
+timestamped tombstones so an old snapshot cannot revive a removed mapping. A
+joining node and an executor refresh snapshots from peers on demand; the
+Instance Manager tab does
 the same at startup and on manual Refresh. The tab probes KiCad PCB IPC
 endpoints to rebuild paths for boards opened outside Kikakuka and requests
 `freecad-list-documents` from responding GUI FreeCAD nodes. It reconciles each

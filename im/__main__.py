@@ -44,8 +44,9 @@ def _handle(request):
     return reply
 
 
-def _mapping_changed(filepath, pid):
-    LOGGER.info("mapping filepath=%s pid=%s", filepath, pid or "-")
+def _mapping_changed(filepath, pid, socket_path=None):
+    LOGGER.info("mapping filepath=%s pid=%s socket=%s",
+                filepath, pid or "-", socket_path or "-")
 
 
 def _wait_for_shutdown():

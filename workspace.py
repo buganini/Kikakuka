@@ -849,10 +849,19 @@ class MainUI(Application):
         with self.pidmap:
             update_pidmap_entry(self.pidmap, filepath, pid)
 
-    def _mesh_mapping_changed(self, filepath, pid):
+    def _mesh_mapping_changed(self, filepath, pid, socket_path=None):
+        previous_pid = self.pidmap.get(filepath)
+        if (previous_pid is not None and previous_pid != pid and
+                not any(
+                    path != filepath and mapped_pid == previous_pid
+                    for path, mapped_pid in self.pidmap.items()
+                )):
+            self.kicad_sockets.pop(previous_pid, None)
         if pid is None:
             self.pidmap.pop(filepath, None)
         else:
+            if socket_path:
+                self.kicad_sockets[pid] = socket_path
             self._update_pidmap_entry(filepath, pid)
 
     def _open_kicad_file(self, filepath, bring_to_front=False):

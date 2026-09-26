@@ -269,11 +269,52 @@ class InstanceMeshTests(unittest.TestCase):
     def test_broadcast_and_snapshot_for_late_joiner(self):
         one = self.node(lambda _: {"status": "ok"})
         path = os.path.realpath(os.path.join(self.directory.name, "board.kicad_pcb"))
-        one.publish(path, os.getpid())
-        two = self.node(lambda _: {"status": "ok"})
+        socket_path = "/tmp/kicad/api.sock"
+        one.publish(path, os.getpid(), socket_path=socket_path)
+        changes = []
+        two = self.node(
+            lambda _: {"status": "ok"},
+            lambda filepath, pid, socket: changes.append(
+                (filepath, pid, socket)
+            ),
+        )
         self.assertEqual(two.snapshot()[path], os.getpid())
+        self.assertIn((path, os.getpid(), socket_path), changes)
+        snapshot = im_mesh._exchange(
+            one.endpoint,
+            {"mesh_action": "snapshot"},
+            token=one.token,
+        )
+        self.assertEqual(snapshot["mappings"][path]["socket"], socket_path)
         one.publish(path, None)
         self.assertNotIn(path, two.snapshot())
+        tombstone = im_mesh._exchange(
+            one.endpoint,
+            {"mesh_action": "snapshot"},
+            token=one.token,
+        )["mappings"][path]
+        self.assertIsNone(tombstone["pid"])
+        self.assertNotIn("socket", tombstone)
+
+    def test_dispatch_publishes_socket_from_backend_reply(self):
+        path = os.path.realpath(os.path.join(
+            self.directory.name, "board.kicad_pcb"
+        ))
+        socket_path = "/tmp/kicad/api.sock"
+        changes = []
+        node = self.node(
+            lambda _: {
+                "status": "ok", "pid": os.getpid(), "socket": socket_path,
+            },
+            lambda filepath, pid, socket: changes.append(
+                (filepath, pid, socket)
+            ),
+        )
+
+        reply = im_mesh.request({"action": "probe", "filepath": path})
+
+        self.assertEqual(reply["socket"], socket_path)
+        self.assertIn((path, os.getpid(), socket_path), changes)
 
     def test_freecad_document_scan_queries_each_gui_node(self):
         first = self.node(lambda _: {"status": "ok"})
