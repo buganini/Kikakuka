@@ -15,6 +15,15 @@ from im.im_mesh import owned_pid_exists, owned_pids, owned_process
 from pcb_open import system_open_command
 from workspace_monitor import (replace_freecad_documents,
                                snapshot_editor_processes, update_pidmap_entry)
+from addon_manager import (
+    FREEKICAD,
+    KICAD_LIBRARY,
+    KICAD_PLUGIN,
+    addon_statuses,
+    freekicad_status,
+    install_addon,
+    uninstall_addon,
+)
 
 FREECAD_SUFFIXES = (ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX)
 FILE_ORDER = [*PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, ".kicad_pro"]
@@ -793,6 +802,20 @@ class MainUI(Application):
         self.commit()
         self.pidmap = StateDict({})
         self.kicad_sockets = StateDict({})
+        self.addons = StateDict({
+            key: StateDict({
+                "label": label,
+                "status": "Checking…",
+                "action": "",
+                "uninstall": "",
+            })
+            for key, label in (
+                (KICAD_PLUGIN, "KiCad Plugin"),
+                (KICAD_LIBRARY, "KiCad Library"),
+                (FREEKICAD, "FreekiCAD"),
+            )
+        })
+        self._freecad_addon_refreshing = False
 
         # Host a symmetric instance node. No workspace-owned socket or
         # permanent leader is required for FreekiCAD to resolve KiCad IPC.
@@ -806,7 +829,72 @@ class MainUI(Application):
         except Exception as e:
             print(f"Instance mesh: Could not start: {e}")
 
+        self.refresh_addons()
         self.refresh_monitor()
+
+    def _set_addon_row(self, key, row):
+        with self.addons:
+            self.addons[key] = StateDict(row)
+
+    def refresh_addons(self, _event=None):
+        try:
+            statuses = addon_statuses()
+        except Exception as exc:
+            print(f"Addon manager: Could not inspect addons: {exc}")
+            return
+        for status in statuses:
+            self._set_addon_row(status.key, status.as_row())
+        if not self._freecad_addon_refreshing:
+            self._freecad_addon_refreshing = True
+            Thread(target=self._refresh_freecad_addon, daemon=True).start()
+
+    def _refresh_freecad_addon(self):
+        try:
+            status = freekicad_status(query_freecad=True)
+            self._set_addon_row(status.key, status.as_row())
+        finally:
+            self._freecad_addon_refreshing = False
+
+    def manage_addon(self, _event, key, operation):
+        row = self.addons.get(key, {})
+        field = "uninstall" if operation == "uninstall" else "action"
+        action = row.get(field, "")
+        if not action:
+            return
+        previous = {
+            "label": row.get("label", key),
+            "status": row.get("status", ""),
+            "action": row.get("action", ""),
+            "uninstall": row.get("uninstall", ""),
+        }
+        self._set_addon_row(key, {
+            "label": row.get("label", key),
+            "status": {
+                "Install": "Installing…",
+                "Update": "Updating…",
+                "Uninstall": "Uninstalling…",
+            }[action],
+            "action": "",
+            "uninstall": "",
+        })
+        Thread(
+            target=self._manage_addon,
+            args=(key, operation, action, previous),
+            daemon=True,
+        ).start()
+
+    def _manage_addon(self, key, operation, action, previous):
+        try:
+            status = (
+                uninstall_addon(key)
+                if operation == "uninstall"
+                else install_addon(key)
+            )
+            self._set_addon_row(key, status.as_row())
+        except Exception as exc:
+            print(f"Addon manager: {action} failed for {key}: {exc}")
+            previous["status"] = f"{action} failed: {exc}"
+            self._set_addon_row(key, previous)
 
     def refresh_monitor(self, _event=None):
         from im.instance_backend import scan_open_kicad_boards
@@ -965,6 +1053,36 @@ class MainUI(Application):
                                                             lambda e, path: open_folder(os.path.dirname(path)), filepath
                                                         )
                                     Spacer()
+
+                    with Tab("Add-ons"):
+                        with VBox():
+                            with HBox():
+                                with Grid():
+                                    for addon_row, key in enumerate(
+                                        (KICAD_PLUGIN, KICAD_LIBRARY, FREEKICAD),
+                                    ):
+                                        addon = self.addons[key]
+                                        Label(addon["label"]).grid(
+                                            row=addon_row, column=0
+                                        )
+                                        with HBox().layout(weight=1).grid(
+                                            row=addon_row, column=1
+                                        ):
+                                            Label(addon["status"], selectable=True)
+                                            Spacer()
+                                            if addon["action"]:
+                                                Button(addon["action"]).click(
+                                                    self.manage_addon, key, "install"
+                                                )
+                                            if addon["uninstall"]:
+                                                Button(addon["uninstall"]).click(
+                                                    self.manage_addon, key, "uninstall"
+                                                )
+                                Spacer()
+                            with HBox():
+                                Button("Refresh").click(self.refresh_addons)
+                                Spacer()
+                            Spacer()
 
     def newWorkspace(self):
         filepath = SaveFile("New Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")

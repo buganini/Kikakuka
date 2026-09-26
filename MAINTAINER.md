@@ -42,6 +42,7 @@ make archive
 tar -tzf Kikakuka-8.0.tar.gz >/dev/null
 unzip -t kikakuka-library-8.0.zip
 unzip -t kikakuka-plugin-8.0.zip
+unzip -t freekicad-8.0.zip
 ```
 
 Replace `8.0` above with each module's current version. `make archive` creates
@@ -51,6 +52,7 @@ the versioned source and package archives and edits the metadata fork in place:
 Kikakuka-{Kikakuka version}.tar.gz
 kikakuka-library-{library version}.zip
 kikakuka-plugin-{plugin version}.zip
+freekicad-{FreekiCAD version}.zip
 workdir/metadata/
 └── packages/
     ├── com.github.buganini.kikakuka-footprints/
@@ -99,9 +101,10 @@ version.
 2. Create and push a tag whose name exactly matches the version.
 3. Create the GitHub release for that tag.
 4. Upload `Kikakuka-{version}.tar.gz`,
-   `kikakuka-library-{version}.zip`, and
-   `kikakuka-plugin-{version}.zip` as the applicable release assets, using
-   each module's own version in its filename.
+   `kikakuka-library-{version}.zip`, `kikakuka-plugin-{version}.zip`, and
+   `freekicad-{version}.zip` as the applicable release assets, using each
+   module's own version in its filename. `build-package.py` embeds the three
+   addon ZIPs so Instance Manager can install the matching release offline.
 5. If updating the separate FreekiCAD release mirror, review the target and
    run `make sync`; this command uses `rsync --delete` on `../FreekiCAD/`.
 

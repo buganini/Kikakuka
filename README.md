@@ -32,6 +32,7 @@ It creates a few more dimensions for KiCad:
         * Inspect project-specific symbol and footprint libraries and convert their paths to `${KIPRJMOD}`-relative references
     * Instance Manager UI
         * Inspect same-user KiCad and FreeCAD processes and known file paths, with one row per FreeCAD document, the matched KiCad IPC socket basename, automatic mesh-event updates, manual reconciliation, and Go to actions
+        * Inspect, install, update, or uninstall the bundled KiCad plugin, KiCad library, and FreekiCAD addon from three dedicated rows in the Add-ons tab; FreekiCAD required Python dependencies are installed through `freecadcmd` (or `freecad -c`)
     * Differ
         * Highlight changed areas
         * [Schematic diff viewer](#schematics-differ)

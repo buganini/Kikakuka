@@ -5,6 +5,7 @@ import os
 import itertools
 import glob
 import shutil
+import sys
 
 import kikit
 kikit_base = os.path.dirname(kikit.__file__)
@@ -12,6 +13,10 @@ kikit_base = os.path.dirname(kikit.__file__)
 from differ import kicad_cli
 
 PKG_BASE = os.path.dirname(__file__)
+
+# Build the exact addon payloads embedded in this Kikakuka release without
+# assuming that make(1) or zip(1) exists on the target packaging platform.
+subprocess.run([sys.executable, "build_addon_archives.py"], cwd=PKG_BASE, check=True)
 
 # macOS
 ## brew install create-dmg
@@ -43,6 +48,14 @@ pyinstaller_args.extend(["--add-data", f"{os.path.join(kikit_base, 'resources', 
 pyinstaller_args.extend([
     "--add-data",
     f"{os.path.join(PKG_BASE, 'resources', 'kikakuka-internal.pretty')}:kikakuka-internal.pretty",
+])
+
+# Offline installers managed from the Add-ons tab.
+pyinstaller_args.extend([
+    "--add-data",
+    f"{os.path.join(PKG_BASE, 'build', 'addons')}:addons",
+    "--add-data",
+    f"{os.path.join(PKG_BASE, 'freecad_addon_installer.py')}:addons",
 ])
 
 # pypdfium2 for differ
