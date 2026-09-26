@@ -1,0 +1,20 @@
+{
+    "projects": [
+        {
+            "path": "fpc.kicad_pro",
+            "description": ""
+        },
+        {
+            "path": "fpc2.kicad_pro",
+            "description": ""
+        },
+        {
+            "path": "fpc-assembly.kkkk_asm",
+            "description": ""
+        },
+        {
+            "path": "oblique_tab.kkkk_fab",
+            "description": ""
+        }
+    ]
+}
