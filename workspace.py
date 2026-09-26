@@ -19,6 +19,8 @@ from workspace_monitor import (replace_freecad_documents,
 FREECAD_SUFFIXES = (ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX)
 FILE_ORDER = [*PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, ".kicad_pro"]
 WINDOWS_FREECAD_EXE = r"C:\Program Files\FreeCAD 1.0\bin\FreeCAD.exe"
+KICAD_SOCKET_REFRESH_RETRIES = 12
+KICAD_SOCKET_REFRESH_DELAY_S = 0.5
 
 try:
     KIPY_VERSION = package_version("kicad-python")
@@ -697,8 +699,11 @@ class WorkspaceUI(PUIView):
             self.openFreeCAD(path)
             return
         if path.lower().endswith((".kicad_pcb", ".kicad_sch", ".kicad_pro")):
-            from pcb_open import open_kicad_file
-            Thread(target=open_kicad_file, args=[path], daemon=True).start()
+            Thread(
+                target=self._open_kicad_file_and_refresh,
+                args=[path],
+                daemon=True,
+            ).start()
             return
         pid = self.main.pidmap.get(path)
         if pid is not None:
@@ -710,6 +715,26 @@ class WorkspaceUI(PUIView):
                     return
         from pcb_open import open_with_system
         Thread(target=open_with_system, args=[path], daemon=True).start()
+
+    def _open_kicad_file_and_refresh(self, path):
+        from pcb_open import open_kicad_file
+
+        open_kicad_file(path)
+        retries = (
+            KICAD_SOCKET_REFRESH_RETRIES
+            if path.lower().endswith(".kicad_pcb")
+            else 0
+        )
+        target = os.path.abspath(path)
+        for attempt in range(retries + 1):
+            boards = self.main.refresh_monitor()
+            if retries == 0 or any(
+                os.path.abspath(filepath) == target and socket_path
+                for _pid, filepath, socket_path in boards
+            ):
+                break
+            if attempt < retries:
+                time.sleep(KICAD_SOCKET_REFRESH_DELAY_S)
 
     def openFolder(self, location):
         open_folder(location)
@@ -767,7 +792,7 @@ class MainUI(Application):
         self.state.workspaces = workspaces
         self.commit()
         self.pidmap = StateDict({})
-        self.kicad_sockets = {}
+        self.kicad_sockets = StateDict({})
 
         # Host a symmetric instance node. No workspace-owned socket or
         # permanent leader is required for FreekiCAD to resolve KiCad IPC.
@@ -786,9 +811,10 @@ class MainUI(Application):
     def refresh_monitor(self, _event=None):
         from im.instance_backend import scan_open_kicad_boards
         boards = scan_open_kicad_boards()
-        self.kicad_sockets = {
-            pid: socket_path for pid, _filepath, socket_path in boards
-        }
+        with self.kicad_sockets:
+            self.kicad_sockets.clear()
+            for pid, _filepath, socket_path in boards:
+                self.kicad_sockets[pid] = socket_path
         if self._bus:
             from im.im_mesh import scan_freecad_documents
             self._bus.refresh()
@@ -802,6 +828,7 @@ class MainUI(Application):
                 update_pidmap_entry(self.pidmap, filepath, pid)
         # Include editors that were started outside the mesh as well.
         self.pidmap()
+        return boards
 
     def go_to_monitor_row(self, _event, pid, program, filepath):
         Thread(target=self._go_to_monitor_row,

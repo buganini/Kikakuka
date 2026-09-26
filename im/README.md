@@ -86,13 +86,18 @@ ordinary process list on demand to find KiCad editor PIDs and creation times:
   requires a matching live KiCad editor process before using it.
 - `api.sock` contains no PID. On Unix, the backend first checks the Unix-domain
   sockets of same-user KiCad processes that have not already been matched to a
-  PID-specific socket. On Windows, if the matching generic named pipe exists,
+  PID-specific socket. Because a newly created socket may take a moment to
+  appear in the process socket table, this ownership check is retried briefly
+  before falling back. On Windows, if the matching generic named pipe exists,
   the backend opens it and asks `GetNamedPipeServerProcessId()` for its server
   PID. The returned PID must still match a live, same-user KiCad process and its
   recorded creation time. If exact socket ownership is unavailable, it assigns
   `api.sock` to the oldest unmatched KiCad editor process as a best-effort
   fallback. This fallback is a process-order heuristic, not a PID supplied by
   KiCad IPC.
+- The Instance Manager keeps its PID-to-socket lookup in reactive state. After
+  opening a PCB it refreshes immediately, then retries briefly until the
+  matching socket appears so the row does not require a manual refresh.
 
 ### Windows named-pipe workaround
 

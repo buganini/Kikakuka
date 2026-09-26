@@ -19,6 +19,8 @@ EDITOR_NAMES = ("kicad", "pcbnew", "eeschema", "pcb editor")
 FREECAD_SUFFIXES = (".fcstd", ".step", ".stp", ".kkkk_asm")
 FRESH_READY_RETRIES = 12
 FRESH_READY_DELAY_S = 0.25
+SOCKET_OWNER_RETRIES = 4
+SOCKET_OWNER_RETRY_DELAY_S = 0.1
 WINDOWS_KICAD_API_SENTINEL = (
     b"Kikakuka KiCad IPC compatibility sentinel for issue #23994.\r\n"
 )
@@ -84,28 +86,36 @@ def _editors(program="kicad"):
     return editors
 
 
-def _unix_socket_owner(socket_path, editors, excluded_pids=()):
+def _unix_socket_owner(
+        socket_path, editors, excluded_pids=(),
+        max_retries=SOCKET_OWNER_RETRIES,
+        delay_s=SOCKET_OWNER_RETRY_DELAY_S):
     """Return the same-user editor PID that owns a Unix socket path."""
     if platform.system() == "Windows" or not hasattr(os, "geteuid"):
         return None
 
     target = _normal(socket_path)
     excluded_pids = set(excluded_pids)
-    for pid, expected_create_time in sorted(editors.items(), key=lambda pair: pair[1]):
-        if pid in excluded_pids:
-            continue
-        try:
-            process = owned_process(pid, expected_create_time)
-            if process is None:
+    candidates = [
+        pair for pair in sorted(editors.items(), key=lambda pair: pair[1])
+        if pair[0] not in excluded_pids
+    ]
+    for attempt in range(max_retries + 1):
+        for pid, expected_create_time in candidates:
+            try:
+                process = owned_process(pid, expected_create_time)
+                if process is None:
+                    continue
+                connections = process.net_connections(kind="unix")
+            except (psutil.Error, OSError, RuntimeError, NotImplementedError):
                 continue
-            connections = process.net_connections(kind="unix")
-        except (psutil.Error, OSError, RuntimeError, NotImplementedError):
-            continue
-        for connection in connections:
-            local_address = connection.laddr
-            if (isinstance(local_address, str) and local_address
-                    and _normal(local_address) == target):
-                return pid
+            for connection in connections:
+                local_address = connection.laddr
+                if (isinstance(local_address, str) and local_address
+                        and _normal(local_address) == target):
+                    return pid
+        if candidates and attempt < max_retries:
+            time.sleep(delay_s)
     return None
 
 

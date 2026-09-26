@@ -311,6 +311,32 @@ class InstanceBackendTests(unittest.TestCase):
                 222,
             )
 
+    def test_unix_socket_owner_retries_before_fallback(self):
+        owner = mock.Mock()
+        owner.net_connections.side_effect = [
+            [],
+            [mock.Mock(laddr="/tmp/kicad/api.sock")],
+        ]
+
+        with mock.patch.object(backend.platform, "system", return_value="Linux"), \
+                mock.patch.object(
+                    backend, "owned_process", return_value=owner
+                ) as owned_process, \
+                mock.patch.object(backend.time, "sleep") as sleep:
+            self.assertEqual(
+                backend._unix_socket_owner(
+                    "/tmp/kicad/api.sock",
+                    {111: 1},
+                    max_retries=2,
+                    delay_s=0.05,
+                ),
+                111,
+            )
+
+        self.assertEqual(owned_process.call_count, 2)
+        self.assertEqual(owner.net_connections.call_count, 2)
+        sleep.assert_called_once_with(0.05)
+
     def test_scan_open_boards_reads_each_reachable_kicad_endpoint(self):
         with mock.patch.object(backend, "_sockets", return_value=[
                 (111, "/tmp/kicad/api.sock"),
