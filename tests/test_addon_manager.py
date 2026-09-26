@@ -1,5 +1,7 @@
 import json
 import builtins
+import contextlib
+import io
 from pathlib import Path
 import sys
 import tempfile
@@ -559,6 +561,60 @@ class AddonManagerTest(unittest.TestCase):
             kwargs["env"]["KIKAKUKA_ADDON_ARCHIVE"], str(archive)
         )
 
+    def test_freecad_helper_preserves_result_with_non_utf8_logs(self):
+        for ok in (True, False):
+            with self.subTest(ok=ok):
+                payload = {"ok": ok, "version": "8.1", "error": "無法安裝"}
+                output = (
+                    b"native log: \xa6\x77\n"
+                    + (addon_manager._RESULT_PREFIX + json.dumps(payload) + "\n").encode("ascii")
+                )
+                script = (
+                    f"import sys; sys.stdout.buffer.write({output!r}); "
+                    "sys.stderr.buffer.write(b'error log: \\xa6\\x77\\n')"
+                )
+                with mock.patch.object(
+                    addon_manager, "freecad_commands",
+                    return_value=[[sys.executable, "-c", script]],
+                ):
+                    if ok:
+                        self.assertEqual(addon_manager.run_freecad_helper("status"), payload)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "無法安裝"):
+                            addon_manager.run_freecad_helper("install", Path("addon.zip"))
+
+    def test_freecad_pip_non_utf8_logs_do_not_hide_exit_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for exit_code in (0, 1):
+                with self.subTest(exit_code=exit_code):
+                    script = (
+                        "import sys; sys.stdout.buffer.write(b'pip: \\xa6\\x77\\n'); "
+                        "sys.stderr.buffer.write(b'pip error: \\xa6\\x77\\n'); "
+                        f"sys.exit({exit_code})"
+                    )
+                    def command(args):
+                        return [sys.executable, "-c", script]
+                    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        if exit_code:
+                            with self.assertRaisesRegex(RuntimeError, "dependency psutil"):
+                                freecad_addon_installer._run_pip_specs(
+                                    ["psutil"], Path(directory), command,
+                                )
+                        else:
+                            freecad_addon_installer._run_pip_specs(
+                                ["psutil"], Path(directory), command,
+                            )
+
+    def test_freecad_result_protocol_is_ascii_and_preserves_unicode(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            freecad_addon_installer.emit(ok=False, error="無法讀取使用者資料夾")
+        output.getvalue().encode("ascii")
+        self.assertEqual(
+            addon_manager._parse_helper_result(output.getvalue()),
+            {"ok": False, "error": "無法讀取使用者資料夾"},
+        )
+
     def test_freecad_commands_do_not_fall_back_to_gui_console_mode(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -606,7 +662,7 @@ class AddonManagerTest(unittest.TestCase):
         emit.assert_called_once_with(
             ok=True,
             version="8.0",
-            path="/tmp/FreekiCAD/package.xml",
+            path=str(Path("/tmp/FreekiCAD/package.xml")),
         )
 
     def test_freecad_uninstall_uses_addon_manager_uninstaller(self):

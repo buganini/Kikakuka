@@ -17,7 +17,9 @@ RESULT_PREFIX = "KIKAKUKA_ADDON_RESULT="
 
 
 def emit(**result):
-    print(RESULT_PREFIX + json.dumps(result, ensure_ascii=False), flush=True)
+    # Keep the protocol ASCII even when FreeCAD's native logs use a Windows
+    # code page. JSON escapes preserve Unicode paths and error messages.
+    print(RESULT_PREFIX + json.dumps(result, ensure_ascii=True), flush=True)
 
 
 def package_version(path: Path):
@@ -82,7 +84,10 @@ def _run_pip_specs(specs, target: Path, create_command):
             str(target),
             spec,
         ])
-        completed = subprocess.run(command, text=True, capture_output=True)
+        completed = subprocess.run(
+            command, text=True, capture_output=True,
+            encoding="utf-8", errors="replace",
+        )
         if completed.stdout:
             print(completed.stdout, end="")
         if completed.stderr:

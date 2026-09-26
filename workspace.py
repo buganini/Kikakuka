@@ -1061,11 +1061,6 @@ class MainUI(Application):
 
                     with Tab("Add-ons"):
                         with VBox():
-                            if platform.system() == "Windows":
-                                Label(
-                                    "You may need to temporarily run Kikakuka as administrator "
-                                    "to install/uninstall addons"
-                                ).style(color=0xFF0000)
                             with HBox():
                                 with Grid():
                                     for addon_row, key in enumerate(

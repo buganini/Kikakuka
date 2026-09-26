@@ -1072,29 +1072,35 @@ def run_freecad_helper(action: str, archive: Optional[Path] = None) -> dict:
     commands = freecad_commands()
     if not commands:
         raise FileNotFoundError("FreeCADCmd executable was not found")
-    helper_env = os.environ.copy()
-    helper_env["KIKAKUKA_ADDON_ACTION"] = action
-    if archive is not None:
-        helper_env["KIKAKUKA_ADDON_ARCHIVE"] = str(archive)
-    else:
-        helper_env.pop("KIKAKUKA_ADDON_ARCHIVE", None)
     for prefix in commands:
         # FreeCAD parses extra script arguments itself on some releases.
         # Pass helper inputs through the environment so only the script path
         # appears on FreeCAD's command line.
         command = [*prefix, str(helper)]
+        if platform.system() == "Windows":
+            from im.instance_backend import freecad_process_environment
+            process_env = freecad_process_environment(prefix[0])
+        else:
+            process_env = os.environ.copy()
+        process_env["KIKAKUKA_ADDON_ACTION"] = action
+        if archive is not None:
+            process_env["KIKAKUKA_ADDON_ARCHIVE"] = str(archive)
+        else:
+            process_env.pop("KIKAKUKA_ADDON_ARCHIVE", None)
         try:
             completed = subprocess.run(
                 command,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=300 if action == "install" else 30,
-                env=helper_env,
+                env=process_env,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             errors.append(f"{' '.join(prefix)}: {exc}")
             continue
-        output = "\n".join((completed.stdout, completed.stderr))
+        output = "\n".join((completed.stdout or "", completed.stderr or ""))
         result = _parse_helper_result(output)
         if result and result.get("ok"):
             return result

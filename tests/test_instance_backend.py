@@ -397,8 +397,26 @@ class InstanceBackendTests(unittest.TestCase):
                     backend.os, "startfile", create=True
                 ) as startfile:
             self.assertEqual(backend._launch(filepath, "freecad"), 321)
-        popen.assert_called_once_with([executable, filepath])
+        popen.assert_called_once_with(
+            [executable, filepath], env=backend.freecad_process_environment(executable))
         startfile.assert_not_called()
+
+    def test_freecad_environment_does_not_inherit_kicad_python_and_qt(self):
+        contaminated = {
+            "PYTHONUSERBASE": "C:/KiCad/3rdparty", "PYTHONPATH": "C:/KiCad/python",
+            "PYTHONHOME": "C:/KiCad", "QT_PLUGIN_PATH": "C:/KiCad/Qt/plugins",
+            "QT_QPA_PLATFORM_PLUGIN_PATH": "C:/KiCad/Qt/platforms",
+            "QML2_IMPORT_PATH": "C:/KiCad/qml", "PATH": "C:/Windows",
+            "APPDATA": "C:/Users/test/AppData/Roaming",
+        }
+        with mock.patch.dict(backend.os.environ, contaminated, clear=True):
+            environment = backend.freecad_process_environment("C:/FreeCAD/bin/FreeCAD.exe")
+            self.assertEqual(dict(backend.os.environ), contaminated)
+        for name in contaminated.keys() - {"PATH", "APPDATA"}:
+            self.assertNotIn(name, environment)
+        self.assertEqual(environment["PYTHONNOUSERSITE"], "1")
+        self.assertEqual(environment["APPDATA"], contaminated["APPDATA"])
+        self.assertEqual(environment["PATH"], str(Path("C:/FreeCAD/bin")) + os.pathsep + "C:/Windows")
 
     def test_windows_kicad_launch_ensures_api_sentinel(self):
         with mock.patch.object(

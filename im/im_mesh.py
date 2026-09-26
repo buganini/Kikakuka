@@ -354,6 +354,7 @@ def _open_windows_shared_lock_file(path):
     kernel32.CloseHandle.restype = wintypes.BOOL
 
     invalid_handle = ctypes.c_void_p(-1).value
+    deadline = time.monotonic() + 5.0
     while True:
         handle = create_file(
             str(path),
@@ -369,9 +370,12 @@ def _open_windows_shared_lock_file(path):
         error = ctypes.get_last_error()
         # Older CRT openers may surface an incompatible sharing mode as
         # ERROR_ACCESS_DENIED or ERROR_SHARING_VIOLATION. Elevated privileges
-        # do not bypass either conflict; wait for that short-lived opener.
-        if error not in (5, 32):
-            raise ctypes.WinError(error)
+        # do not bypass either conflict. Limit retries: an old lock file can
+        # also have an administrator-only ACL, which will never clear by waiting.
+        if error not in (5, 32) or time.monotonic() >= deadline:
+            exc = ctypes.WinError(error)
+            exc.filename = str(path)
+            raise exc
         time.sleep(0.05)
     try:
         return msvcrt.open_osfhandle(

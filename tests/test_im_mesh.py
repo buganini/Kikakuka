@@ -99,6 +99,24 @@ class InstanceMeshTests(unittest.TestCase):
             finally:
                 os.close(first)
 
+    def test_windows_lock_file_persistent_failure_does_not_wait_forever(self):
+        for error in (5, 32):
+            with self.subTest(error=error):
+                create_file = mock.Mock(return_value=ctypes.c_void_p(-1).value)
+                kernel32 = mock.Mock(CreateFileW=create_file)
+                with (
+                    mock.patch.object(ctypes, "WinDLL", create=True, return_value=kernel32),
+                    mock.patch.object(ctypes, "get_last_error", create=True, return_value=error),
+                    mock.patch.object(ctypes, "WinError", create=True, side_effect=lambda code: OSError(code, "Cannot open lock")),
+                    mock.patch.object(im_mesh.time, "monotonic", side_effect=[0, 0, 6]),
+                    mock.patch.object(im_mesh.time, "sleep"),
+                    mock.patch.dict(sys.modules, {"msvcrt": mock.Mock()}),
+                ):
+                    with self.assertRaises(OSError) as raised:
+                        im_mesh._open_windows_shared_lock_file("inaccessible.lock")
+                self.assertEqual(raised.exception.filename, "inaccessible.lock")
+                self.assertEqual(create_file.call_count, 2)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.runtime_patch = mock.patch.object(

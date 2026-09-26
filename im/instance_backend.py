@@ -404,6 +404,21 @@ def _focus(pid):
             pass
 
 
+def freecad_process_environment(executable):
+    """Run FreeCAD with its own Python/Qt, not the launching KiCad runtime."""
+    environment = os.environ.copy()
+    for name in (
+        "PYTHONHOME", "PYTHONPATH", "PYTHONUSERBASE", "PYTHONSTARTUP",
+        "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH",
+        "QML_IMPORT_PATH", "QML2_IMPORT_PATH",
+    ):
+        environment.pop(name, None)
+    # FreeCAD explicitly adds its AdditionalPythonPackages directory itself.
+    environment["PYTHONNOUSERSITE"] = "1"
+    environment["PATH"] = str(Path(executable).parent) + os.pathsep + environment.get("PATH", "")
+    return environment
+
+
 def _launch(filepath, program="kicad"):
     if platform.system() == "Windows" and program == "kicad":
         ensure_windows_kicad_api_sentinel()
@@ -419,7 +434,7 @@ def _launch(filepath, program="kicad"):
     elif platform.system() == "Windows":
         freecad = _windows_freecad_executable() if program == "freecad" else None
         if freecad:
-            subprocess.Popen([freecad, filepath])
+            subprocess.Popen([freecad, filepath], env=freecad_process_environment(freecad))
         else:
             os.startfile(filepath)
     else:
