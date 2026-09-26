@@ -1,0 +1,7 @@
+No 3D Model
+The assigned model is invalid
+Fill in SizeX/SizeY/SizeZ
+Default unit is mm
+mm/um/in/mil are supported
+Now run the "Populate Placeholder 3D Models"
+Voila !
