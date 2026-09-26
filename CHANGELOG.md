@@ -1,4 +1,9 @@
 # 8.1:
+* TL;DR
+    * Smoother PCB and schematic diff navigation with synchronized views, layer presets, tolerance-aware highlights, and similarity metrics
+    * More reliable cross-platform KiCad and FreeCAD instance discovery, focusing, refresh, and standalone operation
+    * Built-in offline installation, update, and removal for Kikakuka's KiCad and FreekiCAD add-ons
+    * New KiCad placeholder and coupler 3D tools, bundled models, and improved Panelizer and Gerber workflows
 * Differ
     * Preserve selected revisions when switching between PCB and schematic diffs, choosing the nearest older board revision when the schematic commit is absent from filtered PCB history
     * Add a default-on Sync Page option that aligns schematic page selections
