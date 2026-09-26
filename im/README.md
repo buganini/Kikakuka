@@ -162,7 +162,9 @@ Otherwise the backend opens the file through its system association. It scans
 KiCad editor processes before and after launch, waits up to eight seconds for
 a new PID, and selects the newly appeared process with the latest creation
 time. The scan includes process names such as `eeschema`, `kicad`, and
-`pcbnew`; it does not verify that the chosen process opened the requested
+`pcbnew`. Matching normalizes the basename and extension, then requires a known
+GUI executable name, so helper processes such as `kicad-api` and `kicad-cli`
+are excluded. It does not verify that the chosen process opened the requested
 schematic. Schematic/project launches then retain the per-program launch lock
 for another three seconds to let process startup settle.
 

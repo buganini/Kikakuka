@@ -88,6 +88,26 @@ class InstanceBackendTests(unittest.TestCase):
             ["pid", "name", "create_time"]
         )
 
+    def test_editors_excludes_non_editor_kicad_processes(self):
+        processes = [
+            mock.Mock(
+                pid=pid,
+                info={"pid": pid, "name": name, "create_time": pid},
+            )
+            for pid, name in enumerate(
+                ("kicad", "pcbnew", "eeschema", "PCB Editor",
+                 "kicad-api", "kicad-api.exe", "kicad-cli"),
+                start=1,
+            )
+        ]
+        with mock.patch.object(
+            backend, "owned_process_iter", return_value=processes
+        ):
+            self.assertEqual(
+                backend._editors(),
+                {pid: pid for pid in range(1, 5)},
+            )
+
     def test_windows_kicad_api_sentinel_is_created_once(self):
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(

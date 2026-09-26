@@ -13,9 +13,9 @@ import psutil
 from .im_mesh import (activate_open_freecad_document, bind_freecad_source,
                       launch_lock, local_node, open_in_freecad_node,
                       owned_pid_exists, owned_process, owned_process_iter)
+from workspace_monitor import is_kicad_editor_process
 
 
-EDITOR_NAMES = ("kicad", "pcbnew", "eeschema", "pcb editor")
 FREECAD_SUFFIXES = (".fcstd", ".step", ".stp", ".kkkk_asm")
 FRESH_READY_RETRIES = 12
 FRESH_READY_DELAY_S = 0.25
@@ -76,7 +76,11 @@ def _editors(program="kicad"):
         for process in owned_process_iter(["pid", "name", "create_time"]):
             try:
                 name = (process.info["name"] or "").lower()
-                match = (name.startswith("freecad") and not name.startswith("freecadcmd")) if program == "freecad" else any(token in name for token in EDITOR_NAMES)
+                match = (
+                    name.startswith("freecad") and not name.startswith("freecadcmd")
+                    if program == "freecad"
+                    else is_kicad_editor_process(name)
+                )
                 if match:
                     editors[process.pid] = process.info.get("create_time") or 0
             except (psutil.Error, OSError):

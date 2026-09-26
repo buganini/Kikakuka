@@ -12,6 +12,14 @@ FILE_SUFFIXES = {
     "FreeCAD": (".fcstd", ".step", ".stp", ".kkkk_asm"),
     "Fabrication Planner": (".kkkk_fab", ".kikit_pnl"),
 }
+KICAD_EDITOR_PROCESS_NAMES = {"kicad", "pcbnew", "eeschema", "pcb editor"}
+
+
+def is_kicad_editor_process(name):
+    """Return whether a process name is a KiCad GUI editor executable."""
+    basename = os.path.basename(name or "")
+    executable, _extension = os.path.splitext(basename)
+    return executable.casefold() in KICAD_EDITOR_PROCESS_NAMES
 
 
 def update_pidmap_entry(pidmap, filepath, pid):
@@ -40,11 +48,9 @@ def replace_freecad_documents(pidmap, pid, filepaths):
 
 def program_for_process(name):
     """Classify GUI editor process names without including CLI tools."""
-    name = (name or "").casefold().removesuffix(".exe")
-    if (name in ("kicad", "pcbnew", "eeschema", "pcb editor") or
-            (name.startswith("kicad-") and
-             not name.startswith("kicad-cli"))):
+    if is_kicad_editor_process(name):
         return "KiCad"
+    name = (name or "").casefold().removesuffix(".exe")
     if name.startswith("freecad") and not name.startswith("freecadcmd"):
         return "FreeCAD"
     return None
