@@ -1,4 +1,4 @@
-# Next:
+# 8.1:
 * Differ
     * Preserve selected revisions when switching between PCB and schematic diffs, choosing the nearest older board revision when the schematic commit is absent from filtered PCB history
     * Add a default-on Sync Page option that aligns schematic page selections

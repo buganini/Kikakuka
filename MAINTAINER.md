@@ -59,7 +59,8 @@ workdir/metadata/
     │   ├── metadata.json
     │   └── icon.png
     └── com.github.buganini.kikakuka-plugin/
-        └── metadata.json
+        ├── metadata.json
+        └── icon.png
 ```
 
 The source archive contains only tracked files. Checked-out submodules are
