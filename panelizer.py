@@ -2273,8 +2273,10 @@ class PanelizerUI(Application):
             try:
                 out_of_frame = GeometryCollection(shapes).difference(frame)
                 if not out_of_frame.is_empty:
-                    conflicts.append(out_of_frame)
-                    errors.append("PCB placement exceeds frame boundaries")
+                    bounds = out_of_frame.bounds
+                    if bounds[2] - bounds[0] < SHP_EPSILON and bounds[3] - bounds[1] < SHP_EPSILON:
+                        conflicts.append(out_of_frame)
+                        errors.append("PCB placement exceeds frame boundaries")
             except Exception as e:
                 warnings.append(f"{panelizer_warning_prefix(e)}Failed to check frame boundaries: {e}")
                 traceback.print_exc()
