@@ -30,6 +30,8 @@ COPPER_STRAIN_WARNING = 0.05
 COUPLER_MOVING = "CouplerMoving"
 COUPLER_FIXED = "CouplerFixed"
 COUPLER_AT = "CouplerAt"
+COUPLER_FIXED_COLOR = (1.0, 0.1, 0.1)
+COUPLER_MOVING_COLOR = (1.0, 0.4, 0.1)
 _COUPLER_TYPES = {COUPLER_MOVING, COUPLER_FIXED, COUPLER_AT}
 COUPLER_MONITOR_INTERVAL_MS = 1000
 PCB_OBJECT_TYPES = {"PcbObject", "LinkedObject"}
@@ -4405,12 +4407,11 @@ class PcbObject:
                 marker.ViewObject.Visibility = False
                 marker.ViewObject.LineWidth = 4.0
                 marker.ViewObject.Transparency = 35
-                if coupler_type == COUPLER_FIXED:
-                    marker.ViewObject.LineColor = (1.0, 0.4, 0.1)
-                    marker.ViewObject.ShapeColor = (1.0, 0.4, 0.1)
-                else:
-                    marker.ViewObject.LineColor = (0.1, 0.8, 1.0)
-                    marker.ViewObject.ShapeColor = (0.1, 0.8, 1.0)
+                color = (COUPLER_FIXED_COLOR
+                         if coupler_type == COUPLER_FIXED
+                         else COUPLER_MOVING_COLOR)
+                marker.ViewObject.LineColor = color
+                marker.ViewObject.ShapeColor = color
             except Exception:
                 pass
 

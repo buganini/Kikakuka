@@ -20,6 +20,7 @@
 #include <TopoDS_Solid.hxx>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -28,6 +29,7 @@
 namespace {
 
 constexpr double BASE_HALF_SLOPE = 0.075;
+constexpr double MODEL_XY_SCALE = 2.0;
 
 struct Point2D {
     double x;
@@ -73,16 +75,27 @@ TopoDS_Shape symmetric_wedge_polygon(const std::vector<Point2D>& outline) {
     std::vector<gp_Pnt> bottom;
     std::vector<gp_Pnt> top;
     for (const Point2D& point : outline) {
-        const double half_thickness = -point.y * BASE_HALF_SLOPE;
-        bottom.emplace_back(point.x, point.y, -half_thickness);
-        top.emplace_back(point.x, point.y, half_thickness);
+        const double half_thickness = std::abs(point.y) * BASE_HALF_SLOPE;
+        bottom.emplace_back(
+            point.x * MODEL_XY_SCALE,
+            point.y * MODEL_XY_SCALE,
+            -half_thickness);
+        top.emplace_back(
+            point.x * MODEL_XY_SCALE,
+            point.y * MODEL_XY_SCALE,
+            half_thickness);
     }
     return faceted_solid(bottom, top);
 }
 
 TopoDS_Shape triangular_wedge() {
+    // KiCad mirrors a STEP model's local Y axis when placing it in footprint
+    // coordinates.  The footprint triangle has its base on -Y, so the STEP
+    // source must put the base on +Y to point the same way in the 3D Viewer.
+    // MODEL_XY_SCALE enlarges the visible helper without changing its Z
+    // thickness.
     return symmetric_wedge_polygon(
-        {{-1.0, -1.0}, {1.0, -1.0}, {0.0, 0.0}});
+        {{-1.0, 1.0}, {1.0, 1.0}, {0.0, 0.0}});
 }
 
 void add_colored_shape(
@@ -106,12 +119,12 @@ bool write_model(const std::filesystem::path& filename, bool moving) {
     Handle(XCAFDoc_ColorTool) color_tool =
         XCAFDoc_DocumentTool::ColorTool(document->Main());
 
-    const Quantity_Color cyan(0.1, 0.8, 1.0, Quantity_TOC_RGB);
-    const Quantity_Color orange(1.0, 0.4, 0.1, Quantity_TOC_RGB);
+    const Quantity_Color red(1.0, 0.1, 0.1, Quantity_TOC_sRGB);
+    const Quantity_Color orange(1.0, 0.4, 0.1, Quantity_TOC_sRGB);
     add_colored_shape(
         shape_tool, color_tool, triangular_wedge(),
         moving ? "CouplerMoving" : "CouplerFixed",
-        moving ? cyan : orange);
+        moving ? orange : red);
 
     STEPCAFControl_Writer writer;
     writer.SetColorMode(Standard_True);
