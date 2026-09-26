@@ -117,11 +117,21 @@ try:
 except Exception:
     pass
 
-kicad_cli_version = "Error"
-try:
-    kicad_cli_version = subprocess.check_output([kicad_cli, "--version"]).decode().strip()
-except Exception:
-    pass
+_kicad_cli_version = None
+
+
+def get_kicad_cli_version():
+    """Query the Differ CLI lazily instead of launching it at app startup."""
+    global _kicad_cli_version
+    if _kicad_cli_version is None:
+        try:
+            _kicad_cli_version = subprocess.check_output(
+                [kicad_cli, "--version"]
+            ).decode().strip()
+        except Exception:
+            _kicad_cli_version = "Error"
+    return _kicad_cli_version
+
 
 def convert_sch(path, outpath):
     os.makedirs(outpath, exist_ok=True)
@@ -823,7 +833,13 @@ class DifferUI(Application):
             shutil.rmtree(self.temp_dir)
 
     def content(self):
-        title = f"Kikakuka v{VERSION} Differ (KiCad CLI {kicad_cli_version}, Pypdfium2 {pdfium.version.PYPDFIUM_INFO}, OpenCV {cv2.__version__}, PUI {PUI.__version__} {PUI_BACKEND})"
+        title = (
+            f"Kikakuka v{VERSION} Differ "
+            f"(KiCad CLI {get_kicad_cli_version()}, "
+            f"Pypdfium2 {pdfium.version.PYPDFIUM_INFO}, "
+            f"OpenCV {cv2.__version__}, "
+            f"PUI {PUI.__version__} {PUI_BACKEND})"
+        )
         with Window(maximize=True, title=title, icon=resource_path("icon.ico")):
             with VBox():
                 if not os.path.exists(kicad_cli):

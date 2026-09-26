@@ -56,6 +56,7 @@ _RESULT_PREFIX = "KIKAKUKA_ADDON_RESULT="
 _INSTALL_LOCK = threading.Lock()
 _MIN_FREECAD_VERSION = (1, 0)
 _MIN_FREECAD_VERSION_TEXT = "1.0"
+_kicad_installations_cache: Optional[tuple[tuple[Path, str], ...]] = None
 
 
 @dataclass(frozen=True)
@@ -428,6 +429,40 @@ def _kicad_cli_candidates() -> list[Path]:
     return candidates
 
 
+def _kicad_version_from_installation(path: Path) -> Optional[str]:
+    if platform.system() == "Darwin":
+        import plistlib
+
+        app = next(
+            (parent for parent in path.parents if parent.suffix == ".app"),
+            None,
+        )
+        if app:
+            try:
+                with (app / "Contents/Info.plist").open("rb") as source:
+                    info = plistlib.load(source)
+                value = (
+                    info.get("CFBundleShortVersionString")
+                    or info.get("CFBundleVersion")
+                )
+                if value and re.fullmatch(r"\d+(?:\.\d+)+", str(value)):
+                    return str(value)
+            except (OSError, ValueError, TypeError):
+                pass
+    windows_version = _windows_executable_version(path)
+    if windows_version:
+        return windows_version
+    for index, part in enumerate(path.parts):
+        match = re.search(r"KiCad[^\d]*(\d+(?:\.\d+)+)", part, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        if part.casefold() == "kicad" and index + 1 < len(path.parts):
+            version_part = path.parts[index + 1]
+            if re.fullmatch(r"\d+(?:\.\d+)+", version_part):
+                return version_part
+    return None
+
+
 def _detected_kicad_installations() -> list[tuple[Path, str]]:
     candidates = _kicad_cli_candidates()
     installations = []
@@ -448,23 +483,40 @@ def _detected_kicad_installations() -> list[tuple[Path, str]]:
                     continue
             except (AttributeError, ValueError):
                 pass
-        version = _command_version([str(candidate)])
+        version = (
+            _kicad_version_from_installation(candidate)
+            or _command_version([str(candidate)])
+        )
         if version:
             installations.append((candidate, version))
     return installations
 
 
+def clear_kicad_installations_cache() -> None:
+    """Make the next KiCad installation lookup scan the host again."""
+    global _kicad_installations_cache
+    _kicad_installations_cache = None
+
+
+def get_kicad_installations() -> tuple[tuple[Path, str], ...]:
+    """Return detected KiCad CLIs, scanning once until the cache is cleared."""
+    global _kicad_installations_cache
+    if _kicad_installations_cache is None:
+        _kicad_installations_cache = tuple(_detected_kicad_installations())
+    return _kicad_installations_cache
+
+
 def find_kicad_installation(version: str) -> Optional[Path]:
     """Locate a KiCad installation matching the addon's required major."""
     required_major = version.split(".", 1)[0]
-    for candidate, detected_version in _detected_kicad_installations():
+    for candidate, detected_version in get_kicad_installations():
         if detected_version.split(".", 1)[0] == required_major:
             return candidate
     return None
 
 
 def find_any_kicad_version() -> Optional[str]:
-    installations = _detected_kicad_installations()
+    installations = get_kicad_installations()
     return installations[0][1] if installations else None
 
 
@@ -1159,6 +1211,8 @@ def uninstall_freekicad() -> AddonStatus:
 
 
 def addon_statuses(*, query_freecad: bool = False) -> list[AddonStatus]:
+    clear_kicad_installations_cache()
+    get_kicad_installations()
     return [
         kicad_addon_status(KICAD_PLUGIN),
         kicad_addon_status(KICAD_LIBRARY),

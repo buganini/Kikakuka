@@ -24,6 +24,86 @@ def metadata(identifier, package_type, version="8.0"):
 
 
 class AddonManagerTest(unittest.TestCase):
+    def setUp(self):
+        addon_manager.clear_kicad_installations_cache()
+
+    def test_kicad_installation_getter_caches_until_cleared(self):
+        first = [(Path("/opt/kicad-cli"), "10.0.1")]
+        second = [(Path("/opt/kicad-cli"), "10.0.2")]
+        with mock.patch.object(
+            addon_manager,
+            "_detected_kicad_installations",
+            side_effect=[first, second],
+        ) as detect:
+            self.assertEqual(
+                addon_manager.get_kicad_installations(), tuple(first)
+            )
+            self.assertEqual(
+                addon_manager.get_kicad_installations(), tuple(first)
+            )
+            addon_manager.clear_kicad_installations_cache()
+            self.assertEqual(
+                addon_manager.get_kicad_installations(), tuple(second)
+            )
+
+        self.assertEqual(detect.call_count, 2)
+
+    def test_addon_statuses_detects_kicad_installations_once(self):
+        installations = [(Path("/opt/kicad-cli"), "10.0.1")]
+        statuses = [mock.Mock(), mock.Mock()]
+        with (
+            mock.patch.object(
+                addon_manager,
+                "_detected_kicad_installations",
+                return_value=installations,
+            ) as detect,
+            mock.patch.object(
+                addon_manager,
+                "kicad_addon_status",
+                side_effect=statuses,
+            ) as kicad_status,
+            mock.patch.object(
+                addon_manager,
+                "freekicad_status",
+                return_value=mock.Mock(),
+            ),
+        ):
+            addon_manager.addon_statuses()
+
+        detect.assert_called_once_with()
+        self.assertEqual(
+            kicad_status.call_args_list,
+            [
+                mock.call(addon_manager.KICAD_PLUGIN),
+                mock.call(addon_manager.KICAD_LIBRARY),
+            ],
+        )
+
+    def test_kicad_detection_uses_installation_metadata_before_cli(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "kicad-cli"
+            executable.touch()
+            with (
+                mock.patch.object(
+                    addon_manager,
+                    "_kicad_cli_candidates",
+                    return_value=[executable],
+                ),
+                mock.patch.object(
+                    addon_manager,
+                    "_kicad_version_from_installation",
+                    return_value="10.0.1",
+                ),
+                mock.patch.object(
+                    addon_manager,
+                    "_command_version",
+                ) as command_version,
+            ):
+                installations = addon_manager._detected_kicad_installations()
+
+        self.assertEqual(installations, [(executable, "10.0.1")])
+        command_version.assert_not_called()
+
     def test_bundle_archive_uses_cli_runtime_resource_path(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
