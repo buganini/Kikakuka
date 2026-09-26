@@ -754,6 +754,7 @@ class MainUI(Application):
         self.state.workspaces = workspaces
         self.commit()
         self.pidmap = StateDict({})
+        self.kicad_sockets = {}
 
         # Host a symmetric instance node. No workspace-owned socket or
         # permanent leader is required for FreekiCAD to resolve KiCad IPC.
@@ -772,6 +773,9 @@ class MainUI(Application):
     def refresh_monitor(self, _event=None):
         from im.instance_backend import scan_open_kicad_boards
         boards = scan_open_kicad_boards()
+        self.kicad_sockets = {
+            pid: socket_path for pid, _filepath, socket_path in boards
+        }
         if self._bus:
             from im.im_mesh import scan_freecad_documents
             self._bus.refresh()
@@ -781,7 +785,7 @@ class MainUI(Application):
         with self.pidmap:
             for pid, paths in scans:
                 replace_freecad_documents(self.pidmap, pid, paths)
-            for pid, filepath in boards:
+            for pid, filepath, _socket_path in boards:
                 update_pidmap_entry(self.pidmap, filepath, pid)
         # Include editors that were started outside the mesh as well.
         self.pidmap()
@@ -886,7 +890,8 @@ class MainUI(Application):
                                         Label("ProcessID").grid(row=0, column=0)
                                         Label("Program").grid(row=0, column=1)
                                         Label("File Path").grid(row=0, column=2)
-                                        Label("Action").grid(row=0, column=3)
+                                        Label("IPC Socket").grid(row=0, column=3)
+                                        Label("Action").grid(row=0, column=4)
                                         rows = snapshot_editor_processes(self.pidmap)
                                         if not rows:
                                             Label("No KiCad or FreeCAD processes found").grid(row=1, column=0)
@@ -895,7 +900,14 @@ class MainUI(Application):
                                                 Label(str(pid)).grid(row=row, column=0)
                                                 Label(program).grid(row=row, column=1)
                                                 Label(filepath or "Unknown", selectable=True).grid(row=row, column=2)
-                                                with HBox().grid(row=row, column=3):
+                                                socket_path = self.kicad_sockets.get(pid, "")
+                                                socket_name = (
+                                                    os.path.basename(socket_path)
+                                                    if program == "KiCad" and socket_path
+                                                    else ""
+                                                )
+                                                Label(socket_name).grid(row=row, column=3)
+                                                with HBox().grid(row=row, column=4):
                                                     Button("Go to").click(
                                                         self.go_to_monitor_row, pid, program, filepath
                                                     )

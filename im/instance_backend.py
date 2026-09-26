@@ -69,9 +69,17 @@ if platform.system() == "Windows":
 
 def _editors(program="kicad"):
     editors = {}
+    current_uid = os.geteuid() if hasattr(os, "geteuid") else None
+    attributes = ["pid", "name", "create_time"]
+    if current_uid is not None:
+        attributes.append("uids")
     try:
-        for process in psutil.process_iter(["pid", "name", "create_time"]):
+        for process in psutil.process_iter(attributes):
             try:
+                if current_uid is not None:
+                    uids = process.info.get("uids")
+                    if uids is None or uids.effective != current_uid:
+                        continue
                 name = (process.info["name"] or "").lower()
                 match = (name.startswith("freecad") and not name.startswith("freecadcmd")) if program == "freecad" else any(token in name for token in EDITOR_NAMES)
                 if match:
@@ -81,6 +89,35 @@ def _editors(program="kicad"):
     except (psutil.Error, OSError):
         pass
     return editors
+
+
+def _unix_socket_owner(socket_path, editors, excluded_pids=()):
+    """Return the same-user editor PID that owns a Unix socket path."""
+    if platform.system() == "Windows" or not hasattr(os, "geteuid"):
+        return None
+
+    current_uid = os.geteuid()
+    target = _normal(socket_path)
+    excluded_pids = set(excluded_pids)
+    for pid, expected_create_time in sorted(editors.items(), key=lambda pair: pair[1]):
+        if pid in excluded_pids:
+            continue
+        try:
+            process = psutil.Process(pid)
+            if process.uids().effective != current_uid:
+                continue
+            if (expected_create_time
+                    and process.create_time() != expected_create_time):
+                continue
+            connections = process.net_connections(kind="unix")
+        except (psutil.Error, OSError, RuntimeError, NotImplementedError):
+            continue
+        for connection in connections:
+            local_address = connection.laddr
+            if (isinstance(local_address, str) and local_address
+                    and _normal(local_address) == target):
+                return pid
+    return None
 
 
 def _sockets():
@@ -111,8 +148,13 @@ def _sockets():
         elif name == "api.sock":
             generic = os.path.join(directory, name)
     if generic:
-        candidate = next((pid for pid, _ in sorted(editors.items(), key=lambda pair: pair[1])
-                          if pid not in explicit), None)
+        candidate = (
+            None if is_windows
+            else _unix_socket_owner(generic, editors, explicit)
+        )
+        if candidate is None:
+            candidate = next((pid for pid, _ in sorted(editors.items(), key=lambda pair: pair[1])
+                              if pid not in explicit), None)
         if candidate is not None:
             explicit[candidate] = generic
     return list(explicit.items())
@@ -161,7 +203,7 @@ def _find_board(filepath, wait_until_ready=False):
 
 
 def scan_open_kicad_boards():
-    """Read open PCB paths from live KiCad IPC endpoints for the UI inventory."""
+    """Read open PCB paths and sockets from live KiCad IPC endpoints."""
     boards = []
     for pid, socket_path in _sockets():
         try:
@@ -169,7 +211,7 @@ def scan_open_kicad_boards():
         except Exception:
             continue
         if filepath:
-            boards.append((pid, filepath))
+            boards.append((pid, filepath, socket_path))
     return boards
 
 

@@ -31,6 +31,38 @@ class RetryKicadCallTests(unittest.TestCase):
 
 
 class InstanceBackendTests(unittest.TestCase):
+    def test_editors_excludes_processes_owned_by_other_users(self):
+        own = mock.Mock(
+            pid=111,
+            info={
+                "pid": 111,
+                "name": "pcbnew",
+                "create_time": 1,
+                "uids": mock.Mock(effective=1000),
+            },
+        )
+        other = mock.Mock(
+            pid=222,
+            info={
+                "pid": 222,
+                "name": "pcbnew",
+                "create_time": 2,
+                "uids": mock.Mock(effective=2000),
+            },
+        )
+
+        with mock.patch.object(
+                    backend.os, "geteuid", return_value=1000, create=True
+                ), \
+                mock.patch.object(
+                    backend.psutil, "process_iter", return_value=[own, other]
+                ) as process_iter:
+            self.assertEqual(backend._editors(), {111: 1})
+
+        process_iter.assert_called_once_with(
+            ["pid", "name", "create_time", "uids"]
+        )
+
     def test_windows_kicad_api_sentinel_is_created_once(self):
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(
@@ -86,12 +118,75 @@ class InstanceBackendTests(unittest.TestCase):
                 mock.patch.object(
                     backend, "_editors", return_value={111: 1, 222: 2}
                 ), \
-                mock.patch.object(backend.psutil, "net_connections") as privileged:
+                mock.patch.object(backend, "_unix_socket_owner") as owner:
             self.assertEqual(backend._sockets(), [
                 (222, os.path.join(directory, "api-222.sock")),
                 (111, os.path.join(directory, "api.sock")),
             ])
-        privileged.assert_not_called()
+        owner.assert_not_called()
+
+    def test_unix_socket_owner_scans_only_same_user_unmapped_editors(self):
+        other_user = mock.Mock()
+        other_user.uids.return_value = mock.Mock(effective=2000)
+        mapped = mock.Mock()
+        owner = mock.Mock()
+        owner.uids.return_value = mock.Mock(effective=1000)
+        owner.create_time.return_value = 3
+        owner.net_connections.return_value = [
+            mock.Mock(laddr="/tmp/kicad/api.sock"),
+        ]
+        processes = {111: other_user, 222: mapped, 333: owner}
+
+        with mock.patch.object(backend.platform, "system", return_value="Linux"), \
+                mock.patch.object(
+                    backend.os, "geteuid", return_value=1000, create=True
+                ), \
+                mock.patch.object(
+                    backend.psutil, "Process",
+                    side_effect=lambda pid: processes[pid],
+                ) as process:
+            self.assertEqual(
+                backend._unix_socket_owner(
+                    "/tmp/kicad/api.sock",
+                    {111: 1, 222: 2, 333: 3},
+                    excluded_pids={222},
+                ),
+                333,
+            )
+
+        self.assertEqual([call.args[0] for call in process.call_args_list], [111, 333])
+        other_user.net_connections.assert_not_called()
+        mapped.net_connections.assert_not_called()
+        owner.net_connections.assert_called_once_with(kind="unix")
+
+    def test_unix_socket_owner_continues_after_process_error(self):
+        inaccessible = mock.Mock()
+        inaccessible.uids.return_value = mock.Mock(effective=1000)
+        inaccessible.create_time.return_value = 1
+        inaccessible.net_connections.side_effect = backend.psutil.AccessDenied(
+            pid=111
+        )
+        owner = mock.Mock()
+        owner.uids.return_value = mock.Mock(effective=1000)
+        owner.create_time.return_value = 2
+        owner.net_connections.return_value = [
+            mock.Mock(laddr="/tmp/kicad/api.sock"),
+        ]
+
+        with mock.patch.object(backend.platform, "system", return_value="Darwin"), \
+                mock.patch.object(
+                    backend.os, "geteuid", return_value=1000, create=True
+                ), \
+                mock.patch.object(
+                    backend.psutil, "Process",
+                    side_effect=lambda pid: {111: inaccessible, 222: owner}[pid],
+                ):
+            self.assertEqual(
+                backend._unix_socket_owner(
+                    "/tmp/kicad/api.sock", {111: 1, 222: 2}
+                ),
+                222,
+            )
 
     def test_scan_open_boards_reads_each_reachable_kicad_endpoint(self):
         with mock.patch.object(backend, "_sockets", return_value=[
@@ -103,8 +198,8 @@ class InstanceBackendTests(unittest.TestCase):
                 "/boards/three.kicad_pcb",
         ]):
             self.assertEqual(backend.scan_open_kicad_boards(), [
-                (111, "/boards/one.kicad_pcb"),
-                (333, "/boards/three.kicad_pcb"),
+                (111, "/boards/one.kicad_pcb", "/tmp/kicad/api.sock"),
+                (333, "/boards/three.kicad_pcb", "/tmp/kicad/api-333.sock"),
             ])
 
     def test_mac_freecad_launch_uses_explicit_app_and_file_argument(self):
@@ -393,14 +488,16 @@ class InstanceBackendTests(unittest.TestCase):
                 backend._open_new("/models/part.step", "freecad", False, None)
         bind.assert_called_once_with(321, "/models/part.step")
 
-    def test_sockets_do_not_use_privileged_connections(self):
+    def test_sockets_fall_back_to_oldest_unmapped_editor(self):
         with mock.patch.object(backend.os, "listdir", return_value=["api.sock", "api-222.sock"]), \
                 mock.patch.object(backend, "_editors", return_value={111: 1, 222: 2}), \
-                mock.patch.object(backend.psutil, "net_connections") as privileged:
+                mock.patch.object(
+                    backend, "_unix_socket_owner", return_value=None
+                ) as owner:
             sockets = backend._sockets()
         self.assertEqual(dict(sockets)[111].split("/")[-1], "api.sock")
         self.assertEqual(dict(sockets)[222].split("/")[-1], "api-222.sock")
-        privileged.assert_not_called()
+        owner.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -84,9 +84,12 @@ ordinary process list on demand to find KiCad editor PIDs and creation times:
 
 - For `api-<PID>.sock`, the PID is in the socket name, but the backend still
   requires a matching live KiCad editor process before using it.
-- `api.sock` contains no PID. The backend assigns it to the oldest KiCad
-  editor process that has not already been matched to a PID-specific socket.
-  This is a hacky process-order heuristic, not a PID supplied by KiCad IPC.
+- `api.sock` contains no PID. On Unix, the backend first checks the Unix-domain
+  sockets of same-user KiCad processes that have not already been matched to a
+  PID-specific socket. If socket ownership is unavailable, and on Windows where
+  NNG uses named pipes instead, it assigns `api.sock` to the oldest unmatched
+  KiCad editor process as a best-effort fallback. This fallback is a process-order
+  heuristic, not a PID supplied by KiCad IPC.
 
 ### Windows named-pipe workaround
 
@@ -125,7 +128,9 @@ name (and project path if the name is relative). Only a path matching the
 requested PCB is accepted for reuse, focus, or PCB IPC operations; a saved
 file-to-PID mapping alone is not proof that the board remains open. The
 Instance Manager tab uses the same socket-and-board probe to rebuild its PCB
-rows on manual refresh.
+rows on manual refresh. KiCad rows display the basename of the matched IPC
+socket, such as `api.sock` or `api-1234.sock`; the full socket path remains
+internal.
 
 When launching a new KiCad editor, the current launcher also compares editor
 process lists before and after launch to infer the new PID. For a PCB, that
@@ -227,11 +232,13 @@ macOS starts a new FreeCAD with `open -a FreeCAD -n -W --args <file>` and
 uses AppleScript for best-effort focus; other new editors use `open -n`.
 Windows uses file associations and Win32 foreground APIs; Linux uses
 `xdg-open` and currently has no reliable cross-desktop focus operation.
-File-to-PID discovery uses ordinary process enumeration and KiCad's IPC. It
-does not use `psutil.net_connections()`, `Process.connections()`,
-`Process.open_files()`, `Process.environ()`, or other privileged
-process/socket inspection. An inaccessible process is treated as unavailable,
-never as a reason to request elevation.
+File-to-PID discovery uses ordinary process enumeration and KiCad's IPC. On
+Unix it may call `psutil.Process.net_connections(kind="unix")` for unmatched KiCad
+processes, but only after confirming that each process belongs to the current
+user. It does not use system-wide `psutil.net_connections()`,
+`Process.open_files()`, `Process.environ()`, or privileged process/socket
+inspection. An inaccessible process is treated as unavailable, never as a
+reason to request elevation.
 
 The private runtime directory and request token provide best-effort local-user
 isolation, not an authentication boundary against malicious processes running

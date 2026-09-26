@@ -173,7 +173,7 @@ Drag inside the PCB for moving selected tab, drag outside the PCB for changing t
 ![Manual Tab](screenshots/manual_tab.gif)
 
 # FreekiCAD (FreeCAD Addon)
-Requires **FreeCAD 1.0** or later and `psutil>=5.9` for
+Requires **FreeCAD 1.0** or later and `psutil>=7.2.2` for
 instance discovery and FreeCAD document-state publication. KiCad PCB
 integration additionally requires **KiCad 9.0** or later,
 `kicad-python>=0.8,<0.9`, and `shapely>=2.0.7`. The latter two packages are
@@ -207,7 +207,7 @@ object. The option can be disabled independently for each object.
     * Copy the FreekiCAD folder into the `Mod` folder
     * Install `psutil` inside FreeCAD. For full KiCad integration, the following command also installs the KiCad extras. It waits for pip to finish, then prints its output.
     ```
-    import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=5.9"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
+    import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=7.2.2"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
     ```
 
 * Activate `Preferences -> Plugins -> Enable KiCad API`. Kikakuka or FreekiCAD can reuse a running matching KiCad editor or start one on demand.

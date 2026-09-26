@@ -71,7 +71,7 @@ linked STEP object is wanted.
 
 ## Manual Installation
 
-FreekiCAD requires FreeCAD 1.0 or later and `psutil>=5.9`
+FreekiCAD requires FreeCAD 1.0 or later and `psutil>=7.2.2`
 for instance discovery and FreeCAD document-state publication. KiCad PCB
 integration additionally requires KiCad 9.0 or later plus
 `kicad-python>=0.8,<0.9` and `shapely>=2.0.7`; these two packages are optional
@@ -85,7 +85,7 @@ integration, this single line also installs the KiCad extras. It waits for pip
 to finish, then prints its output:
 
 ```python
-import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=5.9"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
+import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=7.2.2"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
 ```
 
 ## Headless STEP Export

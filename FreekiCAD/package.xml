@@ -14,7 +14,7 @@
     <url type="readme">https://github.com/buganini/FreekiCAD/raw/main/README.md</url>
     <depend type="python" optional="true" version_gte="0.8.0" version_lt="0.9.0">kicad-python</depend>
     <depend type="python" optional="true" version_gte="2.0.7">shapely</depend>
-    <depend type="python" version_gte="5.9">psutil</depend>
+    <depend type="python" version_gte="7.2.2">psutil</depend>
     <content>
         <workbench>
             <classname>FreekiCADWorkbench</classname>
