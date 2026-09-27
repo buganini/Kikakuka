@@ -27,7 +27,7 @@ archive-source:
 	done > "$$list"; \
 	mkdir -p "$$tmpdir/$$root"; \
 	rsync -aLr --files-from="$$list" ./ "$$tmpdir/$$root/"; \
-	tar --dereference -C "$$tmpdir" -czf "$(CURDIR)/$(SOURCE_ARCHIVE)" "$$root"
+	tar --format=ustar --dereference -C "$$tmpdir" -czf "$(CURDIR)/$(SOURCE_ARCHIVE)" "$$root"
 
 archive-zips:
 	python3 build_addon_archives.py
