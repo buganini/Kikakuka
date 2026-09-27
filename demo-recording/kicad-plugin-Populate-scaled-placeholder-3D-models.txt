@@ -1,7 +1,13 @@
-No 3D Model
+Kikakuka - Placeholder 3D Models
+
+Populating Placeholder 3D Models
+
+No 3D model
 The assigned model is invalid
-Fill in SizeX/SizeY/SizeZ
-Default unit is mm
-mm/um/in/mil are supported
-Now run the "Populate Placeholder 3D Models"
-Voila !
+Enter SizeX, SizeY, and SizeZ
+The default unit is mm
+Supported units: mm, um, in, and mil
+Now run “Populate Placeholder 3D Models”
+Voilà!
+The 3D model is a scaled unit cube
+That’s it. Ciao!
