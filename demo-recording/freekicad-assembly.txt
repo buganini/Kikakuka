@@ -22,14 +22,15 @@ Note its coordinates
 Then add another PCB
 Let’s mount the second PCB here
 Add a CouplerFixed footprint to the first PCB
-Place it anywhere, then use the Move tool to snap it into position
+Place it anywhere, then use the Move tool (M) to snap it into position
 Add a CouplerMoving footprint to the second PCB
 Give both couplers the same reference
 Save both boards
 Now they’re assembled in a 2D plane
-Let’s check the couplers in the 3D Viewer
+Open the Coupler 3D Viewer
+You need to do this to update the coupler helpers’ positions
 Increase Z to raise the PCB for a better view
-Change the side
+Change the side (F)
 Save both boards
 Let’s find the correct Z values
 Enter them
