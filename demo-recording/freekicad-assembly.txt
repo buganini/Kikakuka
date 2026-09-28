@@ -1,0 +1,46 @@
+STEP and KiCad PCB Assembly
+
+Let’s start by assembling STEP files without involving KiCad
+Create a new document
+Switch to the FreekiCAD workbench
+Select FreekiCAD → Add STEP from the menu
+This object can be reloaded
+In fact, it reloads automatically
+when the file’s modification time changes
+You can also switch files while preserving the placement
+Let’s add another STEP file
+And set its placement
+You can, of course, save the document as a standard .FCStd file
+But let’s export it as a .kkkk_asm file
+And take a look inside
+The file stores only file paths and placements, not the models themselves
+The paths are relative, so the assembly is portable
+If you don’t use KiCad, you can stop here. Ciao!
+Now let’s add some PCBs
+First, let’s anchor the PCB here
+Note its coordinates
+Then add another PCB
+Let’s mount the second PCB here
+Add a CouplerFixed footprint to the first PCB
+Place it anywhere, then use the Move tool to snap it into position
+Add a CouplerMoving footprint to the second PCB
+Give both couplers the same reference
+Save both boards
+Now they’re assembled in a 2D plane
+Let’s check the couplers in the 3D Viewer
+Increase Z to raise the PCB for a better view
+Change the side
+Save both boards
+Let’s find the correct Z values
+Enter them
+And the assembly is complete
+Next, let’s handle horizontal connectors
+Add another CouplerFixed footprint
+Update the 3D Viewer
+Set Tilt, then update the 3D Viewer again
+Estimate the distance
+Set Offset, then update the 3D Viewer again
+With the couplers saved in the KiCad files
+You can reassemble the boards at any time
+Just add all boards to the same FreeCAD document
+That’s it. Ciao!

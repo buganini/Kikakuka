@@ -1,0 +1,24 @@
+Kikakuka/FreekiCAD – Flexible PCB Bending
+
+Flexible PCB Bending
+
+Create a new document in FreeCAD
+Switch to the FreekiCAD workbench
+Select FreekiCAD → Add KiCad PCB from the menu, or drag and drop the file
+The PCB is flat for now
+Switch to KiCad
+Select File → Board Setup
+Go to Board Stackup → Board Editor Layers
+Create a layer named “freekicad” (case insensitive)
+Select the freekicad layer
+Draw a bend line
+Add a text object with the bend settings
+Attach the text to the line
+Save the board
+Voilà!
+You can adjust the bend settings in FreeCAD
+The KiCad file remains the source of truth
+Let’s take a look at a more interesting test case
+You can add multiple bend lines
+Even on a complex shape
+That’s it. Ciao!
