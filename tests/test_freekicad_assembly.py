@@ -475,6 +475,23 @@ class AssemblyTests(unittest.TestCase):
         fake_client.register_document_source.assert_called_once_with(
             document, "/models/assembly.kkkk_asm")
 
+    def test_open_activates_imported_document_only_in_gui(self):
+        fake_client = types.ModuleType("FreekiCAD.freecad.FreekiCAD.im_client")
+        fake_client.register_document_source = mock.Mock()
+        fake_client.activate_gui_document = mock.Mock()
+        for gui_up in (False, True):
+            with self.subTest(gui_up=gui_up), \
+                    mock.patch.object(self.fake_freecad, "GuiUp", gui_up, create=True), \
+                    mock.patch.object(self.assembly, "insert"), \
+                    mock.patch.dict(sys.modules, {
+                        "FreekiCAD.freecad.FreekiCAD.im_client": fake_client}):
+                fake_client.activate_gui_document.reset_mock()
+                document = self.assembly.open("/models/assembly.kkkk_asm")
+                if gui_up:
+                    fake_client.activate_gui_document.assert_called_once_with(document)
+                else:
+                    fake_client.activate_gui_document.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

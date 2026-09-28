@@ -34,6 +34,30 @@ if QtCore is not None:
             callback()
 
 
+def activate_gui_document(document):
+    """Activate a document and its MDI tab; call only on the GUI thread."""
+    import FreeCADGui
+    from PySide import QtWidgets
+    mdi = FreeCADGui.getMainWindow().findChild(QtWidgets.QMdiArea)
+    if mdi is not None:
+        view = FreeCADGui.getDocument(document.Name).activeView()
+        graphics = view.graphicsView() if view is not None and hasattr(
+            view, "graphicsView") else None
+        window = graphics
+        while window is not None and not isinstance(window, QtWidgets.QMdiSubWindow):
+            window = window.parentWidget()
+        if window is None:
+            # Some document types have no graphicsView; their tab
+            # title is usable only when its label is unambiguous.
+            label = str(getattr(document, "Label", ""))
+            matching = [candidate for candidate in mdi.subWindowList()
+                        if candidate.windowTitle().startswith(label + " : ")]
+            window = matching[0] if len(matching) == 1 else None
+        if window is not None and window in mdi.subWindowList():
+            mdi.setActiveSubWindow(window)
+    FreeCAD.setActiveDocument(document.Name)
+
+
 class _DocumentObserver:
     """Publish FreeCAD document lifecycle without periodic process polling."""
 
@@ -110,26 +134,7 @@ class _DocumentObserver:
                              if self._document_path(document) == filepath), None)
             if document is None:
                 return False
-            import FreeCADGui
-            from PySide import QtWidgets
-            mdi = FreeCADGui.getMainWindow().findChild(QtWidgets.QMdiArea)
-            if mdi is not None:
-                view = FreeCADGui.getDocument(document.Name).activeView()
-                graphics = view.graphicsView() if view is not None and hasattr(
-                    view, "graphicsView") else None
-                window = graphics
-                while window is not None and not isinstance(window, QtWidgets.QMdiSubWindow):
-                    window = window.parentWidget()
-                if window is None:
-                    # Some document types have no graphicsView; their tab
-                    # title is usable only when its label is unambiguous.
-                    label = str(getattr(document, "Label", ""))
-                    matching = [candidate for candidate in mdi.subWindowList()
-                                if candidate.windowTitle().startswith(label + " : ")]
-                    window = matching[0] if len(matching) == 1 else None
-                if window is not None and window in mdi.subWindowList():
-                    mdi.setActiveSubWindow(window)
-            FreeCAD.setActiveDocument(document.Name)
+            activate_gui_document(document)
             return True
 
         return self._on_gui_thread(activate)

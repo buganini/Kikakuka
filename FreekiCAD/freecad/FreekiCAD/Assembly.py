@@ -394,4 +394,7 @@ def open(filename):
     insert(filename, document.Name)
     from .im_client import register_document_source
     register_document_source(document, filename)
+    if getattr(FreeCAD, "GuiUp", False):
+        from .im_client import activate_gui_document
+        activate_gui_document(document)
     return document
