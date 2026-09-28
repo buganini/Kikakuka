@@ -29,6 +29,8 @@ Save both boards
 Now they’re assembled in a 2D plane
 Open the Coupler 3D Viewer
 You need to do this to update the coupler helpers’ positions
+When you no longer need the coupler helpers
+Use the Hide Coupler action to hide them
 Increase Z to raise the PCB for a better view
 Change the side (F)
 Save both boards
@@ -41,6 +43,7 @@ Update the 3D Viewer
 Set Tilt, then update the 3D Viewer again
 Estimate the distance
 Set Offset, then update the 3D Viewer again
+Now everything is in place
 With the couplers saved in the KiCad files
 You can reassemble the boards at any time
 Just add all boards to the same FreeCAD document
