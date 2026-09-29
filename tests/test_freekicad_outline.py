@@ -258,6 +258,31 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertAlmostEqual(clipped[0][1].x, 4.001)
         self.assertAlmostEqual(clipped[0][1].y, 2.0)
 
+    def test_linear_wire_distance_clamps_to_endpoints_and_uses_z(self):
+        linked_object = self._import_linked_object()
+        segments = [(0, 0, 2, 4, 0, 0, 16)]
+        with mock.patch.object(linked_object.Part, 'Vertex', create=True) as vertex:
+            for xyz, expected in [((2, .05, 2), True),
+                                  ((4.05, 0, 2), True),
+                                  ((4.2, 0, 2), False),
+                                  ((2, 0, 0), False)]:
+                point = types.SimpleNamespace(x=xyz[0], y=xyz[1], z=xyz[2])
+                self.assertEqual(linked_object._point_near_wire(
+                    point, object(), segments, .1), expected)
+            vertex.assert_not_called()
+
+    def test_wire_distance_preserves_occ_for_curves_and_cutoff(self):
+        linked_object = self._import_linked_object()
+        wire = types.SimpleNamespace(Edges=[types.SimpleNamespace(Curve=object())])
+        self.assertIsNone(linked_object._linear_wire_distance_data(wire))
+        point = types.SimpleNamespace(x=2, y=.1, z=0)
+        with mock.patch.object(linked_object.Part, 'Vertex', create=True) as vertex:
+            vertex.return_value.distToShape.return_value = (.1, [], [])
+            for segments in (None, [(0, 0, 0, 4, 0, 0, 16)]):
+                self.assertFalse(linked_object._point_near_wire(
+                    point, wire, segments, .1))
+            self.assertEqual(vertex.return_value.distToShape.call_count, 2)
+
     def test_linear_outline_uses_brep_fallback_for_coincident_cut(self):
         linked_object = self._import_linked_object()
         boundary = [

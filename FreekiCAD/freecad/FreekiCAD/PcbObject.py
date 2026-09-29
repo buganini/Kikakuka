@@ -748,6 +748,41 @@ def _single_planar_face(shape):
         "planar boolean produced {} faces; expected one".format(len(faces)))
 
 
+def _linear_wire_distance_data(wire):
+    """Prepare exact straight-edge distances, including touching outlines."""
+    segments = []
+    for edge in wire.Edges:
+        if type(getattr(edge, 'Curve', None)).__name__ not in (
+                'Line', 'LineSegment'):
+            return None
+        vertices = edge.Vertexes
+        if len(vertices) != 2:
+            return None
+        a, b = (v.Point for v in vertices)
+        dx, dy, dz = b.x - a.x, b.y - a.y, b.z - a.z
+        length_sq = dx * dx + dy * dy + dz * dz
+        segments.append((a.x, a.y, a.z, dx, dy, dz, length_sq))
+    return segments or None
+
+
+def _point_near_wire(point, wire, segments, tolerance):
+    """Use segment distance for linear wires; preserve OCC at the cutoff."""
+    if segments is not None:
+        best = float('inf')
+        for ax, ay, az, dx, dy, dz, length_sq in segments:
+            px, py, pz = point.x - ax, point.y - ay, point.z - az
+            t = (max(0.0, min(1.0, (px * dx + py * dy + pz * dz)
+                             / length_sq)) if length_sq else 0.0)
+            distance_sq = ((px - t * dx) ** 2 + (py - t * dy) ** 2
+                           + (pz - t * dz) ** 2)
+            best = min(best, distance_sq)
+            if best < (tolerance - 1e-7) ** 2:
+                return True
+        if best > (tolerance + 1e-7) ** 2:
+            return False
+    return Part.Vertex(point).distToShape(wire)[0] < tolerance
+
+
 def _linear_outline_data(face):
     """Return cached XY boundary segments when every outline edge is linear."""
     try:
@@ -11654,12 +11689,11 @@ class PcbObject:
         # Keep only segments that cross the board: both endpoints
         # must lie on (or very near) the outline wire.
         wire = board_face.OuterWire
+        distance_segments = _linear_wire_distance_data(wire)
         crossing = []
         for sp, ep in segments:
-            sv = Part.Vertex(FreeCAD.Vector(sp.x, sp.y, 0))
-            ev = Part.Vertex(FreeCAD.Vector(ep.x, ep.y, 0))
-            if sv.distToShape(wire)[0] < 0.1 \
-                    and ev.distToShape(wire)[0] < 0.1:
+            if _point_near_wire(sp, wire, distance_segments, 0.1) \
+                    and _point_near_wire(ep, wire, distance_segments, 0.1):
                 crossing.append((sp, ep))
         return crossing
 
