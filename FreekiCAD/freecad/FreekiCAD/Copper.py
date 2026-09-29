@@ -178,7 +178,7 @@ def _polygon_face(points):
     return Part.Face(Part.makePolygon(pts))
 
 
-def _capsule(p0, p1, width):
+def _capsule_edges(p0, p1, width):
     radius = width / 2.0
     dx = p1.x - p0.x
     dy = p1.y - p0.y
@@ -186,7 +186,7 @@ def _capsule(p0, p1, width):
     if radius <= 0:
         return None
     if length <= 1e-12:
-        return _circle_face(radius, p0)
+        return [Part.makeCircle(radius, p0)]
     ux, uy = dx / length, dy / length
     nx, ny = -uy * radius, ux * radius
     a_top = FreeCAD.Vector(p0.x + nx, p0.y + ny, 0)
@@ -209,7 +209,12 @@ def _capsule(p0, p1, width):
             a_top,
         ).toShape(),
     ]
-    return Part.Face(Part.Wire(edges))
+    return edges
+
+
+def _capsule(p0, p1, width):
+    edges = _capsule_edges(p0, p1, width)
+    return Part.Face(Part.Wire(edges)) if edges else None
 
 
 def _arc_stroke(start, mid, end, width):
@@ -634,6 +639,65 @@ def read_copper_items(board, target_layers, board_shapes=None, warn=None):
     return by_layer
 
 
+def _track_polygons(track):
+    """Keep OCC curve sampling, but skip intermediate capsule wires/faces."""
+    if shapely is None:
+        return None
+    width = track.width / NM_PER_MM
+    start, end = _v(track.start), _v(track.end)
+    points = [start, end]
+    if type(track).__name__ == "ArcTrack":
+        try:
+            edge = Part.Arc(start, _v(track.mid), end).toShape()
+            points = edge.discretize(Deflection=max(width / 8.0, 0.01))
+        except Exception:
+            pass
+    polygons = []
+    for a, b in zip(points, points[1:]):
+        edges = _capsule_edges(a, b, width)
+        if not edges:
+            return None
+        ring = _edges_coordinates(edges)
+        if ring is None:
+            return None
+        polygon = Polygon(ring)
+        if not polygon.is_valid:
+            return None
+        polygons.append(polygon)
+    return polygons or None
+
+
+def _straight_pad_polygon(pad, layer, pad_shape_enum):
+    """Bypass BRep construction for undrilled straight-sided pads."""
+    if shapely is None or pad_shape_enum is None:
+        return None
+    if layer.shape not in (pad_shape_enum.PSS_RECTANGLE,
+                           pad_shape_enum.PSS_TRAPEZOID):
+        return None
+    drill = pad.padstack.drill.diameter
+    if drill.x > 0 and drill.y > 0:
+        return None
+    width, height = layer.size.x / NM_PER_MM, layer.size.y / NM_PER_MM
+    if width <= 0 or height <= 0:
+        return None
+    dx = dy = 0.0
+    if layer.shape == pad_shape_enum.PSS_TRAPEZOID:
+        dx = layer.trapezoid_delta.x / NM_PER_MM / 2.0
+        dy = layer.trapezoid_delta.y / NM_PER_MM / 2.0
+    points = [(-width / 2 - dy, -height / 2 - dx),
+              (width / 2 + dy, -height / 2 + dx),
+              (width / 2 - dy, height / 2 + dx),
+              (-width / 2 + dy, height / 2 - dx)]
+    degrees = -float(getattr(pad.padstack.angle, "degrees", 0.0))
+    angle = math.radians(degrees) if abs(degrees) > 1e-12 else 0.0
+    cosine, sine = math.cos(angle), math.sin(angle)
+    ox, oy = layer.offset.x / NM_PER_MM, -layer.offset.y / NM_PER_MM
+    px, py = pad.position.x / NM_PER_MM, -pad.position.y / NM_PER_MM
+    result = Polygon([((x * cosine - y * sine + ox) + px,
+                       (x * sine + y * cosine + oy) + py) for x, y in points])
+    return result if result.is_valid else None
+
+
 def _copper_item_shape(item, pad_shape_enum):
     if item.kind == "track":
         track = item.source
@@ -667,8 +731,12 @@ def _copper_item_shape(item, pad_shape_enum):
 
 def _wire_coordinates(wire, deflection=COPPER_2D_DEFLECTION_MM):
     """Return one closed XY coordinate ring from an ordered FreeCAD wire."""
+    return _edges_coordinates(wire.Edges, deflection)
+
+
+def _edges_coordinates(edges, deflection=COPPER_2D_DEFLECTION_MM):
     segments = []
-    for edge in wire.Edges:
+    for edge in edges:
         points = edge.discretize(Deflection=deflection)
         coordinates = [(float(point.x), float(point.y)) for point in points]
         if len(coordinates) >= 2:
@@ -1002,6 +1070,7 @@ def build_copper_layers(board, stackup, board_layer, board_shapes=None,
     by_layer = {info.layer: [] for info in infos}
     polygons_by_layer = {info.layer: [] for info in infos}
     counts = {info.layer: 0 for info in infos}
+    first_items = {}
     kind_counts = {info.layer: {} for info in infos}
     try:
         from kipy.proto.board.board_types_pb2 import PadStackShape
@@ -1012,8 +1081,21 @@ def build_copper_layers(board, stackup, board_layer, board_shapes=None,
             try:
                 polygon = (_straight_zone_polygon(item.source)
                            if item.kind == "zone_polygon" else None)
-                if polygon is not None:
-                    polygons_by_layer[layer].append((len(by_layer[layer]), polygon))
+                if polygon is None and item.kind == "pad" and len(items) > 1:
+                    try:
+                        polygon = _straight_pad_polygon(
+                            item.source, item.geometry, PadStackShape)
+                    except Exception:
+                        pass  # Unsupported pad metadata keeps the BRep path.
+                polygons = [polygon] if polygon is not None else None
+                if polygons is None and item.kind == "track" and len(items) > 1:
+                    try:
+                        polygons = _track_polygons(item.source)
+                    except Exception:
+                        pass
+                if polygons is not None:
+                    polygons_by_layer[layer].extend(
+                        (len(by_layer[layer]), p) for p in polygons)
                 else:
                     shape = _copper_item_shape(item, PadStackShape)
                     if shape is None:
@@ -1023,6 +1105,7 @@ def build_copper_layers(board, stackup, board_layer, board_shapes=None,
                         continue
                     by_layer[layer].append(shape)
                 counts[layer] += 1
+                first_items.setdefault(layer, item)
                 kind_counts[layer][item.kind] = (
                     kind_counts[layer].get(item.kind, 0) + 1)
             except Exception as ex:
@@ -1049,6 +1132,13 @@ def build_copper_layers(board, stackup, board_layer, board_shapes=None,
     for info in infos:
         item_shapes = by_layer[info.layer]
         item_polygons = polygons_by_layer[info.layer]
+        if (counts[info.layer] == 1 and item_polygons
+                and first_items[info.layer].kind != "zone_polygon"):
+            # A lone original BRep bypasses polygonization/union entirely.
+            # Preserve its exact curves even when other items were skipped.
+            shape = _copper_item_shape(first_items[info.layer], PadStackShape)
+            item_shapes = [shape] if shape is not None else []
+            item_polygons = []
         if not item_shapes and not item_polygons:
             continue
         FreeCAD.Console.PrintMessage(
