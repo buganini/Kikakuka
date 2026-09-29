@@ -12557,16 +12557,12 @@ class PcbObject:
                         seg.layer = BoardLayer.BL_Edge_Cuts
                         new_items.append(seg)
                     elif isinstance(geo, Part.ArcOfCircle):
-                        mid_angle = (geo.FirstParameter
-                                     + geo.LastParameter) / 2
-                        mid_x = (geo.Center.x
-                                 + geo.Radius * math.cos(mid_angle))
-                        mid_y = (geo.Center.y
-                                 + geo.Radius * math.sin(mid_angle))
+                        mid = geo.value((geo.FirstParameter
+                                         + geo.LastParameter) / 2)
                         arc = BoardArc()
                         arc.start = Vector2.from_xy_mm(
                             geo.StartPoint.x, -geo.StartPoint.y)
-                        arc.mid = Vector2.from_xy_mm(mid_x, -mid_y)
+                        arc.mid = Vector2.from_xy_mm(mid.x, -mid.y)
                         arc.end = Vector2.from_xy_mm(
                             geo.EndPoint.x, -geo.EndPoint.y)
                         arc.layer = BoardLayer.BL_Edge_Cuts
@@ -12610,72 +12606,80 @@ class PcbObject:
 
         obs = _ensure_sketch_observer()
         obs.suppress(sketch.Name)
-        geo_indices = []
-        for edge in edges:
-            curve = edge.Curve
-            try:
-                if isinstance(curve, Part.Line) or isinstance(curve, Part.LineSegment):
-                    p1 = edge.Vertexes[0].Point
-                    p2 = edge.Vertexes[1].Point
-                    seg = Part.LineSegment(
-                        FreeCAD.Vector(p1.x, p1.y, 0),
-                        FreeCAD.Vector(p2.x, p2.y, 0),
-                    )
-                    idx = sketch.addGeometry(seg, False)
-                    geo_indices.append(idx)
-                elif isinstance(curve, Part.Circle):
-                    if edge.isClosed():
-                        # Full circle
-                        circle = Part.Circle(
-                            FreeCAD.Vector(curve.Center.x, curve.Center.y, 0),
-                            FreeCAD.Vector(0, 0, 1),
-                            curve.Radius,
+        try:
+            geo_indices = []
+            for edge in edges:
+                curve = edge.Curve
+                try:
+                    if isinstance(curve, Part.Line) or isinstance(curve, Part.LineSegment):
+                        p1 = edge.Vertexes[0].Point
+                        p2 = edge.Vertexes[1].Point
+                        seg = Part.LineSegment(
+                            FreeCAD.Vector(p1.x, p1.y, 0),
+                            FreeCAD.Vector(p2.x, p2.y, 0),
                         )
-                        idx = sketch.addGeometry(circle, False)
+                        idx = sketch.addGeometry(seg, False)
                         geo_indices.append(idx)
-                    else:
-                        # Arc
-                        arc = Part.ArcOfCircle(
-                            Part.Circle(
+                    elif isinstance(curve, Part.Circle):
+                        if edge.isClosed():
+                            # Full circle
+                            circle = Part.Circle(
                                 FreeCAD.Vector(curve.Center.x, curve.Center.y, 0),
                                 FreeCAD.Vector(0, 0, 1),
                                 curve.Radius,
-                            ),
-                            edge.FirstParameter,
-                            edge.LastParameter,
+                            )
+                            idx = sketch.addGeometry(circle, False)
+                            geo_indices.append(idx)
+                        else:
+                            # Sample the original curve: its axis and local X
+                            # direction need not match a new XY circle.
+                            arc = Part.Arc(
+                                edge.valueAt(edge.FirstParameter),
+                                edge.valueAt((edge.FirstParameter
+                                              + edge.LastParameter) / 2),
+                                edge.valueAt(edge.LastParameter))
+                            idx = sketch.addGeometry(arc, False)
+                            geo_indices.append(idx)
+                    else:
+                        FreeCAD.Console.PrintWarning(
+                            f"FreekiCAD: Unsupported outline curve type: "
+                            f"{type(curve).__name__}\n"
                         )
-                        idx = sketch.addGeometry(arc, False)
-                        geo_indices.append(idx)
-                else:
-                    FreeCAD.Console.PrintWarning(
-                        f"FreekiCAD: Unsupported outline curve type: "
-                        f"{type(curve).__name__}\n"
-                    )
-            except Exception as ex:
-                FreeCAD.Console.PrintWarning(
-                    f"FreekiCAD: Failed to add outline geometry: {ex}\n"
-                )
-
-        # Add coincident constraints between consecutive edges
-        if len(geo_indices) >= 2:
-            for i in range(len(geo_indices)):
-                curr = geo_indices[i]
-                nxt = geo_indices[(i + 1) % len(geo_indices)]
-                try:
-                    sketch.addConstraint(
-                        Sketcher.Constraint("Coincident",
-                                            curr, 2, nxt, 1))
                 except Exception as ex:
                     FreeCAD.Console.PrintWarning(
-                        f"FreekiCAD: Failed to add coincident constraint "
-                        f"between geo {curr} and {nxt}: {ex}\n"
+                        f"FreekiCAD: Failed to add outline geometry: {ex}\n"
                     )
 
-        obs.unsuppress(sketch.Name)
+            # Sketcher can reverse arc endpoint numbering when normalizing its
+            # plane. Match actual sketch endpoints, not the wire traversal order.
+            endpoints = []
+            for idx in geo_indices:
+                if isinstance(sketch.Geometry[idx], Part.Circle):
+                    continue
+                for pos in (1, 2):
+                    endpoints.append((idx, pos, sketch.getPoint(idx, pos)))
+            constraints = []
+            for i, (idx, pos, point) in enumerate(endpoints):
+                matches = [(other, other_pos) for j, (other, other_pos, p)
+                           in enumerate(endpoints)
+                           if j != i and (point - p).Length < 1e-6]
+                # Ambiguous junctions and open ends must not pull geometry into
+                # a different shape. Ordinary closed outlines have one partner.
+                if len(matches) == 1:
+                    other, other_pos = matches[0]
+                    if idx < other:
+                        constraints.append(Sketcher.Constraint(
+                            "Coincident", idx, pos, other, other_pos))
+            if constraints:
+                sketch.addConstraint(constraints)
+            sketch.solve()
+
+        finally:
+            obs.unsuppress(sketch.Name)
 
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Built outline sketch with {len(geo_indices)} "
-            f"elements and {len(geo_indices)} constraints\n"
+            f"elements and {len(constraints)} constraints\n"
         )
 
     def _check_file_changed(self, obj):
