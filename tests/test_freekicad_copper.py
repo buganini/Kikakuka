@@ -98,6 +98,51 @@ class CopperStackupTests(unittest.TestCase):
         with mock.patch.object(copper, "shapely", None):
             self.assertIsNone(copper._straight_zone_polygon(zone))
 
+    def test_zone_repair_preserves_nested_islands_and_holes(self):
+        from shapely.geometry import Polygon
+        copper = self._import_copper()
+        polygon = Polygon([
+            (0, 0), (10, 0), (10, 10), (0, 10), (0, 0),
+            (2, 2), (2, 8), (8, 8), (8, 2), (2, 2),
+            (4, 4), (6, 4), (6, 6), (4, 6), (4, 4),
+            (2, 2), (0, 0)])
+        expected = copper.shapely.make_valid(polygon)
+        self.assertTrue(copper._repair_zone_polygon(polygon).equals(expected))
+
+    def test_zone_repair_falls_back_for_ambiguous_rings(self):
+        from shapely.geometry import Polygon
+        copper = self._import_copper()
+        cases = [
+            # Partly overlapping stitched squares.
+            Polygon([(0,0),(4,0),(4,4),(0,4),(0,0),
+                     (2,0),(6,0),(6,4),(2,4),(2,0),(0,0)]),
+            # Self-crossing bow tie.
+            Polygon([(0,0),(4,4),(0,4),(4,0)]),
+            # Explicit hole extending outside its shell.
+            Polygon([(0,0),(4,0),(4,4),(0,4)],
+                    [[(2,2),(6,2),(6,6),(2,6)]]),
+            # Doubly traced ring: boundary set equality loses multiplicity.
+            Polygon([(0,0),(4,0),(4,4),(0,4),(0,0),
+                     (4,0),(4,4),(0,4),(0,0)]),
+            # Dangling bridge outside the fill must remain as linework.
+            Polygon([(0,0),(4,0),(4,4),(0,4),(0,0),(-2,0),(0,0)]),
+        ]
+        for polygon in cases:
+            with self.subTest(wkt=polygon.wkt):
+                expected = copper.shapely.make_valid(polygon)
+                result = copper._repair_zone_polygon(polygon)
+                self.assertTrue(result.equals(expected))
+
+    def test_simple_stitched_zone_bypasses_repair_on_old_and_new_shapely(self):
+        from shapely.geometry import Polygon
+        copper = self._import_copper()
+        polygon = Polygon([(0,0),(10,0),(10,10),(0,10),(0,0),
+                           (2,2),(2,8),(8,8),(8,2),(2,2),(0,0)])
+        expected = copper.shapely.make_valid(polygon)
+        with mock.patch.object(copper.shapely, 'make_valid') as repair:
+            self.assertTrue(copper._repair_zone_polygon(polygon).equals(expected))
+            repair.assert_not_called()
+
     def test_direct_zone_is_not_lost_in_brep_union_fallback(self):
         from shapely.geometry import Polygon
         copper = self._import_copper()

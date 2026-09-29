@@ -15,7 +15,6 @@ except Exception:
     shapely = None
     Polygon = None
 
-
 NM_PER_MM = 1_000_000.0
 DEFAULT_COPPER_THICKNESS_MM = 0.035
 COPPER_2D_DEFLECTION_MM = 0.002
@@ -765,6 +764,49 @@ def _polygons_to_part_shape(geometry):
     return faces[0] if len(faces) == 1 else Part.makeCompound(faces)
 
 
+def _repair_zone_polygon(polygon):
+    """Rebuild simple stitched shell/hole rings without a linework overlay.
+
+    Only one shell with disjoint holes is accepted. Polygon validity and
+    bridge coverage establish equivalence to the old even/odd linework
+    repair; nested islands, crossings and ambiguous rings use that repair.
+    """
+    if not polygon.interiors:
+        try:
+            path, positions, loops, bridges = [], {}, [], []
+            for point in polygon.exterior.coords:
+                if point not in positions:
+                    positions[point] = len(path)
+                    path.append(point)
+                    continue
+                index = positions[point]
+                loop = path[index:] + [point]
+                if len(loop) > 3:
+                    loops.append(loop)
+                elif len(loop) == 3 and loop[0] != loop[1]:
+                    bridges.append(loop[:2])
+                for removed in path[index + 1:]:
+                    del positions[removed]
+                path = path[:index + 1]
+            if len(path) == 1 and loops:
+                def area(ring):
+                    return abs(sum(a[0] * b[1] - b[0] * a[1]
+                                   for a, b in zip(ring, ring[1:])))
+                outer = max(range(len(loops)), key=lambda i: area(loops[i]))
+                repaired = Polygon(loops[outer],
+                                   [ring for i, ring in enumerate(loops)
+                                    if i != outer])
+                # Validity rejects crossing/overlapping rings and nested holes.
+                if repaired.is_valid:
+                    # Retain linework fallback if a bridge leaves the fill.
+                    if not bridges or shapely.difference(
+                            shapely.MultiLineString(bridges), repaired).is_empty:
+                        return repaired
+        except Exception:
+            pass
+    return shapely.make_valid(polygon)
+
+
 def _straight_zone_polygon(polygon):
     """Read ordered zone coordinates without an intermediate BRep round trip."""
     if shapely is None:
@@ -775,17 +817,17 @@ def _straight_zone_polygon(polygon):
         for node in polyline.nodes:
             if getattr(node, "has_arc", False):
                 return None
-            coordinates.append((node.point.x / NM_PER_MM,
-                                -node.point.y / NM_PER_MM))
+            point = node.point
+            coordinates.append((point.x / NM_PER_MM,
+                                -point.y / NM_PER_MM))
         if len(coordinates) < 3:
             return None
         rings.append(coordinates)
     try:
         result = Polygon(rings[0], rings[1:])
-        # KiCad can encode holes as a stitched, self-touching outline. Use
-        # the same repair as the BRep-to-polygon path, without simplifying.
+        # KiCad can encode holes as a stitched, self-touching outline.
         if not result.is_valid:
-            result = shapely.make_valid(result)
+            result = _repair_zone_polygon(result)
         return result if not result.is_empty and result.area > 0 else None
     except Exception:
         return None
