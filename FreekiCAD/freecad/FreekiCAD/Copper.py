@@ -10,6 +10,7 @@ import Part
 try:
     import shapely
     from shapely.geometry import Polygon
+    from shapely.geometry.polygon import orient
 except Exception:
     shapely = None
     Polygon = None
@@ -722,6 +723,10 @@ def _ring_wire(coordinates):
 def _polygons_to_part_shape(geometry):
     faces = []
     for polygon in _polygon_geometries(geometry):
+        # GEOS already classified the exterior and holes. Bullseye repeats
+        # wire containment analysis, which is very costly for dense pours.
+        # Build on the known XY plane with a CCW exterior and CW holes.
+        polygon = orient(polygon, sign=1.0)
         exterior = _ring_wire(polygon.exterior.coords)
         if exterior is None:
             continue
@@ -729,8 +734,7 @@ def _polygons_to_part_shape(geometry):
         wires.extend(wire for wire in (
             _ring_wire(interior.coords) for interior in polygon.interiors)
                      if wire is not None)
-        face = (Part.Face(wires[0]) if len(wires) == 1
-                else Part.Face(wires, "Part::FaceMakerBullseye"))
+        face = Part.Face(Part.Plane(), wires)
         faces.append(face)
     if not faces:
         raise RuntimeError("2D union returned no polygon faces")

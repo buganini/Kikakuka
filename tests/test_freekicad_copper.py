@@ -59,6 +59,40 @@ class _Arc:
 
 
 class CopperStackupTests(unittest.TestCase):
+    def test_polygon_rebuild_preserves_holes_and_islands_with_reversed_rings(self):
+        try:
+            from shapely.geometry import MultiPolygon, Polygon
+        except ImportError:
+            self.skipTest("Shapely is required for planar copper union")
+        copper = self._import_copper(with_geometry=True)
+        if copper.shapely is None:
+            self.skipTest("Shapely is required for planar copper union")
+
+        # A clockwise exterior and counterclockwise hole must be reoriented
+        # for OCC's explicit-plane constructor. The island stays a separate face.
+        outer = Polygon([(0, 0), (0, 10), (10, 10), (10, 0)],
+                        [[(2, 2), (8, 2), (8, 8), (2, 8)]])
+        island = Polygon([(4, 4), (4, 6), (6, 6), (6, 4)])
+        plane = object()
+        copper.Part.Plane = lambda: plane
+        copper.Part.makePolygon = lambda points: [(p.x, p.y) for p in points]
+
+        def make_face(surface, wires):
+            self.assertIs(surface, plane)
+            polygon = Polygon(wires[0], wires[1:])
+            self.assertTrue(polygon.exterior.is_ccw)
+            self.assertTrue(all(not ring.is_ccw for ring in polygon.interiors))
+            self.assertTrue(polygon.is_valid)
+            return polygon
+
+        copper.Part.Face = make_face
+        copper.Part.makeCompound = MultiPolygon
+        result = copper._polygons_to_part_shape(MultiPolygon([outer, island]))
+        self.assertAlmostEqual(result.area, 68.0)
+        self.assertEqual(len(result.geoms), 2)
+        self.assertEqual(len(result.geoms[0].interiors), 1)
+        self.assertTrue(result.equals(MultiPolygon([outer, island])))
+
     def _import_copper(self, with_geometry=False):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_part = types.ModuleType("Part")
