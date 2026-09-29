@@ -75,6 +75,21 @@ class CopperPolygonNativeTests(unittest.TestCase):
         with patch.object(self.c, 'shapely', None):
             self.assertIsNone(self.c._track_polygons(track))
 
+    def test_graphic_strokes_match_brep_with_minimum_width(self):
+        for kind in ('BoardSegment', 'Segment', 'BoardArc', 'Arc'):
+            for width in (0, -100, 120_000):
+                with self.subTest(kind=kind, width=width):
+                    graphic = type(kind, (), {})()
+                    graphic.start, graphic.end = self.point(0,0), self.point(4,0)
+                    graphic.mid = self.point(2,2)
+                    graphic.attributes = types.SimpleNamespace(
+                        stroke=types.SimpleNamespace(width=width))
+                    direct = self.c.board_graphic_polygons(graphic)
+                    old = self.c._shape_to_polygons(self.c.board_graphic_shape(graphic))
+                    self.assertEqual(len(old), len(direct))
+                    self.assertTrue(all(a.equals(b) for a, b in zip(old, direct)))
+        self.assertIsNone(self.c.board_graphic_polygons(object()))
+
     def test_single_surviving_track_keeps_exact_brep_curves(self):
         from unittest.mock import patch
         info = types.SimpleNamespace(layer=1, is_outer=True, z=0, direction=0,

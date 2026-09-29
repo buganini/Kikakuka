@@ -645,10 +645,28 @@ def _track_polygons(track):
         return None
     width = track.width / NM_PER_MM
     start, end = _v(track.start), _v(track.end)
+    mid = _v(track.mid) if type(track).__name__ == "ArcTrack" else None
+    return _stroke_polygons(start, end, width, mid)
+
+
+def board_graphic_polygons(graphic):
+    """Direct polygons for line/arc graphics, including rendered text strokes."""
+    if shapely is None:
+        return None
+    kind = type(graphic).__name__
+    if kind not in ("BoardSegment", "Segment", "BoardArc", "Arc"):
+        return None
+    width = max(float(getattr(getattr(graphic.attributes, "stroke", None),
+                              "width", 0)) / NM_PER_MM, 0.001)
+    mid = _v(graphic.mid) if kind in ("BoardArc", "Arc") else None
+    return _stroke_polygons(_v(graphic.start), _v(graphic.end), width, mid)
+
+
+def _stroke_polygons(start, end, width, mid=None):
     points = [start, end]
-    if type(track).__name__ == "ArcTrack":
+    if mid is not None:
         try:
-            edge = Part.Arc(start, _v(track.mid), end).toShape()
+            edge = Part.Arc(start, mid, end).toShape()
             points = edge.discretize(Deflection=max(width / 8.0, 0.01))
         except Exception:
             pass

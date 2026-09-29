@@ -7,6 +7,7 @@ import FreeCAD
 import Part
 
 from .Copper import (
+    board_graphic_polygons,
     board_graphic_shape,
     extrude_profile_for_display,
     union_planar_profiles,
@@ -145,14 +146,30 @@ def build_silkscreen_layers(kicad, board, stackup, board_layer,
     result = []
     for info in infos:
         shapes = []
+        polygons = []
+        sources = []
+
+        def add_graphic(graphic):
+            try:
+                direct = board_graphic_polygons(graphic)
+            except Exception:
+                direct = None
+            if direct is not None:
+                polygons.extend((len(shapes), polygon) for polygon in direct)
+            else:
+                shape = board_graphic_shape(graphic)
+                if shape is None:
+                    return False
+                shapes.append(shape)
+            sources.append(graphic)
+            return True
+
         graphic_count = 0
         for graphic in all_graphics:
             if getattr(graphic, "layer", None) != info.layer:
                 continue
             try:
-                shape = board_graphic_shape(graphic)
-                if shape is not None:
-                    shapes.append(shape)
+                if add_graphic(graphic):
                     graphic_count += 1
             except Exception as ex:
                 if warn:
@@ -171,9 +188,7 @@ def build_silkscreen_layers(kicad, board, stackup, board_layer,
                 for compound in compounds:
                     built_any = False
                     for graphic in compound:
-                        shape = board_graphic_shape(graphic)
-                        if shape is not None:
-                            shapes.append(shape)
+                        if add_graphic(graphic):
                             built_any = True
                     if built_any:
                         text_count += 1
@@ -181,10 +196,15 @@ def build_silkscreen_layers(kicad, board, stackup, board_layer,
                 if warn:
                     warn(f"Could not polygonize {info.name} text: {ex}")
 
-        if not shapes:
+        if len(sources) == 1 and polygons:
+            # Match the original no-union path, including its exact arcs.
+            shapes = [board_graphic_shape(sources[0])]
+            polygons = []
+        if not shapes and not polygons:
             continue
+        kwargs = {"seed_polygons": polygons} if polygons else {}
         profile = union_planar_profiles(
-            shapes, warn=warn, layer_name=info.name)
+            shapes, warn=warn, layer_name=info.name, **kwargs)
         profile.translate(FreeCAD.Vector(0, 0, info.z))
         shape, solid = extrude_profile_for_display(
             profile, info.direction, cap_mode="outer")

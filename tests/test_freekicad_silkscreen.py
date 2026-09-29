@@ -97,6 +97,50 @@ class SilkscreenTests(unittest.TestCase):
 
         self.assertEqual([layer.name for layer in layers], ["B.SilkS"])
 
+    def test_direct_graphics_and_text_preserve_mixed_union_order(self):
+        silk = self._import_silkscreen()
+        direct = types.SimpleNamespace(layer=1)
+        fallback = types.SimpleNamespace(layer=1)
+        text_stroke = object()
+        text = types.SimpleNamespace(layer=1, visible=True, as_text=lambda: 'text')
+        board = types.SimpleNamespace(get_text=lambda: [text])
+        kicad = types.SimpleNamespace(get_text_as_shapes=lambda _: [[text_stroke]])
+        def polygons(item):
+            if item is direct:
+                return ['first']
+            if item is text_stroke:
+                return ['text-a', 'text-b']
+            return None
+        with mock.patch.object(silk, 'board_graphic_polygons', side_effect=polygons), \
+                mock.patch.object(silk, 'board_graphic_shape', return_value=_Shape()) as build, \
+                mock.patch.object(silk, 'union_planar_profiles', return_value=_Shape()) as union, \
+                mock.patch.object(silk, 'extrude_profile_for_display',
+                                  return_value=(_Shape(), types.SimpleNamespace(Volume=.01))):
+            layers = silk.build_silkscreen_layers(kicad, board,
+                types.SimpleNamespace(layers=[]), _BoardLayer,
+                board_shapes=[direct, fallback], footprints=[])
+        build.assert_called_once_with(fallback)
+        self.assertEqual(union.call_args.kwargs['seed_polygons'],
+                         [(0, 'first'), (1, 'text-a'), (1, 'text-b')])
+        self.assertEqual(layers[0]['graphic_count'], 2)
+        self.assertEqual(layers[0]['text_count'], 1)
+
+    def test_single_direct_graphic_keeps_original_brep(self):
+        silk = self._import_silkscreen()
+        graphic = types.SimpleNamespace(layer=1)
+        original = _Shape()
+        with mock.patch.object(silk, 'board_graphic_polygons', return_value=['polygon']), \
+                mock.patch.object(silk, 'board_graphic_shape', return_value=original) as build, \
+                mock.patch.object(silk, 'union_planar_profiles', return_value=original) as union, \
+                mock.patch.object(silk, 'extrude_profile_for_display',
+                                  return_value=(original, types.SimpleNamespace(Volume=.01))):
+            silk.build_silkscreen_layers(None, types.SimpleNamespace(get_text=lambda: []),
+                types.SimpleNamespace(layers=[]), _BoardLayer,
+                board_shapes=[graphic], footprints=[])
+        build.assert_called_once_with(graphic)
+        self.assertEqual(union.call_args.args[0], [original])
+        self.assertNotIn('seed_polygons', union.call_args.kwargs)
+
     def test_builder_includes_board_and_footprint_graphics_and_text(self):
         silk = self._import_silkscreen()
         board_graphic = types.SimpleNamespace(layer=1)
