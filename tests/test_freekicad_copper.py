@@ -59,6 +59,46 @@ class _Arc:
 
 
 class CopperStackupTests(unittest.TestCase):
+    def test_straight_polyline_wire_closes_and_removes_consecutive_duplicates(self):
+        copper = self._import_copper(with_geometry=True)
+        copper.Part.makePolygon = mock.Mock(return_value="wire")
+        polyline = types.SimpleNamespace(nodes=[
+            types.SimpleNamespace(point=_Vector(x, y))
+            for x, y in [(0, 0), (1_000_000, 0), (1_000_000, 0),
+                         (1_000_000, 1_000_000), (0, 1_000_000)]])
+        self.assertEqual(copper._polyline_wire(polyline), "wire")
+        points = copper.Part.makePolygon.call_args.args[0]
+        self.assertEqual([(p.x, p.y) for p in points],
+                         [(0, 0), (1, 0), (1, -1), (0, -1), (0, 0)])
+
+    def test_polyline_wire_preserves_open_and_already_closed_paths(self):
+        copper = self._import_copper(with_geometry=True)
+        copper.Part.makePolygon = lambda points: points
+        for closed, coordinates in (
+                (False, [(0, 0), (1_000_000, 0), (1_000_000, 1_000_000)]),
+                (True, [(0, 0), (1_000_000, 0), (1_000_000, 1_000_000), (0, 0)])):
+            with self.subTest(closed=closed):
+                polyline = types.SimpleNamespace(closed=closed, nodes=[
+                    types.SimpleNamespace(point=_Vector(x, y)) for x, y in coordinates])
+                points = copper._polyline_wire(polyline)
+                self.assertEqual(len(points), len(coordinates))
+
+    def test_polyline_wire_keeps_arcs_as_edges(self):
+        copper = self._import_copper(with_geometry=True)
+        polyline = types.SimpleNamespace(nodes=[
+            types.SimpleNamespace(has_arc=True), types.SimpleNamespace(has_arc=False)])
+        with mock.patch.object(copper, "_polyline_edges", return_value=["arc", "line"]) as edges:
+            self.assertEqual(copper._polyline_wire(polyline), ["arc", "line"])
+        edges.assert_called_once_with(polyline)
+
+    def test_degenerate_polyline_wire_returns_none(self):
+        copper = self._import_copper(with_geometry=True)
+        for count in (0, 1, 3):
+            with self.subTest(count=count):
+                polyline = types.SimpleNamespace(nodes=[
+                    types.SimpleNamespace(point=_Vector()) for _ in range(count)])
+                self.assertIsNone(copper._polyline_wire(polyline))
+
     def test_polygon_rebuild_preserves_holes_and_islands_with_reversed_rings(self):
         try:
             from shapely.geometry import MultiPolygon, Polygon

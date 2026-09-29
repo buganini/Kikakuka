@@ -274,15 +274,39 @@ def _polyline_edges(polyline):
     return result
 
 
-def polygon_with_holes_face(polygon):
-    outline = _polyline_edges(polygon.outline)
-    if not outline:
+def _polyline_wire(polyline):
+    nodes = list(polyline.nodes)
+    if len(nodes) < 2:
         return None
-    wires = [Part.Wire(outline)]
+    if any(getattr(node, "has_arc", False) for node in nodes):
+        edges = _polyline_edges(polyline)
+        return Part.Wire(edges) if edges else None
+
+    # These points are already ordered. Making independent edges and passing
+    # them to Part.Wire repeats vertex matching, which is costly for large
+    # filled zones. makePolygon connects successive points directly.
+    points = [_v(nodes[0].point)]
+    for node in nodes[1:]:
+        point = _v(node.point)
+        if points[-1].distanceToPoint(point) > 1e-9:
+            points.append(point)
+    if len(points) < 2:
+        return None
+    if (getattr(polyline, "closed", True)
+            and points[-1].distanceToPoint(points[0]) > 1e-9):
+        points.append(points[0])
+    return Part.makePolygon(points)
+
+
+def polygon_with_holes_face(polygon):
+    outline = _polyline_wire(polygon.outline)
+    if outline is None:
+        return None
+    wires = [outline]
     for hole in polygon.holes:
-        edges = _polyline_edges(hole)
-        if edges:
-            wires.append(Part.Wire(edges))
+        wire = _polyline_wire(hole)
+        if wire is not None:
+            wires.append(wire)
     if len(wires) == 1:
         return Part.Face(wires[0])
     return Part.Face(wires, "Part::FaceMakerBullseye")
