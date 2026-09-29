@@ -12705,12 +12705,11 @@ class PcbObject:
         _log_surface_reload(
             f"reload request sent; force={'yes' if force else 'no'}")
 
-    def reload_sync(self, obj, reposition=True):
+    def reload_sync(self, obj, reposition=True, socket_path=None):
         """Synchronously reload a PCB for headless export.
 
-        The workspace manager still owns KiCad launch and socket-readiness
-        retries.  This method returns only after the board and all component
-        models have been rebuilt from their source files.
+        An explicit socket reads the invoking KiCad editor directly. Otherwise
+        the instance mesh resolves the editor. Returns after geometry is rebuilt.
         """
         if getattr(self, '_reloading', False):
             raise RuntimeError(f"'{obj.Label}' is already reloading")
@@ -12727,11 +12726,13 @@ class PcbObject:
         self._coupler_monitor_generation += 1
         self._ensure_properties(obj)
         try:
-            from .im_client import request_sync
-            reply = request_sync(
-                "reload", filename, object_label=obj.Label)
+            if socket_path is None:
+                from .im_client import request_sync
+                reply = request_sync(
+                    "reload", filename, object_label=obj.Label)
+                socket_path = reply["socket"]
             self._handle_reload_response(
-                obj, reply["socket"], reposition=reposition)
+                obj, socket_path, reposition=reposition)
         except Exception:
             self._reloading = False
             self._reload_failed = True

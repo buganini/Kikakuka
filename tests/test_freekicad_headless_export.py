@@ -329,6 +329,135 @@ class InstanceClientSyncTests(unittest.TestCase):
         observer.slotDeletedDocument(document)
         self.assertEqual(observer.list_documents(), [])
 
+    def _pcb_open_fixture(self):
+        module = load_im_client_module()
+        observer = module._DocumentObserver(mock.Mock())
+        board = types.SimpleNamespace(
+            FileName="/boards/current.kicad_pcb",
+            Proxy=types.SimpleNamespace(Type="PcbObject", reload_sync=mock.Mock()))
+        document = types.SimpleNamespace(Name="Assembly", Objects=[board], recompute=mock.Mock())
+        module.FreeCAD.listDocuments = mock.Mock(return_value={"Assembly": document})
+        module.FreeCAD.newDocument = mock.Mock(return_value=document)
+        module.FreeCAD.closeDocument = mock.Mock()
+        pcb_module = types.ModuleType("FreekiCAD.freecad.FreekiCAD.PcbObject")
+        pcb_module._resolved_linked_filename = lambda obj: obj.FileName
+        pcb_module.create_pcb_object = mock.Mock(return_value=board)
+        window = mock.Mock()
+        window.isMinimized.return_value = True
+        gui = mock.Mock()
+        gui.getMainWindow.return_value = window
+        return module, observer, board, document, pcb_module, gui
+
+    def test_open_pcb_updates_first_linked_document_before_activating(self):
+        module, observer, board, document, pcb_module, gui = self._pcb_open_fixture()
+        second = types.SimpleNamespace(Name="Other", Objects=[board])
+        module.FreeCAD.listDocuments.return_value["Other"] = second
+        module.FreeCAD.ActiveDocument = types.SimpleNamespace(Name="Unrelated", Objects=[])
+        events = []
+        board.Proxy.reload_sync.side_effect = lambda *a, **k: events.append("updated")
+        with mock.patch.dict(sys.modules, {
+                "FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module,
+                "FreeCADGui": gui}), \
+                mock.patch.object(module, "activate_gui_document",
+                                  side_effect=lambda doc: events.append(doc.Name)):
+            self.assertTrue(observer.open_pcb("/boards/current.kicad_pcb", "/tmp/live.sock"))
+        board.Proxy.reload_sync.assert_called_once_with(board, socket_path="/tmp/live.sock")
+        self.assertEqual(events, ["updated", "Assembly"])
+        module.FreeCAD.newDocument.assert_not_called()
+        gui.getMainWindow().showNormal.assert_called_once_with()
+        gui.getMainWindow().raise_.assert_called_once_with()
+        gui.getMainWindow().activateWindow.assert_called_once_with()
+
+    def test_open_pcb_prefers_active_document_over_first_matching_document(self):
+        module, observer, board, document, pcb_module, gui = self._pcb_open_fixture()
+        active_board = types.SimpleNamespace(FileName=board.FileName,
+            Proxy=types.SimpleNamespace(Type="PcbObject", reload_sync=mock.Mock()))
+        active = types.SimpleNamespace(Name="Active", Objects=[active_board], recompute=mock.Mock())
+        module.FreeCAD.ActiveDocument = active
+        module.FreeCAD.listDocuments.return_value["Active"] = active
+        with mock.patch.dict(sys.modules, {
+                "FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module,
+                "FreeCADGui": gui}), mock.patch.object(module, "activate_gui_document") as activate:
+            self.assertTrue(observer.open_pcb(board.FileName, "/tmp/live.sock"))
+        active_board.Proxy.reload_sync.assert_called_once_with(active_board, socket_path="/tmp/live.sock")
+        board.Proxy.reload_sync.assert_not_called()
+        activate.assert_called_once_with(active)
+
+    def test_active_only_probe_does_not_update_inactive_match(self):
+        module, observer, board, document, pcb_module, gui = self._pcb_open_fixture()
+        module.FreeCAD.ActiveDocument = types.SimpleNamespace(Name="Other", Objects=[])
+        with mock.patch.dict(sys.modules, {
+                "FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module}):
+            self.assertFalse(observer.open_pcb(board.FileName, "/tmp/live.sock", active_only=True))
+        board.Proxy.reload_sync.assert_not_called()
+
+    def test_pcb_probe_is_read_only_and_update_keeps_selected_document(self):
+        module, observer, board, document, pcb_module, gui = self._pcb_open_fixture()
+        with mock.patch.dict(sys.modules, {
+                "FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module,
+                "FreeCADGui": gui}), mock.patch.object(module, "activate_gui_document") as activate:
+            selected = observer.open_pcb(board.FileName, "/tmp/live.sock", probe=True)
+            self.assertEqual(selected, document.Name)
+            board.Proxy.reload_sync.assert_not_called()
+            module.FreeCAD.newDocument.assert_not_called()
+            gui.getMainWindow.assert_not_called()
+            activate.assert_not_called()
+            other_board = types.SimpleNamespace(FileName=board.FileName,
+                Proxy=types.SimpleNamespace(Type="PcbObject", reload_sync=mock.Mock()))
+            other = types.SimpleNamespace(Name="Other", Objects=[other_board])
+            module.FreeCAD.ActiveDocument = other
+            module.FreeCAD.listDocuments.return_value["Other"] = other
+            board.Proxy.reload_sync.side_effect = lambda *a, **k: gui.getMainWindow().raise_.assert_called_once_with()
+            observer.open_pcb(board.FileName, "/tmp/live.sock", document_name=selected)
+            other_board.Proxy.reload_sync.assert_not_called()
+            activate.assert_called_once_with(document)
+
+    def test_missing_selected_document_does_not_fall_back_or_create(self):
+        module, observer, board, document, pcb_module, gui = self._pcb_open_fixture()
+        with mock.patch.dict(sys.modules, {
+                "FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module}):
+            with self.assertRaisesRegex(RuntimeError, "closed or its PCB link changed"):
+                observer.open_pcb(board.FileName, "/tmp/live.sock", document_name="Closed", create=True)
+        module.FreeCAD.newDocument.assert_not_called()
+        board.Proxy.reload_sync.assert_not_called()
+
+    def test_open_pcb_probe_does_not_create_a_document(self):
+        module, observer, board, document, pcb_module, gui = self._pcb_open_fixture()
+        with mock.patch.dict(sys.modules, {
+                "FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module}):
+            self.assertFalse(observer.open_pcb("/boards/other.kicad_pcb", "/tmp/live.sock"))
+        module.FreeCAD.newDocument.assert_not_called()
+        board.Proxy.reload_sync.assert_not_called()
+
+    def test_open_pcb_creates_and_fits_new_document(self):
+        module, observer, board, document, pcb_module, gui = self._pcb_open_fixture()
+        module.FreeCAD.listDocuments.return_value = {}
+        with mock.patch.dict(sys.modules, {
+                "FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module,
+                "FreeCADGui": gui}), mock.patch.object(module, "activate_gui_document"):
+            self.assertTrue(observer.open_pcb("/boards/current.kicad_pcb", "/tmp/live.sock", create=True))
+        pcb_module.create_pcb_object.assert_called_once_with(
+            "/boards/current.kicad_pcb", document=document, recompute=False)
+        board.Proxy.reload_sync.assert_called_once_with(board, socket_path="/tmp/live.sock")
+        gui.getDocument(document.Name).activeView().fitAll.assert_called_once_with()
+
+    def test_open_pcb_failure_closes_only_new_document(self):
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                module, observer, board, document, pcb_module, gui = self._pcb_open_fixture()
+                if not existing:
+                    module.FreeCAD.listDocuments.return_value = {}
+                board.Proxy.reload_sync.side_effect = RuntimeError("bad geometry")
+                with mock.patch.dict(sys.modules, {
+                        "FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module,
+                        "FreeCADGui": gui}):
+                    with self.assertRaisesRegex(RuntimeError, "bad geometry"):
+                        observer.open_pcb("/boards/current.kicad_pcb", "/tmp/live.sock", create=True)
+                if existing:
+                    module.FreeCAD.closeDocument.assert_not_called()
+                else:
+                    module.FreeCAD.closeDocument.assert_called_once_with(document.Name)
+
     def test_activate_imported_assembly_selects_matching_mdi_tab(self):
         module = load_im_client_module()
         document = types.SimpleNamespace(

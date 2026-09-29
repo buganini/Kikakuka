@@ -256,6 +256,22 @@ unknown file rather than claiming a verified document.
 
 ## FreeCAD document APIs and PID
 
+The KiCad plugin's **Open in FreeCAD** action uses `im.freecad_open` and the
+authenticated `freecad-open-pcb` operation. It first searches active documents
+across GUI nodes, then searches the remaining documents for matching normalized
+PCB links. Read-only probes return the matching document's internal name without
+changing tabs or reloading geometry. Only after selecting the target does IM
+focus its process and request an update of that specific document from the
+invoking KiCad socket. FreekiCAD restores a minimized window before updating;
+only when no match exists is a document created. The `freecad_pcb: 2` capability
+distinguishes this selection protocol from the earlier combined search/update
+operation. Requests acknowledge quickly
+and report completion through the mesh result API so import failures reach the
+plugin. A separate nonblocking per-PCB lock coalesces repeated clicks, and the
+FreeCAD launch lock prevents simultaneous launches. This operation does not
+publish PCB-to-FreeCAD PID mappings: the PCB path still belongs to its KiCad
+editor in the general instance map.
+
 Each GUI FreeCAD process runs its own FreekiCAD mesh node. The node's `hello`
 response identifies its PID and whether GUI document actions are available,
 so FreeCAD documents do not need KiCad-style socket-to-PID inference.

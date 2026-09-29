@@ -386,7 +386,7 @@ def _open_windows_shared_lock_file(path):
 
 
 @contextmanager
-def _file_lock(filepath):
+def _file_lock(filepath, blocking=True):
     """Cross-process lock, retained across elected-node failover.
 
     Lock files are deliberately not unlinked: unlinking a lock with waiters
@@ -399,6 +399,7 @@ def _file_lock(filepath):
         if os.name == "nt"
         else os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
     )
+    acquired = False
     try:
         if os.name == "nt":
             import msvcrt
@@ -407,20 +408,29 @@ def _file_lock(filepath):
             os.lseek(fd, 0, os.SEEK_SET)
             while True:
                 try:
-                    msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+                    msvcrt.locking(fd, msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
                     break
                 except OSError:
+                    if not blocking:
+                        yield False
+                        return
                     time.sleep(0.05)
         else:
             import fcntl
-            fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+            except BlockingIOError:
+                yield False
+                return
+        acquired = True
+        yield True
     finally:
-        if os.name == "nt":
-            os.lseek(fd, 0, os.SEEK_SET)
-            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-        else:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+        if acquired:
+            if os.name == "nt":
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
 
 
@@ -443,6 +453,7 @@ class InstanceNode:
         self.document_provider = None
         self.document_activator = None
         self.document_opener = None
+        self.pcb_opener = None
         self.source_registrar = None
         self.id = uuid.uuid4().hex
         self.token = _shared_token()
@@ -519,7 +530,8 @@ class InstanceNode:
             return {"status": "ok", "version": 3, "pid": self.pid,
                     "started_ms": self.started_ms, "id": self.id,
                     "kicad_api": self.kicad_api,
-                    "freecad_documents": self.document_provider is not None}
+                    "freecad_documents": self.document_provider is not None,
+                    "freecad_pcb": 2 if self.pcb_opener is not None else 0}
         if action == "freecad-list-documents":
             if self.document_provider is None:
                 return {"status": "error", "message": "FreeCAD GUI documents unavailable"}
@@ -533,6 +545,37 @@ class InstanceNode:
                 return {"status": "error", "message": "absolute file path required"}
             return {"status": "ok", "pid": self.pid,
                     "found": bool(self.document_activator(filepath))}
+        if action == "freecad-open-pcb":
+            if self.pcb_opener is None:
+                return {"status": "error", "message": "Update FreekiCAD to use Open in FreeCAD"}
+            filepath = request.get("filepath")
+            socket_path = request.get("socket")
+            request_id = request.get("id")
+            if (not isinstance(filepath, str) or not os.path.isabs(filepath)
+                    or not filepath.lower().endswith(".kicad_pcb")
+                    or not isinstance(socket_path, str) or not socket_path
+                    or not isinstance(request_id, str) or not request_id
+                    or not isinstance(request.get("create", False), bool)
+                    or not isinstance(request.get("active_only", False), bool)
+                    or not isinstance(request.get("probe", False), bool)
+                    or (request.get("document") is not None
+                        and not isinstance(request["document"], str))):
+                return {"status": "error", "message": "Invalid Open in FreeCAD request"}
+            with self._lock:
+                expired = [key for key, finished in self._result_finished.items()
+                           if time.monotonic() - finished > 300]
+                for key in expired:
+                    self._result_finished.pop(key, None)
+                    self._results.pop(key, None)
+                if request_id not in self._results:
+                    self._results[request_id] = {"status": "pending"}
+                    threading.Thread(target=self._work_freecad_pcb,
+                                     args=(request_id, filepath, socket_path,
+                                           request.get("create", False),
+                                           request.get("active_only", False),
+                                           request.get("probe", False),
+                                           request.get("document")), daemon=True).start()
+            return {"status": "accepted", "id": request_id}
         if action == "freecad-open-document":
             if self.document_opener is None:
                 return {"status": "error", "message": "FreeCAD GUI opening unavailable"}
@@ -607,6 +650,21 @@ class InstanceNode:
                 reply = {"status": "ok"}
             if "status" not in reply:
                 reply["status"] = "ok"
+        except Exception as exc:
+            reply = {"status": "error", "message": str(exc)}
+        with self._lock:
+            self._results[request_id] = reply
+            self._result_finished[request_id] = time.monotonic()
+
+    def _work_freecad_pcb(self, request_id, filepath, socket_path, create, active_only,
+                          probe, document_name):
+        try:
+            result = self.pcb_opener(filepath, socket_path, create=create,
+                                     active_only=active_only, probe=probe,
+                                     document_name=document_name)
+            reply = {"status": "ok", "pid": self.pid, "found": bool(result)}
+            if probe:
+                reply["document"] = result or None
         except Exception as exc:
             reply = {"status": "error", "message": str(exc)}
         with self._lock:
@@ -688,6 +746,9 @@ class InstanceNode:
 
     def set_document_opener(self, opener):
         self.document_opener = opener
+
+    def set_pcb_opener(self, opener):
+        self.pcb_opener = opener
 
     def set_source_registrar(self, registrar):
         self.source_registrar = registrar

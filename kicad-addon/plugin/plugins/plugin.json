@@ -61,6 +61,24 @@
                 "pcb"
             ],
             "entrypoint": "disable_coupler_helpers.py"
+        },
+        {
+            "identifier": "open-in-freecad",
+            "name": "Open in FreeCAD",
+            "description": "Update the linked PCB in FreeCAD, or open it in a new document",
+            "show-button": true,
+            "icons-light": [
+                "open-in-freecad-24.png",
+                "open-in-freecad-48.png"
+            ],
+            "icons-dark": [
+                "open-in-freecad-24.png",
+                "open-in-freecad-48.png"
+            ],
+            "scopes": [
+                "pcb"
+            ],
+            "entrypoint": "open_in_freecad.py"
         }
     ]
 }

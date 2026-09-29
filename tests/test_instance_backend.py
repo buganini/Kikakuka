@@ -31,6 +31,21 @@ class RetryKicadCallTests(unittest.TestCase):
 
 
 class InstanceBackendTests(unittest.TestCase):
+    def test_launch_empty_freecad_uses_application_not_pcb_association(self):
+        for system, executable, expected in (
+                ("Darwin", None, ["open", "-a", "FreeCAD", "-n", "-W", "--args"]),
+                ("Linux", "/usr/bin/freecad", ["/usr/bin/freecad"]),
+                ("Windows", "C:/FreeCAD/bin/FreeCAD.exe", ["C:/FreeCAD/bin/FreeCAD.exe"])):
+            with self.subTest(system=system), \
+                    mock.patch.object(backend.platform, "system", return_value=system), \
+                    mock.patch.object(backend, "_editors", side_effect=[{}, {123: 1.0}]), \
+                    mock.patch.object(backend, "_windows_freecad_executable", return_value=executable), \
+                    mock.patch.object(backend.shutil, "which", return_value=executable), \
+                    mock.patch.object(backend, "freecad_process_environment", return_value={}), \
+                    mock.patch.object(backend.subprocess, "Popen") as popen:
+                self.assertEqual(backend._launch(None, "freecad"), 123)
+                self.assertEqual(popen.call_args.args[0], expected)
+
     def test_kicad_lock_path_matches_kicad_convention(self):
         self.assertEqual(
             backend._kicad_lock_path("/boards/main.kicad_pcb"),

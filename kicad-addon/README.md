@@ -6,7 +6,7 @@ This directory contains the two KiCad 10 addon packages used by Kikakuka:
 
 * [`library`](library) provides the Kikakuka footprints and their supporting
   STEP models.
-* [`plugin`](plugin) provides three IPC actions for the PCB Editor.
+* [`plugin`](plugin) provides four IPC actions for the PCB Editor.
 
 ## Library
 
@@ -45,8 +45,9 @@ For coupler length properties (`Z`, `Offset`, `TargetX`, `TargetY`, and
 All three coupler footprints use the `Unspecified` type, placing their helper
 models under **Virtual Models** in KiCad's 3D Viewer.
 
-The model actions require the library to be installed when they run because
-it supplies the unit-cube and coupler helper models.
+The model actions require the `com.github.buganini.kikakuka-footprints`
+library package to be installed when they run because it supplies the
+unit-cube and coupler helper models.
 
 ## Actions
 
@@ -92,6 +93,49 @@ helpers visible again.
 Coupler footprints have the `Unspecified` type, so their helpers appear under
 **Virtual Models** in the 3D Viewer. They can be omitted from STEP export with
 **Ignore 'Unspecified' components**.
+
+### Open in FreeCAD
+
+<img src="plugin/plugins/open-in-freecad-48.png"
+     alt="Open in FreeCAD icon" width="48">
+
+Opens the current PCB in FreeCAD, or updates an existing linked PCB using the
+current KiCad editor contents. The PCB must have been saved once to establish
+its file path. Later unsaved edits are read through the KiCad API; the action
+does not save or revert the board.
+
+The action chooses its target before bringing any existing FreeCAD window
+forward:
+
+1. Search the **active document of every connected FreeCAD instance** for a
+   link to this PCB. Instances are searched by ascending PID; the first match
+   wins, regardless of which window was previously in the foreground.
+2. If no active document matches, search all documents in the same instance
+   order and use the first matching document. Links are compared by normalized
+   absolute paths, including symlink resolution, rather than filenames alone.
+3. If no document matches, select the first connected instance for a new
+   document. If FreeCAD is not running, start it and wait for FreekiCAD to
+   connect. An already running instance without a responsive FreekiCAD node
+   produces an error after the connection wait instead of launching a duplicate.
+4. Bring the selected instance to the foreground and restore its window if
+   minimized. Update the matching PCB objects in the selected document, or
+   create a document and add the PCB. After loading, make that document and
+   its tab active. A new document's view is fitted to the imported geometry.
+
+Searching does not reload PCBs, change active tabs, or bring unrelated windows
+forward. The selected document remains the target even if the user changes
+tabs while the request is in progress. If that document is closed or its PCB
+link is removed before the update, the action reports an error.
+
+Repeated clicks for the same PCB are ignored while its request is running.
+Failed new imports close the document created by the action; existing
+documents are not closed on failure. Errors are reported through the plugin's
+error output.
+
+This action requires FreeCAD with an updated FreekiCAD that supports PCB
+selection and opening. The original FreekiCAD **8.1.1 release does not support
+this action**; update FreekiCAD and restart FreeCAD before using it. On Linux,
+`FreeCAD` or `freecad` must be available in `PATH` to launch a new instance.
 
 ## Finding the actions
 

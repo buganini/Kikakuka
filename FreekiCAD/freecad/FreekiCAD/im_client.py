@@ -139,6 +139,66 @@ class _DocumentObserver:
 
         return self._on_gui_thread(activate)
 
+    def open_pcb(self, filepath, socket_path, *, create=False, active_only=False,
+                 probe=False, document_name=None):
+        """Reload linked boards from the invoking editor, then select their tab."""
+        filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
+
+        def open_on_gui():
+            from .PcbObject import create_pcb_object, _resolved_linked_filename
+            document = None
+            matches = []
+            active = getattr(FreeCAD, "ActiveDocument", None)
+            candidates = [active] if active is not None else []
+            if not active_only:
+                candidates.extend(doc for doc in FreeCAD.listDocuments().values()
+                                  if doc is not active)
+            if document_name is not None:
+                candidates = [doc for doc in FreeCAD.listDocuments().values()
+                              if doc.Name == document_name]
+            for candidate in candidates:
+                matches = [obj for obj in candidate.Objects
+                           if getattr(getattr(obj, "Proxy", None), "Type", None)
+                           in ("PcbObject", "LinkedObject")
+                           and _resolved_linked_filename(obj)
+                           and os.path.normcase(os.path.realpath(
+                               os.path.abspath(_resolved_linked_filename(obj)))) == filepath]
+                if matches:
+                    document = candidate
+                    break
+            if probe:
+                return document.Name if document is not None else None
+            if document_name is not None and document is None:
+                raise RuntimeError("The selected FreeCAD document was closed or its PCB link changed")
+            created = document is None
+            if created and (not create or active_only):
+                return False
+            import FreeCADGui
+            window = FreeCADGui.getMainWindow()
+            if window.isMinimized():
+                window.showNormal()
+            window.raise_()
+            window.activateWindow()
+            if created:
+                stem = os.path.splitext(os.path.basename(filepath))[0] or "PCB"
+                document = FreeCAD.newDocument(stem)
+            try:
+                if created:
+                    matches = [create_pcb_object(filepath, document=document, recompute=False)]
+                for obj in matches:
+                    obj.Proxy.reload_sync(obj, socket_path=socket_path)
+                document.recompute()
+                activate_gui_document(document)
+                if created:
+                    FreeCADGui.getDocument(document.Name).activeView().fitAll()
+            except Exception:
+                if created:
+                    FreeCAD.closeDocument(document.Name)
+                raise
+            return True
+
+        return self._on_gui_thread(open_on_gui, timeout=300)
+
     def open_document(self, filepath):
         """Open a new file in this GUI process and identify its document."""
         filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
@@ -262,6 +322,7 @@ def ensure_node(observe_documents=None):
             node.set_document_provider(_document_observer.list_documents)
             node.set_document_activator(_document_observer.activate_document)
             node.set_document_opener(_document_observer.open_document)
+            node.set_pcb_opener(_document_observer.open_pcb)
             node.set_source_registrar(_document_observer.bind_launched_source)
             _document_observer._scan_paths()
         return node

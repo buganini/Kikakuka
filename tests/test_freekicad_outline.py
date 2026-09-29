@@ -2020,6 +2020,23 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy._handle_reload_response.assert_called_once_with(
             obj, "/tmp/kicad.sock", reposition=False)
 
+    def test_synchronous_reload_with_live_socket_bypasses_instance_request(self):
+        module = self._import_linked_object()
+        proxy = module.PcbObject.__new__(module.PcbObject)
+        proxy._ensure_coupler_monitor_state = mock.Mock()
+        proxy._coupler_monitor_generation = 0
+        proxy._ensure_properties = mock.Mock()
+        proxy._handle_reload_response = mock.Mock()
+        with tempfile.NamedTemporaryFile(suffix=".kicad_pcb") as board_file:
+            obj = types.SimpleNamespace(Name="Board", Label="board", FileName=board_file.name,
+                Group=[types.SimpleNamespace(Name="Board_Board",
+                    Shape=types.SimpleNamespace(isNull=lambda: False))])
+            with mock.patch.dict(sys.modules, {
+                    "FreekiCAD.freecad.FreekiCAD.im_client": None}):
+                self.assertTrue(proxy.reload_sync(obj, socket_path="/tmp/live.sock"))
+        proxy._handle_reload_response.assert_called_once_with(
+            obj, "/tmp/live.sock", reposition=True)
+
     def test_reposition_skips_only_board_actively_rebuilding(self):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Console = types.SimpleNamespace(

@@ -457,15 +457,24 @@ def _launch(filepath, program="kicad"):
             # FreeCAD on macOS does not reliably handle Finder's open-file
             # event. Pass the path as an application argument, as the former
             # Workspace Manager launcher did.
-            subprocess.Popen(["open", "-a", "FreeCAD", "-n", "-W", "--args", filepath])
+            subprocess.Popen(["open", "-a", "FreeCAD", "-n", "-W", "--args"]
+                             + ([filepath] if filepath else []))
         else:
             subprocess.Popen(["open", "-n", "-g", filepath])
     elif platform.system() == "Windows":
         freecad = _windows_freecad_executable() if program == "freecad" else None
         if freecad:
-            subprocess.Popen([freecad, filepath], env=freecad_process_environment(freecad))
+            subprocess.Popen([freecad] + ([filepath] if filepath else []),
+                             env=freecad_process_environment(freecad))
+        elif program == "freecad" and not filepath:
+            raise FileNotFoundError("FreeCAD executable was not found")
         else:
             _windows_open_kicad_background(filepath)
+    elif program == "freecad" and not filepath:
+        freecad = shutil.which("FreeCAD") or shutil.which("freecad")
+        if not freecad:
+            raise FileNotFoundError("FreeCAD executable was not found in PATH")
+        subprocess.Popen([freecad], env=freecad_process_environment(freecad))
     else:
         subprocess.Popen(["xdg-open", filepath])
     deadline = time.monotonic() + (20 if program == "freecad" else 8)
