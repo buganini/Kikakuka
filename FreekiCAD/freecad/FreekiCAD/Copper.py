@@ -765,19 +765,56 @@ def _polygons_to_part_shape(geometry):
     return faces[0] if len(faces) == 1 else Part.makeCompound(faces)
 
 
-def union_planar_profiles(shapes, warn=None, layer_name=""):
-    """Union overlapping coplanar profiles before physical extrusion."""
-    shapes = [shape for shape in shapes if shape is not None]
-    if not shapes:
+def _straight_zone_polygon(polygon):
+    """Read ordered zone coordinates without an intermediate BRep round trip."""
+    if shapely is None:
         return None
-    if len(shapes) == 1:
+    rings = []
+    for polyline in [polygon.outline, *polygon.holes]:
+        coordinates = []
+        for node in polyline.nodes:
+            if getattr(node, "has_arc", False):
+                return None
+            coordinates.append((node.point.x / NM_PER_MM,
+                                -node.point.y / NM_PER_MM))
+        if len(coordinates) < 3:
+            return None
+        rings.append(coordinates)
+    try:
+        result = Polygon(rings[0], rings[1:])
+        # KiCad can encode holes as a stitched, self-touching outline. Use
+        # the same repair as the BRep-to-polygon path, without simplifying.
+        if not result.is_valid:
+            result = shapely.make_valid(result)
+        return result if not result.is_empty and result.area > 0 else None
+    except Exception:
+        return None
+
+
+def union_planar_profiles(shapes, warn=None, layer_name="", seed_polygons=()):
+    """Union BReps plus (BRep index, polygon) insertions in source order."""
+    shapes = [shape for shape in shapes if shape is not None]
+    seed_polygons = list(seed_polygons)
+    if not shapes and not seed_polygons:
+        return None
+    if len(shapes) == 1 and not seed_polygons:
         return shapes[0]
+    if not shapes and len(seed_polygons) == 1:
+        # A single original profile bypasses union and grid snapping too.
+        return _polygons_to_part_shape(seed_polygons[0][1])
     prefix = f" {layer_name}" if layer_name else ""
     if shapely is not None:
         try:
             polygons = []
-            for shape in shapes:
-                polygons.extend(_shape_to_polygons(shape))
+            insertions = {}
+            for index, polygon in seed_polygons:
+                insertions.setdefault(index, []).append(polygon)
+            # Preserve source order: GEOS precision-grid snapping can differ
+            # if identical inputs are regrouped by their representation.
+            for index in range(len(shapes) + 1):
+                polygons.extend(insertions.get(index, ()))
+                if index < len(shapes):
+                    polygons.extend(_shape_to_polygons(shapes[index]))
             if not polygons:
                 raise RuntimeError("no polygon faces were produced")
             merged = shapely.union_all(
@@ -792,6 +829,8 @@ def union_planar_profiles(shapes, warn=None, layer_name=""):
     elif warn:
         warn(f"Shapely is unavailable for{prefix}; trying BRep fallback")
 
+    # Construct BReps for direct zones only if the planar union failed.
+    shapes.extend(_polygons_to_part_shape(polygon) for _index, polygon in seed_polygons)
     try:
         profile = shapes[0].multiFuse(shapes[1:])
         if profile is None or profile.isNull():
@@ -919,6 +958,7 @@ def build_copper_layers(board, stackup, board_layer, board_shapes=None,
     items_by_layer = read_copper_items(
         board, [info.layer for info in infos], board_shapes, warn)
     by_layer = {info.layer: [] for info in infos}
+    polygons_by_layer = {info.layer: [] for info in infos}
     counts = {info.layer: 0 for info in infos}
     kind_counts = {info.layer: {} for info in infos}
     try:
@@ -928,13 +968,18 @@ def build_copper_layers(board, stackup, board_layer, board_shapes=None,
     for layer, items in items_by_layer.items():
         for item in items:
             try:
-                shape = _copper_item_shape(item, PadStackShape)
-                if shape is None:
-                    if warn:
-                        warn(f"Unsupported copper {item.kind}: "
-                             f"{type(item.source).__name__}")
-                    continue
-                by_layer[layer].append(shape)
+                polygon = (_straight_zone_polygon(item.source)
+                           if item.kind == "zone_polygon" else None)
+                if polygon is not None:
+                    polygons_by_layer[layer].append((len(by_layer[layer]), polygon))
+                else:
+                    shape = _copper_item_shape(item, PadStackShape)
+                    if shape is None:
+                        if warn:
+                            warn(f"Unsupported copper {item.kind}: "
+                                 f"{type(item.source).__name__}")
+                        continue
+                    by_layer[layer].append(shape)
                 counts[layer] += 1
                 kind_counts[layer][item.kind] = (
                     kind_counts[layer].get(item.kind, 0) + 1)
@@ -961,14 +1006,16 @@ def build_copper_layers(board, stackup, board_layer, board_shapes=None,
     result = []
     for info in infos:
         item_shapes = by_layer[info.layer]
-        if not item_shapes:
+        item_polygons = polygons_by_layer[info.layer]
+        if not item_shapes and not item_polygons:
             continue
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] 2D union {info.name} start: "
-            f"items={len(item_shapes)}\n")
+            f"items={counts[info.layer]}\n")
         profile_started = time.perf_counter()
         profile = union_planar_profiles(
-            item_shapes, warn=warn, layer_name=info.name)
+            item_shapes, warn=warn, layer_name=info.name,
+            seed_polygons=item_polygons)
         profile_seconds = time.perf_counter() - profile_started
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] 2D union {info.name}: "

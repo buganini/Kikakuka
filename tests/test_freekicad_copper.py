@@ -59,6 +59,85 @@ class _Arc:
 
 
 class CopperStackupTests(unittest.TestCase):
+    def _zone_polygon(self, coordinates, holes=()):
+        def ring(points):
+            return types.SimpleNamespace(nodes=[types.SimpleNamespace(
+                point=_Vector(x * 1_000_000, y * 1_000_000)) for x, y in points])
+        return types.SimpleNamespace(outline=ring(coordinates), holes=[ring(h) for h in holes])
+
+    def test_direct_zone_preserves_explicit_holes_and_coordinate_transform(self):
+        from shapely.geometry import Polygon
+        copper = self._import_copper()
+        zone = self._zone_polygon([(0, 0), (10, 0), (10, 10), (0, 10)],
+                                  [[(2, 2), (8, 2), (8, 8), (2, 8)]])
+        result = copper._straight_zone_polygon(zone)
+        expected = Polygon([(0, 0), (10, 0), (10, -10), (0, -10)],
+                           [[(2, -2), (8, -2), (8, -8), (2, -8)]])
+        self.assertTrue(result.equals(expected))
+        self.assertEqual(result.area, 64)
+
+    def test_direct_zone_repairs_stitched_hole_without_filling_it(self):
+        from shapely.geometry import Polygon
+        copper = self._import_copper()
+        zone = self._zone_polygon([
+            (0, 0), (10, 0), (10, 10), (0, 10), (0, 0),
+            (2, 2), (2, 8), (8, 8), (8, 2), (2, 2), (0, 0)])
+        result = copper._straight_zone_polygon(zone)
+        polygons = list(copper._polygon_geometries(result))
+        self.assertTrue(result.is_valid)
+        self.assertEqual(result.area, 64)
+        self.assertEqual(len(polygons), 1)
+        self.assertEqual(len(polygons[0].interiors), 1)
+
+    def test_direct_zone_falls_back_for_arcs_degenerate_rings_or_missing_shapely(self):
+        copper = self._import_copper()
+        zone = self._zone_polygon([(0, 0), (10, 0), (0, 10)])
+        zone.outline.nodes[0].has_arc = True
+        self.assertIsNone(copper._straight_zone_polygon(zone))
+        self.assertIsNone(copper._straight_zone_polygon(self._zone_polygon([(0, 0), (1, 0)])))
+        with mock.patch.object(copper, "shapely", None):
+            self.assertIsNone(copper._straight_zone_polygon(zone))
+
+    def test_direct_zone_is_not_lost_in_brep_union_fallback(self):
+        from shapely.geometry import Polygon
+        copper = self._import_copper()
+        zone = Polygon([(0, 0), (1, 0), (0, 1)])
+        existing = mock.Mock()
+        zone_shape = mock.Mock()
+        result = existing.multiFuse.return_value
+        result.isNull.return_value = False
+        with mock.patch.object(copper.shapely, "union_all", side_effect=RuntimeError("union failed")), \
+                mock.patch.object(copper, "_shape_to_polygons", return_value=[]), \
+                mock.patch.object(copper, "_polygons_to_part_shape", return_value=zone_shape) as build:
+            copper.union_planar_profiles([existing], seed_polygons=[(0, zone)])
+        build.assert_called_once_with(zone)
+        existing.multiFuse.assert_called_once_with([zone_shape])
+
+    def test_direct_zone_union_keeps_source_order_for_precision_grid(self):
+        from shapely.geometry import Polygon
+        copper = self._import_copper()
+        track, pad = object(), object()
+        track_polygon = Polygon([(0, 0), (1, 0), (0, 1)])
+        zone_polygon = Polygon([(0, 0), (2, 0), (0, 2)])
+        pad_polygon = Polygon([(0, 0), (3, 0), (0, 3)])
+        with mock.patch.object(copper, "_shape_to_polygons",
+                               side_effect=[[track_polygon], [pad_polygon]]), \
+                mock.patch.object(copper.shapely, "union_all", return_value=zone_polygon) as union, \
+                mock.patch.object(copper, "_polygons_to_part_shape", return_value="face"):
+            self.assertEqual(copper.union_planar_profiles(
+                [track, pad], seed_polygons=[(1, zone_polygon)]), "face")
+        self.assertEqual(union.call_args.args[0], [track_polygon, zone_polygon, pad_polygon])
+
+    def test_single_direct_zone_does_not_snap_coordinates_to_union_grid(self):
+        from shapely.geometry import Polygon
+        copper = self._import_copper()
+        zone = Polygon([(0, 0), (0.001234, 0), (0, 0.001234)])
+        with mock.patch.object(copper.shapely, "union_all") as union, \
+                mock.patch.object(copper, "_polygons_to_part_shape", return_value="face") as build:
+            self.assertEqual(copper.union_planar_profiles([], seed_polygons=[(0, zone)]), "face")
+        union.assert_not_called()
+        build.assert_called_once_with(zone)
+
     def test_straight_polyline_wire_closes_and_removes_consecutive_duplicates(self):
         copper = self._import_copper(with_geometry=True)
         copper.Part.makePolygon = mock.Mock(return_value="wire")
