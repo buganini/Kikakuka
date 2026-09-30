@@ -79,10 +79,10 @@ class SilkscreenTests(unittest.TestCase):
 
         self.assertEqual([layer.name for layer in layers],
                          ["F.SilkS", "B.SilkS"])
-        self.assertAlmostEqual(layers[0].z, 1.6)
-        self.assertAlmostEqual(layers[1].z, 0.0)
-        self.assertAlmostEqual(layers[0].thickness, 0.012)
-        self.assertAlmostEqual(layers[1].thickness, 0.010)
+        self.assertAlmostEqual(layers[0].z, 1.61)
+        self.assertAlmostEqual(layers[1].z, -0.01)
+        self.assertAlmostEqual(layers[0].thickness, 0.0)
+        self.assertAlmostEqual(layers[1].thickness, 0.0)
         self.assertEqual(layers[0].color, (1.0, 200 / 255, 100 / 255))
 
     def test_explicitly_disabled_side_is_skipped(self):
@@ -113,9 +113,7 @@ class SilkscreenTests(unittest.TestCase):
             return None
         with mock.patch.object(silk, 'board_graphic_polygons', side_effect=polygons), \
                 mock.patch.object(silk, 'board_graphic_shape', return_value=_Shape()) as build, \
-                mock.patch.object(silk, 'union_planar_profiles', return_value=_Shape()) as union, \
-                mock.patch.object(silk, 'extrude_profile_for_display',
-                                  return_value=(_Shape(), types.SimpleNamespace(Volume=.01))):
+                mock.patch.object(silk, 'union_planar_profiles', return_value=_Shape()) as union:
             layers = silk.build_silkscreen_layers(kicad, board,
                 types.SimpleNamespace(layers=[]), _BoardLayer,
                 board_shapes=[direct, fallback], footprints=[])
@@ -131,9 +129,7 @@ class SilkscreenTests(unittest.TestCase):
         original = _Shape()
         with mock.patch.object(silk, 'board_graphic_polygons', return_value=['polygon']), \
                 mock.patch.object(silk, 'board_graphic_shape', return_value=original) as build, \
-                mock.patch.object(silk, 'union_planar_profiles', return_value=original) as union, \
-                mock.patch.object(silk, 'extrude_profile_for_display',
-                                  return_value=(original, types.SimpleNamespace(Volume=.01))):
+                mock.patch.object(silk, 'union_planar_profiles', return_value=original) as union:
             silk.build_silkscreen_layers(None, types.SimpleNamespace(get_text=lambda: []),
                 types.SimpleNamespace(layers=[]), _BoardLayer,
                 board_shapes=[graphic], footprints=[])
@@ -171,10 +167,7 @@ class SilkscreenTests(unittest.TestCase):
                 side_effect=lambda _item: _Shape()), mock.patch.object(
                 silk, "union_planar_profiles",
                 side_effect=lambda shapes, **_kwargs: silk.Part.makeCompound(
-                    shapes)), mock.patch.object(
-                silk, "extrude_profile_for_display",
-                side_effect=lambda profile, _direction, cap_mode: (
-                    profile, types.SimpleNamespace(Volume=0.04))):
+                    shapes)):
             layers = silk.build_silkscreen_layers(
                 kicad, board, stackup, _BoardLayer,
                 board_shapes=[board_graphic], footprints=[footprint],
@@ -187,8 +180,10 @@ class SilkscreenTests(unittest.TestCase):
         self.assertEqual(layers[0]["text_count"], 2)
         self.assertEqual(layers[0]["face_count"], 4)
         self.assertAlmostEqual(layers[0]["area"], 4.0)
-        self.assertAlmostEqual(layers[0]["shape"].z, 1.6)
-        self.assertAlmostEqual(layers[0]["direction"], 0.010)
+        self.assertAlmostEqual(layers[0]["shape"].z, 1.61)
+        self.assertAlmostEqual(layers[0]["direction"], 0.0)
+        self.assertEqual(layers[0]["volume"], 0.0)
+        self.assertIs(layers[0]["shape"], layers[0]["profile_shape"])
         kicad.get_text_as_shapes.assert_called_once_with(
             ["board text", "reference text"])
 

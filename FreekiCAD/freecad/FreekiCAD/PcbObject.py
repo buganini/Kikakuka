@@ -2128,7 +2128,9 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                         stackup, BoardLayer,
                         total_thickness=thickness):
                     stiffener_surface_offsets[
-                        silk_info.name == "F.SilkS"] = silk_info.thickness
+                        silk_info.name == "F.SilkS"] = abs(
+                            silk_info.z - (thickness
+                                           if silk_info.name == "F.SilkS" else 0.0))
             stiffener_layers = build_stiffener_layers(
                 all_shapes, all_text, stiffener_layer_defs, thickness,
                 to_concrete=to_concrete_board_shape,
@@ -2900,7 +2902,7 @@ class PcbObject:
         obj.ImportSolderMask = False
         obj.addProperty(
             "App::PropertyBool", "ImportSilkscreen", "LinkedFile",
-            "Import outward physical F.SilkS and B.SilkS display shells"
+            "Import F.SilkS and B.SilkS planes 10 microns above the board"
         )
         obj.ImportSilkscreen = False
         obj.addProperty(
@@ -3427,7 +3429,7 @@ class PcbObject:
             silk_obj.setPropertyStatus("SilkscreenLayer", "ReadOnly")
             silk_obj.addProperty(
                 "App::PropertyLength", "SilkscreenThickness", "KiCad",
-                "Physical silkscreen thickness from the KiCad stackup")
+                "Silkscreen display thickness (zero for a planar surface)")
             silk_obj.SilkscreenThickness = layer_data['thickness']
             silk_obj.setPropertyStatus("SilkscreenThickness", "ReadOnly")
             silk_obj.Shape = layer_data['shape']
@@ -3437,7 +3439,7 @@ class PcbObject:
                 layer_data['profile_shape'].copy()
             self._layer_extrusion_directions[silk_obj.Name] = \
                 float(layer_data['direction'])
-            self._layer_cap_modes[silk_obj.Name] = "outer"
+            self._layer_cap_modes[silk_obj.Name] = "plane"
             try:
                 self._remember_export_colors(
                     silk_obj, layer_data['color'])
@@ -13008,7 +13010,7 @@ class PcbObject:
         if not hasattr(obj, 'ImportSilkscreen'):
             obj.addProperty(
                 "App::PropertyBool", "ImportSilkscreen", "LinkedFile",
-                "Import outward physical F.SilkS and B.SilkS display shells")
+                "Import F.SilkS and B.SilkS planes 10 microns above the board")
             obj.ImportSilkscreen = False
         if not hasattr(obj, 'SnapToCoupler'):
             obj.addProperty(
