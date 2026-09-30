@@ -187,7 +187,8 @@ class _DocumentObserver:
                     matches = [create_pcb_object(filepath, document=document, recompute=False)]
                 for obj in matches:
                     obj.Proxy.reload_sync(obj, socket_path=socket_path)
-                document.recompute()
+                # reload_sync already builds and assigns the final shapes.
+                # A document-wide recompute repeats expensive display meshing.
                 activate_gui_document(document)
                 if created:
                     FreeCADGui.getDocument(document.Name).activeView().fitAll()

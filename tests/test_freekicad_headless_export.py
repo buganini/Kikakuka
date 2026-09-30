@@ -363,6 +363,7 @@ class InstanceClientSyncTests(unittest.TestCase):
             self.assertTrue(observer.open_pcb("/boards/current.kicad_pcb", "/tmp/live.sock"))
         board.Proxy.reload_sync.assert_called_once_with(board, socket_path="/tmp/live.sock")
         self.assertEqual(events, ["updated", "Assembly"])
+        document.recompute.assert_not_called()
         module.FreeCAD.newDocument.assert_not_called()
         gui.getMainWindow().showNormal.assert_called_once_with()
         gui.getMainWindow().raise_.assert_called_once_with()
@@ -440,6 +441,7 @@ class InstanceClientSyncTests(unittest.TestCase):
             "/boards/current.kicad_pcb", document=document, recompute=False)
         board.Proxy.reload_sync.assert_called_once_with(board, socket_path="/tmp/live.sock")
         gui.getDocument(document.Name).activeView().fitAll.assert_called_once_with()
+        document.recompute.assert_not_called()
 
     def test_open_pcb_failure_closes_only_new_document(self):
         for existing in (False, True):
