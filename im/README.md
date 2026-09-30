@@ -151,6 +151,207 @@ The lock check must happen before process launch because KiCad creates its own
 lock file during every successful open. Checking afterwards would incorrectly
 classify every new editor as requiring foreground attention.
 
+## Protocol command reference
+
+The current mesh protocol version is **3**, reported by `hello`. Requests and
+replies are JSON objects. Every request requires the shared `token` and a
+`mesh_action`; `_exchange()` supplies the token automatically. Unix sockets
+frame UTF-8 JSON with a four-byte big-endian byte length. Windows named pipes
+use the transport's message framing. The maximum JSON message size is 16 MiB.
+
+There are two command levels: `mesh_action` selects a node operation;
+`dispatch` carries an editor request whose `action` is handled by
+`instance_backend.py`. The two action fields are not interchangeable.
+
+### Program roles and message direction
+
+**IM is a library and a peer node embedded in several programs, not a single
+central server.** A sender is the process issuing the request; the receiver is
+the process hosting the addressed IM endpoint. A process can be both. Replies
+return to the requesting process over the same request/reply connection.
+
+| Program | Role in the IM protocol |
+| --- | --- |
+| Kikakuka Workspace Manager and standalone tools such as Differ / Fabrication Planner | Can host an IM node and send requests. Their node can execute editor requests for other callers. |
+| `python -m im` | Standalone IM node using the same editor backend; can receive requests and query other nodes while executing them. |
+| FreeCAD GUI with FreekiCAD | Hosts an IM node, sends integration requests, and receives FreeCAD document commands. It can also execute generic editor requests for other callers. |
+| FreeCADCmd with FreekiCAD | Hosts an IM node and can send/execute editor requests, but does not offer GUI document commands. |
+| KiCad add-on's Open in FreeCAD Python process | Client of the IM mesh. Runs `im.freecad_open.open_board()` and sends requests directly to FreeCAD nodes; this action does not start its own IM node. |
+| KiCad PCB Editor (`pcbnew`) | Server for **KiCad's own IPC API**, not an IM mesh receiver. IM nodes and FreekiCAD talk to its KiCad socket using kipy. |
+
+An **executor node** below means a selected node hosted by Kikakuka, FreekiCAD,
+or standalone `python -m im`. `im_mesh.request()` tries discovered nodes in
+ascending PID/node-ID order; for a PCB request it requires `kicad_api: true`.
+The receiver may be the sender's own embedded node. It need not be the
+Workspace Manager, the process owning the requested document, or a separate
+background daemon.
+
+| `mesh_action` | Sender program / role | Receiver program / role |
+| --- | --- | --- |
+| `hello` | Any discovering IM client or node, including the KiCad add-on action | Each candidate IM node: Kikakuka, FreekiCAD, or standalone IM |
+| `snapshot` | A node refreshing its mappings, including Workspace Manager refresh or an executor before handling a request | Other discovered IM nodes |
+| `event` | The node publishing a file-to-process mapping change | Other discovered IM nodes |
+| `dispatch` | Kikakuka file-opening tools, or FreekiCAD requesting a KiCad operation | Selected executor node; it resolves/opens the editor through `instance_backend.py` |
+| `result` | The client that received `accepted` | The **same node** that accepted that request, whether an executor or a FreeCAD GUI node |
+| `freecad-list-documents` | Kikakuka's instance refresh, or an executor searching for an open FreeCAD file | FreeCAD GUI process with FreekiCAD document support |
+| `freecad-activate-document` | Executor handling a FreeCAD `open-file` request | The FreeCAD GUI node containing the matching document |
+| `freecad-open-document` | Executor handling a FreeCAD `open-file` request | Selected existing FreeCAD GUI node |
+| `freecad-open-pcb` | KiCad add-on's Open in FreeCAD Python process | FreeCAD GUI nodes during probing, then the selected target node for updating/creating the PCB |
+| `freecad-bind-source` | Executor that launched FreeCAD to open a file | The newly launched FreeCAD GUI node |
+
+These are the current callers and intended roles, not sender-specific access
+rules. Nodes authenticate the shared token and check their capabilities;
+commands are not restricted by the sender application's name.
+
+### Common action flows
+
+**Open in FreeCAD** starts in the KiCad add-on process:
+
+```text
+KiCad add-on action process
+  -> FreeCAD IM nodes: hello, freecad-open-pcb(probe=true), result
+  -> selected FreeCAD IM node: freecad-open-pcb(document=...), result
+     (or create=true when no document matches)
+  -> FreekiCAD GUI callback: compare inputs, reload if needed, activate document
+     -> invoking pcbnew's KiCad IPC socket: read live PCB contents
+```
+
+The add-on process coordinates instance selection and foregrounding through
+`im.freecad_open`. It already knows the invoking KiCad socket, so it does not
+send `dispatch(action=reload)` to resolve one. The final `result` is returned
+after FreekiCAD finishes the GUI operation. IM probes never address pcbnew.
+
+**Reload KiCad PCB** starts in the FreeCAD process containing the PCB object:
+
+```text
+FreekiCAD -> executor IM node: dispatch(request.action=reload), result
+executor -> pcbnew's KiCad IPC socket: verify matching PCB; launch if needed
+executor -> FreekiCAD: result containing the verified KiCad socket
+FreekiCAD GUI callback -> pcbnew's KiCad IPC socket: read PCB and force rebuild
+```
+
+Here the executor may itself be hosted by that same FreeCAD process, another
+FreeCAD process, Kikakuka, or standalone IM. It returns the socket to the
+original requester; it does not choose another FreeCAD document or rebuild
+geometry in the executor's process.
+
+**Goto KiCad** also starts in the FreeCAD process containing the PCB object:
+
+```text
+FreekiCAD -> executor IM node: dispatch(request.action=open-file), result
+executor -> pcbnew's KiCad IPC socket: verify matching PCB; launch if needed
+executor -> operating system: foreground the selected KiCad process
+executor -> FreekiCAD: completion result; no FreeCAD geometry update
+```
+
+Goto KiCad does not set `ensure_fresh`, so it does not revert unsaved KiCad
+contents. It uses the same editor action as Kikakuka's ordinary file opener.
+
+### Mesh commands
+
+Fields below are in addition to `token` and `mesh_action`. Fields are required
+unless marked optional. Success replies have `status: "ok"` unless the table
+specifies an asynchronous acknowledgement. FreeCAD commands require the
+corresponding provider on the receiving GUI node; an unavailable provider
+returns `status: "error"` with a `message`.
+
+| `mesh_action` | Request fields | Reply and behavior |
+| --- | --- | --- |
+| `hello` | None | `version`, `pid`, `started_ms`, node `id`, `kicad_api`, `freecad_documents`, `freecad_pcb`. The last field is `2` for the current PCB selection/open capability, otherwise `0`. |
+| `snapshot` | None | `mappings`: canonical file path to complete mapping event, including tombstones. Reads local state without refreshing peers. |
+| `event` | `event` object | Applies a newer mapping event; ignores an equal or older stamp. Returns `ok` either way. |
+| `dispatch` | Nonempty unique `id`, `request` object | Queues an editor request on a worker thread; returns `accepted` and `id`. Poll `result` on this node for completion. |
+| `result` | `id` | Returns the cached final reply, `pending`, or `unknown` for an unrecognized/expired ID. |
+| `freecad-list-documents` | None | `pid`, `documents`: list of normalized absolute document/source paths from the GUI thread, not document metadata objects. |
+| `freecad-activate-document` | Absolute `filepath` | `pid`, `found` boolean. Selects the matching document and MDI tab; the caller handles process foregrounding. Does not open a missing file. |
+| `freecad-open-document` | Absolute `filepath`, nonempty unique `id` | Queues GUI opening/importing; returns `accepted` and `id`. Repeated requests for the same in-flight path receive the existing ID. Final reply is `ok` with `pid`, or `error`. |
+| `freecad-open-pcb` | Absolute `.kicad_pcb` `filepath`, nonempty KiCad `socket`, nonempty unique `id`; optional fields below | Queues PCB probing or opening; returns `accepted` and `id`. Final reply includes `pid` and `found`; probes also return `document`. |
+| `freecad-bind-source` | Absolute `filepath` | `pid`, `bound` boolean. Associates a launch-imported document without a native filename with its source path. Returns false if a unique suitable unbound document cannot be identified. Does not import the file itself. |
+
+A mapping `event` contains `filepath`, `pid` (or `null` for a tombstone), and
+`stamp: [time_ns, publishing_node_pid, publishing_node_id]`. A live PCB mapping
+may also contain `socket`. Stamps are compared lexicographically. Use
+`publish()` to canonicalize paths and broadcast events.
+
+`freecad-open-document` supports `.FCStd`, `.step`, `.stp`, and `.kkkk_asm`.
+It activates an already-open document when possible. Its asynchronous result
+can be polled, but the current general file opener proceeds after acceptance
+instead of waiting for a potentially long import to finish.
+
+Optional `freecad-open-pcb` fields:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `create` | `false` | Allow a new document if no linked PCB is found. |
+| `active_only` | `false` | Search only this instance's active document; prevents creation even when `create` is true. |
+| `probe` | `false` | Only search; do not reload, create, activate tabs, or foreground the window. Returns the matching internal document name in `document`, or `null`. |
+| `document` | Omitted / `null` | Restrict the request to this internal FreeCAD document name. This overrides candidate selection by `active_only`; a non-probe request fails if the document or PCB link disappeared. |
+
+The `socket` identifies the invoking KiCad editor. The normal caller supplies
+its endpoint without the `ipc://` prefix. `freecad-open-pcb` addresses **one**
+FreeCAD node; cross-instance active-document priority and process foregrounding
+are coordinated by `freecad_open.open_board()`. A non-probe request updates all
+matching PCB objects in the selected document, then activates it. FreekiCAD
+may skip unchanged geometry using its in-memory import fingerprint. A probe
+still uses the asynchronous acknowledgement/result exchange.
+
+### Dispatched editor actions
+
+The nested `request` contains `action` and, except for `list` and `log`, an
+existing `filepath`. The worker normalizes the path before handling it. Optional
+`object` (default empty string) and `component` label fields route the eventual
+reply back to FreekiCAD; they do not identify an IM node or FreeCAD document.
+
+| `request.action` | Additional fields | Executor behavior and final reply |
+| --- | --- | --- |
+| `open-file` | Optional `ensure_fresh` (default `false`, PCB only) | Reuse or open an editor and foreground it. Returns `filepath`, `pid`, and `socket` when available. For an already-open PCB, `ensure_fresh: true` reverts it from disk through KiCad IPC before focusing; ordinary opens do not revert. |
+| `reload` | Optional `object` | Find or open KiCad for this PCB and return its verified socket. FreekiCAD subsequently reads the PCB and rebuilds geometry. |
+| `open-sketch` | Optional `object` | Resolve the PCB socket; FreekiCAD establishes the outline-edit connection after receiving it. |
+| `move-component` | Optional `object`, `component` | Resolve the PCB socket; FreekiCAD performs the component change afterward. |
+| `update-coupler` | Optional `object`, `component` | Resolve the PCB socket; FreekiCAD performs the coupler update afterward. |
+| `monitor-couplers` | Optional `object` | Resolve an already-open PCB socket. Never launches KiCad; returns an error if the board is not open. |
+| `list` | None | `instances`: refreshed canonical file-path-to-PID map, excluding tombstones. This differs from the mesh `snapshot` reply. |
+| `log` | None | Compatibility no-op; returns `ok`. Does not write a log message. |
+
+`open-file` accepts `.kicad_pcb`, `.kicad_sch`, `.kicad_pro`, `.fcstd`, `.step`,
+`.stp`, and `.kkkk_asm`. The five integration actions from `reload` through
+`monitor-couplers` are for `.kicad_pcb` files and normally do not foreground
+KiCad; see [KiCad foreground policy](#kicad-foreground-policy) for the lock-prompt
+exception. Their successful replies contain `action`, `object`, `socket`,
+`pid`, and `component` when supplied, in addition to `status: "ok"`.
+**An integration action's IM success means the socket is ready, not that the
+subsequent FreekiCAD import or edit has finished.**
+
+### Asynchronous replies and retries
+
+| `status` | Meaning |
+| --- | --- |
+| `accepted` | Work was queued or its request ID was already known. Poll the returned `id` on the same node. |
+| `pending` | Work has not completed. |
+| `ok` | The addressed operation completed; inspect fields such as `found` or `bound` where applicable. |
+| `error` | Operation failed; `message` explains why. |
+| `unknown` | This node has no cached result for the ID. It is not proof that work never ran. |
+
+Example editor request and result polling (the token is illustrative):
+
+```json
+{"token":"<shared-token>","mesh_action":"dispatch","id":"<unique-request-id>","request":{"action":"reload","filepath":"/boards/demo.kicad_pcb","object":"Demo"}}
+{"status":"accepted","id":"<unique-request-id>"}
+{"token":"<shared-token>","mesh_action":"result","id":"<unique-request-id>"}
+{"status":"ok","action":"reload","object":"Demo","socket":"/tmp/kicad/api.sock","pid":1234}
+```
+
+The standard mesh request client polls every 0.2 seconds and waits up to 120
+seconds by default. Open in FreeCAD waits up to 300 seconds per PCB request.
+A timeout does not cancel queued or running work. Completed results are
+eligible for cleanup after 300 seconds when a subsequent `dispatch` or
+`freecad-open-pcb` request performs cleanup; they are not durable records.
+IDs deduplicate work within one node's retained results, not across nodes.
+The general request client can try another node after communication failure;
+per-file locks and live editor re-probing protect editor reuse. Open in FreeCAD
+never switches to another node after its PCB request has been accepted, because
+that import may still be running.
+
 ## Finding a pcbnew PID
 
 KiCad's PCB IPC sockets are separate from the Instance Manager mesh sockets.
