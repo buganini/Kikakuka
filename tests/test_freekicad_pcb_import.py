@@ -89,6 +89,30 @@ class PcbImportTests(unittest.TestCase):
             "freecad.FreekiCAD.PcbImport",
         )
 
+    def test_gui_import_starts_loading_on_next_event_loop_turn(self):
+        for entry in ("open", "insert"):
+            with self.subTest(entry=entry):
+                self.fake_freecad.GuiUp = True
+                provider = mock.Mock()
+                view = types.SimpleNamespace(Proxy=provider)
+                self.create_pcb_object.return_value = types.SimpleNamespace(
+                    ViewObject=view)
+                callbacks = []
+                timer = types.SimpleNamespace(singleShot=lambda delay, callback:
+                    callbacks.append((delay, callback)))
+                with mock.patch.dict(sys.modules, {"PySide":
+                        types.SimpleNamespace(QtCore=types.SimpleNamespace(QTimer=timer))}):
+                    if entry == "open":
+                        self.pcb_import.open("board.kicad_pcb")
+                    else:
+                        self.pcb_import.insert("board.kicad_pcb", "Assembly")
+                provider._auto_reload.assert_not_called()
+                self.assertEqual(len(callbacks), 1)
+                delay, callback = callbacks[0]
+                self.assertEqual(delay, 0)
+                callback()
+                provider._auto_reload.assert_called_once_with(view)
+
 
 if __name__ == "__main__":
     unittest.main()

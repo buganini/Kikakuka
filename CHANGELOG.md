@@ -1,3 +1,10 @@
+# Next:
+* KiCad add-on: Add Open in FreeCAD to refresh the current PCB in a matching FreeCAD document, prioritizing the active document, or create a new document when no match exists, and bring FreeCAD to the front
+* FreekiCAD: Speed up bending
+* FreekiCAD: Speed up copper layer importing
+* FreekiCAD: Speed up silkscreen importing
+* FreekiCAD: Fix board outline distortion during sketch import and synchronization back to KiCad by preserving arc geometry and matching coincident endpoints correctly
+
 # 8.1.1:
 * Fix Windows Instance Manager lock sharing, FreeCAD file launching, and add-on management errors
 * Keep FreekiCAD-triggered KiCad launches in the background unless KiCad may require **Open Anyway** confirmation
