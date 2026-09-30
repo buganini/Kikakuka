@@ -310,7 +310,9 @@ def _ready_board(socket_path, max_retries=0, delay_s=1.0):
     from kipy.kicad import KiCad
     from .kicad_api_retry import get_ready_kicad_board
 
-    kicad = KiCad(socket_path=f"ipc://{socket_path}", timeout_ms=1000)
+    # The caller may have inherited another KiCad instance's API token.
+    # An empty initial token lets kipy learn the selected endpoint's token.
+    kicad = KiCad(socket_path=f"ipc://{socket_path}", kicad_token="", timeout_ms=1000)
     board = get_ready_kicad_board(
         kicad,
         max_retries=max_retries,
@@ -407,18 +409,23 @@ def _focus(pid):
             pass
 
 
-def freecad_process_environment(executable):
+def freecad_process_environment(executable=None):
     """Run FreeCAD with its own Python/Qt, not the launching KiCad runtime."""
     environment = os.environ.copy()
     for name in (
         "PYTHONHOME", "PYTHONPATH", "PYTHONUSERBASE", "PYTHONSTARTUP",
         "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH",
-        "QML_IMPORT_PATH", "QML2_IMPORT_PATH",
+        "QML_IMPORT_PATH", "QML2_IMPORT_PATH", "QT_QPA_FONTDIR",
+        "KICAD_API_TOKEN", "KICAD_API_SOCKET",
+        "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
+        "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FALLBACK_FRAMEWORK_PATH",
+        "DYLD_INSERT_LIBRARIES", "LD_LIBRARY_PATH", "LD_PRELOAD",
     ):
         environment.pop(name, None)
     # FreeCAD explicitly adds its AdditionalPythonPackages directory itself.
     environment["PYTHONNOUSERSITE"] = "1"
-    environment["PATH"] = str(Path(executable).parent) + os.pathsep + environment.get("PATH", "")
+    if executable is not None:
+        environment["PATH"] = str(Path(executable).parent) + os.pathsep + environment.get("PATH", "")
     return environment
 
 
@@ -458,7 +465,8 @@ def _launch(filepath, program="kicad"):
             # event. Pass the path as an application argument, as the former
             # Workspace Manager launcher did.
             subprocess.Popen(["open", "-a", "FreeCAD", "-n", "-W", "--args"]
-                             + ([filepath] if filepath else []))
+                             + ([filepath] if filepath else []),
+                             env=freecad_process_environment())
         else:
             subprocess.Popen(["open", "-n", "-g", filepath])
     elif platform.system() == "Windows":
@@ -466,15 +474,16 @@ def _launch(filepath, program="kicad"):
         if freecad:
             subprocess.Popen([freecad] + ([filepath] if filepath else []),
                              env=freecad_process_environment(freecad))
-        elif program == "freecad" and not filepath:
+        elif program == "freecad":
             raise FileNotFoundError("FreeCAD executable was not found")
         else:
             _windows_open_kicad_background(filepath)
-    elif program == "freecad" and not filepath:
+    elif program == "freecad":
         freecad = shutil.which("FreeCAD") or shutil.which("freecad")
         if not freecad:
             raise FileNotFoundError("FreeCAD executable was not found in PATH")
-        subprocess.Popen([freecad], env=freecad_process_environment(freecad))
+        subprocess.Popen([freecad] + ([filepath] if filepath else []),
+                         env=freecad_process_environment(freecad))
     else:
         subprocess.Popen(["xdg-open", filepath])
     deadline = time.monotonic() + (20 if program == "freecad" else 8)

@@ -46,6 +46,25 @@ class InstanceBackendTests(unittest.TestCase):
                 self.assertEqual(backend._launch(None, "freecad"), 123)
                 self.assertEqual(popen.call_args.args[0], expected)
 
+    def test_ready_board_does_not_use_inherited_kicad_token(self):
+        with mock.patch.dict(os.environ, {"KICAD_API_TOKEN": "stale"}), \
+                mock.patch("kipy.kicad.KiCad") as client, \
+                mock.patch("im.kicad_api_retry.get_ready_kicad_board") as ready, \
+                mock.patch.object(backend, "get_kicad_compat"):
+            backend._ready_board("/tmp/selected.sock")
+        client.assert_called_once_with(socket_path="ipc:///tmp/selected.sock",
+                                       kicad_token="", timeout_ms=1000)
+        self.assertIs(ready.call_args.args[0], client.return_value)
+
+    def test_linux_file_launch_uses_isolated_freecad_environment(self):
+        with mock.patch.object(backend.platform, "system", return_value="Linux"), \
+                mock.patch.object(backend, "_editors", side_effect=[{}, {321: 1}]), \
+                mock.patch.object(backend.shutil, "which", return_value="/usr/bin/freecad"), \
+                mock.patch.object(backend.subprocess, "Popen") as popen:
+            self.assertEqual(backend._launch("/models/part.FCStd", "freecad"), 321)
+        popen.assert_called_once_with(["/usr/bin/freecad", "/models/part.FCStd"],
+            env=backend.freecad_process_environment("/usr/bin/freecad"))
+
     def test_kicad_lock_path_matches_kicad_convention(self):
         self.assertEqual(
             backend._kicad_lock_path("/boards/main.kicad_pcb"),
@@ -438,7 +457,8 @@ class InstanceBackendTests(unittest.TestCase):
                 mock.patch.object(backend.subprocess, "Popen") as popen:
             self.assertEqual(backend._launch("/models/part.FCStd", "freecad"), 321)
         popen.assert_called_once_with([
-            "open", "-a", "FreeCAD", "-n", "-W", "--args", "/models/part.FCStd"])
+            "open", "-a", "FreeCAD", "-n", "-W", "--args", "/models/part.FCStd"],
+            env=backend.freecad_process_environment())
 
     def test_windows_freecad_launch_does_not_require_kkkk_asm_association(self):
         filepath = "C:/models/assembly.kkkk_asm"
@@ -469,6 +489,12 @@ class InstanceBackendTests(unittest.TestCase):
             "QT_QPA_PLATFORM_PLUGIN_PATH": "C:/KiCad/Qt/platforms",
             "QML2_IMPORT_PATH": "C:/KiCad/qml", "PATH": "C:/Windows",
             "APPDATA": "C:/Users/test/AppData/Roaming",
+            "KICAD_API_TOKEN": "stale", "KICAD_API_SOCKET": "ipc://old.sock",
+            "DYLD_LIBRARY_PATH": "/KiCad/lib", "DYLD_FRAMEWORK_PATH": "/KiCad/Frameworks",
+            "DYLD_FALLBACK_LIBRARY_PATH": "/KiCad/lib", "DYLD_FALLBACK_FRAMEWORK_PATH": "/KiCad/Frameworks",
+            "DYLD_INSERT_LIBRARIES": "/KiCad/inject.dylib",
+            "LD_LIBRARY_PATH": "/KiCad/lib", "LD_PRELOAD": "/KiCad/inject.so",
+            "QT_QPA_FONTDIR": "/KiCad/fonts",
         }
         with mock.patch.dict(backend.os.environ, contaminated, clear=True):
             environment = backend.freecad_process_environment("C:/FreeCAD/bin/FreeCAD.exe")

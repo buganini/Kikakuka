@@ -1097,7 +1097,8 @@ def _load_kicad_env_vars(kicad, board=None):
         kicad, board, source_path=__file__)
     visible = {
         key: value for key, value in env.items()
-        if key == 'KIPRJMOD' or key.startswith('KICAD')
+        if key == 'KIPRJMOD' or (key.startswith('KICAD')
+                                  and not key.startswith('KICAD_API_'))
     }
     FreeCAD.Console.PrintMessage(
         f"FreekiCAD: Loaded path variables: {visible}\n"
@@ -1512,7 +1513,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
 
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Connecting to KiCad at {socket_path}\n")
-        kicad = KiCad(socket_path=f"ipc://{socket_path}")
+        kicad = KiCad(socket_path=f"ipc://{socket_path}", kicad_token="")
         board = _kipy_ready_board(kicad)
 
         # Load KiCad path variables
@@ -4123,7 +4124,7 @@ class PcbObject:
         from kipy.kicad import KiCad
         from kipy.geometry import Vector2
 
-        kicad = KiCad(socket_path=f"ipc://{socket_path}")
+        kicad = KiCad(socket_path=f"ipc://{socket_path}", kicad_token="")
         board = _kipy_ready_board(kicad)
         target_fp = None
         for footprint in _kipy_retry(board.get_footprints):
@@ -4238,7 +4239,7 @@ class PcbObject:
             try:
                 from kipy.kicad import KiCad
                 kicad = KiCad(
-                    socket_path=f"ipc://{socket_path}", timeout_ms=900)
+                    socket_path=f"ipc://{socket_path}", kicad_token="", timeout_ms=900)
                 board = kicad.get_board()
                 live_poses = []
                 for footprint in board.get_footprints():
@@ -12476,7 +12477,7 @@ class PcbObject:
         if socket_path is None:
             return
         try:
-            kicad = KiCad(socket_path=f"ipc://{socket_path}")
+            kicad = KiCad(socket_path=f"ipc://{socket_path}", kicad_token="")
             _kipy_ready_board(kicad)
             self._kicad = kicad
             FreeCAD.Console.PrintMessage(
@@ -12500,7 +12501,7 @@ class PcbObject:
         try:
             kicad = getattr(self, '_kicad', None)
             if kicad is None:
-                kicad = KiCad(socket_path=f"ipc://{socket_path}")
+                kicad = KiCad(socket_path=f"ipc://{socket_path}", kicad_token="")
                 self._kicad = kicad
             return _kipy_ready_board(kicad)
         except Exception as e:
@@ -12760,7 +12761,7 @@ class PcbObject:
         from kipy.kicad import KiCad
         started = time.perf_counter()
         try:
-            kicad = KiCad(socket_path=f"ipc://{socket_path}")
+            kicad = KiCad(socket_path=f"ipc://{socket_path}", kicad_token="")
             board = _kipy_ready_board(kicad)
             filename = _resolved_linked_filename(obj)
             settings = {name: getattr(obj, name, None) for name in
@@ -12951,7 +12952,7 @@ class PcbObject:
             from kipy.kicad import KiCad
             from kipy.geometry import Vector2, Angle
 
-            kicad = KiCad(socket_path=f"ipc://{socket_path}")
+            kicad = KiCad(socket_path=f"ipc://{socket_path}", kicad_token="")
             compatibility = get_kicad_compat(kicad.get_version())
             board = _kipy_ready_board(kicad)
 

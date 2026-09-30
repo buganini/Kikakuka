@@ -561,10 +561,56 @@ been removed. KiCad's own
 
 ## Platform and permissions
 
+### FreeCAD launch environment isolation
+
+FreeCAD launches on macOS, Windows, and Linux use an isolated child environment:
+the launcher removes inherited Python/Qt/QML search paths, dynamic-library
+overrides, and `KICAD_API_TOKEN` / `KICAD_API_SOCKET`. It disables Python user
+site packages while preserving ordinary user settings and KiCad model-path
+variables. Linux launches FreeCAD explicitly for both file opens and empty
+documents; macOS applies the environment to `open -a FreeCAD`. This does not
+modify the parent process or repair an already-running contaminated FreeCAD.
+
+`freecad_process_environment()` applies the following policy:
+
+| Variable group | Child-process policy |
+| --- | --- |
+| `PYTHONHOME`, `PYTHONPATH`, `PYTHONUSERBASE`, `PYTHONSTARTUP` | Remove inherited values so FreeCAD selects its own Python runtime. FreeCAD's launcher may then set its own `PYTHONHOME`. |
+| `QT_PLUGIN_PATH`, `QT_QPA_PLATFORM_PLUGIN_PATH`, `QT_QPA_FONTDIR`, `QML_IMPORT_PATH`, `QML2_IMPORT_PATH` | Remove paths pointing to the caller's Qt plugins, fonts, or QML modules. |
+| `DYLD_LIBRARY_PATH`, `DYLD_FRAMEWORK_PATH`, `DYLD_FALLBACK_LIBRARY_PATH`, `DYLD_FALLBACK_FRAMEWORK_PATH`, `DYLD_INSERT_LIBRARIES`, `LD_LIBRARY_PATH`, `LD_PRELOAD` | Remove inherited library search/injection overrides. |
+| `KICAD_API_TOKEN`, `KICAD_API_SOCKET` | Remove credentials and endpoint selection belonging to the invoking KiCad instance. |
+| `PYTHONNOUSERSITE` | Set to `1`; FreeCAD still adds its own AdditionalPythonPackages directory. |
+| `PATH` | Prepend the FreeCAD executable directory for direct launches on Windows/Linux; preserve it for macOS's `open` launcher. |
+| Other variables | Preserve user settings and model paths such as `KICAD10_3DMODEL_DIR`. |
+
+This applies when IM starts a new FreeCAD process, including Open in FreeCAD
+and general FreeCAD file opening. Reusing a running FreeCAD does not relaunch it
+or change its environment. The cleanup currently targets FreeCAD launches;
+it is not a global environment change or a claim that KiCad's file-association
+launchers apply the same policy.
+
+KiCad API tokens are separate from the IM mesh token. IM endpoint probes and
+FreekiCAD connections to a selected KiCad socket explicitly initialize kipy
+with `kicad_token=""`, allowing the response to supply that instance's token.
+They must not use a `KICAD_API_TOKEN` inherited from another instance. The KiCad
+add-on's initial connection to its invoking editor still uses the environment
+provided by KiCad. FreekiCAD does not print API credentials in path-variable
+diagnostics.
+
+Goto KiCad uses `dispatch(action=open-file)` and Open in FreeCAD uses
+`freecad-open-pcb`; neither action writes a new token into an existing process's
+environment or overwrites an existing `mesh-token` file. A KiCad API client
+learning a token from a response stores it in that client, not in the mesh
+credential file. Therefore, an inherited `KICAD_API_TOKEN` can be stale even
+when the process's own live KiCad endpoint is working.
+
+### Process launching and access
+
 macOS starts a new FreeCAD with `open -a FreeCAD -n -W --args <file>` and
 uses AppleScript for best-effort focus; other new editors use `open -n`.
-Windows uses file associations and Win32 foreground APIs; Linux uses
-`xdg-open` and currently has no reliable cross-desktop focus operation.
+Windows starts FreeCAD directly and uses file associations for KiCad, with
+Win32 foreground APIs. Linux starts FreeCAD directly and uses `xdg-open` for
+other editors; it currently has no reliable cross-desktop focus operation.
 File-to-PID discovery uses ordinary process enumeration and KiCad's IPC. On
 all platforms, process enumeration first reads only the PID and OS owner field;
 name, creation time, command line, current directory, and socket details are
