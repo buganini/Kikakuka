@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import sys
+import tempfile
 import types
 import unittest
 
@@ -25,6 +26,44 @@ class CopperPolygonNativeTests(unittest.TestCase):
 
     def point(self, x, y):
         return types.SimpleNamespace(x=x*1e6, y=y*1e6)
+
+    def test_partition_preserves_holes_islands_and_exact_occ_clipping(self):
+        outer = shapely.box(-7, -6, 13, 11)
+        holes = shapely.union_all([
+            shapely.box(-5, -4, 0, 1),
+            shapely.box(3, 3, 8, 8)])
+        geometry = outer.difference(holes).union(shapely.box(-3, -2, -2, -1))
+        regions = list(self.c._partition_planar_polygons(geometry, 5.0))
+        self.assertGreater(len(regions), 1)
+        self.assertLess(geometry.symmetric_difference(shapely.union_all(regions)).area, 1e-9)
+        self.assertAlmostEqual(sum(p.area for p in regions), geometry.area, places=9)
+        original = self.c._polygons_to_part_shape(geometry)
+        partitioned = self.c._polygons_to_part_shape(geometry, 5.0)
+        self.assertTrue(partitioned.isValid())
+        self.assertAlmostEqual(original.Area, partitioned.Area, places=8)
+        # Curved clipping boundaries must still be handled by exact OCC.
+        cutter = Part.makeCylinder(6, 2, FreeCAD.Vector(1, 2, -1))
+        exact = original.common(cutter)
+        split = partitioned.common(cutter)
+        self.assertAlmostEqual(exact.Area, split.Area, places=7)
+        self.assertLess(exact.cut(split).Area, 1e-7)
+        self.assertLess(split.cut(exact).Area, 1e-7)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / 'copper.step')
+            partitioned.exportStep(path)
+            restored = Part.Shape()
+            restored.read(path)
+            self.assertAlmostEqual(restored.Area, original.Area, places=7)
+
+    def test_partition_keeps_tiny_regions_and_bounds_grid_growth(self):
+        tiny = shapely.box(4.999999, 4.999999, 5.000001, 5.000001)
+        regions = list(self.c._partition_planar_polygons(tiny, 5.0))
+        self.assertEqual(len(regions), 4)
+        self.assertLess(tiny.symmetric_difference(shapely.union_all(regions)).area, 1e-20)
+        huge = shapely.box(0, 0, 100000, 100000)
+        regions = list(self.c._partition_planar_polygons(huge, 5.0))
+        self.assertEqual(len(regions), 1)
+        self.assertTrue(regions[0].equals(huge))
 
     def test_straight_arc_and_zero_length_tracks_match_brep_sampling(self):
         for name, start, end, mid in [

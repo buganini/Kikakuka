@@ -19,6 +19,7 @@ NM_PER_MM = 1_000_000.0
 DEFAULT_COPPER_THICKNESS_MM = 0.035
 COPPER_2D_DEFLECTION_MM = 0.002
 COPPER_2D_GRID_MM = 0.001
+COPPER_FACE_PARTITION_MM = 5.0
 COPPER_COLOR = (0.72, 0.45, 0.12)
 
 
@@ -829,9 +830,34 @@ def _ring_wire(coordinates):
     return Part.makePolygon(points)
 
 
-def _polygons_to_part_shape(geometry):
-    faces = []
+def _partition_planar_polygons(geometry, size):
+    """Split existing planar polygons without approximating their boundaries."""
     for polygon in _polygon_geometries(geometry):
+        if polygon.is_empty:
+            continue
+        x0, y0, x1, y1 = polygon.bounds
+        ix0, iy0 = math.floor(x0 / size), math.floor(y0 / size)
+        ix1, iy1 = math.ceil(x1 / size), math.ceil(y1 / size)
+        cells = (ix1 - ix0) * (iy1 - iy0)
+        # Bound grid growth for unusually large geometry; retain the original
+        # face rather than allocating an unbounded array of clipping boxes.
+        if cells <= 1 or cells > 4096:
+            yield polygon
+            continue
+        boxes = [shapely.box(ix * size, iy * size,
+                             (ix + 1) * size, (iy + 1) * size)
+                 for ix in range(ix0, ix1) for iy in range(iy0, iy1)]
+        for clipped in shapely.intersection(polygon, boxes):
+            for region in _polygon_geometries(clipped):
+                if not region.is_empty and region.area > 0:
+                    yield region
+
+
+def _polygons_to_part_shape(geometry, partition_size=None):
+    faces = []
+    polygons = (_partition_planar_polygons(geometry, partition_size)
+                if partition_size is not None else _polygon_geometries(geometry))
+    for polygon in polygons:
         # GEOS already classified the exterior and holes. Bullseye repeats
         # wire containment analysis, which is very costly for dense pours.
         # Build on the known XY plane with a CCW exterior and CW holes.
@@ -919,7 +945,8 @@ def _straight_zone_polygon(polygon):
         return None
 
 
-def union_planar_profiles(shapes, warn=None, layer_name="", seed_polygons=()):
+def union_planar_profiles(shapes, warn=None, layer_name="", seed_polygons=(),
+                          partition_size=None):
     """Union BReps plus (BRep index, polygon) insertions in source order."""
     shapes = [shape for shape in shapes if shape is not None]
     seed_polygons = list(seed_polygons)
@@ -929,6 +956,8 @@ def union_planar_profiles(shapes, warn=None, layer_name="", seed_polygons=()):
         return shapes[0]
     if not shapes and len(seed_polygons) == 1:
         # A single original profile bypasses union and grid snapping too.
+        if partition_size is not None:
+            return _polygons_to_part_shape(seed_polygons[0][1], partition_size)
         return _polygons_to_part_shape(seed_polygons[0][1])
     prefix = f" {layer_name}" if layer_name else ""
     if shapely is not None:
@@ -949,6 +978,8 @@ def union_planar_profiles(shapes, warn=None, layer_name="", seed_polygons=()):
                 polygons, grid_size=COPPER_2D_GRID_MM)
             if merged.is_empty:
                 raise RuntimeError("union returned an empty geometry")
+            if partition_size is not None:
+                return _polygons_to_part_shape(merged, partition_size)
             return _polygons_to_part_shape(merged)
         except Exception as ex:
             if warn:
@@ -1165,7 +1196,8 @@ def build_copper_layers(board, stackup, board_layer, board_shapes=None,
         profile_started = time.perf_counter()
         profile = union_planar_profiles(
             item_shapes, warn=warn, layer_name=info.name,
-            seed_polygons=item_polygons)
+            seed_polygons=item_polygons,
+            partition_size=COPPER_FACE_PARTITION_MM)
         profile_seconds = time.perf_counter() - profile_started
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: [profile] 2D union {info.name}: "
