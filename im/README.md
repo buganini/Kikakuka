@@ -262,8 +262,11 @@ across GUI nodes, then searches the remaining documents for matching normalized
 PCB links. Read-only probes return the matching document's internal name without
 changing tabs or reloading geometry. Only after selecting the target does IM
 focus its process and request an update of that specific document from the
-invoking KiCad socket. FreekiCAD restores a minimized window before updating;
-only when no match exists is a document created. The `freecad_pcb: 2` capability
+invoking KiCad socket. FreekiCAD restores a minimized window before updating
+and may skip rebuilding when its session-local fingerprint of the live
+import inputs matches the last successful import. IM does not store or compare
+these fingerprints. Only when no match exists is a document created.
+The `freecad_pcb: 2` capability
 distinguishes this selection protocol from the earlier combined search/update
 operation. Requests acknowledge quickly
 and report completion through the mesh result API so import failures reach the

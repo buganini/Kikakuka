@@ -186,7 +186,8 @@ class _DocumentObserver:
                 if created:
                     matches = [create_pcb_object(filepath, document=document, recompute=False)]
                 for obj in matches:
-                    obj.Proxy.reload_sync(obj, socket_path=socket_path)
+                    obj.Proxy.reload_sync(obj, socket_path=socket_path,
+                                          only_if_changed=True)
                 # reload_sync already builds and assigns the final shapes.
                 # A document-wide recompute repeats expensive display meshing.
                 activate_gui_document(document)

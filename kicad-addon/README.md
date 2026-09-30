@@ -120,7 +120,15 @@ forward:
 4. Bring the selected instance to the foreground and restore its window if
    minimized. Update the matching PCB objects in the selected document, or
    create a document and add the PCB. After loading, make that document and
-   its tab active. A new document's view is fitted to the imported geometry.
+its tab active. A new document's view is fitted to the imported geometry.
+
+FreekiCAD compares the live PCB contents, import settings, text variables, and
+external model file state with the last successful Open in FreeCAD import.
+When unchanged, it skips geometry rebuilding and still activates the document
+and brings the window forward. This cache stays in memory and is not saved in
+FCStd; the first request after reopening a document imports normally. If the
+comparison is unavailable, FreekiCAD reloads normally. **Reload KiCad PCB** in
+the PCB object's context menu always forces a reload.
 
 Searching does not reload PCBs, change active tabs, or bring unrelated windows
 forward. The selected document remains the target even if the user changes

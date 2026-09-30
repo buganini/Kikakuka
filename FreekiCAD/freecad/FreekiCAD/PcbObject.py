@@ -12755,11 +12755,42 @@ class PcbObject:
         _log_surface_reload(
             f"reload request sent; force={'yes' if force else 'no'}")
 
-    def reload_sync(self, obj, reposition=True, socket_path=None):
+    def _read_import_fingerprint(self, obj, socket_path):
+        from .ImportFingerprint import read_fingerprint
+        from kipy.kicad import KiCad
+        started = time.perf_counter()
+        try:
+            kicad = KiCad(socket_path=f"ipc://{socket_path}")
+            board = _kipy_ready_board(kicad)
+            filename = _resolved_linked_filename(obj)
+            settings = {name: getattr(obj, name, None) for name in
+                        self._REBEND_PROPERTIES + self._SURFACE_PROPERTIES}
+            return read_fingerprint(
+                kicad, board, filename, settings,
+                _get_board_color_from_file(filename))
+        except Exception as exc:
+            FreeCAD.Console.PrintWarning(
+                f"FreekiCAD: Cannot compare import inputs; reloading: {exc}\n")
+            return None
+        finally:
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: [profile] import fingerprint: "
+                f"{time.perf_counter() - started:.3f}s\n")
+
+    def _import_child_state(self, obj):
+        # Detect deleted children and locally edited bends without hashing BReps.
+        return tuple((child.Name, getattr(child, 'Angle', None),
+                      getattr(child, 'Radius', None),
+                      getattr(child, 'Active', None))
+                     for child in getattr(obj, 'Group', []))
+
+    def reload_sync(self, obj, reposition=True, socket_path=None,
+                    only_if_changed=False):
         """Synchronously reload a PCB for headless export.
 
         An explicit socket reads the invoking KiCad editor directly. Otherwise
-        the instance mesh resolves the editor. Returns after geometry is rebuilt.
+        the instance mesh resolves the editor. Open in FreeCAD can opt into a
+        session-local content comparison; explicit reloads remain unconditional.
         """
         if getattr(self, '_reloading', False):
             raise RuntimeError(f"'{obj.Label}' is already reloading")
@@ -12781,6 +12812,25 @@ class PcbObject:
                 reply = request_sync(
                     "reload", filename, object_label=obj.Label)
                 socket_path = reply["socket"]
+            fingerprint = (self._read_import_fingerprint(obj, socket_path)
+                           if only_if_changed else None)
+            cached = getattr(self, '_last_import_fingerprint', None)
+            if (fingerprint is not None and cached is not None
+                    and cached == (fingerprint, self._import_child_state(obj))
+                    and not self._surface_reload_is_pending()
+                    and any(child.Name.endswith('_Board')
+                            and hasattr(child, 'Shape')
+                            and not child.Shape.isNull()
+                            for child in getattr(obj, 'Group', []))):
+                self._cached_socket_path = socket_path
+                self._reloading = False
+                if reposition:
+                    self._reposition_all_coupled_objects(obj.Document)
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: Skipping reload of '{obj.Name}' "
+                    "(import inputs unchanged)\n")
+                return True
+            self._last_import_fingerprint = None
             self._handle_reload_response(
                 obj, socket_path, reposition=reposition)
         except Exception:
@@ -12798,10 +12848,26 @@ class PcbObject:
             self._reload_failed = True
             raise RuntimeError(
                 f"Fresh load of '{obj.Label}' produced no board geometry")
+        if fingerprint is not None:
+            # A user can keep editing KiCad while FreeCAD builds geometry.
+            # Only cache a load whose inputs stayed stable across the import.
+            after = self._read_import_fingerprint(obj, socket_path)
+            if after == fingerprint:
+                self._last_import_fingerprint = (
+                    fingerprint, self._import_child_state(obj))
         return True
 
     def _handle_reload_response(self, obj, socket_path, reposition=True):
         """Called when the workspace bus responds to a reload request."""
+        self._last_import_fingerprint = None
+        # This load consumes the current layer settings. A previously queued
+        # debounce must not force another load after this one completes.
+        self._ensure_surface_reload_timer_state()
+        if self._surface_reload_timer is not None:
+            self._surface_reload_timer.stop()
+        self._surface_reload_target = None
+        self._surface_reload_property = None
+        self._surface_reload_deadline = 0.0
         import time as _time
         _t0_reload = _time.time()
         self._ensure_coupler_monitor_state()
@@ -12948,6 +13014,7 @@ class PcbObject:
     def loads(self, state):
         if state:
             self.Type = "PcbObject"
+        self._last_import_fingerprint = None
         self._board_color = None
         self._ensure_rebend_timer_state()
         self._ensure_surface_reload_timer_state()

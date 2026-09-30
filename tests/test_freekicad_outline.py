@@ -2023,8 +2023,14 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy._reposition_all_coupled_objects = mock.Mock(
             side_effect=assert_reload_is_finished)
 
+        proxy._surface_reload_timer = mock.Mock()
+        proxy._surface_reload_target = obj
+        proxy._surface_reload_deadline = 100
         proxy._handle_reload_response(obj, "/tmp/kicad.sock")
 
+        proxy._surface_reload_timer.stop.assert_called_once_with()
+        self.assertIsNone(proxy._surface_reload_target)
+        self.assertEqual(proxy._surface_reload_deadline, 0)
         proxy._reposition_all_coupled_objects.assert_called_once_with(document)
 
     def test_synchronous_reload_waits_for_workspace_and_board_geometry(self):
@@ -2083,6 +2089,70 @@ class OutlineWireOrderTests(unittest.TestCase):
                 self.assertTrue(proxy.reload_sync(obj, socket_path="/tmp/live.sock"))
         proxy._handle_reload_response.assert_called_once_with(
             obj, "/tmp/live.sock", reposition=True)
+
+    def test_open_reload_cache_tracks_inputs_and_keeps_forced_reload(self):
+        module = self._import_linked_object()
+        module.FreeCAD.Console = types.SimpleNamespace(PrintMessage=mock.Mock())
+        proxy = module.PcbObject.__new__(module.PcbObject)
+        proxy._ensure_coupler_monitor_state = mock.Mock()
+        proxy._coupler_monitor_generation = 0
+        proxy._ensure_properties = mock.Mock()
+        proxy._surface_reload_is_pending = mock.Mock(return_value=False)
+        proxy._reposition_all_coupled_objects = mock.Mock()
+        proxy._read_import_fingerprint = mock.Mock(return_value="initial")
+        proxy._handle_reload_response = mock.Mock()
+        with tempfile.NamedTemporaryFile(suffix=".kicad_pcb") as board_file:
+            obj = types.SimpleNamespace(Name="Board", Label="board", FileName=board_file.name,
+                Document=object(), Group=[types.SimpleNamespace(Name="Board_Board",
+                    Shape=types.SimpleNamespace(isNull=lambda: False))])
+
+            def rebuild(*args, **kwargs):
+                proxy._last_import_fingerprint = None
+                proxy._reloading = False
+
+            proxy._handle_reload_response.side_effect = rebuild
+            def open_board():
+                return proxy.reload_sync(obj, socket_path="/tmp/live.sock", only_if_changed=True)
+
+            self.assertTrue(open_board())
+            self.assertEqual(proxy._handle_reload_response.call_count, 1)
+            self.assertTrue(open_board())
+            self.assertEqual(proxy._handle_reload_response.call_count, 1)
+            self.assertFalse(proxy._reloading)
+            proxy._reposition_all_coupled_objects.assert_called_once_with(obj.Document)
+
+            # Unsaved content or import setting changes produce a new fingerprint.
+            proxy._read_import_fingerprint.return_value = "changed"
+            open_board()
+            self.assertEqual(proxy._handle_reload_response.call_count, 2)
+            # Explicit reload always rebuilds, even with a matching cache.
+            proxy.reload_sync(obj, socket_path="/tmp/live.sock")
+            self.assertEqual(proxy._handle_reload_response.call_count, 3)
+            self.assertIsNone(proxy._last_import_fingerprint)
+            open_board()
+            self.assertEqual(proxy._handle_reload_response.call_count, 4)
+            # Missing children and local bend edits must not reuse stale geometry.
+            obj.Group.append(types.SimpleNamespace(Name="Board_Bend", Angle=40, Radius=1))
+            open_board()
+            self.assertEqual(proxy._handle_reload_response.call_count, 5)
+            obj.Group[-1].Angle = 75
+            open_board()
+            self.assertEqual(proxy._handle_reload_response.call_count, 6)
+            # A failed/unsupported snapshot cannot authorize skipping.
+            proxy._read_import_fingerprint.return_value = None
+            open_board()
+            self.assertEqual(proxy._handle_reload_response.call_count, 7)
+            self.assertIsNone(proxy._last_import_fingerprint)
+            # Concurrent edits during import must not establish a cache.
+            proxy._read_import_fingerprint.side_effect = ["before", "after"]
+            open_board()
+            self.assertIsNone(proxy._last_import_fingerprint)
+            proxy._read_import_fingerprint.side_effect = ["before"]
+            proxy._handle_reload_response.side_effect = RuntimeError("failed import")
+            with self.assertRaisesRegex(RuntimeError, "failed import"):
+                open_board()
+            self.assertIsNone(proxy._last_import_fingerprint)
+            self.assertFalse(proxy._reloading)
 
     def test_reposition_skips_only_board_actively_rebuilding(self):
         linked_object = self._import_linked_object()

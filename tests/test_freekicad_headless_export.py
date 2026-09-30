@@ -361,7 +361,7 @@ class InstanceClientSyncTests(unittest.TestCase):
                 mock.patch.object(module, "activate_gui_document",
                                   side_effect=lambda doc: events.append(doc.Name)):
             self.assertTrue(observer.open_pcb("/boards/current.kicad_pcb", "/tmp/live.sock"))
-        board.Proxy.reload_sync.assert_called_once_with(board, socket_path="/tmp/live.sock")
+        board.Proxy.reload_sync.assert_called_once_with(board, socket_path="/tmp/live.sock", only_if_changed=True)
         self.assertEqual(events, ["updated", "Assembly"])
         document.recompute.assert_not_called()
         module.FreeCAD.newDocument.assert_not_called()
@@ -380,7 +380,7 @@ class InstanceClientSyncTests(unittest.TestCase):
                 "FreekiCAD.freecad.FreekiCAD.PcbObject": pcb_module,
                 "FreeCADGui": gui}), mock.patch.object(module, "activate_gui_document") as activate:
             self.assertTrue(observer.open_pcb(board.FileName, "/tmp/live.sock"))
-        active_board.Proxy.reload_sync.assert_called_once_with(active_board, socket_path="/tmp/live.sock")
+        active_board.Proxy.reload_sync.assert_called_once_with(active_board, socket_path="/tmp/live.sock", only_if_changed=True)
         board.Proxy.reload_sync.assert_not_called()
         activate.assert_called_once_with(active)
 
@@ -439,7 +439,7 @@ class InstanceClientSyncTests(unittest.TestCase):
             self.assertTrue(observer.open_pcb("/boards/current.kicad_pcb", "/tmp/live.sock", create=True))
         pcb_module.create_pcb_object.assert_called_once_with(
             "/boards/current.kicad_pcb", document=document, recompute=False)
-        board.Proxy.reload_sync.assert_called_once_with(board, socket_path="/tmp/live.sock")
+        board.Proxy.reload_sync.assert_called_once_with(board, socket_path="/tmp/live.sock", only_if_changed=True)
         gui.getDocument(document.Name).activeView().fitAll.assert_called_once_with()
         document.recompute.assert_not_called()
 
