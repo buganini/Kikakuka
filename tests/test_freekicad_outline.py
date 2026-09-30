@@ -165,6 +165,28 @@ class _Placement2D:
 
 
 class OutlineWireOrderTests(unittest.TestCase):
+    def test_import_property_writes_do_not_schedule_rebend(self):
+        module = self._import_linked_object()
+        proxy = module.PcbObject.__new__(module.PcbObject)
+        proxy._in_execute = True
+        proxy._ensure_rebend_timer_state = mock.Mock()
+        proxy._suspend_component_move_sync = mock.Mock()
+        proxy._schedule_rebend(mock.Mock())
+        proxy._ensure_rebend_timer_state.assert_not_called()
+        proxy._suspend_component_move_sync.assert_not_called()
+
+    def test_pending_rebend_does_not_run_inside_import(self):
+        module = self._import_linked_object()
+        proxy = module.PcbObject.__new__(module.PcbObject)
+        proxy._in_execute = True
+        proxy._unbent_board_shape = mock.Mock()
+        proxy._suspend_component_move_sync = mock.Mock()
+        proxy._reposition_all_coupled_objects = mock.Mock()
+        proxy._rebend(mock.Mock())
+        proxy._unbent_board_shape.copy.assert_not_called()
+        proxy._suspend_component_move_sync.assert_not_called()
+        proxy._reposition_all_coupled_objects.assert_not_called()
+
     def _import_linked_object(self):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_part = types.ModuleType("Part")

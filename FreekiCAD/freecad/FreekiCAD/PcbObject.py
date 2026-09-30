@@ -4712,6 +4712,9 @@ class PcbObject:
     def _schedule_rebend(self, obj):
         """Schedule a deferred rebend, coalescing changes from multiple
         bend lines and PcbObject properties into a single rebend call."""
+        # Import writes Angle/Radius itself and applies all bends at the end.
+        if getattr(self, '_in_execute', False):
+            return
         from PySide import QtCore, QtWidgets
 
         self._ensure_rebend_timer_state()
@@ -4825,6 +4828,10 @@ class PcbObject:
     def _rebend(self, obj):
         """Re-apply bending after Radius/Angle/Active or EnableBending
         changes on a bend line."""
+        # STEP loading processes Qt events, so an earlier timer can fire
+        # inside a reload. The reload already owns the final bending pass.
+        if getattr(self, '_in_execute', False):
+            return
         if not hasattr(self, '_unbent_board_shape'):
             self._resume_component_move_sync(delay_ms=0)
             return
