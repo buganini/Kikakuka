@@ -21,6 +21,7 @@ from addon_manager import (
     find_any_kicad_version,
     freekicad_status,
     install_addon,
+    install_freekicad_symlink,
     uninstall_addon,
 )
 from kicad_compat import (
@@ -683,7 +684,7 @@ class MainUI(Application):
 
     def manage_addon(self, _event, key, operation):
         row = self.addons.get(key, {})
-        field = "uninstall" if operation == "uninstall" else "action"
+        field = {"uninstall": "uninstall", "install-symlink": "symlink"}.get(operation, "action")
         action = row.get(field, "")
         if not action:
             return
@@ -692,16 +693,19 @@ class MainUI(Application):
             "status": row.get("status", ""),
             "action": row.get("action", ""),
             "uninstall": row.get("uninstall", ""),
+            "symlink": row.get("symlink", ""),
         }
         self._set_addon_row(key, {
             "label": row.get("label", key),
             "status": {
                 "Install": "Installing…",
+                "Install Symlink": "Installing symlink…",
                 "Update": "Updating…",
                 "Uninstall": "Uninstalling…",
             }[action],
             "action": "",
             "uninstall": "",
+            "symlink": "",
         })
         Thread(
             target=self._manage_addon,
@@ -714,6 +718,8 @@ class MainUI(Application):
             status = (
                 uninstall_addon(key)
                 if operation == "uninstall"
+                else install_freekicad_symlink()
+                if operation == "install-symlink"
                 else install_addon(key)
             )
             self._set_addon_row(key, status.as_row())
@@ -869,6 +875,10 @@ class MainUI(Application):
                                             if addon["action"]:
                                                 Button(addon["action"]).click(
                                                     self.manage_addon, key, "install"
+                                                )
+                                            if addon.get("symlink", ""):
+                                                Button(addon["symlink"]).click(
+                                                    self.manage_addon, key, "install-symlink"
                                                 )
                                             if addon["uninstall"]:
                                                 Button(addon["uninstall"]).click(

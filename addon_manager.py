@@ -106,6 +106,9 @@ class AddonStatus:
             "label": self.label,
             "status": self.status_text,
             "action": self.action,
+            "symlink": ("Install Symlink" if self.key == FREEKICAD
+                        and self.available and self.installed_version is None
+                        and freekicad_source_directory() else ""),
             "uninstall": self.uninstall_action,
         }
 
@@ -127,6 +130,15 @@ class KiCadPaths:
 
 def _source_root() -> Path:
     return Path(__file__).resolve().parent
+
+
+def freekicad_source_directory() -> Optional[Path]:
+    if getattr(sys, "frozen", False) or getattr(sys, "_MEIPASS", None):
+        return None
+    source = (_source_root() / "FreekiCAD").resolve()
+    if (source / "package.xml").is_file() and (source / "freecad/FreekiCAD").is_dir():
+        return source
+    return None
 
 
 def _resource_root() -> Path:
@@ -156,6 +168,8 @@ def bundle_archive(key: str) -> Path:
 
 
 def freecad_helper_path() -> Path:
+    if freekicad_source_directory() is not None:
+        return _source_root() / "freecad_addon_installer.py"
     bundled = _resource_root() / "addons" / "freecad_addon_installer.py"
     if bundled.is_file():
         return bundled
@@ -1094,7 +1108,7 @@ def run_freecad_helper(action: str, archive: Optional[Path] = None) -> dict:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=300 if action == "install" else 30,
+                timeout=300 if action in ("install", "install-symlink") else 30,
                 env=process_env,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -1169,6 +1183,7 @@ def freekicad_status(*, query_freecad: bool = False) -> AddonStatus:
         )
     installed = None
     detail = ""
+    symlink_target = None
     if query_freecad:
         try:
             # The helper itself is a short-lived FreeCADCmd process. Serialize
@@ -1177,13 +1192,14 @@ def freekicad_status(*, query_freecad: bool = False) -> AddonStatus:
             with _INSTALL_LOCK:
                 result = run_freecad_helper("status")
             installed = result.get("version")
+            symlink_target = result.get("symlink_target")
         except Exception as exc:
             print(f"Addon manager: FreeCAD status check failed: {exc}")
             detail = "Could not query FreeCAD addon status"
     if installed is None:
         installed = _heuristic_freekicad_version()
     if installed is not None:
-        detail = ""
+        detail = "Symlink" if symlink_target else ""
     return AddonStatus(
         FREEKICAD,
         ADDON_LABELS[FREEKICAD],
@@ -1202,6 +1218,18 @@ def install_freekicad() -> AddonStatus:
         bundled_version(FREEKICAD),
         str(installed) if installed is not None else None,
     )
+
+
+def install_freekicad_symlink() -> AddonStatus:
+    source = freekicad_source_directory()
+    if source is None:
+        raise RuntimeError("Install Symlink is only available when running from source")
+    with _INSTALL_LOCK:
+        _require_no_running_instances(FREEKICAD, "Install")
+        result = run_freecad_helper("install-symlink", source)
+    return AddonStatus(FREEKICAD, ADDON_LABELS[FREEKICAD],
+                       bundled_version(FREEKICAD), result.get("version"),
+                       "Symlink")
 
 
 def uninstall_freekicad() -> AddonStatus:

@@ -217,6 +217,12 @@ def install(archive_path: Path):
     install_dependencies(specs)
 
     destination = installed_package_xml().parent
+    if destination.is_symlink():
+        # Never let the addon manager overwrite a linked source checkout.
+        _install_archive_direct(archive_path, destination)
+        emit(ok=True, version=package_version(destination / "package.xml"),
+             dependencies=specs)
+        return
     try:
         from Addon import Addon
         from addonmanager_installer import AddonInstaller, InstallationMethod
@@ -240,6 +246,40 @@ def install(archive_path: Path):
     emit(ok=True, version=version, dependencies=specs)
 
 
+def install_symlink(source: Path):
+    source = source.resolve(strict=True)
+    version = package_version(source / "package.xml")
+    if version is None or not (source / "freecad/FreekiCAD").is_dir():
+        raise ValueError("Source is not a FreekiCAD addon directory")
+    destination = installed_package_xml().parent
+    if destination.resolve() == source and not destination.is_symlink():
+        raise ValueError("Source cannot be the installation directory")
+    if source in destination.resolve().parents or destination.resolve() in source.parents:
+        raise ValueError("Source and installation directories must not contain each other")
+    install_dependencies(dependency_specs((source / "package.xml").read_bytes()))
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".FreekiCAD-link-", dir=destination.parent))
+    link = staging / "FreekiCAD"
+    backup = staging / "previous"
+    try:
+        # Create first so permission failures leave the current install intact.
+        link.symlink_to(source, target_is_directory=True)
+        if destination.exists() or destination.is_symlink():
+            destination.rename(backup)
+        try:
+            link.rename(destination)
+        except Exception:
+            if backup.exists() or backup.is_symlink():
+                backup.rename(destination)
+            raise
+        _remove_path(backup)
+    finally:
+        # Retain the backup if rollback itself failed.
+        if not backup.exists() and not backup.is_symlink():
+            shutil.rmtree(staging)
+    emit(ok=True, version=version, symlink_target=str(source))
+
+
 def _remove_freekicad_directory(path: Path):
     """Remove only the known user-addon directory without following links."""
     if path.name.casefold() != "freekicad":
@@ -249,6 +289,10 @@ def _remove_freekicad_directory(path: Path):
 
 def uninstall():
     path = installed_package_xml().parent
+    if path.is_symlink():
+        _remove_freekicad_directory(path)
+        emit(ok=True, removed=True)
+        return
     if not path.exists() and not path.is_symlink():
         emit(ok=True, removed=False)
         return
@@ -289,7 +333,15 @@ def main(argv=None):
         action = argv[0]
         if action == "status":
             path = installed_package_xml()
-            emit(ok=True, version=package_version(path), path=str(path))
+            result = dict(ok=True, version=package_version(path), path=str(path))
+            if path.parent.is_symlink():
+                result["symlink_target"] = str(path.parent.resolve())
+            emit(**result)
+            return 0
+        if action == "install-symlink":
+            if len(argv) != 2:
+                raise ValueError("install-symlink requires a source directory")
+            install_symlink(Path(argv[1]))
             return 0
         if action == "install":
             if len(argv) != 2:

@@ -947,5 +947,111 @@ class AddonManagerTest(unittest.TestCase):
             self.assertEqual(version, "1.1.3")
 
 
+class SymlinkInstallTests(unittest.TestCase):
+    def test_status_marks_symlink_without_displaying_path_after_refresh(self):
+        with mock.patch.object(addon_manager, "freecad_commands", return_value=[["freecadcmd"]]), \
+                mock.patch.object(addon_manager, "freecad_installation_version", return_value="1.1.3"), \
+                mock.patch.object(addon_manager, "bundled_version", return_value="8.2"), \
+                mock.patch.object(addon_manager, "run_freecad_helper", return_value={
+                    "version": "8.2", "symlink_target": "/source/FreekiCAD"}):
+            status = addon_manager.freekicad_status(query_freecad=True)
+        self.assertEqual(status.status_text, "Installed 8.2 — Symlink")
+
+    def test_symlink_install_uses_existing_process_guard(self):
+        with mock.patch.object(addon_manager, "freekicad_source_directory", return_value=Path("/source/FreekiCAD")), \
+                mock.patch.object(addon_manager, "_require_no_running_instances", side_effect=RuntimeError("Close FreeCAD")), \
+                mock.patch.object(addon_manager, "run_freecad_helper") as helper:
+            with self.assertRaisesRegex(RuntimeError, "Close FreeCAD"):
+                addon_manager.install_freekicad_symlink()
+        helper.assert_not_called()
+
+    def test_source_only_button(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "FreekiCAD"
+            (source / "freecad/FreekiCAD").mkdir(parents=True)
+            (source / "package.xml").write_text("<package><version>8.2</version></package>")
+            with mock.patch.object(addon_manager, "_source_root", return_value=root), \
+                    mock.patch.object(sys, "frozen", False, create=True), \
+                    mock.patch.object(sys, "_MEIPASS", None, create=True):
+                status = addon_manager.AddonStatus(addon_manager.FREEKICAD, "FreekiCAD", "8.2", None)
+                self.assertEqual(status.as_row()["symlink"], "Install Symlink")
+                for installed_version in ("8.2", "8.1"):
+                    for detail in ("", "Symlink"):
+                        installed = addon_manager.AddonStatus(
+                            addon_manager.FREEKICAD, "FreekiCAD", "8.2",
+                            installed_version, detail)
+                        self.assertEqual(installed.as_row()["symlink"], "")
+                with mock.patch.object(sys, "frozen", True):
+                    self.assertEqual(status.as_row()["symlink"], "")
+                with mock.patch.object(sys, "_MEIPASS", str(root)):
+                    self.assertEqual(status.as_row()["symlink"], "")
+                unavailable = addon_manager.AddonStatus(addon_manager.FREEKICAD, "FreekiCAD", "8.2", None, available=False)
+                self.assertEqual(unavailable.as_row()["symlink"], "")
+
+    def test_install_reinstall_and_uninstall_preserve_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "checkout/FreekiCAD"
+            (source / "freecad/FreekiCAD").mkdir(parents=True)
+            metadata = "<package><version>8.2</version></package>"
+            (source / "package.xml").write_text(metadata)
+            destination = root / "user/Mod/FreekiCAD"
+            destination.mkdir(parents=True)
+            (destination / "old.txt").write_text("old")
+            with mock.patch.object(freecad_addon_installer, "installed_package_xml", return_value=destination / "package.xml"), \
+                    mock.patch.object(freecad_addon_installer, "install_dependencies"), \
+                    mock.patch.object(freecad_addon_installer, "emit"):
+                for _ in range(2):
+                    freecad_addon_installer.install_symlink(source)
+                    self.assertTrue(destination.is_symlink())
+                    self.assertEqual(destination.readlink(), source.resolve())
+                with mock.patch.object(freecad_addon_installer, "emit") as emit:
+                    self.assertEqual(freecad_addon_installer.main(["status"]), 0)
+                    self.assertEqual(emit.call_args.kwargs["symlink_target"], str(source.resolve()))
+                (source / "live.py").write_text("changed")
+                self.assertEqual((destination / "live.py").read_text(), "changed")
+                freecad_addon_installer.uninstall()
+                self.assertFalse(destination.is_symlink())
+                self.assertEqual((source / "package.xml").read_text(), metadata)
+                self.assertTrue((source / "live.py").is_file())
+
+    def test_failed_symlink_creation_preserves_existing_install(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            (source / "freecad/FreekiCAD").mkdir(parents=True)
+            (source / "package.xml").write_text("<package><version>8.2</version></package>")
+            destination = root / "Mod/FreekiCAD"
+            destination.mkdir(parents=True)
+            (destination / "old.txt").write_text("old")
+            with mock.patch.object(freecad_addon_installer, "installed_package_xml", return_value=destination / "package.xml"), \
+                    mock.patch.object(freecad_addon_installer, "install_dependencies"), \
+                    mock.patch.object(Path, "symlink_to", side_effect=PermissionError("denied")):
+                with self.assertRaises(PermissionError):
+                    freecad_addon_installer.install_symlink(source)
+            self.assertEqual((destination / "old.txt").read_text(), "old")
+
+    def test_archive_install_replaces_link_without_writing_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "package.xml").write_text("original")
+            destination = root / "Mod/FreekiCAD"
+            destination.parent.mkdir()
+            destination.symlink_to(source, target_is_directory=True)
+            archive = root / "addon.zip"
+            with zipfile.ZipFile(archive, "w") as z:
+                z.writestr("package.xml", "<package><version>8.2</version></package>")
+            with mock.patch.object(freecad_addon_installer, "installed_package_xml", return_value=destination / "package.xml"), \
+                    mock.patch.object(freecad_addon_installer, "install_dependencies"), \
+                    mock.patch.object(freecad_addon_installer, "emit"):
+                freecad_addon_installer.install(archive)
+            self.assertFalse(destination.is_symlink())
+            self.assertEqual((source / "package.xml").read_text(), "original")
+            self.assertEqual(freecad_addon_installer.package_version(destination / "package.xml"), "8.2")
+
+
 if __name__ == "__main__":
     unittest.main()
