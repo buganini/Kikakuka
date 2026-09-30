@@ -1,5 +1,6 @@
 # Next:
 * KiCad add-on: Add Open in FreeCAD to refresh the current PCB in a matching FreeCAD document, prioritizing the active document, or create a new document when no match exists, and bring FreeCAD to the front
+* FreekiCAD: Add Goto KiCad to the PCB object's context menu to open or focus the linked PCB in KiCad
 * FreekiCAD: Speed up bending and importing copper layers and silkscreen
 * FreekiCAD: Fix board outline distortion during sketch import and synchronization back to KiCad by preserving arc geometry and matching coincident endpoints correctly
 

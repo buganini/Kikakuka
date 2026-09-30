@@ -2763,6 +2763,9 @@ def _handle_bus_response(reply):
     Dispatches to the appropriate PcbObject method based on
     action/object/component."""
     action = reply.get("action")
+    if action == "open-file":
+        # Navigation has no model update; send_request already logs errors.
+        return
     obj_label = reply.get("object", "")
     socket_path = reply.get("socket")
     component = reply.get("component", "")
@@ -13150,6 +13153,16 @@ class PcbObjectViewProvider:
     def setupContextMenu(self, vobj, menu):
         action = menu.addAction("Reload KiCad PCB")
         action.triggered.connect(lambda: self._reload(vobj))
+        action = menu.addAction("Goto KiCad")
+        action.setEnabled(bool(getattr(vobj.Object, "FileName", "")))
+        action.triggered.connect(lambda: self._goto_kicad(vobj))
+
+    def _goto_kicad(self, vobj):
+        from .im_client import send_request
+        obj = vobj.Object
+        filename = _resolved_linked_filename(obj)
+        if filename:
+            send_request("open-file", filename, object_label=obj.Label)
 
     def _reload(self, vobj):
         obj = vobj.Object
