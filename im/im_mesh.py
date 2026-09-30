@@ -29,7 +29,6 @@ RESULT_TIMEOUT = 120.0
 POLL_INTERVAL = 0.2
 _nodes_lock = threading.RLock()
 _local_node = None
-_secret_cache = {}
 _active_endpoints = set()
 KICAD_EDITOR_PROCESS_NAMES = {"kicad", "pcbnew", "eeschema", "pcb editor"}
 
@@ -285,10 +284,12 @@ def _candidate_endpoints():
 
 
 def _shared_token():
+    """Read the shared credential under its creation lock on every use.
+
+    Runtime-directory cleanup or token replacement must not split long-lived
+    nodes from later clients. Never accept an obsolete in-memory credential.
+    """
     path = _ensure_runtime_dir() / "mesh-token"
-    cached = _secret_cache.get(path)
-    if cached is not None:
-        return cached
     with _file_lock("mesh-token"):
         if path.exists():
             token = path.read_text(encoding="ascii")
@@ -299,7 +300,6 @@ def _shared_token():
                 stream.write(token)
         if not re.fullmatch(r"[0-9a-f]{64}", token):
             raise ValueError(f"invalid instance token file: {path}")
-        _secret_cache[path] = token
         return token
 
 
@@ -456,7 +456,7 @@ class InstanceNode:
         self.pcb_opener = None
         self.source_registrar = None
         self.id = uuid.uuid4().hex
-        self.token = _shared_token()
+        _shared_token()
         self.pid = os.getpid()
         self.started_ms = _started_ms(self.pid)
         self.endpoint = _endpoint(self.pid, self.started_ms)
@@ -495,6 +495,10 @@ class InstanceNode:
         except Exception:
             self.close()
             raise
+
+    @property
+    def token(self):
+        return _shared_token()
 
     def _serve(self):
         listener = None

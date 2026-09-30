@@ -357,6 +357,28 @@ class InstanceMeshTests(unittest.TestCase):
                     child.terminate()
                     child.join(5)
 
+    def test_late_process_can_discover_old_node_after_token_recreation(self):
+        context = multiprocessing.get_context("spawn")
+        ready = context.Queue()
+        stop = context.Event()
+        child = context.Process(target=_child_node,
+                                args=(self.directory.name, ready, stop))
+        child.start()
+        try:
+            pid = ready.get(timeout=8)
+            old_token = im_mesh._shared_token()
+            (Path(self.directory.name) / "mesh-token").unlink()
+            self.assertNotEqual(im_mesh._shared_token(), old_token)
+            peers = im_mesh.discover()
+            self.assertEqual([peer["pid"] for peer in peers], [pid])
+            self.assertEqual(im_mesh.request({"action": "probe"})["owner"], pid)
+        finally:
+            stop.set()
+            child.join(5)
+            if child.is_alive():
+                child.terminate()
+                child.join(5)
+
     def test_broadcast_and_snapshot_for_late_joiner(self):
         one = self.node(lambda _: {"status": "ok"})
         path = os.path.realpath(os.path.join(self.directory.name, "board.kicad_pcb"))
@@ -594,6 +616,38 @@ class InstanceMeshTests(unittest.TestCase):
         self.assertEqual(im_mesh._exchange(
             node.endpoint, {"mesh_action": "snapshot"}, token="wrong")["status"],
             "error")
+
+    def test_existing_node_accepts_later_client_after_token_replacement(self):
+        node = self.node(lambda _: {"status": "ok"})
+        old_token = node.token
+        path = Path(self.directory.name) / "mesh-token"
+        path.write_text("a" * 64, encoding="ascii")
+        request = {"mesh_action": "hello"}
+        self.assertEqual(im_mesh._exchange(node.endpoint, request)["status"], "ok")
+        self.assertEqual(node.token, "a" * 64)
+        self.assertEqual(im_mesh._exchange(
+            node.endpoint, request, token=old_token)["status"], "error")
+
+    def test_token_recreation_keeps_existing_and_new_nodes_connected(self):
+        old_node = self.node(lambda _: {"status": "ok"})
+        old_token = old_node.token
+        (Path(self.directory.name) / "mesh-token").unlink()
+        new_node = self.node(lambda _: {"status": "ok"})
+        self.assertNotEqual(old_token, new_node.token)
+        self.assertEqual(old_node.token, new_node.token)
+        for node in (old_node, new_node):
+            self.assertEqual(im_mesh._exchange(
+                node.endpoint, {"mesh_action": "hello"})["status"], "ok")
+
+    def test_invalid_token_file_does_not_fall_back_to_cached_secret(self):
+        node = self.node(lambda _: {"status": "ok"})
+        old_token = node.token
+        (Path(self.directory.name) / "mesh-token").write_text("broken", encoding="ascii")
+        with self.assertRaises(ValueError):
+            im_mesh._shared_token()
+        reply = im_mesh._exchange(node.endpoint, {"mesh_action": "hello"}, token=old_token)
+        self.assertEqual(reply["status"], "error")
+        self.assertIn("invalid instance token file", reply["message"])
 
     def test_pcb_request_skips_node_without_kicad_dependency(self):
         self.node(lambda _: {"status": "ok", "owner": "without-kipy"}, kicad_api=False)

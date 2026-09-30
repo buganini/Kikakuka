@@ -86,6 +86,17 @@ random token is stored in the private runtime directory
 reject requests without it. This directory also holds the cross-process lock
 files.
 
+The token is created under a file lock when `mesh-token` is missing and is
+reused across application restarts; there is no scheduled rotation. Senders
+and receivers read the current token file on each request, so replacing or
+recreating the file does not leave long-running nodes using an old cached
+value. Invalid token files fail validation instead of falling back to an old
+secret. A replacement between sending and receiving can reject that in-flight
+request; later requests use the current token. Older nodes that cache the
+token at startup must be updated and restarted once to gain this behavior.
+The token authenticates local requests; it does not encrypt traffic or exclude
+programs running as the same OS user that can read the file.
+
 Discovery scans socket files or the Windows pipe namespace **on demand**. If
 Windows pipe enumeration is unavailable, it derives names from the process
 list. A `hello` request checks protocol version, PID, creation time, and
