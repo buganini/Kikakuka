@@ -6,6 +6,7 @@
 * FreekiCAD: Speed up bending and importing copper layers and silkscreen
 * FreekiCAD: Fix board outline distortion during sketch import and synchronization back to KiCad by preserving arc geometry and matching coincident endpoints correctly
 * Gerber Conversion: Recognize CAM350 `.GBX` files and map `L<n>[LQ|T|P]` filenames to copper, solder-mask, silkscreen, and paste layers
+* Gerber Conversion: Preserve ordered dark/clear Gerber layer polarity when converting regions
 
 # 8.1.1:
 * Fix Windows Instance Manager lock sharing, FreeCAD file launching, and add-on management errors

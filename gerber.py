@@ -2,10 +2,15 @@ import os
 import re
 import sys
 import zipfile
+from itertools import groupby
+
 from pcb_tools import gerber
 import pcbnew
 import math
 import kikit.common
+import shapely
+from shapely.geometry import Polygon
+
 from tableloader import TableLoader
 
 PKG_BASE = os.path.dirname(__file__)
@@ -361,6 +366,121 @@ def prepare_differ_paste_drills(board, position_tolerance=1000):
             board.Remove(shape)
 
 
+def arc_path_points(arc, max_error):
+    """Approximate a Gerber arc with points no farther than max_error away."""
+    start_angle = math.atan2(
+        arc.start[1] - arc.center[1], arc.start[0] - arc.center[0])
+    end_angle = math.atan2(
+        arc.end[1] - arc.center[1], arc.end[0] - arc.center[0])
+    if arc.direction == "counterclockwise":
+        sweep = (end_angle - start_angle) % (2 * math.pi)
+    else:
+        sweep = -((start_angle - end_angle) % (2 * math.pi))
+    if abs(sweep) < 1e-12 and arc.start == arc.end:
+        sweep = (2 * math.pi if arc.direction == "counterclockwise"
+                 else -2 * math.pi)
+
+    radius = arc.radius
+    if radius <= max_error:
+        max_step = math.pi / 12
+    else:
+        max_step = 2 * math.acos(max(-1, 1 - max_error / radius))
+        max_step = min(max_step, math.pi / 12)
+    steps = max(1, math.ceil(abs(sweep) / max_step))
+    points = [
+        (
+            arc.center[0] + radius * math.cos(start_angle + sweep * i / steps),
+            arc.center[1] + radius * math.sin(start_angle + sweep * i / steps),
+        )
+        for i in range(1, steps)
+    ]
+    points.append(arc.end)
+    return points
+
+
+def region_geometry(region):
+    """Convert a Gerber region, including curved edges, to Shapely geometry."""
+    if not region.primitives:
+        return Polygon()
+    max_error = 0.001 if region.units == "metric" else 0.001 / 25.4
+    points = [region.primitives[0].start]
+    for edge in region.primitives:
+        if isinstance(edge, gerber.primitives.Arc):
+            points.extend(arc_path_points(edge, max_error))
+        else:
+            points.append(edge.end)
+    geometry = Polygon(points)
+    if not geometry.is_valid:
+        geometry = shapely.make_valid(geometry)
+    return geometry
+
+
+def iter_polygons(geometry):
+    if geometry.is_empty:
+        return
+    if isinstance(geometry, Polygon):
+        yield geometry
+        return
+    for child in getattr(geometry, "geoms", []):
+        yield from iter_polygons(child)
+
+
+def append_ring(poly_set, coordinates, fromUnit, outline, hole=-1):
+    points = []
+    for x, y in list(coordinates)[:-1]:
+        point = (fromUnit(x), -fromUnit(y))
+        if not points or point != points[-1]:
+            points.append(point)
+    if len(points) > 1 and points[0] == points[-1]:
+        points.pop()
+    for x, y in points:
+        poly_set.Append(x, y, outline, hole)
+
+
+def populate_kicad_by_composited_regions(
+        board, primitives, fromUnit, layer, errors):
+    """Apply ordered dark/clear Gerber regions and add the resulting polygons."""
+    geometry = Polygon()
+    for polarity, grouped in groupby(
+            primitives, key=lambda primitive: primitive.level_polarity):
+        regions = list(grouped)
+        unsupported = [
+            primitive for primitive in regions
+            if not isinstance(primitive, gerber.primitives.Region)
+        ]
+        if unsupported:
+            errors.append(
+                "Cannot composite Gerber polarity containing "
+                f"{unsupported[0].__class__.__name__}")
+            return False
+        operand = shapely.union_all([
+            region_geometry(region) for region in regions])
+        if polarity == "clear":
+            geometry = geometry.difference(operand)
+        else:
+            geometry = geometry.union(operand)
+
+    if not geometry.is_valid:
+        geometry = shapely.make_valid(geometry)
+    for polygon in iter_polygons(geometry):
+        poly_set = pcbnew.SHAPE_POLY_SET()
+        outline = poly_set.NewOutline()
+        append_ring(poly_set, polygon.exterior.coords, fromUnit, outline)
+        for interior in polygon.interiors:
+            hole = poly_set.NewHole(outline)
+            append_ring(
+                poly_set, interior.coords, fromUnit, outline, hole)
+
+        shape = pcbnew.PCB_SHAPE()
+        shape.SetShape(pcbnew.SHAPE_T_POLY)
+        shape.SetPolyShape(poly_set)
+        shape.SetLayer(layer)
+        shape.SetFilled(True)
+        shape.SetWidth(0)
+        board.Add(shape)
+    return True
+
+
 def populate_kicad(board, gbr, layer, errors):
     # print(gbr, dir(gbr))
     # print(gbr.__dict__)
@@ -386,6 +506,22 @@ def populate_kicad(board, gbr, layer, errors):
         if hits is not None and index < len(hits):
             drill_function = tool_functions.get(hits[index].tool.number)
         annotated_primitives.append((primitive, drill_function))
+
+    clear_indexes = [
+        index for index, (primitive, _) in enumerate(annotated_primitives)
+        if getattr(primitive, "level_polarity", "dark") == "clear"
+    ]
+    if clear_indexes:
+        last_clear = clear_indexes[-1]
+        composited = populate_kicad_by_composited_regions(
+            board,
+            [primitive for primitive, _ in annotated_primitives[:last_clear + 1]],
+            fromUnit,
+            layer,
+            errors,
+        )
+        if composited:
+            annotated_primitives = annotated_primitives[last_clear + 1:]
 
     pth_footprint = None
     for primitive, drill_function in annotated_primitives:
