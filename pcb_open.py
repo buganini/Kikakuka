@@ -3,6 +3,7 @@
 import os
 import platform
 import subprocess
+import sys
 
 from im import im_mesh
 
@@ -38,6 +39,7 @@ def request_workspace_open(
     filepath,
     timeout=WORKSPACE_OPEN_TIMEOUT,
     ensure_fresh=False,
+    activation_error_handler=None,
 ):
     """Ask the lowest-PID live node to open/focus this exact file."""
     request = {"action": "open-file", "filepath": filepath}
@@ -48,10 +50,18 @@ def request_workspace_open(
         raise RuntimeError(reply.get("message", "instance open failed"))
     if reply.get("status") != "ok" or reply.get("filepath") != filepath:
         raise RuntimeError("instance node returned a mismatched open result")
+    activation_error = reply.get("activation_error")
+    if activation_error:
+        if activation_error_handler is not None:
+            activation_error_handler(activation_error)
+        else:
+            print(f"Could not bring editor to front: {activation_error}",
+                  file=sys.stderr)
     return True
 
 
-def open_kicad_file(filepath, ensure_fresh=False):
+def open_kicad_file(filepath, ensure_fresh=False,
+                    activation_error_handler=None):
     """Open a KiCad board, schematic, or project via the instance mesh.
 
     Returns ``"workspace"`` (mesh) or ``"system"`` to identify the path used.
@@ -72,7 +82,11 @@ def open_kicad_file(filepath, ensure_fresh=False):
     except Exception as exc:
         print(f"Instance mesh node unavailable: {exc}")
     try:
-        if request_workspace_open(filepath, ensure_fresh=ensure_fresh):
+        request_options = {"ensure_fresh": ensure_fresh}
+        if activation_error_handler is not None:
+            request_options["activation_error_handler"] = (
+                activation_error_handler)
+        if request_workspace_open(filepath, **request_options):
             return "workspace"
     except ConnectionError as exc:
         print(f"Instance mesh unavailable for {filepath}: {exc}")

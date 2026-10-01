@@ -7,6 +7,7 @@ import PUI
 import re
 import subprocess
 import platform
+from PySide6 import QtCore
 from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
 from common import *
@@ -54,6 +55,22 @@ if platform.system() == 'Windows':
     import win32gui
     import win32process
     import win32con
+
+
+class _WindowActivationErrorNotifier(QtCore.QObject):
+    show_error = QtCore.Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.show_error.connect(
+            self._show_error, QtCore.Qt.ConnectionType.QueuedConnection)
+
+    @QtCore.Slot(str)
+    def _show_error(self, message):
+        Critical(message, "Cannot Bring Window to Front")
+
+
+_window_activation_error_notifier = _WindowActivationErrorNotifier()
 
 def open_folder(location):
     if platform.system() == 'Darwin':
@@ -131,6 +148,17 @@ def macos_bring_pid_to_front(pid):
         print(f"Failed to bring application to front. Process with PID {pid} may not have a GUI window")
         return False
 
+
+def linux_bring_pid_to_front(pid):
+    from im.linux_window import WindowActivationError, bring_pid_to_front
+
+    try:
+        return bring_pid_to_front(pid)
+    except WindowActivationError as exc:
+        print(f"Failed to bring application to front: {exc}")
+        _window_activation_error_notifier.show_error.emit(str(exc))
+        return False
+
 def bringToFront(pid):
     if not pid or not owned_pid_exists(pid):
         return False
@@ -140,7 +168,7 @@ def bringToFront(pid):
     elif platform.system() == 'Windows':
         return windows_bring_pid_to_front(pid)
     else:
-        return False
+        return linux_bring_pid_to_front(pid)
 
 
 def _workspace_kicad_compatibility(strict=False):
@@ -558,7 +586,11 @@ class WorkspaceUI(PUIView):
     def _open_kicad_file_and_refresh(self, path):
         from pcb_open import open_kicad_file
 
-        open_kicad_file(path)
+        open_kicad_file(
+            path,
+            activation_error_handler=(
+                _window_activation_error_notifier.show_error.emit),
+        )
         retries = (
             KICAD_SOCKET_REFRESH_RETRIES
             if path.lower().endswith(".kicad_pcb")

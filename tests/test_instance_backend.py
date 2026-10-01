@@ -31,6 +31,29 @@ class RetryKicadCallTests(unittest.TestCase):
 
 
 class InstanceBackendTests(unittest.TestCase):
+    def test_linux_focus_uses_x11_backend(self):
+        with mock.patch.object(backend, "owned_pid_exists", return_value=True), \
+                mock.patch.object(
+                    backend.platform, "system", return_value="Linux"), \
+                mock.patch(
+                    "im.linux_window.bring_pid_to_front",
+                    return_value=True,
+                ) as activate:
+            self.assertIsNone(backend._focus(123))
+        activate.assert_called_once_with(123)
+
+    def test_linux_focus_returns_wayland_error_without_qt(self):
+        from im.linux_window import WindowActivationError
+
+        with mock.patch.object(backend, "owned_pid_exists", return_value=True), \
+                mock.patch.object(
+                    backend.platform, "system", return_value="Linux"), \
+                mock.patch(
+                    "im.linux_window.bring_pid_to_front",
+                    side_effect=WindowActivationError("native Wayland"),
+                ):
+            self.assertEqual(backend._focus(123), "native Wayland")
+
     def test_launch_empty_freecad_uses_application_not_pcb_association(self):
         for system, executable, expected in (
                 ("Darwin", None, ["open", "-a", "FreeCAD", "-n", "-W", "--args"]),
@@ -652,6 +675,27 @@ class InstanceBackendTests(unittest.TestCase):
         launch.assert_not_called()
         node.publish.assert_not_called()
         focus.assert_called_once_with(111)
+
+    def test_open_reply_includes_window_activation_error(self):
+        node = mock.Mock()
+        node.snapshot.return_value = {"/boards/main.kicad_pcb": 111}
+        board = mock.Mock()
+        with mock.patch.object(backend, "local_node", return_value=node), \
+                mock.patch.object(backend.os.path, "isfile", return_value=True), \
+                mock.patch.object(
+                    backend, "_find_board",
+                    return_value=(111, "/ipc/api.sock", board),
+                ), \
+                mock.patch.object(
+                    backend, "_focus", return_value="native Wayland"):
+            reply = backend.handle({
+                "action": "open-file",
+                "filepath": "/boards/main.kicad_pcb",
+            })
+
+        self.assertEqual(reply["status"], "ok")
+        self.assertEqual(reply["activation_error"], "native Wayland")
+        self.assertEqual(reply["message"], "native Wayland")
 
     def test_ensure_fresh_reuses_ready_probe_connection_for_revert(self):
         node = mock.Mock()

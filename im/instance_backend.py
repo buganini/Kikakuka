@@ -376,7 +376,7 @@ def scan_open_kicad_boards():
 
 def _focus(pid):
     if not owned_pid_exists(pid):
-        return
+        return None
     if platform.system() == "Darwin":
         try:
             subprocess.run(["osascript", "-e", f'tell application "System Events" to set frontmost of (first process whose unix id is {int(pid)}) to true'],
@@ -407,6 +407,15 @@ def _focus(pid):
                 user32.SetForegroundWindow(found[0])
         except (OSError, AttributeError):
             pass
+    elif platform.system() == "Linux":
+        from .linux_window import WindowActivationError, bring_pid_to_front
+
+        try:
+            if not bring_pid_to_front(pid):
+                return f"No visible X11 window was found for PID {pid}."
+        except WindowActivationError as exc:
+            return str(exc)
+    return None
 
 
 def freecad_process_environment(executable=None):
@@ -660,12 +669,15 @@ def handle(request):
     if action == "open-file":
         if ensure_fresh and board is not None:
             _revert_ready_board(board)
-        _focus(pid)
+        activation_error = _focus(pid)
         reply = {
             "status": "ok", "action": action, "filepath": filepath, "pid": pid,
         }
         if socket_path:
             reply["socket"] = socket_path
+        if activation_error:
+            reply["activation_error"] = activation_error
+            reply["message"] = activation_error
         return reply
 
     if not is_board:

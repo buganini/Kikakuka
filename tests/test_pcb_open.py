@@ -31,6 +31,18 @@ class PcbOpenTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "mismatched"):
                 pcb_open.request_workspace_open("/boards/panel.kicad_pcb")
 
+    def test_workspace_request_reports_activation_error_to_frontend(self):
+        path = "/boards/panel.kicad_pcb"
+        reply = {
+            "status": "ok", "action": "open-file", "filepath": path,
+            "pid": 123, "activation_error": "native Wayland",
+        }
+        handler = mock.Mock()
+        with mock.patch("pcb_open.im_mesh.request", return_value=reply):
+            self.assertTrue(pcb_open.request_workspace_open(
+                path, activation_error_handler=handler))
+        handler.assert_called_once_with("native Wayland")
+
     def test_manager_error_does_not_duplicate_open(self):
         with mock.patch("pcb_open.os.path.isfile", return_value=True):
             with mock.patch("pcb_open.request_workspace_open", side_effect=RuntimeError("KiCad busy")):

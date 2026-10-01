@@ -9,6 +9,26 @@ from im import __main__ as im_main
 
 
 class InstanceManagerMainTests(unittest.TestCase):
+    def test_request_logs_headless_window_activation_error(self):
+        reply = {
+            "status": "ok",
+            "pid": 123,
+            "activation_error": "native Wayland cannot be activated",
+            "message": "native Wayland cannot be activated",
+        }
+        with mock.patch.object(
+                im_main, "instance_handle", return_value=reply), \
+                self.assertLogs("im", level="INFO") as logs:
+            self.assertIs(im_main._handle({
+                "action": "open-file",
+                "filepath": "/boards/main.kicad_pcb",
+            }), reply)
+
+        self.assertTrue(any(
+            "message=native Wayland cannot be activated" in line
+            for line in logs.output
+        ))
+
     def test_no_subcommand_keeps_run_as_the_default(self):
         self.assertEqual(im_main._parse_arguments([]).command, "run")
 
