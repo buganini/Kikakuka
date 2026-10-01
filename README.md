@@ -264,7 +264,7 @@ For a standalone FreekiCAD deployment without Kikakuka, follow the
         * Alignment example boards: [`assembly-power.kicad_pcb`](samples/assembly-power.kicad_pcb), [`assembly-mcu.kicad_pcb`](samples/assembly-mcu.kicad_pcb), [`assembly-led.kicad_pcb`](samples/assembly-led.kicad_pcb), and [`assembly-mezzanine.kicad_pcb`](samples/assembly-mezzanine.kicad_pcb).
         * The coupler plane is defined by the footprint position, side, rotation, and these custom footprint properties:
             * `CouplerFixed` and `CouplerMoving` use `Z` to move the plane origin along the PCB surface normal. It defaults to `0 mm`; the origin starts at the PCB surface, including the board thickness on F.Cu, and the direction is reversed on B.Cu.
-            * `Offset` moves the plane origin on the PCB surface in the direction indicated by the footprint triangle. It defaults to `0 mm`. `Z` and `Offset` accept values without a unit as millimetres and support `mm`, `in`, `mil` (`0.001 in`), and `um`.
+            * `Offset` moves the plane origin on the PCB surface in the direction indicated by the footprint triangle. It defaults to `0 mm`. `Z` and `Offset` accept values without a unit as millimetres and support `mm`, `cm`, `in`, `mil` (`0.001 in`), and `um`.
             * `Tilt` tilts the plane around the footprint's local X axis. It is specified in degrees and defaults to `0`.
             * `CouplerAt` uses `TargetX`, `TargetY`, and `TargetZ` as its absolute FreeCAD world target and does not have a local `Z` property. The target properties default to `0 mm`; the same length units are supported. B.Cu is recommended for the usual bottom-surface placement at `TargetZ`; use F.Cu only to reference the top surface.
         * Placement applies the footprint position and rotation, then `Offset`, `Z`, and `Tilt`. `Tilt` rotates around the footprint's local X axis at the offset origin; it does not redirect either displacement. The footprint's normal KiCad rotation supplies the rotation around its local Z axis.
@@ -274,8 +274,9 @@ For a standalone FreekiCAD deployment without Kikakuka, follow the
         * Add bend parameters as text on the same `FreekiCAD` layer near a bend line endpoint, for example `a=-70 r=0.5` or `a=-70 s=0.61`.
             * The text anchor must be within `0.1 mm` of a bend line endpoint.
             * `a` is bend angle in degrees.
-            * `r` is bend radius in mm.
-            * `s` is bend spanning in mm and is used to derive `r` when `r` is omitted, using the board thickness from stackup.
+            * `r` is bend radius. `s` is the full bend span and is used to derive `r` when `r` is omitted, using the board thickness from stackup.
+            * Both lengths accept `mm`, `cm`, `um` (also `µm`/`μm`), `in`, and `mil`; omitted units mean mm. Unit suffixes are case-insensitive. Unsupported units are rejected.
+            * Parameters may appear in any order, with whitespace around `=` and before units: `r = 5 mm a = 60` is equivalent to `a=60 r=5mm`. If both `r` and `s` are present, `r` takes precedence.
         * After loading the board in FreeCAD, each bend line appears as a child object with `Angle`, `Radius`, and `Active` properties.
         * The linked PCB object also has an `EnableBending` property to toggle the deformation on or off.
         * Imported copper and solder mask are cut with the same board pieces. Rigid display faces follow each piece, while faces in a bend band are rebuilt with the wedge's curved point mapping.
@@ -322,7 +323,7 @@ Thickness=25 um
 optional and property names are case-insensitive. A non-empty `Name` becomes
 the suffix of the FreeCAD child name and label (`F_Stiffener_<Name>` or
 `B_Stiffener_<Name>`) and is included in bend-overlap warnings. Thickness
-accepts `mm`, `in`, `mil` (`0.001 in`), and `um`; a unitless value is
+accepts `mm`, `cm`, `in`, `mil` (`0.001 in`), and `um`; a unitless value is
 interpreted as millimetres.
 
 Invalid annotations, annotations outside an area, and areas with multiple
@@ -380,7 +381,7 @@ contains the unit-cube placeholder and optional coupler helper models.
 * [`CouplerFixed`](kicad-addon/library/footprints/Kikakuka.pretty/CouplerFixed.kicad_mod) and [`CouplerMoving`](kicad-addon/library/footprints/Kikakuka.pretty/CouplerMoving.kicad_mod) define matching planes for [coupler-based PCB alignment](#coupler-based-pcb-alignment). Give a pair the same reference and use their `Z`, `Offset`, and `Tilt` properties as needed.
 * [`CouplerAt`](kicad-addon/library/footprints/Kikakuka.pretty/CouplerAt.kicad_mod) aligns its PCB to absolute FreeCAD world `TargetX`, `TargetY`, and `TargetZ` coordinates, all defaulting to zero. Place it on B.Cu for the usual behavior, where the PCB bottom surface is positioned at `TargetZ`; use F.Cu only to reference the top surface.
 
-For coupler length properties (`Z`, `Offset`, `TargetX`, `TargetY`, and `TargetZ`), unitless values are millimetres; supported suffixes are `mm`, `in`, `mil`, and `um`/`µm`. `Tilt` is in degrees and may optionally use `deg` or `°`.
+For coupler length properties (`Z`, `Offset`, `TargetX`, `TargetY`, and `TargetZ`), unitless values are millimetres; supported suffixes are `mm`, `cm`, `in`, `mil`, and `um`/`µm`. `Tilt` is in degrees and may optionally use `deg` or `°`.
 
 All three coupler footprints use the `Unspecified` type, placing their helper models under **Virtual Models** in KiCad's 3D Viewer.
 

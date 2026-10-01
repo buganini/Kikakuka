@@ -659,16 +659,20 @@ def _parse_bend_annotation(text_val, thickness):
     if m_a:
         angle = float(m_a.group(1))
 
-    m_r = re.search(r'r\s*=\s*' + _BEND_ANNOTATION_NUMBER_RE, text_val)
+    # Capture the entire quantity, including unknown suffixes, so invalid
+    # units fail instead of silently treating e.g. 100um as 100 millimetres.
+    # A following annotation key (a=, r=, s=) is not a spaced unit suffix.
+    quantity = r'([^\s,;]+(?:\s+(?![A-Za-z]+\s*=)[A-Za-zµμ]+)?)'
+    m_r = re.search(r'(?<!\w)r\s*=\s*' + quantity, text_val)
     if m_r:
-        radius = float(m_r.group(1))
+        radius = parse_length_mm(m_r.group(1), "bend radius")
         return angle, radius, span
 
-    m_s = re.search(r's\s*=\s*' + _BEND_ANNOTATION_NUMBER_RE, text_val)
+    m_s = re.search(r'(?<!\w)s\s*=\s*' + quantity, text_val)
     if not m_s:
         return angle, radius, span
 
-    span = float(m_s.group(1))
+    span = parse_length_mm(m_s.group(1), "bend spanning")
     angle_rad = math.radians(angle)
     if abs(angle_rad) <= 1e-9:
         FreeCAD.Console.PrintWarning(

@@ -80,7 +80,7 @@ def parse_stiffener_annotation(value, warn=None):
     else:
         default_color, default_opacity = MATERIAL_DEFAULTS[material]
     if "thickness" not in properties:
-        raise ValueError("missing Thickness; expected mm, in, mil, or um")
+        raise ValueError("missing Thickness; expected mm, cm, in, mil, or um")
     thickness = parse_length_mm(properties["thickness"], "Thickness")
     if thickness <= 0:
         raise ValueError("Thickness must be greater than zero")

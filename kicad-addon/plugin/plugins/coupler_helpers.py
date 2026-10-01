@@ -21,7 +21,7 @@ from placeholder_models import (
 COUPLER_MODELS = KICAD10_COMPAT.coupler_model_uris
 _LENGTH_RE = re.compile(
     r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))"
-    r"(?:\s*(mm|in|mil|um|µm))?\s*",
+    r"(?:\s*(mm|cm|in|mil|um|µm))?\s*",
     re.IGNORECASE,
 )
 _ANGLE_RE = re.compile(
@@ -57,11 +57,13 @@ def parse_signed_length_mm(value, quantity_name: str) -> float:
     if match is None:
         raise ValueError(
             f"invalid {quantity_name} value {value!r}; "
-            "expected mm, in, mil, or um"
+            "expected mm, cm, in, mil, or um"
         )
     result = float(match.group(1))
     unit = (match.group(2) or "mm").lower()
-    if unit == "in":
+    if unit == "cm":
+        result *= 10.0
+    elif unit == "in":
         result *= 25.4
     elif unit == "mil":
         result *= 0.0254

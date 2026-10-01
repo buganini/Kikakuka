@@ -1,6 +1,8 @@
 # Next:
 * KiCad add-on: Add Open in FreeCAD to refresh the current PCB in a matching FreeCAD document, prioritizing the active document, or create a new document when no match exists, and bring FreeCAD to the front
 * FreekiCAD: Add Goto KiCad to the PCB object's context menu to open or focus the linked PCB in KiCad
+* FreekiCAD: Support mm, cm, um, in, and mil units in bending r/s annotations instead of ignoring unit suffixes
+* FreekiCAD and KiCad add-on: Add cm support to length fields, including coupler coordinates and offsets, stiffener thickness, and placeholder dimensions
 * FreekiCAD: Speed up bending and importing copper layers and silkscreen
 * FreekiCAD: Fix board outline distortion during sketch import and synchronization back to KiCad by preserving arc geometry and matching coincident endpoints correctly
 

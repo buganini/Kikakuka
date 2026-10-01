@@ -20,7 +20,7 @@ PLACEHOLDER_MODEL = KICAD10_COMPAT.placeholder_model_uri
 
 _LENGTH_RE = re.compile(
     r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))"
-    r"(?:\s*(mm|in|mil))?\s*",
+    r"(?:\s*(mm|cm|in|mil))?\s*",
     re.IGNORECASE,
 )
 @dataclass
@@ -34,21 +34,23 @@ class ScanResult:
 
 
 def parse_length_mm(value, quantity_name="length") -> float:
-    """Parse a positive mm/in/mil value, treating a missing suffix as mm."""
+    """Parse a positive mm/cm/in/mil value, treating a missing suffix as mm."""
     if value is None:
         raise ValueError(
-            f"missing {quantity_name}; expected mm, in, or mil")
+            f"missing {quantity_name}; expected mm, cm, in, or mil")
 
     match = _LENGTH_RE.fullmatch(str(value))
     if match is None:
         raise ValueError(
             f"invalid {quantity_name} value {value!r}; "
-            "expected mm, in, or mil"
+            "expected mm, cm, in, or mil"
         )
 
     result = float(match.group(1))
     unit = (match.group(2) or "mm").lower()
-    if unit == "in":
+    if unit == "cm":
+        result *= 10.0
+    elif unit == "in":
         result *= 25.4
     elif unit == "mil":
         result *= 0.0254

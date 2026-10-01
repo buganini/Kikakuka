@@ -254,7 +254,7 @@ custom footprint properties:
   back side.
 - `Offset` moves the plane origin on the PCB surface in the direction shown by
   the footprint triangle. Both `Z` and `Offset` default to `0 mm`; unitless
-  values are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and `um`/`µm`
+  values are millimetres, and `mm`, `cm`, `in`, `mil` (`0.001 in`), and `um`/`µm`
   are supported.
 - `Tilt` rotates the plane around its local X axis, in degrees, and defaults
   to `0`. Placement applies the footprint pose, `Offset`, `Z`, then `Tilt`;
@@ -263,7 +263,7 @@ custom footprint properties:
 
 `CouplerAt` also has `TargetX`, `TargetY`, and `TargetZ` properties for its
 absolute FreeCAD world target. All three default to `0 mm`; unitless values
-are millimetres, and `mm`, `in`, `mil` (`0.001 in`), and `um`/`µm` are
+are millimetres, and `mm`, `cm`, `in`, `mil` (`0.001 in`), and `um`/`µm` are
 supported.
 It has no local `Z` property. B.Cu is recommended for the usual bottom-surface
 placement at `TargetZ`; use F.Cu only to reference the top surface.
@@ -306,7 +306,7 @@ Thickness=25 um
 optional and property names are case-insensitive. A non-empty `Name` becomes
 the suffix of the FreeCAD child name and label (`F_Stiffener_<Name>` or
 `B_Stiffener_<Name>`) and is included in warning messages. Thickness accepts
-`mm`, `in`, `mil` (`0.001 in`), and `um`; a unitless value is interpreted as
+`mm`, `cm`, `in`, `mil` (`0.001 in`), and `um`; a unitless value is interpreted as
 millimetres.
 
 | Material | Default color | Default opacity |
@@ -358,9 +358,25 @@ a=-70 s=0.61
 ```
 
 - `a` is the bend angle in degrees.
-- `r` is the bend radius in millimetres.
-- `s` is the full bend span in millimetres; when `r` is omitted, FreekiCAD
+- `r` is the bend radius.
+- `s` is the full bend span; when `r` is omitted, FreekiCAD
   derives the radius from `s`, the angle, and the KiCad stackup thickness.
+
+Both `r` and `s` accept `mm`, `cm`, `um` (also `µm`/`μm`), `in`, and `mil`.
+Unitless lengths are millimetres; suffixes are case-insensitive and may be
+separated from the number by whitespace. For example, `r=0.05cm`, `r=500um`,
+and `r=0.5mm` are equivalent. If both `r` and `s` are present, `r` takes
+precedence. Unsupported units are rejected rather than treated as millimetres.
+
+Parameters may appear in any order, with whitespace on either side of `=`
+and between the number and its unit. These examples all specify a 5 mm radius
+and a 60-degree bend:
+
+```text
+a=60 r=5mm
+r= 5 mm a=60
+r  =  5 mm   a  =  60
+```
 
 Each imported bend line becomes a FreeCAD child object with editable `Angle`,
 `Radius`, and `Active` properties. A line without parameter text still loads

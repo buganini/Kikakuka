@@ -38,7 +38,7 @@ the unit-cube placeholder and optional coupler helper models.
   use F.Cu only to reference the top surface.
 
 For coupler length properties (`Z`, `Offset`, `TargetX`, `TargetY`, and
-`TargetZ`), unitless values are millimetres; supported suffixes are `mm`,
+`TargetZ`), unitless values are millimetres; supported suffixes are `mm`, `cm`,
 `in`, `mil`, and `um`/`µm`. `Tilt` is in degrees and may optionally use
 `deg` or `°`.
 
@@ -59,7 +59,7 @@ unit-cube and coupler helper models.
 Scans every footprint on the active board. When a footprint has no valid 3D
 model and defines non-empty `SizeX`, `SizeY`, and `SizeZ` properties, the
 action assigns the library's 1 mm unit cube and scales it to those dimensions.
-Invalid model entries are replaced. Dimensions may use `mm`, `in`, or `mil`;
+Invalid model entries are replaced. Dimensions may use `mm`, `cm`, `in`, or `mil`;
 values without a unit are interpreted as millimetres. The action opens or
 focuses KiCad's 3D Viewer when it finishes.
 
@@ -78,7 +78,7 @@ Adds or updates the colored helper model for every `CouplerFixed` and
 * `Tilt` rotates the helper around footprint-local X.
 * `Offset` moves the helper along the footprint triangle direction.
 
-Lengths may use `mm`, `in`, `mil`, or `um`/`µm`; unitless lengths are
+Lengths may use `mm`, `cm`, `in`, `mil`, or `um`/`µm`; unitless lengths are
 millimetres. `Tilt` is in degrees and may optionally use `deg` or `°`.
 
 ### Hide Couplers

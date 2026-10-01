@@ -95,6 +95,8 @@ class CouplerHelpersTest(unittest.TestCase):
         for text, expected in (
             ("-2", -2.0),
             ("2 mm", 2.0),
+            ("0.2 cm", 2.0),
+            ("1CM", 10.0),
             ("-0.5in", -12.7),
             ("100 mil", 2.54),
             ("250 um", 0.25),
@@ -110,7 +112,7 @@ class CouplerHelpersTest(unittest.TestCase):
         self.assertEqual(coupler_helpers.parse_tilt_degrees(None), 0.0)
 
     def test_invalid_values_are_rejected(self):
-        for text in ("1cm", "nan", "1 mm extra"):
+        for text in ("1ft", "nan", "1 mm extra"):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 coupler_helpers.parse_signed_length_mm(text, "Offset")
         with self.assertRaises(ValueError):

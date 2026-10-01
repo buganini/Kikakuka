@@ -2090,6 +2090,32 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy._handle_reload_response.assert_called_once_with(
             obj, "/tmp/live.sock", reposition=True)
 
+    def test_bend_annotation_length_units_and_radius_precedence(self):
+        module = self._import_linked_object()
+        for value, millimetres in (("1", 1), ("1 mm", 1), ("0.1cm", 1),
+                                  ("1000um", 1), ("1000 µm", 1),
+                                  ("1000μm", 1), ("1in", 25.4),
+                                  ("100mil", 2.54), ("0.1 CM", 1)):
+            with self.subTest(value=value):
+                angle, radius, span = module._parse_bend_annotation(
+                    "a=-90 r=" + value, 0.2)
+                self.assertEqual(angle, -90)
+                self.assertAlmostEqual(radius, millimetres)
+                self.assertIsNone(span)
+                angle, radius, span = module._parse_bend_annotation(
+                    "s=" + value + " a=-90", 0.2)
+                self.assertAlmostEqual(span, millimetres)
+                self.assertAlmostEqual(radius, millimetres / (math.pi / 2) - 0.1)
+        self.assertEqual(module._parse_bend_annotation("r=1 a=90 s=2cm", .2),
+                         (90, 1, None))
+        for value in ("1ft", "1.2.3mm", "nan", "100unknown"):
+            for key in ("r", "s"):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    module._parse_bend_annotation("a=90 " + key + "=" + value, .2)
+        self.assertEqual(module._parse_coupler_z("0.2cm"), 2)
+        self.assertEqual(module._parse_coupler_offset("-0.2 cm"), -2)
+        self.assertEqual(module._parse_coupler_at_coordinate("1cm", "TargetX"), 10)
+
     def test_open_reload_cache_tracks_inputs_and_keeps_forced_reload(self):
         module = self._import_linked_object()
         module.FreeCAD.Console = types.SimpleNamespace(PrintMessage=mock.Mock())

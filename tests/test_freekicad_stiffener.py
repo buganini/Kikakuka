@@ -98,6 +98,12 @@ class StiffenerTests(unittest.TestCase):
 
         self.assertAlmostEqual(spec.thickness, 0.254)
 
+    def test_centimetre_thickness(self):
+        stiffener = self._import_stiffener()
+        spec = stiffener.parse_stiffener_annotation(
+            "Material=FR4/Thickness=0.0254 CM")
+        self.assertAlmostEqual(spec.thickness, 0.254)
+
     def test_unknown_material_uses_polyimide_defaults_with_warning(self):
         stiffener = self._import_stiffener()
         warnings = []

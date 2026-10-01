@@ -79,6 +79,8 @@ class PlaceholderModelsTest(unittest.TestCase):
         for text, expected in (
             ("2", 2.0),
             ("2 mm", 2.0),
+            ("0.2 cm", 2.0),
+            ("1CM", 10.0),
             ("0.5in", 12.7),
             ("100 mil", 2.54),
         ):
@@ -87,7 +89,7 @@ class PlaceholderModelsTest(unittest.TestCase):
                     placeholder_models.parse_length_mm(text), expected))
 
     def test_parse_length_mm_rejects_invalid_or_nonpositive_values(self):
-        for text in (None, "", "1cm", "0", "-1mm"):
+        for text in (None, "", "1ft", "0", "-1mm"):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 placeholder_models.parse_length_mm(text)
 
