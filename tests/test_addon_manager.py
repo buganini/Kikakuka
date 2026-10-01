@@ -1004,6 +1004,10 @@ class SymlinkInstallTests(unittest.TestCase):
                     self.assertEqual(status.as_row()["symlink"], "")
                 with mock.patch.object(sys, "_MEIPASS", str(root)):
                     self.assertEqual(status.as_row()["symlink"], "")
+                with mock.patch.object(
+                    addon_manager.platform, "system", return_value="Windows"
+                ):
+                    self.assertEqual(status.as_row()["symlink"], "")
                 unavailable = addon_manager.AddonStatus(addon_manager.FREEKICAD, "FreekiCAD", "8.2", None, available=False)
                 self.assertEqual(unavailable.as_row()["symlink"], "")
 

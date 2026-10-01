@@ -107,6 +107,7 @@ class AddonStatus:
             "status": self.status_text,
             "action": self.action,
             "symlink": ("Install Symlink" if self.key == FREEKICAD
+                        and platform.system() != "Windows"
                         and self.available and self.installed_version is None
                         and freekicad_source_directory() else ""),
             "uninstall": self.uninstall_action,
