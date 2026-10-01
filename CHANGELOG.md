@@ -5,6 +5,7 @@
 * FreekiCAD and KiCad add-on: Add cm support to length fields, including coupler coordinates and offsets, stiffener thickness, and placeholder dimensions
 * FreekiCAD: Speed up bending and importing copper layers and silkscreen
 * FreekiCAD: Fix board outline distortion during sketch import and synchronization back to KiCad by preserving arc geometry and matching coincident endpoints correctly
+* Gerber Conversion: Recognize CAM350 `.GBX` files and map `L<n>[LQ|T|P]` filenames to copper, solder-mask, silkscreen, and paste layers
 
 # 8.1.1:
 * Fix Windows Instance Manager lock sharing, FreeCAD file launching, and add-on management errors

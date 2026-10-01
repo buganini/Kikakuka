@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import zipfile
 from pcb_tools import gerber
@@ -27,7 +28,7 @@ def get_footprint_field(footprint, name):
 
 
 def is_gerber_file(filename):
-    if os.path.splitext(filename)[1].lower() in (".gbr", ".gm1", ".gm3", ".gko", ".g1"):
+    if os.path.splitext(filename)[1].lower() in (".gbr", ".gbx", ".gm1", ".gm3", ".gko", ".g1"):
         return True
     return False
 
@@ -63,6 +64,58 @@ def list_gerber_files(path):
             return z.namelist()
     return []
 
+
+CAM350_GBX_LAYER_RE = re.compile(
+    r"^(?P<prefix>.+)L(?P<number>[1-9][0-9]*)(?P<kind>LQ|T|P)?\.GBX$",
+    re.IGNORECASE,
+)
+
+
+def find_cam350_gbx_layer(filenames, position, kind=None):
+    """Find a layer using CAM350's L<n>[LQ|T|P].GBX convention.
+
+    A valid file family must contain L1 and at least one further bare copper
+    layer.  This keeps an unrelated file whose name merely ends in L1.GBX from
+    being classified as a PCB stackup.  L1 is the top copper layer and the
+    highest numbered bare layer is the bottom; intermediate numbers are inner
+    copper layers.  LQ, T, and P denote mask, silkscreen, and paste.
+    """
+    families = {}
+    for filename in filenames:
+        match = CAM350_GBX_LAYER_RE.match(os.path.basename(filename))
+        if match is None:
+            continue
+        prefix = match.group("prefix").lower()
+        number = int(match.group("number"))
+        layer_kind = match.group("kind")
+        if layer_kind is not None:
+            layer_kind = layer_kind.upper()
+        families.setdefault(prefix, []).append(
+            (filename, number, layer_kind))
+
+    for layers in families.values():
+        copper_numbers = {
+            number for _, number, layer_kind in layers
+            if layer_kind is None
+        }
+        if 1 not in copper_numbers or len(copper_numbers) < 2:
+            continue
+        bottom_number = max(copper_numbers)
+
+        if position == "top":
+            target_number = 1
+        elif position == "bottom":
+            target_number = bottom_number
+        else:
+            target_number = position + 1
+            if target_number >= bottom_number:
+                continue
+
+        for filename, number, layer_kind in layers:
+            if number == target_number and layer_kind == kind:
+                return filename
+    return None
+
 def find_edge_cuts(filenames):
     for fn in filenames:
         if "EdgeCut" in fn: # Bouni/kicad-jlcpcb-tools
@@ -85,7 +138,7 @@ def find_silk_top(filenames):
             return fn
         if fn.lower().endswith(".gto"): # Altium
             return fn
-    return None
+    return find_cam350_gbx_layer(filenames, "top", "T")
 
 def find_silk_bottom(filenames):
     for fn in filenames:
@@ -97,7 +150,7 @@ def find_silk_bottom(filenames):
             return fn
         if fn.lower().endswith(".gbo"): # Altium
             return fn
-    return None
+    return find_cam350_gbx_layer(filenames, "bottom", "T")
 
 def find_cu_top(filenames):
     for fn in filenames:
@@ -109,7 +162,7 @@ def find_cu_top(filenames):
             return fn
         if fn.lower().endswith(".gtl"): # Altium
             return fn
-    return None
+    return find_cam350_gbx_layer(filenames, "top")
 
 def find_cu_bottom(filenames):
     for fn in filenames:
@@ -121,7 +174,7 @@ def find_cu_bottom(filenames):
             return fn
         if fn.lower().endswith(".gbl"): # Altium
             return fn
-    return None
+    return find_cam350_gbx_layer(filenames, "bottom")
 
 def find_cu_inner(filenames, i):
     for fn in filenames:
@@ -133,7 +186,7 @@ def find_cu_inner(filenames, i):
             return fn
         if fn.endswith(f".G{i}"):
             return fn
-    return None
+    return find_cam350_gbx_layer(filenames, i)
 
 def find_paste_top(filenames):
     for fn in filenames:
@@ -143,7 +196,7 @@ def find_paste_top(filenames):
             return fn
         if fn.lower().endswith(".gtp"): # Altium
             return fn
-    return None
+    return find_cam350_gbx_layer(filenames, "top", "P")
 
 def find_paste_bottom(filenames):
     for fn in filenames:
@@ -153,7 +206,7 @@ def find_paste_bottom(filenames):
             return fn
         if fn.lower().endswith(".gbp"): # Altium
             return fn
-    return None
+    return find_cam350_gbx_layer(filenames, "bottom", "P")
 
 def find_mask_top(filenames):
     for fn in filenames:
@@ -165,7 +218,7 @@ def find_mask_top(filenames):
             return fn
         if fn.lower().endswith(".gts"): # Altium
             return fn
-    return None
+    return find_cam350_gbx_layer(filenames, "top", "LQ")
 
 def find_mask_bottom(filenames):
     for fn in filenames:
@@ -177,7 +230,7 @@ def find_mask_bottom(filenames):
             return fn
         if fn.lower().endswith(".gbs"): # Altium
             return fn
-    return None
+    return find_cam350_gbx_layer(filenames, "bottom", "LQ")
 
 def find_PTH(filenames):
     for fn in filenames:
@@ -627,9 +680,13 @@ def convert_to_kicad(
     filenames = list_gerber_files(input)
     if extra_files:
         filenames.extend(extra_files)
+    # Layer detection must see the complete stackup.  The mutable list below
+    # is consumed as files are imported, which would otherwise make numbered
+    # CAM350 layers impossible to classify after L1 has been removed.
+    layer_filenames = list(filenames)
     # print("filenames", filenames)
 
-    edge_cuts_file = find_edge_cuts(filenames)
+    edge_cuts_file = find_edge_cuts(layer_filenames)
     if edge_cuts_file is None and required_edge_cuts:
         raise ValueError(f"Edge cuts not found in {input}")
 
@@ -646,7 +703,7 @@ def convert_to_kicad(
         populate_kicad(board, gbr, pcbnew.Edge_Cuts, errors)
 
     if not outline_only:
-        cu_top_file = find_cu_top(filenames)
+        cu_top_file = find_cu_top(layer_filenames)
         if cu_top_file is not None:
             print("cu_top_file", cu_top_file)
             filenames.remove(cu_top_file)
@@ -657,7 +714,7 @@ def convert_to_kicad(
         found_inner_layer = 0
         inner_layers = [pcbnew.In1_Cu, pcbnew.In2_Cu, pcbnew.In3_Cu, pcbnew.In4_Cu, pcbnew.In5_Cu, pcbnew.In6_Cu, pcbnew.In7_Cu, pcbnew.In8_Cu, pcbnew.In9_Cu, pcbnew.In10_Cu, pcbnew.In11_Cu, pcbnew.In12_Cu, pcbnew.In13_Cu, pcbnew.In14_Cu, pcbnew.In15_Cu, pcbnew.In16_Cu, pcbnew.In17_Cu, pcbnew.In18_Cu, pcbnew.In19_Cu, pcbnew.In20_Cu, pcbnew.In21_Cu, pcbnew.In22_Cu, pcbnew.In23_Cu, pcbnew.In24_Cu, pcbnew.In25_Cu, pcbnew.In26_Cu, pcbnew.In27_Cu, pcbnew.In28_Cu, pcbnew.In29_Cu, pcbnew.In30_Cu]
         for i in range(len(inner_layers)):
-            cu_inner_file = find_cu_inner(filenames, i+1)
+            cu_inner_file = find_cu_inner(layer_filenames, i+1)
             if cu_inner_file is not None:
                 print("cu_inner_file[{}]".format(i+1), cu_inner_file)
                 filenames.remove(cu_inner_file)
@@ -666,7 +723,7 @@ def convert_to_kicad(
                 populate_kicad(board, gbr, inner_layers[found_inner_layer], errors)
                 found_inner_layer += 1
 
-        cu_bottom_file = find_cu_bottom(filenames)
+        cu_bottom_file = find_cu_bottom(layer_filenames)
         if cu_bottom_file is not None:
             print("cu_bottom_file", cu_bottom_file)
             filenames.remove(cu_bottom_file)
@@ -676,7 +733,7 @@ def convert_to_kicad(
 
         board.SetCopperLayerCount(found_inner_layer + 2)
 
-        silk_top_file = find_silk_top(filenames)
+        silk_top_file = find_silk_top(layer_filenames)
         if silk_top_file is not None:
             print("silk_top_file", silk_top_file)
             filenames.remove(silk_top_file)
@@ -684,7 +741,7 @@ def convert_to_kicad(
             gbr = gerber.loads(silk_top_data)
             populate_kicad(board, gbr, pcbnew.F_SilkS, errors)
 
-        silk_bottom_file = find_silk_bottom(filenames)
+        silk_bottom_file = find_silk_bottom(layer_filenames)
         if silk_bottom_file is not None:
             print("silk_bottom_file", silk_bottom_file)
             filenames.remove(silk_bottom_file)
@@ -692,7 +749,7 @@ def convert_to_kicad(
             gbr = gerber.loads(silk_bottom_data)
             populate_kicad(board, gbr, pcbnew.B_SilkS, errors)
 
-        mask_top_file = find_mask_top(filenames)
+        mask_top_file = find_mask_top(layer_filenames)
         if mask_top_file is not None:
             print("mask_top_file", mask_top_file)
             filenames.remove(mask_top_file)
@@ -700,7 +757,7 @@ def convert_to_kicad(
             gbr = gerber.loads(mask_top_data)
             populate_kicad(board, gbr, pcbnew.F_Mask, errors)
 
-        mask_bottom_file = find_mask_bottom(filenames)
+        mask_bottom_file = find_mask_bottom(layer_filenames)
         if mask_bottom_file is not None:
             print("mask_bottom_file", mask_bottom_file)
             filenames.remove(mask_bottom_file)
@@ -708,7 +765,7 @@ def convert_to_kicad(
             gbr = gerber.loads(mask_bottom_data)
             populate_kicad(board, gbr, pcbnew.B_Mask, errors)
 
-        paste_top_file = find_paste_top(filenames)
+        paste_top_file = find_paste_top(layer_filenames)
         if paste_top_file is not None:
             print("paste_top_file", paste_top_file)
             filenames.remove(paste_top_file)
@@ -716,7 +773,7 @@ def convert_to_kicad(
             gbr = gerber.loads(paste_top_data)
             populate_kicad(board, gbr, pcbnew.F_Paste, errors)
 
-        paste_bottom_file = find_paste_bottom(filenames)
+        paste_bottom_file = find_paste_bottom(layer_filenames)
         if paste_bottom_file is not None:
             print("paste_bottom_file", paste_bottom_file)
             filenames.remove(paste_bottom_file)
