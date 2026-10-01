@@ -21,6 +21,7 @@ from pcb_open import open_kicad_file
 from gerber import is_gerber_dir, is_gerber_zip
 from differ_input import prepare_differ_source
 from differ_source import source_paths
+from file_location import file_location, open_file_location
 from differ_view_geometry import (
     DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, canvas_priority_point,
     clipped_view_transform, overlap_bounds, viewport_center_splitter_fraction,
@@ -951,8 +952,14 @@ class DifferUI(Application):
                                 Button("Open File A").click(
                                     self.open_selected_file_a
                                 )
+                                Button("Open A File Location").click(
+                                    self.open_file_location_a
+                                )
                                 Button("Open File B").click(
                                     self.open_selected_file_b
+                                )
+                                Button("Open B File Location").click(
+                                    self.open_file_location_b
                                 )
                             if (file_type == SCH_SUFFIX and
                                     os.path.splitext(
@@ -1320,6 +1327,63 @@ class DifferUI(Application):
         self._open_selected_file(
             self.state.file_b, self.repo_b, self.state.commit_b, "B"
         )
+
+    def open_file_location_a(self, _event):
+        self._open_selected_file_location(
+            self.state.file_a, self.repo_a, self.state.commit_a, "A"
+        )
+
+    def open_file_location_b(self, _event):
+        self._open_selected_file_location(
+            self.state.file_b, self.repo_b, self.state.commit_b, "B"
+        )
+
+    def _open_selected_file_location(
+            self, filepath, repo_root, revision, label):
+        if not filepath:
+            Critical(
+                f"File {label} not selected",
+                f"Open {label} File Location",
+            )
+            return
+        try:
+            _, selected_path, display_path = source_paths(
+                filepath, repo_root, revision, self.temp_dir
+            )
+        except ValueError as exc:
+            Critical(
+                f"Could not open File {label} location: {exc}",
+                f"Open {label} File Location",
+            )
+            return
+        if not os.path.isfile(selected_path):
+            location_name = (
+                f"revision {str(revision)[:12]}"
+                if revision else "working tree"
+            )
+            Critical(
+                f"File {label} not found in {location_name}: {display_path}",
+                f"Open {label} File Location",
+            )
+            return
+        location = file_location(selected_path)
+        if not os.path.isdir(location):
+            Critical(
+                f"File {label} location not found: {location}",
+                f"Open {label} File Location",
+            )
+            return
+        Thread(
+            target=self._open_file_location_worker,
+            args=(selected_path, label), daemon=True,
+        ).start()
+
+    def _open_file_location_worker(self, filepath, label):
+        try:
+            open_file_location(filepath)
+        except Exception as exc:
+            self.state.message = (
+                f"Could not open File {label} location: {exc}")
 
     def _open_selected_file(self, filepath, repo_root, revision, label):
         if not filepath:

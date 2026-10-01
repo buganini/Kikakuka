@@ -5,6 +5,7 @@
 * FreekiCAD and KiCad add-on: Add cm support to length fields, including coupler coordinates and offsets, stiffener thickness, and placeholder dimensions
 * FreekiCAD: Speed up bending and importing copper layers and silkscreen
 * FreekiCAD: Fix board outline distortion during sketch import and synchronization back to KiCad by preserving arc geometry and matching coincident endpoints correctly
+* Differ: Add file-location buttons for both comparison inputs that open the location of the currently selected working, revision-checkout, or converted file
 * Gerber Conversion: Recognize CAM350 `.GBX` files and map `L<n>[LQ|T|P]` filenames to copper, solder-mask, silkscreen, and paste layers
 * Gerber Conversion: Preserve ordered dark/clear Gerber layer polarity when converting regions
 * Gerber Conversion: Read `.xlsx` CPL tables, recognize SMT filenames and localized CPL headers, and create reference-only footprints when no BOM is present
