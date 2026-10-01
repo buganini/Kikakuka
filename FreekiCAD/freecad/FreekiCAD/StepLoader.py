@@ -255,3 +255,11 @@ def _load_step(step_path, doc, cache=None):
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD:   Could not read STEP {step_path}: {ex}\n")
     return []
+
+
+def _load_model(model_path, doc, cache=None):
+    """Load a supported external model into the Part-shape pipeline."""
+    if os.path.splitext(model_path)[1].lower() == ".stl":
+        from .StlLoader import _load_stl_shape
+        return _load_stl_shape(model_path, doc, cache=cache)
+    return _load_step(model_path, doc, cache=cache)

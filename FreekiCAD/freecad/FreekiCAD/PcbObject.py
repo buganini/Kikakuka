@@ -14,7 +14,7 @@ from .kicad_paths import (
 )
 from .StepLoader import (
     _insert_step_merged,
-    _load_step,
+    _load_model,
     _write_face_colors,
 )
 from .Units import parse_length_mm
@@ -25,7 +25,7 @@ DEFAULT_PCB_THICKNESS = 1.6  # mm fallback
 GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
 PARTITION_RELATIVE_TOLERANCE = 1e-6
 BEND_ANNOTATION_POSITION_TOLERANCE = 0.1  # mm
-STEP_IMPORTER_REVISION = 1
+STEP_IMPORTER_REVISION = 2
 COPPER_STRAIN_WARNING = 0.05
 
 COUPLER_MOVING = "CouplerMoving"
@@ -1155,12 +1155,12 @@ def _load_footprint_models(fp_info, thickness, doc, step_cache=None):
             mt = None
         mtimes[canonical] = mt
 
-        # Load STEP (check cache status before call)
+        # Load the external model (check cache status before call)
         was_cached = step_cache is not None and canonical in step_cache
-        parts = _load_step(model_path, doc, cache=step_cache)
+        parts = _load_model(model_path, doc, cache=step_cache)
         if not parts:
             FreeCAD.Console.PrintWarning(
-                f"FreekiCAD:   {ref}: STEP load returned "
+                f"FreekiCAD:   {ref}: model load returned "
                 f"no shapes: {model_path}\n"
             )
             continue

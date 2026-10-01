@@ -38,6 +38,18 @@ class FakeShape:
         return copied
 
 
+class FakeMesh:
+    CountFacets = 12
+
+    def __init__(self):
+        self.Placement = None
+
+    def copy(self):
+        copied = FakeMesh()
+        copied.Placement = self.Placement
+        return copied
+
+
 class FakeDocument:
     def __init__(self, name="FreekiCADExport"):
         self.Name = name
@@ -62,6 +74,12 @@ def _linked_object(object_type, label, shape=None, group=None):
         Shape=shape,
         Group=list(group or []),
     )
+
+
+def _linked_mesh(label, mesh=None):
+    obj = _linked_object("StlObject", label)
+    obj.Mesh = mesh or FakeMesh()
+    return obj
 
 
 def load_headless_export_module():
@@ -107,6 +125,16 @@ class HeadlessExportTests(unittest.TestCase):
         step.Proxy.reload.assert_called_once_with(step, force=True)
         pcb.Proxy.reload_sync.assert_called_once_with(
             pcb, reposition=False)
+        self.assertEqual(document.recompute_count, 1)
+
+    def test_load_all_reloads_stl_objects(self):
+        stl = _linked_mesh("Printed enclosure")
+        stl.Proxy.reload = mock.Mock(return_value=True)
+        document = FakeDocument()
+
+        self.module._load_all_objects([stl], document)
+
+        stl.Proxy.reload.assert_called_once_with(stl, force=True)
         self.assertEqual(document.recompute_count, 1)
 
     def test_collect_export_objects_excludes_editor_and_debug_geometry(self):
@@ -208,6 +236,68 @@ class HeadlessExportTests(unittest.TestCase):
             with self.assertRaisesRegex(
                     ValueError, r"\.kkkk_asm or \.kicad_pcb"):
                 self.module.export_assembly(source, target)
+
+    def test_stl_output_preserves_native_mesh_and_global_placement(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = os.path.join(root, "assembly.kkkk_asm")
+            target = os.path.join(root, "assembly.stl")
+            with open(source, "w", encoding="utf-8") as stream:
+                stream.write('{"objects": []}')
+            document = FakeDocument()
+            self.freecad.newDocument = mock.Mock(return_value=document)
+            self.freecad.closeDocument = mock.Mock()
+            stl = _linked_mesh("Printed enclosure")
+            placement = object()
+            stl.getGlobalPlacement = mock.Mock(return_value=placement)
+            self.assembly.insert = mock.Mock(return_value=[stl])
+            mesh_module = types.ModuleType("Mesh")
+            mesh_module.export = mock.Mock()
+
+            with mock.patch.dict(sys.modules, {"Mesh": mesh_module}), \
+                    mock.patch.object(self.module, "_load_all_objects"):
+                self.module.export_assembly(source, target)
+
+            flat = document.objects[0]
+            self.assertIsInstance(flat.Mesh, FakeMesh)
+            self.assertIs(flat.Placement, placement)
+            mesh_module.export.assert_called_once_with([flat], target)
+            self.part.export.assert_not_called()
+
+    def test_open_stl_is_rejected_for_step_export(self):
+        document = FakeDocument()
+        stl = _linked_mesh("Broken enclosure")
+        loader = types.ModuleType("FreekiCAD.freecad.FreekiCAD.StlLoader")
+        loader._mesh_to_shape = mock.Mock(
+            side_effect=ValueError("STL mesh is not closed and manifold"))
+
+        with mock.patch.dict(sys.modules, {
+                "FreekiCAD.freecad.FreekiCAD.StlLoader": loader}):
+            with self.assertRaisesRegex(
+                    ValueError, "Broken enclosure.*not closed"):
+                self.module._flatten_export_items(
+                    [(stl, None)], document, target_suffix=".step")
+
+    def test_step_conversion_normalizes_mesh_placement_before_global_pose(self):
+        document = FakeDocument()
+        mesh = FakeMesh()
+        mesh.Placement = "source-local placement"
+        stl = _linked_mesh("Printed enclosure", mesh)
+        global_placement = object()
+        identity = object()
+        stl.getGlobalPlacement = mock.Mock(return_value=global_placement)
+        self.freecad.Placement = mock.Mock(return_value=identity)
+        loader = types.ModuleType("FreekiCAD.freecad.FreekiCAD.StlLoader")
+        converted = FakeShape()
+        loader._mesh_to_shape = mock.Mock(return_value=converted)
+
+        with mock.patch.dict(sys.modules, {
+                "FreekiCAD.freecad.FreekiCAD.StlLoader": loader}):
+            self.module._flatten_export_items(
+                [(stl, None)], document, target_suffix=".step")
+
+        converted_mesh = loader._mesh_to_shape.call_args.args[0]
+        self.assertIs(converted_mesh.Placement, identity)
+        self.assertIs(converted.Placement, global_placement)
 
 
 class FakeSignal:
@@ -512,6 +602,23 @@ class InstanceClientSyncTests(unittest.TestCase):
         fake_import.open.assert_called_once_with("/models/part.step")
         self.assertEqual(observer.source_paths["Imported"], "/models/part.step")
         self.assertEqual(activate.call_count, 2)
+
+    def test_open_stl_uses_mesh_import_and_registers_source(self):
+        module = load_im_client_module()
+        observer = module._DocumentObserver(mock.Mock())
+        document = types.SimpleNamespace(
+            Name="Imported", FileName="", Objects=[object()])
+        documents = {}
+        module.FreeCAD.listDocuments = lambda: documents
+        fake_mesh = types.ModuleType("Mesh")
+        fake_mesh.open = mock.Mock(side_effect=lambda _: documents.update(
+            {"Imported": document}))
+        with mock.patch.dict(sys.modules, {"Mesh": fake_mesh}), \
+                mock.patch.object(observer, "activate_document",
+                                  side_effect=[False, True]):
+            self.assertTrue(observer.open_document("/models/part.stl"))
+        fake_mesh.open.assert_called_once_with("/models/part.stl")
+        self.assertEqual(observer.source_paths["Imported"], "/models/part.stl")
 
     def test_open_native_freecad_document_in_same_process(self):
         module = load_im_client_module()

@@ -23,7 +23,7 @@ from .im_mesh import (activate_open_freecad_document, bind_freecad_source,
                       owned_process_iter)
 
 
-FREECAD_SUFFIXES = (".fcstd", ".step", ".stp", ".kkkk_asm")
+FREECAD_SUFFIXES = (".fcstd", ".step", ".stp", ".stl", ".kkkk_asm")
 FRESH_READY_RETRIES = 12
 FRESH_READY_DELAY_S = 0.25
 SOCKET_OWNER_RETRIES = 4

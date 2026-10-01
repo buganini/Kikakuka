@@ -56,13 +56,39 @@ class CreateStepObjectCommand:
             create_step_object(filepath)
 
 
+class CreateStlObjectCommand:
+    """Command to create a reloadable STL mesh object."""
+
+    def GetResources(self):
+        return {
+            "MenuText": "Add STL",
+            "ToolTip": "Add a reloadable linked STL mesh object",
+        }
+
+    def IsActive(self):
+        return FreeCAD.ActiveDocument is not None
+
+    def Activated(self):
+        from PySide import QtWidgets
+        from .StlObject import create_stl_object
+
+        filepath, _ = QtWidgets.QFileDialog.getOpenFileName(
+            None,
+            "Select STL file to link",
+            "",
+            "STL (*.stl *.STL)",
+        )
+        if filepath:
+            create_stl_object(filepath)
+
+
 class ReloadAllObjectsCommand:
     """Command to reload all linked objects in the document."""
 
     def GetResources(self):
         return {
             "MenuText": "Reload All",
-            "ToolTip": "Reload all linked KiCad PCB and STEP objects",
+            "ToolTip": "Reload all linked KiCad PCB, STEP, and STL objects",
         }
 
     def IsActive(self):
@@ -86,7 +112,8 @@ class FreekiCADWorkbench(FreeCADGui.Workbench):
     def Initialize(self):
         self.appendMenu(
             "FreekiCAD",
-            ["CreatePcbObject", "CreateStepObject", "ReloadAllObjects"],
+            ["CreatePcbObject", "CreateStepObject", "CreateStlObject",
+             "ReloadAllObjects"],
         )
 
     def Activated(self):
@@ -100,6 +127,7 @@ FreekiCADWorkbench.Icon = WORKBENCH_ICON
 FreeCADGui.addWorkbench(FreekiCADWorkbench)
 FreeCADGui.addCommand("CreatePcbObject", CreatePcbObjectCommand())
 FreeCADGui.addCommand("CreateStepObject", CreateStepObjectCommand())
+FreeCADGui.addCommand("CreateStlObject", CreateStlObjectCommand())
 FreeCADGui.addCommand("ReloadAllObjects", ReloadAllObjectsCommand())
 
 # Idempotent safeguard for GUI startup; package import also starts the node,

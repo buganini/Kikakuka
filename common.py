@@ -12,6 +12,7 @@ PNL_SUFFIXES = (PNL_SUFFIX, LEGACY_PNL_SUFFIX)
 PCB_SUFFIX = ".kicad_pcb"
 SCH_SUFFIX = ".kicad_sch"
 STEP_SUFFIX = ".step"
+STL_SUFFIX = ".stl"
 FREECAD_SUFFIX = ".fcstd"
 ASSEMBLY_SUFFIX = ".kkkk_asm"
 
@@ -44,7 +45,7 @@ def relpath(path, base, allow_outside=False):
 
 def findFiles(workspace, root, types=None):
     if types is None:
-        types = [SCH_SUFFIX, PCB_SUFFIX, STEP_SUFFIX]
+        types = [SCH_SUFFIX, PCB_SUFFIX, STEP_SUFFIX, STL_SUFFIX]
     for project in workspace["projects"]:
         project["files"] = []
         project["parent"] = None

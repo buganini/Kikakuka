@@ -1,4 +1,4 @@
-"""Headless FreekiCAD assembly or KiCad PCB to STEP export support."""
+"""Headless FreekiCAD assembly or KiCad PCB to STEP/STL export support."""
 
 import os
 import sys
@@ -10,6 +10,7 @@ from . import Assembly
 
 
 PCB_OBJECT_TYPES = ("PcbObject", "LinkedObject")
+MODEL_OBJECT_TYPES = ("StepObject", "StlObject")
 
 
 def _proxy_type(obj):
@@ -29,6 +30,16 @@ def _has_shape(obj):
     if faces is not None and len(faces) == 0:
         return False
     return True
+
+
+def _has_mesh(obj):
+    mesh = getattr(obj, "Mesh", None)
+    if mesh is None:
+        return False
+    try:
+        return int(mesh.CountFacets) > 0
+    except (AttributeError, TypeError, ValueError):
+        return True
 
 
 def _pcb_export_children(obj):
@@ -57,10 +68,10 @@ def _load_all_objects(objects, document):
         object_type = _proxy_type(obj)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Loading {index}/{total}: {obj.Label}\n")
-        if object_type == "StepObject":
+        if object_type in MODEL_OBJECT_TYPES:
             if not obj.Proxy.reload(obj, force=True):
                 raise RuntimeError(
-                    f"Could not freshly load STEP object '{obj.Label}'")
+                    f"Could not freshly load {object_type} '{obj.Label}'")
         elif object_type in PCB_OBJECT_TYPES:
             obj.Proxy.reload_sync(obj, reposition=False)
             pcb_objects.append(obj)
@@ -81,6 +92,9 @@ def _collect_export_objects(objects):
         object_type = _proxy_type(obj)
         if object_type == "StepObject":
             if _has_shape(obj):
+                export_objects.append(obj)
+        elif object_type == "StlObject":
+            if _has_mesh(obj):
                 export_objects.append(obj)
         elif object_type in PCB_OBJECT_TYPES:
             export_objects.extend(_pcb_export_children(obj))
@@ -110,26 +124,66 @@ def _collect_export_sources(objects):
         object_type = _proxy_type(obj)
         if object_type == "StepObject" and _has_shape(obj):
             sources.append((obj, _export_colors(obj)))
+        elif object_type == "StlObject" and _has_mesh(obj):
+            sources.append((obj, None))
         elif object_type in PCB_OBJECT_TYPES:
             for child in _pcb_export_children(obj):
                 sources.append((child, _export_colors(child, owner=obj)))
     return sources
 
 
-def _flatten_export_items(sources, document):
+def _source_placement(source):
+    if hasattr(source, "getGlobalPlacement"):
+        return source.getGlobalPlacement()
+    return getattr(source, "Placement", None)
+
+
+def _flatten_export_items(sources, document, target_suffix=".step"):
     """Create root-level copies with source global placements and colors."""
     export_items = []
     for index, (source, colors) in enumerate(sources, 1):
-        shape = source.Shape.copy()
-        if hasattr(source, "getGlobalPlacement"):
-            shape.Placement = source.getGlobalPlacement()
-        elif hasattr(source, "Placement"):
-            shape.Placement = source.Placement
-        flat = document.addObject(
-            "Part::Feature", f"Export_{index}_{source.Name}")
-        flat.Label = source.Label
-        flat.Shape = shape
-        export_items.append((flat, colors) if colors else flat)
+        placement = _source_placement(source)
+        if _has_mesh(source):
+            mesh = source.Mesh.copy()
+            # Mesh::Feature exposes its transform through both the object and
+            # the assigned Mesh.  Normalize the copied mesh before applying
+            # the source's global placement, otherwise mesh-to-shape export
+            # applies a root object's transform twice.
+            if hasattr(mesh, "Placement") and hasattr(FreeCAD, "Placement"):
+                mesh.Placement = FreeCAD.Placement()
+            if target_suffix in (".step", ".stp"):
+                from .StlLoader import _mesh_to_shape
+
+                try:
+                    shape = _mesh_to_shape(mesh, require_solid=True)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"STL object '{source.Label}' cannot be exported "
+                        f"to STEP: {exc}") from exc
+                if placement is not None:
+                    shape.Placement = placement
+                flat = document.addObject(
+                    "Part::Feature", f"Export_{index}_{source.Name}")
+                flat.Label = source.Label
+                flat.Shape = shape
+            else:
+                flat = document.addObject(
+                    "Mesh::Feature", f"Export_{index}_{source.Name}")
+                flat.Label = source.Label
+                flat.Mesh = mesh
+                if placement is not None:
+                    flat.Placement = placement
+        else:
+            shape = source.Shape.copy()
+            if placement is not None:
+                shape.Placement = placement
+            flat = document.addObject(
+                "Part::Feature", f"Export_{index}_{source.Name}")
+            flat.Label = source.Label
+            flat.Shape = shape
+        export_items.append(
+            (flat, colors)
+            if colors and target_suffix in (".step", ".stp") else flat)
     document.recompute()
     return export_items
 
@@ -157,8 +211,9 @@ def export_assembly(source, target):
         raise FileNotFoundError(source)
     if not source.lower().endswith((".kkkk_asm", ".kicad_pcb")):
         raise ValueError("input must be a .kkkk_asm or .kicad_pcb file")
-    if not target.lower().endswith((".step", ".stp")):
-        raise ValueError("output must be a .step or .stp file")
+    target_suffix = os.path.splitext(target)[1].lower()
+    if target_suffix not in (".step", ".stp", ".stl"):
+        raise ValueError("output must be a .step, .stp, or .stl file")
 
     document = FreeCAD.newDocument("FreekiCADExport")
     try:
@@ -167,13 +222,18 @@ def export_assembly(source, target):
         export_sources = _collect_export_sources(objects)
         if not export_sources:
             raise RuntimeError("input produced no exportable geometry")
-        export_items = _flatten_export_items(export_sources, document)
+        export_items = _flatten_export_items(
+            export_sources, document, target_suffix=target_suffix)
 
         output_directory = os.path.dirname(target)
         if output_directory and not os.path.isdir(output_directory):
             raise FileNotFoundError(output_directory)
-        Import.export(
-            export_items, target, legacy=False, keepPlacement=True)
+        if target_suffix == ".stl":
+            import Mesh
+            Mesh.export(export_items, target)
+        else:
+            Import.export(
+                export_items, target, legacy=False, keepPlacement=True)
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Exported {len(export_items)} object(s) to "
             f"'{target}'\n")
@@ -186,7 +246,7 @@ def main(argv=None):
     if len(argv) < 3:
         FreeCAD.Console.PrintError(
             "Usage: freecadcmd scripts/kkkk_export.py "
-            "input.kkkk_asm|input.kicad_pcb output.step\n")
+            "input.kkkk_asm|input.kicad_pcb output.step|output.stl\n")
         return 2
     source, target = argv[-2:]
     try:

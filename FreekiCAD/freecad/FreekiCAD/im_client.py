@@ -218,6 +218,9 @@ class _DocumentObserver:
                 # current importer settings without blocking the GUI thread.
                 import Import
                 Import.open(filepath)
+            elif suffix == ".stl":
+                import Mesh
+                Mesh.open(filepath)
             elif suffix == ".kkkk_asm":
                 from . import Assembly
                 Assembly.open(filepath)
@@ -248,7 +251,8 @@ class _DocumentObserver:
                        document.Name not in self.source_paths]
             if len(unbound) != 1:
                 return False
-            if (os.path.splitext(filepath)[1].lower() in (".step", ".stp") and
+            if (os.path.splitext(filepath)[1].lower()
+                    in (".step", ".stp", ".stl") and
                     not getattr(unbound[0], "Objects", ())):
                 return False
             self.register_source(unbound[0], filepath)

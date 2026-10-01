@@ -102,6 +102,16 @@ class StepObjectStub:
         self.AutoReload = False
 
 
+class StlObjectStub(StepObjectStub):
+    def __init__(self, document, filename=""):
+        super().__init__(document, filename)
+        self.Name = "StlObject"
+        self.Label = "Printed enclosure"
+        self.Proxy = types.SimpleNamespace(Type="StlObject")
+        self.TypeId = "Mesh::FeaturePython"
+        self.UnitScale = types.SimpleNamespace(Value=25.4)
+
+
 class LinkStub:
     TypeId = "App::Link"
 
@@ -243,6 +253,25 @@ class AssemblyTests(unittest.TestCase):
                 saved["file"], os.path.join("..", "models", "enclosure.step")
             )
             self.assertEqual(saved["settings"], {"AutoReload": False})
+            self.assertEqual(saved["placement"]["base"], [7.0, 8.0, 9.0])
+
+    def test_export_saves_stl_unit_scale_and_placement(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "assembly", "main.kkkk_asm")
+            os.makedirs(os.path.dirname(manifest_path))
+            document = Document("Assembly")
+            stl = StlObjectStub(
+                document, os.path.join(root, "models", "enclosure.stl"))
+
+            self.assembly.export([stl], manifest_path)
+
+            with open(manifest_path, encoding="utf-8") as stream:
+                saved = json.load(stream)["objects"][0]
+            self.assertEqual(saved["type"], "StlObject")
+            self.assertEqual(saved["settings"], {
+                "AutoReload": False,
+                "UnitScale": 25.4,
+            })
             self.assertEqual(saved["placement"]["base"], [7.0, 8.0, 9.0])
 
     def test_export_link_uses_instance_global_placement(self):
@@ -430,6 +459,42 @@ class AssemblyTests(unittest.TestCase):
             self.assertFalse(created.AutoReload)
             self.assertEqual(created.Placement.Base.x, 10)
             self.assertAlmostEqual(created.Placement.Rotation.Angle, math.pi / 3)
+
+    def test_insert_creates_stl_object_and_restores_unit_scale(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "main.kkkk_asm")
+            with open(manifest_path, "w", encoding="utf-8") as stream:
+                json.dump({"objects": [{
+                    "type": "StlObject",
+                    "file": "enclosure.stl",
+                    "settings": {"AutoReload": False, "UnitScale": 0.001},
+                    "placement": {
+                        "base": [10, 20, 30],
+                        "rotation": {
+                            "axis": [0, 1, 0],
+                            "angle_degrees": 60,
+                        },
+                    },
+                }]}, stream)
+
+            document = Document("Target")
+            self.documents[document.Name] = document
+            created = StlObjectStub(document)
+            stl_module = types.ModuleType(
+                "FreekiCAD.freecad.FreekiCAD.StlObject")
+            stl_module.create_stl_object = mock.Mock(return_value=created)
+
+            with mock.patch.dict(sys.modules, {
+                    "FreekiCAD.freecad.FreekiCAD.StlObject": stl_module}):
+                result = self.assembly.insert(manifest_path, document.Name)
+
+            self.assertEqual(result, [created])
+            stl_module.create_stl_object.assert_called_once_with(
+                document=document, recompute=False)
+            self.assertEqual(created.FileName, os.path.join(root, "enclosure.stl"))
+            self.assertFalse(created.AutoReload)
+            self.assertEqual(created.UnitScale, 0.001)
+            self.assertEqual(created.Placement.Base.x, 10)
 
     def test_insert_can_defer_all_recomputation_for_headless_loading(self):
         with tempfile.TemporaryDirectory() as root:

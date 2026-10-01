@@ -1,7 +1,7 @@
 """Import and export FreekiCAD assembly manifests.
 
 ``.kkkk_asm`` files are deliberately plain JSON.  They reference KiCad boards
-and STEP models instead of embedding generated FreeCAD geometry, which keeps
+and external models instead of embedding generated FreeCAD geometry, which keeps
 the files small and lets each linked object rebuild through its normal path.
 """
 
@@ -27,6 +27,10 @@ PCB_OBJECT_SETTINGS = (
     "DebugBoard",
     "WedgeMode",
 )
+MODEL_OBJECT_SETTINGS = {
+    "StepObject": ("AutoReload",),
+    "StlObject": ("AutoReload", "UnitScale"),
+}
 
 
 class _ExportInstance:
@@ -130,7 +134,7 @@ def _is_supported_object(obj):
     if str(getattr(obj, "TypeId", "") or "") in (
             "App::Link", "App::LinkElement"):
         return False
-    return _object_type(obj) in ("PcbObject", "StepObject")
+    return _object_type(obj) in ("PcbObject", *MODEL_OBJECT_SETTINGS)
 
 
 def _is_link(obj):
@@ -285,12 +289,19 @@ def _object_to_json(instance, filename, assembly_objects):
         )
     settings = {}
     setting_names = (PCB_OBJECT_SETTINGS if object_type == "PcbObject"
-                     else ("AutoReload",))
+                     else MODEL_OBJECT_SETTINGS[object_type])
     for name in setting_names:
         if not hasattr(obj, name):
             continue
         value = getattr(obj, name)
-        settings[name] = str(value) if name == "WedgeMode" else bool(value)
+        if name == "WedgeMode":
+            settings[name] = str(value)
+        elif name == "UnitScale":
+            # PropertyLength.Value is FreeCAD's internal millimetre value.
+            # Plain floats remain accepted for older documents and tests.
+            settings[name] = float(getattr(value, "Value", value))
+        else:
+            settings[name] = bool(value)
     if instance.snapshot and object_type == "PcbObject":
         # An Assembly/App::Link export is a flattened pose snapshot.  Do not
         # let coupler positioning overwrite that solved instance placement
@@ -304,7 +315,7 @@ def _object_to_json(instance, filename, assembly_objects):
     # CouplerMoving placement is derived state.  Omitting it avoids briefly
     # restoring a stale transform before the linked boards finish loading.
     if (instance.snapshot
-            or object_type == "StepObject"
+            or object_type in MODEL_OBJECT_SETTINGS
             or not _uses_moving_coupler(obj, assembly_objects)):
         data["placement"] = _placement_to_json(instance.placement)
     return data
@@ -353,7 +364,7 @@ def insert(filename, document_name, recompute=True):
     imported = []
     for index, item in enumerate(data["objects"]):
         if not isinstance(item, dict) or item.get("type") not in (
-                "PcbObject", "LinkedObject", "StepObject"):
+                "PcbObject", "LinkedObject", *MODEL_OBJECT_SETTINGS):
             raise ValueError("object {} has an unsupported type".format(index))
         source = item.get("file")
         if not isinstance(source, str) or not source:
@@ -364,11 +375,16 @@ def insert(filename, document_name, recompute=True):
 
             obj = create_pcb_object(document=document, recompute=False)
             setting_names = PCB_OBJECT_SETTINGS
-        else:
+        elif item["type"] == "StepObject":
             from .StepObject import create_step_object
 
             obj = create_step_object(document=document, recompute=False)
-            setting_names = ("AutoReload",)
+            setting_names = MODEL_OBJECT_SETTINGS["StepObject"]
+        else:
+            from .StlObject import create_stl_object
+
+            obj = create_stl_object(document=document, recompute=False)
+            setting_names = MODEL_OBJECT_SETTINGS["StlObject"]
         settings = item.get("settings", {})
         if not isinstance(settings, dict):
             raise ValueError("object {} settings must be an object".format(index))

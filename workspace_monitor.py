@@ -9,7 +9,7 @@ from im.im_mesh import is_kicad_editor_process, owned_process_iter
 
 FILE_SUFFIXES = {
     "KiCad": (".kicad_pcb", ".kicad_sch", ".kicad_pro"),
-    "FreeCAD": (".fcstd", ".step", ".stp", ".kkkk_asm"),
+    "FreeCAD": (".fcstd", ".step", ".stp", ".stl", ".kkkk_asm"),
     "Fabrication Planner": (".kkkk_fab", ".kikit_pnl"),
 }
 def update_pidmap_entry(pidmap, filepath, pid):

@@ -1,47 +1,39 @@
-"""Reloadable STEP objects for the FreekiCAD workbench."""
+"""Reloadable native STL mesh objects for the FreekiCAD workbench."""
 
 import os
 
 import FreeCAD
 
-
-def _resolved_filename(obj):
-    filename = os.path.expanduser(str(getattr(obj, "FileName", "") or ""))
-    if not filename:
-        return ""
-    if os.path.isabs(filename):
-        return os.path.normpath(filename)
-    document_filename = str(
-        getattr(getattr(obj, "Document", None), "FileName", "") or ""
-    )
-    if document_filename:
-        return os.path.normpath(
-            os.path.join(
-                os.path.dirname(os.path.abspath(document_filename)), filename
-            )
-        )
-    return os.path.abspath(filename)
+from .StepObject import _resolved_filename
 
 
-class StepObject:
-    """A Part feature whose shape can be refreshed from a STEP file."""
+def _unit_scale_mm(value):
+    """Return a UnitScale property as millimetres per STL coordinate unit."""
+    return float(getattr(value, "Value", value))
+
+
+class StlObject:
+    """A mesh feature whose geometry can be refreshed from an STL file."""
 
     def __init__(self, obj):
         obj.addProperty(
             "App::PropertyFile", "FileName", "LinkedFile",
-            "Path to the STEP file")
+            "Path to the STL file")
         obj.addProperty(
             "App::PropertyBool", "AutoReload", "LinkedFile",
             "Automatically reload when the file changes")
         obj.AutoReload = True
         obj.addProperty(
+            "App::PropertyLength", "UnitScale", "LinkedFile",
+            "Millimetres per STL coordinate unit")
+        obj.UnitScale = 1.0
+        obj.addProperty(
             "App::PropertyString", "FileMtime", "LinkedFile",
-            "Stored mtime of the linked STEP file")
+            "Stored mtime of the linked STL file")
         obj.setPropertyStatus("FileMtime", "Hidden")
         obj.Proxy = self
-        self.Type = "StepObject"
+        self.Type = "StlObject"
         self._reloading = False
-        self._export_face_colors = None
         self._last_filename = ""
 
     def onDocumentRestored(self, obj):
@@ -50,25 +42,29 @@ class StepObject:
                 "App::PropertyBool", "AutoReload", "LinkedFile",
                 "Automatically reload when the file changes")
             obj.AutoReload = True
+        if not hasattr(obj, "UnitScale"):
+            obj.addProperty(
+                "App::PropertyLength", "UnitScale", "LinkedFile",
+                "Millimetres per STL coordinate unit")
+            obj.UnitScale = 1.0
         if not hasattr(obj, "FileMtime"):
             obj.addProperty(
                 "App::PropertyString", "FileMtime", "LinkedFile",
-                "Stored mtime of the linked STEP file")
+                "Stored mtime of the linked STL file")
             obj.setPropertyStatus("FileMtime", "Hidden")
         self._reloading = False
-        self._export_face_colors = None
         self._last_filename = _resolved_filename(obj)
 
     def onChanged(self, obj, prop):
-        if prop != "FileName" or getattr(self, "_reloading", False):
+        if prop not in ("FileName", "UnitScale") or self._reloading:
             return
         if getattr(getattr(obj, "Document", None), "Restoring", False):
             return
         filename = _resolved_filename(obj)
-        if filename == getattr(self, "_last_filename", None):
+        if prop == "FileName" and filename == self._last_filename:
             return
         self._last_filename = filename
-        if obj.FileName:
+        if prop == "FileName" and obj.FileName:
             obj.Label = os.path.splitext(os.path.basename(obj.FileName))[0]
         if hasattr(obj, "FileMtime"):
             obj.FileMtime = ""
@@ -88,13 +84,11 @@ class StepObject:
         return mtime != stored_mtime
 
     def execute(self, obj):
-        # Assembly solving can recompute the document continuously.  External
-        # file loading is intentionally owned by the GUI watcher (or an
-        # explicit headless reload), not by recompute.
+        # Match StepObject: explicit reload/watcher owns external I/O.
         pass
 
     def reload(self, obj, force=False):
-        if getattr(self, "_reloading", False):
+        if self._reloading:
             return False
         filename = _resolved_filename(obj)
         if not filename:
@@ -106,33 +100,33 @@ class StepObject:
             mtime = os.path.getmtime(filename)
         except OSError as exc:
             FreeCAD.Console.PrintWarning(
-                f"FreekiCAD: Cannot reload STEP '{filename}': {exc}\n")
+                f"FreekiCAD: Cannot reload STL '{filename}': {exc}\n")
             return False
 
         self._reloading = True
         try:
-            from .StepLoader import _load_step, _write_face_colors
+            from .StlLoader import _load_stl_mesh
 
-            parts = _load_step(filename, obj.Document)
-            if not parts:
+            try:
+                mesh = _load_stl_mesh(
+                    filename, _unit_scale_mm(
+                        getattr(obj, "UnitScale", 1.0)))
+            except Exception as exc:
                 FreeCAD.Console.PrintWarning(
-                    f"FreekiCAD: STEP load returned no shape: {filename}\n")
+                    f"FreekiCAD: STL load failed for '{filename}': {exc}\n")
                 return False
-            shape, colors = parts[0]
-            # Replacing Shape resets a Part::Feature's Placement in FreeCAD.
-            # Keep assembly transforms stable across manual/automatic reloads.
+            # FreeCAD resets a Mesh::Feature's Placement when its Mesh is
+            # replaced.  Preserve the linked/assembly transform across a
+            # source reload just as StepObject does when replacing Shape.
             placement = getattr(obj, "Placement", None)
             if hasattr(placement, "copy"):
                 placement = placement.copy()
-            obj.Shape = shape
+            obj.Mesh = mesh
             if placement is not None:
                 obj.Placement = placement
-            self._export_face_colors = list(colors) if colors else None
-            if colors and len(colors) == len(shape.Faces):
-                _write_face_colors(obj.ViewObject, list(colors))
             obj.FileMtime = str(mtime)
             FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Reloaded STEP '{obj.Label}'.\n")
+                f"FreekiCAD: Reloaded STL '{obj.Label}'.\n")
             return True
         finally:
             self._reloading = False
@@ -141,11 +135,11 @@ class StepObject:
         return {"Type": self.Type}
 
     def loads(self, state):
-        self.Type = state.get("Type", "StepObject") if state else "StepObject"
+        self.Type = state.get("Type", "StlObject") if state else "StlObject"
         self._reloading = False
 
 
-class StepObjectViewProvider:
+class StlObjectViewProvider:
     def __init__(self, view_object):
         view_object.Proxy = self
 
@@ -172,13 +166,13 @@ class StepObjectViewProvider:
             obj.Proxy.reload(obj, force=first_load)
 
     def setupContextMenu(self, view_object, menu):
-        action = menu.addAction("Reload STEP")
+        action = menu.addAction("Reload STL")
         action.triggered.connect(
             lambda: view_object.Object.Proxy.reload(
                 view_object.Object, force=True))
 
     def getIcon(self):
-        return ":/icons/Tree_Part.svg"
+        return ":/icons/Tree_Mesh.svg"
 
     def dumps(self):
         return None
@@ -187,17 +181,17 @@ class StepObjectViewProvider:
         return None
 
 
-def create_step_object(filename="", document=None, recompute=True):
+def create_stl_object(filename="", document=None, recompute=True):
     doc = document or FreeCAD.ActiveDocument
     if doc is None:
         doc = FreeCAD.newDocument()
     label = (os.path.splitext(os.path.basename(filename))[0]
-             if filename else "StepObject")
-    obj = doc.addObject("Part::FeaturePython", label)
-    StepObject(obj)
+             if filename else "StlObject")
+    obj = doc.addObject("Mesh::FeaturePython", label)
+    StlObject(obj)
     view_object = getattr(obj, "ViewObject", None)
     if getattr(FreeCAD, "GuiUp", False) and view_object is not None:
-        StepObjectViewProvider(view_object)
+        StlObjectViewProvider(view_object)
     if filename:
         obj.FileName = filename
     if recompute:

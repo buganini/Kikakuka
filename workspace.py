@@ -30,8 +30,11 @@ from kicad_compat import (
     get_kicad_compat,
 )
 
-FREECAD_SUFFIXES = (ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX)
-FILE_ORDER = [*PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, ".kicad_pro"]
+FREECAD_SUFFIXES = (
+    ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX, ".stp", STL_SUFFIX)
+FILE_ORDER = [
+    *PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX,
+    STL_SUFFIX, ".kicad_pro"]
 KICAD_SOCKET_REFRESH_RETRIES = 12
 KICAD_SOCKET_REFRESH_DELAY_S = 0.5
 ADDON_ROW_HEIGHT = 32
@@ -160,7 +163,7 @@ def populateProject(project, root, types=None, compatibility=None):
     if compatibility is None:
         compatibility = _workspace_kicad_compatibility()
     if types is None:
-        types = [SCH_SUFFIX, PCB_SUFFIX, STEP_SUFFIX]
+        types = [SCH_SUFFIX, PCB_SUFFIX, STEP_SUFFIX, STL_SUFFIX]
     project["files"] = []
     project["parent"] = None
     project["project_path"] = project["path"]
@@ -482,7 +485,7 @@ class WorkspaceUI(PUIView):
         filepath = OpenFile(
             "Open KiCad/FabPlan/Assembly",
             dir=dir,
-            types="KiCad/FabPlan/Assembly (*.kicad_pro *.kkkk_fab *.kikit_pnl *.kkkk_asm *.FCStd *.step)|*.kicad_pro;*.kkkk_fab;*.kikit_pnl;*.kkkk_asm;*.FCStd;*.step",
+            types="KiCad/FabPlan/Assembly (*.kicad_pro *.kkkk_fab *.kikit_pnl *.kkkk_asm *.FCStd *.step *.stp *.stl)|*.kicad_pro;*.kkkk_fab;*.kikit_pnl;*.kkkk_asm;*.FCStd;*.step;*.stp;*.stl",
         )
         if filepath:
             self.addFile(filepath)

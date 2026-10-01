@@ -29,7 +29,7 @@ for details.
 
 - Opening, importing, or dragging external `.kicad_pcb` files as linked PCB
   objects with automatic source reload
-- Adding reloadable linked STEP objects
+- Adding reloadable linked STEP and native STL mesh objects
 - Editing board outlines and synchronizing component placement changes back to
   KiCad
 - Optionally importing copper, solder mask, and silkscreen display layers
@@ -38,12 +38,12 @@ for details.
 - Bending flexible PCBs from a KiCad user layer named `FreekiCAD`
 - Automatically aligning linked PCBs with matching `CouplerFixed` and
   `CouplerMoving` footprints or an absolute `CouplerAt`
-- Assembling linked PCBs and STEP models with FreeCAD Assembly, Manipulator,
-  or direct transforms
+- Assembling linked PCBs, STEP models, and STL meshes with FreeCAD Assembly,
+  Manipulator, or direct transforms
 - Importing and exporting portable `.kkkk_asm` assembly manifests, including
   flattened FreeCAD Assembly and `App::Link` placements
 - Exporting `.kkkk_asm` assemblies or individual `.kicad_pcb` boards to STEP
-  with `freecadcmd`
+  or STL with `freecadcmd`
 - Running independently of the Kikakuka main program through the local
   per-process Instance Manager mesh
 
@@ -68,27 +68,32 @@ the foreground before waiting for its IPC endpoint. User-initiated file opens
 always activate KiCad; the complete policy is documented in
 [Instance Manager](https://github.com/buganini/Kikakuka/blob/main/im/README.md#kicad-foreground-policy).
 
-Both `.kicad_pcb` boards and STEP models remain linked to their external source
-files. When an assembly is saved as an `.FCStd` document, that document caches
+`.kicad_pcb` boards, STEP models, and STL meshes remain linked to their external
+source files. When an assembly is saved as an `.FCStd` document, that document caches
 the generated objects and geometry while retaining each source path so the
-linked object can be reloaded. `AutoReload` is enabled by default for both
-object types and can be disabled independently on each linked object.
+linked object can be reloaded. `AutoReload` is enabled by default and can be
+disabled independently on each linked object.
 
 By contrast, a `.kkkk_asm` manifest never contains cached objects or generated
 geometry. It stores only the linked source paths, object settings, and
 placements, and prefers paths relative to the manifest, falling back to an
 absolute path only when a relative path cannot be represented. On import,
 relative paths are resolved from the manifest's directory and every source is
-loaded fresh. This also makes FreekiCAD useful for assembling multiple STEP
-models without KiCad.
+loaded fresh. This also makes FreekiCAD useful for assembling external models
+without KiCad. STL files have no unit metadata, so linked `StlObject` instances
+interpret one coordinate unit as one millimetre by default and expose
+`UnitScale` for other source units. `UnitScale` is a FreeCAD length field, so
+values such as `1 mm`, `1 in`, or `1 mil` may be entered directly.
 
 The [FPC assembly example][fpc-assembly-example] shows a `.kkkk_asm` manifest
 containing linked KiCad PCB files.
 
 FreeCAD's Open and Import commands and drag-and-drop all create the same linked
-`PcbObject` as **FreekiCAD > Add KiCad PCB**. STEP extensions remain assigned to
-FreeCAD's built-in STEP importer; use **FreekiCAD > Add STEP** when a reloadable
-linked STEP object is wanted.
+`PcbObject` as **FreekiCAD > Add KiCad PCB**. STEP and STL extensions remain
+assigned to FreeCAD's built-in importers; use **FreekiCAD > Add STEP** or
+**FreekiCAD > Add STL** when a reloadable linked object is wanted. STL models
+referenced by KiCad footprints are converted to faceted Part geometry so they
+can use the existing component placement and export pipeline.
 
 ## Manual Installation
 
@@ -122,20 +127,25 @@ For a fully manual installation:
    import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=7.2.2"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)
    ```
 
-## Headless STEP Export
+## Headless STEP and STL Export
 
 Use `kkkk_export.py` with FreeCAD's command-line executable to convert a
-`.kkkk_asm` assembly or a single `.kicad_pcb` board to STEP without opening
-the FreeCAD GUI:
+`.kkkk_asm` assembly or a single `.kicad_pcb` board to STEP or STL without
+opening the FreeCAD GUI:
 
 ```text
 freecadcmd scripts/kkkk_export.py input.kkkk_asm output.step
 freecadcmd scripts/kkkk_export.py input.kicad_pcb output.step
+freecadcmd scripts/kkkk_export.py input.kkkk_asm output.stl
 ```
 
 The exporter synchronously loads every object and component model before it
-writes the STEP file. Assemblies containing only STEP objects need no
-KiCad-specific Python dependencies beyond FreekiCAD's core packages. For
+writes the output file. STEP output converts linked STL meshes to faceted
+B-Rep solids and rejects meshes that are not closed and manifold; it cannot
+recover analytic CAD surfaces from STL triangles. STL output keeps linked STL
+objects as meshes and tessellates PCB/STEP Part geometry. Standard STL does not
+preserve colors or materials. Assemblies containing only STEP/STL objects need
+no KiCad-specific Python dependencies beyond FreekiCAD's core packages. For
 assemblies containing KiCad PCB objects, install the KiCad extras above;
 FreekiCAD resolves or starts the matching KiCad
 instance itself and waits for its IPC API.
@@ -177,10 +187,11 @@ In the platform-specific commands above, `input.kkkk_asm` may be replaced by
 
 ## FreeCAD Assembly Workbench
 
-FreekiCAD `PcbObject` and `StepObject` objects can be inserted as components in
-FreeCAD's built-in Assembly workbench. Assembly creates an `App::Link` for each
-instance, so one linked source may be used multiple times with independent
-placements while source-file reloads continue to update its geometry.
+FreekiCAD `PcbObject`, `StepObject`, and `StlObject` objects can be inserted as
+components in FreeCAD's built-in Assembly workbench. Assembly creates an
+`App::Link` for each instance, so one linked source may be used multiple times
+with independent placements while source-file reloads continue to update its
+geometry.
 
 FreeCAD Assembly currently cannot resolve faces belonging to child objects
 inside a linked `PcbObject`. The GUI can select a board, component, or connector
@@ -190,14 +201,16 @@ including connector faces on bent sections, may not align correctly. This
 limitation does not affect direct `App::Link` placement, Manipulator alignment,
 coupler-based alignment, or flattened `.kkkk_asm` export. `StepObject` geometry
 is stored directly on the linked object and is not subject to this limitation.
+`StlObject` supports direct placement but mesh facets do not provide the same
+stable analytic faces as STEP for precision Assembly joints.
 Use the Manipulator workbench when a PCB child or bent-section face cannot be
 aligned with an Assembly joint.
 
 When exporting `.kkkk_asm`, the selection determines which placement is
 exported:
 
-- Selecting an original `PcbObject` or `StepObject` exports that source
-  object's own Placement.
+- Selecting an original `PcbObject`, `StepObject`, or `StlObject` exports that
+  source object's own Placement.
 - Selecting an `App::Link` exports its linked source at the instance's final
   global placement.
 - Selecting an `Assembly::AssemblyObject` recursively expands its direct and

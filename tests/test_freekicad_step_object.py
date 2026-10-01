@@ -39,18 +39,27 @@ class StepObjectTests(unittest.TestCase):
             step_loader_module._load_step = mock.Mock(
                 return_value=[(shape, colors)])
             step_loader_module._write_face_colors = mock.Mock()
-            placement = object()
-            obj = types.SimpleNamespace(
-                FileName=stream.name,
-                FileMtime="",
-                Document=object(),
-                Label="Enclosure",
-                Placement=placement,
-                Shape=None,
-                # FreeCAD 1.1's Gui.ViewProviderGeometryObject does not expose
-                # the legacy DiffuseColor property.
-                ViewObject=types.SimpleNamespace(),
-            )
+            placement = mock.Mock()
+            placement.copy.return_value = "saved placement"
+
+            class ShapeObject:
+                FileName = stream.name
+                FileMtime = ""
+                Document = object()
+                Label = "Enclosure"
+                Placement = placement
+                ViewObject = types.SimpleNamespace()
+
+                @property
+                def Shape(self):
+                    return self._shape
+
+                @Shape.setter
+                def Shape(self, value):
+                    self._shape = value
+                    self.Placement = "identity placement"
+
+            obj = ShapeObject()
             proxy = self.module.StepObject.__new__(self.module.StepObject)
             proxy._reloading = False
 
@@ -66,7 +75,8 @@ class StepObjectTests(unittest.TestCase):
             self.assertEqual(proxy._export_face_colors, colors)
             step_loader_module._write_face_colors.assert_called_once_with(
                 obj.ViewObject, colors)
-            self.assertIs(obj.Placement, placement)
+            self.assertEqual(obj.Placement, "saved placement")
+            placement.copy.assert_called_once_with()
             self.assertEqual(obj.FileMtime, str(os.path.getmtime(stream.name)))
 
     def test_relative_path_is_resolved_from_freecad_document(self):
