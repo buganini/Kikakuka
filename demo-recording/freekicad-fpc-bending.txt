@@ -10,13 +10,22 @@ Create a layer named “freekicad” (case insensitive)
 Select the freekicad layer
 Draw a bend line
 Add a text object with the bend settings
+Set the angle to −60° and the bend radius to 1.5 mm
 Move (M) the text and attach it to the bend line
 Open it in FreeCAD
-Voilà!
+It’s that easy!
+Enabling more layers slows things down, so you may want to enable them last
 You can adjust the bend settings in FreeCAD
 Keep in mind that reloading restores the bend settings from the KiCad file
-Enabling more layers slows things down, so you may want to enable them last
+Let’s add one more bend line
+You can navigate to KiCad from here
+This helps when you’re working with multiple KiCad documents
+Draw another bend line
+Set the angle to 30° and the bending spanning to 2 mm
+Open it in FreeCAD
+Enable outer copper and silkscreen
+Give it a moment to load
+Voilà!
 Let’s take a look at a more interesting test case
-You can add multiple bend lines
-Even on a complex shape
+You can bend boards with very complex shapes
 That’s it. Ciao!
