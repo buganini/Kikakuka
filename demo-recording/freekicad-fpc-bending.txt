@@ -11,6 +11,7 @@ Select the freekicad layer
 Draw a bend line
 Add a text object with the bend settings
 Set the angle to −60° and the bend radius to 1.5 mm
+I usually make the text size smaller
 Move (M) the text and attach it to the bend line
 Open it in FreeCAD
 It’s that easy!
