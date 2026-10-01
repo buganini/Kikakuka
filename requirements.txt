@@ -9,3 +9,4 @@ pywin32; platform_system == "Windows"
 pygit2
 parsimonious
 kicad-python>=0.8,<0.9
+openpyxl>=3.1

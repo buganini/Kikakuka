@@ -7,6 +7,7 @@ import pcbnew
 
 from gerber import (
     convert_to_kicad,
+    find_CPL,
     find_cu_bottom,
     find_cu_inner,
     find_cu_top,
@@ -22,6 +23,12 @@ from gerber import (
 
 
 class GerberDetectionTests(unittest.TestCase):
+    def test_smt_xlsx_is_recognized_as_cpl(self):
+        self.assertEqual(
+            find_CPL(["job/P7301_SMT.xlsx"]),
+            "job/P7301_SMT.xlsx",
+        )
+
     def test_gbx_is_recognized_as_gerber(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             filename = os.path.join(temp_dir, "copper.GBX")
@@ -93,6 +100,43 @@ M02*
         self.assertEqual(
             {board.GetLayerName(item.GetLayer()) for item in board.GetDrawings()},
             {"F.Cu", "In1.Cu", "In2.Cu", "B.Cu"},
+        )
+
+    def test_xlsx_cpl_without_bom_creates_reference_only_footprints(self):
+        from openpyxl import Workbook
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Path(temp_dir, "unclassified.gbr").touch()
+            cpl_path = Path(temp_dir, "P7301_SMT.xlsx")
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(
+                ["位置", "num", "Center-X", "Center-Y", "角度", "面向"])
+            sheet.append(["R1", 1, 1.25, 2.5, 90, "T"])
+            sheet.append(["C1", 2, 3.75, 4.5, 180, "B"])
+            workbook.save(cpl_path)
+            workbook.close()
+
+            output = os.path.join(temp_dir, "board.kicad_pcb")
+            errors = convert_to_kicad(
+                temp_dir, output, required_edge_cuts=False)
+            board = pcbnew.LoadBoard(output)
+            footprints = {
+                footprint.GetReference(): footprint
+                for footprint in board.GetFootprints()
+            }
+
+        self.assertEqual(errors, [])
+        self.assertEqual(set(footprints), {"R1", "C1"})
+        self.assertEqual(footprints["R1"].GetValue(), "")
+        self.assertEqual(footprints["C1"].GetValue(), "")
+        self.assertEqual(footprints["R1"].GetFPIDAsString(), "")
+        self.assertEqual(list(footprints["R1"].Pads()), [])
+        self.assertEqual(board.GetLayerName(footprints["R1"].GetLayer()), "F.Cu")
+        self.assertEqual(board.GetLayerName(footprints["C1"].GetLayer()), "B.Cu")
+        self.assertEqual(
+            footprints["R1"].GetPosition(),
+            pcbnew.VECTOR2I(1250000, -2500000),
         )
 
 

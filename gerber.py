@@ -255,19 +255,40 @@ def find_NPTH(filenames):
 
 def find_BOM(filenames):
     for fn in filenames:
-        if fn.lower().endswith(".csv"):
-            if "bom" in fn.lower():
+        filename = os.path.basename(fn).lower()
+        if filename.endswith((".csv", ".xlsx")):
+            if "bom" in filename:
                 return fn
     return None
 
 def find_CPL(filenames):
     for fn in filenames:
-        if fn.lower().endswith(".csv"):
-            if "cpl" in fn.lower():
-                return fn
-            if "pos" in fn.lower():
+        filename = os.path.basename(fn).lower()
+        if filename.endswith((".csv", ".xlsx")):
+            if any(marker in filename for marker in ("cpl", "pos", "smt")):
                 return fn
     return None
+
+
+CPL_HEADER_ALIASES = {
+    "designator": ("Designator", "Ref", "位置"),
+    "x": ("Mid X", "PosX", "X", "Center-X"),
+    "y": ("Mid Y", "PosY", "Y", "Center-Y"),
+    "rotation": ("Rotation", "Rot", "角度"),
+    "layer": ("Layer", "Side", "面向"),
+}
+
+
+def find_table_header(headers, aliases):
+    return next((header for header in aliases if header in headers), None)
+
+
+def resolve_table_file(input_path, filename):
+    if os.path.isfile(filename):
+        return filename
+    if is_gerber_dir(input_path):
+        return os.path.join(input_path, filename)
+    return filename
 
 def read_gbr_file(path, filename):
     if is_gerber_dir(path):
@@ -938,82 +959,115 @@ def convert_to_kicad(
         if cpl_file is None:
             cpl_file = find_CPL(filenames)
 
-        if bom_file and cpl_file:
-            print("bom_file", bom_file)
+        if cpl_file:
+            if bom_file:
+                print("bom_file", bom_file)
             print("cpl_file", cpl_file)
-            bom = TableLoader(bom_file)
-            cpl = TableLoader(cpl_file)
-            bom_rows = bom.rows()
-            bom_header = next(bom_rows)
-            cpl_rows = cpl.rows()
-            cpl_header = next(cpl_rows)
-
-            bom_designator_header = [h for h in ["Designator"] if h in bom_header]
-            bom_designator_header = bom_designator_header[0] if bom_designator_header else None
-            bom_comment_header = [h for h in ["Comment"] if h in bom_header]
-            bom_comment_header = bom_comment_header[0] if bom_comment_header else None
-            bom_footprint_header = [h for h in ["Footprint"] if h in bom_header]
-            bom_footprint_header = bom_footprint_header[0] if bom_footprint_header else None
+            bom_entries = {}
+            bom_comment_header = None
+            bom_footprint_header = None
             bom_ignore_headers = ["Quantity", "Qty", "Item #", "Id"]
-            cpl_designator_header = [h for h in ["Designator", "Ref"] if h in cpl_header]
-            cpl_designator_header = cpl_designator_header[0] if cpl_designator_header else None
-            cpl_x_header = [h for h in ["Mid X", "PosX", "X"] if h in cpl_header]
-            cpl_x_header = cpl_x_header[0] if cpl_x_header else None
-            cpl_y_header = [h for h in ["Mid Y", "PosY", "Y"] if h in cpl_header]
-            cpl_y_header = cpl_y_header[0] if cpl_y_header else None
-            cpl_rotation_header = [h for h in ["Rotation", "Rot"] if h in cpl_header]
-            cpl_rotation_header = cpl_rotation_header[0] if cpl_rotation_header else None
-            cpl_layer_header = [h for h in ["Layer", "Side"] if h in cpl_header]
-            cpl_layer_header = cpl_layer_header[0] if cpl_layer_header else None
+
+            if bom_file:
+                bom_loader = TableLoader(resolve_table_file(input, bom_file))
+                try:
+                    bom_rows = bom_loader.rows()
+                    bom_header = next(bom_rows)
+                    bom_designator_header = find_table_header(
+                        bom_header, ("Designator",))
+                    bom_comment_header = find_table_header(
+                        bom_header, ("Comment",))
+                    bom_footprint_header = find_table_header(
+                        bom_header, ("Footprint",))
+                    if bom_designator_header:
+                        for row in bom_rows:
+                            entry = {k: v for k, v in zip(bom_header, row)}
+                            designators = entry.pop(bom_designator_header)
+                            for designator in str(designators).split(","):
+                                bom_entries[designator.strip()] = entry
+                finally:
+                    bom_loader.close()
+
+            cpl_loader = TableLoader(resolve_table_file(input, cpl_file))
+            cpl_rows = cpl_loader.rows()
+            cpl_header = next(cpl_rows)
+            cpl_designator_header = find_table_header(
+                cpl_header, CPL_HEADER_ALIASES["designator"])
+            cpl_x_header = find_table_header(
+                cpl_header, CPL_HEADER_ALIASES["x"])
+            cpl_y_header = find_table_header(
+                cpl_header, CPL_HEADER_ALIASES["y"])
+            cpl_rotation_header = find_table_header(
+                cpl_header, CPL_HEADER_ALIASES["rotation"])
+            cpl_layer_header = find_table_header(
+                cpl_header, CPL_HEADER_ALIASES["layer"])
             layer_map = {
                 "top": pcbnew.F_Cu,
+                "t": pcbnew.F_Cu,
                 "bottom": pcbnew.B_Cu,
+                "b": pcbnew.B_Cu,
             }
+            required_headers = {
+                "designator": cpl_designator_header,
+                "x": cpl_x_header,
+                "y": cpl_y_header,
+                "rotation": cpl_rotation_header,
+                "layer": cpl_layer_header,
+            }
+            missing_headers = [
+                name for name, header in required_headers.items()
+                if header is None
+            ]
 
-            if bom_designator_header:
-                unit = pcbnew.PCB_IU_PER_MM
-
-                bom = {}
-                for row in bom_rows:
-                    entry = {k:v for k,v in zip(bom_header, row)}
-                    designators = entry.pop(bom_designator_header)
-                    # print("BOM", designators, entry)
-                    for designator in designators.split(","):
-                        bom[designator] = entry
-
-                for row in cpl_rows:
-                    entry = {k:v for k,v in zip(cpl_header, row)}
-                    designator = entry.pop(cpl_designator_header)
-                    mid_x = float(entry.pop(cpl_x_header)) * unit
-                    mid_y = -float(entry.pop(cpl_y_header)) * unit
-                    rotation = float(entry.pop(cpl_rotation_header))
-                    layer = entry.pop(cpl_layer_header)
-                    if not layer in layer_map:
-                        cpl_unknown_layers.append(layer)
-                        continue
-
-                    # print(designator, mid_x/mm, -mid_y/mm, rotation, layer)
-                    footprint = pcbnew.FootprintLoad(KIKAKUKA_LIB, "Footprint")
-                    footprint.SetFPIDAsString(bom.get(designator, {}).get(bom_footprint_header, ""))
-                    footprint.SetPosition(pcbnew.VECTOR2I(round(mid_x), round(mid_y)))
-                    footprint.SetOrientation(pcbnew.EDA_ANGLE(rotation, pcbnew.DEGREES_T))
-                    footprint.SetLayer(layer_map[layer])
-                    for k,v in bom.get(designator, {}).items():
-                        if not v:
+            try:
+                if missing_headers:
+                    errors.append(
+                        "CPL is missing required columns: "
+                        + ", ".join(missing_headers))
+                else:
+                    unit = pcbnew.PCB_IU_PER_MM
+                    for row in cpl_rows:
+                        entry = {k: v for k, v in zip(cpl_header, row)}
+                        designator = str(entry.pop(cpl_designator_header))
+                        mid_x = float(entry.pop(cpl_x_header)) * unit
+                        mid_y = -float(entry.pop(cpl_y_header)) * unit
+                        rotation = float(entry.pop(cpl_rotation_header))
+                        layer = str(
+                            entry.pop(cpl_layer_header)).strip().lower()
+                        if layer not in layer_map:
+                            cpl_unknown_layers.append(layer)
                             continue
-                        if k in [bom_comment_header, bom_footprint_header]:
-                            continue
-                        if k in bom_ignore_headers:
-                            continue
-                        footprint.SetField(k, v)
-                        text = get_footprint_field(footprint, k)
-                        if text:
-                            text.SetVisible(False)
-                    footprint.SetReference(designator)
-                    footprint.SetValue(bom.get(designator, {}).get(bom_comment_header, ""))
-                    ref = footprint.Reference()
-                    ref.SetVisible(True)
-                    board.Add(footprint)
+
+                        # print(designator, mid_x/mm, -mid_y/mm, rotation, layer)
+                        footprint = pcbnew.FootprintLoad(
+                            KIKAKUKA_LIB, "Footprint")
+                        bom_entry = bom_entries.get(designator, {})
+                        footprint.SetFPIDAsString(
+                            bom_entry.get(bom_footprint_header, ""))
+                        footprint.SetPosition(
+                            pcbnew.VECTOR2I(round(mid_x), round(mid_y)))
+                        footprint.SetOrientation(
+                            pcbnew.EDA_ANGLE(rotation, pcbnew.DEGREES_T))
+                        footprint.SetLayer(layer_map[layer])
+                        for k, v in bom_entry.items():
+                            if not v:
+                                continue
+                            if k in [bom_comment_header, bom_footprint_header]:
+                                continue
+                            if k in bom_ignore_headers:
+                                continue
+                            footprint.SetField(k, v)
+                            text = get_footprint_field(footprint, k)
+                            if text:
+                                text.SetVisible(False)
+                        footprint.SetReference(designator)
+                        footprint.SetValue(
+                            bom_entry.get(bom_comment_header, ""))
+                        ref = footprint.Reference()
+                        ref.SetVisible(True)
+                        board.Add(footprint)
+            finally:
+                cpl_loader.close()
         print(filenames)
 
     if differ_mode:
