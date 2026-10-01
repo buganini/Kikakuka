@@ -12,6 +12,16 @@ STL_OBJECT_PATH = os.path.join(
     REPOSITORY_ROOT, "FreekiCAD", "freecad", "FreekiCAD", "StlObject.py")
 
 
+class QuantityStub:
+    def __init__(self, millimetres):
+        self.millimetres = millimetres
+
+    def getValueAs(self, unit):
+        if unit != "mm":
+            raise AssertionError(unit)
+        return types.SimpleNamespace(Value=self.millimetres)
+
+
 def load_stl_object_module(fake_freecad):
     step_module = types.ModuleType("FreekiCAD.freecad.FreekiCAD.StepObject")
 
@@ -52,7 +62,7 @@ class StlObjectTests(unittest.TestCase):
             class MeshObject:
                 FileName = stream.name
                 FileMtime = ""
-                UnitScale = types.SimpleNamespace(Value=25.4)
+                LengthPerUnit = QuantityStub(25.4)
                 Document = types.SimpleNamespace(FileName="")
                 Label = "Printed case"
                 Placement = placement
@@ -81,11 +91,11 @@ class StlObjectTests(unittest.TestCase):
             loader._load_stl_mesh.assert_called_once_with(stream.name, 25.4)
             self.assertEqual(obj.FileMtime, str(os.path.getmtime(stream.name)))
 
-    def test_unit_scale_change_invalidates_loaded_mesh(self):
+    def test_length_per_unit_change_invalidates_loaded_mesh(self):
         obj = types.SimpleNamespace(
             FileName="case.stl",
             FileMtime="123",
-            UnitScale=0.001,
+            LengthPerUnit=QuantityStub(0.001),
             Document=types.SimpleNamespace(
                 Restoring=False, FileName="/project/assembly.FCStd"),
         )
@@ -93,7 +103,7 @@ class StlObjectTests(unittest.TestCase):
         proxy._reloading = False
         proxy._last_filename = "/project/case.stl"
 
-        proxy.onChanged(obj, "UnitScale")
+        proxy.onChanged(obj, "LengthPerUnit")
 
         self.assertEqual(obj.FileMtime, "")
 
@@ -121,10 +131,10 @@ class StlObjectTests(unittest.TestCase):
         self.assertIs(result, obj)
         document.addObject.assert_called_once_with(
             "Mesh::FeaturePython", "StlObject")
-        self.assertEqual(result.UnitScale, 1.0)
+        self.assertEqual(result.LengthPerUnit, "1 mm")
         self.assertIn(
-            ("App::PropertyLength", "UnitScale", "LinkedFile",
-             "Millimetres per STL coordinate unit"),
+            ("App::PropertyLength", "LengthPerUnit", "LinkedFile",
+             "Physical length represented by one STL coordinate unit"),
             result.properties,
         )
 

@@ -1,5 +1,5 @@
 # Next:
-* FreekiCAD: Add reloadable native STL mesh objects, STL footprint-model import, portable assembly support, and headless STEP/STL export with closed-mesh validation for STEP conversion; preserve linked STEP/STL placements across source reloads
+* FreekiCAD: Add reloadable native STL mesh objects with a unit-aware `LengthPerUnit` field, STL footprint-model import, portable assembly support, and headless STEP/STL export with closed-mesh validation for STEP conversion; preserve linked STEP/STL placements across source reloads
 * KiCad add-on: Add Open in FreeCAD to refresh the current PCB in a matching FreeCAD document, prioritizing the active document, or create a new document when no match exists, and bring FreeCAD to the front
 * FreekiCAD: Add Goto KiCad to the PCB object's context menu to open or focus the linked PCB in KiCad
 * FreekiCAD: Support mm, cm, um, in, and mil units in bending r/s annotations instead of ignoring unit suffixes

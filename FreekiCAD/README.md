@@ -82,8 +82,9 @@ relative paths are resolved from the manifest's directory and every source is
 loaded fresh. This also makes FreekiCAD useful for assembling external models
 without KiCad. STL files have no unit metadata, so linked `StlObject` instances
 interpret one coordinate unit as one millimetre by default and expose
-`UnitScale` for other source units. `UnitScale` is a FreeCAD length field, so
-values such as `1 mm`, `1 in`, or `1 mil` may be entered directly.
+`LengthPerUnit` for other source units. `LengthPerUnit` is a FreeCAD length
+field, so values such as `1 mm`, `1 in`, or `1 mil` may be entered directly.
+Portable manifests store its canonical millimetre value as `LengthPerUnitMM`.
 
 The [FPC assembly example][fpc-assembly-example] shows a `.kkkk_asm` manifest
 containing linked KiCad PCB files.

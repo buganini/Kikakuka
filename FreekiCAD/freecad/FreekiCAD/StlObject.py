@@ -7,11 +7,6 @@ import FreeCAD
 from .StepObject import _resolved_filename
 
 
-def _unit_scale_mm(value):
-    """Return a UnitScale property as millimetres per STL coordinate unit."""
-    return float(getattr(value, "Value", value))
-
-
 class StlObject:
     """A mesh feature whose geometry can be refreshed from an STL file."""
 
@@ -24,9 +19,9 @@ class StlObject:
             "Automatically reload when the file changes")
         obj.AutoReload = True
         obj.addProperty(
-            "App::PropertyLength", "UnitScale", "LinkedFile",
-            "Millimetres per STL coordinate unit")
-        obj.UnitScale = 1.0
+            "App::PropertyLength", "LengthPerUnit", "LinkedFile",
+            "Physical length represented by one STL coordinate unit")
+        obj.LengthPerUnit = "1 mm"
         obj.addProperty(
             "App::PropertyString", "FileMtime", "LinkedFile",
             "Stored mtime of the linked STL file")
@@ -42,11 +37,11 @@ class StlObject:
                 "App::PropertyBool", "AutoReload", "LinkedFile",
                 "Automatically reload when the file changes")
             obj.AutoReload = True
-        if not hasattr(obj, "UnitScale"):
+        if not hasattr(obj, "LengthPerUnit"):
             obj.addProperty(
-                "App::PropertyLength", "UnitScale", "LinkedFile",
-                "Millimetres per STL coordinate unit")
-            obj.UnitScale = 1.0
+                "App::PropertyLength", "LengthPerUnit", "LinkedFile",
+                "Physical length represented by one STL coordinate unit")
+            obj.LengthPerUnit = "1 mm"
         if not hasattr(obj, "FileMtime"):
             obj.addProperty(
                 "App::PropertyString", "FileMtime", "LinkedFile",
@@ -56,7 +51,7 @@ class StlObject:
         self._last_filename = _resolved_filename(obj)
 
     def onChanged(self, obj, prop):
-        if prop not in ("FileName", "UnitScale") or self._reloading:
+        if prop not in ("FileName", "LengthPerUnit") or self._reloading:
             return
         if getattr(getattr(obj, "Document", None), "Restoring", False):
             return
@@ -109,8 +104,8 @@ class StlObject:
 
             try:
                 mesh = _load_stl_mesh(
-                    filename, _unit_scale_mm(
-                        getattr(obj, "UnitScale", 1.0)))
+                    filename,
+                    obj.LengthPerUnit.getValueAs("mm").Value)
             except Exception as exc:
                 FreeCAD.Console.PrintWarning(
                     f"FreekiCAD: STL load failed for '{filename}': {exc}\n")

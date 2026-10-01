@@ -29,7 +29,7 @@ PCB_OBJECT_SETTINGS = (
 )
 MODEL_OBJECT_SETTINGS = {
     "StepObject": ("AutoReload",),
-    "StlObject": ("AutoReload", "UnitScale"),
+    "StlObject": ("AutoReload", "LengthPerUnit"),
 }
 
 
@@ -296,10 +296,9 @@ def _object_to_json(instance, filename, assembly_objects):
         value = getattr(obj, name)
         if name == "WedgeMode":
             settings[name] = str(value)
-        elif name == "UnitScale":
-            # PropertyLength.Value is FreeCAD's internal millimetre value.
-            # Plain floats remain accepted for older documents and tests.
-            settings[name] = float(getattr(value, "Value", value))
+        elif name == "LengthPerUnit":
+            settings["LengthPerUnitMM"] = float(
+                value.getValueAs("mm").Value)
         else:
             settings[name] = bool(value)
     if instance.snapshot and object_type == "PcbObject":
@@ -388,9 +387,23 @@ def insert(filename, document_name, recompute=True):
         settings = item.get("settings", {})
         if not isinstance(settings, dict):
             raise ValueError("object {} settings must be an object".format(index))
+        if item["type"] == "StlObject" and "UnitScale" in settings:
+            raise ValueError(
+                "object {} uses obsolete UnitScale; use "
+                "LengthPerUnitMM".format(index))
         for name in setting_names:
-            if name in settings and hasattr(obj, name):
-                setattr(obj, name, settings[name])
+            setting_name = (
+                "LengthPerUnitMM" if name == "LengthPerUnit" else name)
+            if setting_name not in settings or not hasattr(obj, name):
+                continue
+            value = settings[setting_name]
+            if name == "LengthPerUnit":
+                if isinstance(value, bool) or not isinstance(
+                        value, (int, float)) or value <= 0:
+                    raise ValueError(
+                        "object {} LengthPerUnitMM must be a positive "
+                        "number".format(index))
+            setattr(obj, name, value)
         if "placement" in item:
             obj.Placement = _placement_from_json(item["placement"])
         # Set the filename last so PcbObject sees all restored settings when
