@@ -640,6 +640,24 @@ class AddonManagerTest(unittest.TestCase):
 
             self.assertEqual(commands, [[str(console)]])
 
+    def test_freecad_commands_find_snap_cli(self):
+        with tempfile.TemporaryDirectory() as directory:
+            snap_cli = Path(directory) / "freecad.cmd"
+            snap_cli.touch()
+
+            def which(name):
+                return str(snap_cli) if name == "freecad.cmd" else None
+
+            with (
+                mock.patch.object(
+                    addon_manager, "_owned_freecad_executables", return_value=[]
+                ),
+                mock.patch.object(addon_manager.shutil, "which", side_effect=which),
+            ):
+                commands = addon_manager.freecad_commands(system="Linux")
+
+            self.assertEqual(commands, [[str(snap_cli)]])
+
     def test_freecad_helper_main_reads_environment_action(self):
         with (
             mock.patch.dict(
