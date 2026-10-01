@@ -1520,6 +1520,51 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertFalse(proxy._coupler_poll_in_flight)
         proxy._apply_live_coupler_poses.assert_not_called()
 
+    def test_coupler_monitor_failure_logs_once_and_backs_off(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
+            PrintError=mock.Mock())
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        obj = types.SimpleNamespace(Label="board")
+
+        retries = []
+        with mock.patch.object(
+                linked_object.time, "monotonic",
+                side_effect=(100.0, 200.0, 300.0, 400.0, 500.0)):
+            for _ in range(5):
+                proxy._handle_coupler_monitor_error(obj, "KiCad is not open")
+                retries.append(proxy._coupler_poll_retry_after)
+
+        self.assertEqual(retries, [105.0, 210.0, 320.0, 420.0, 520.0])
+        linked_object.FreeCAD.Console.PrintMessage.assert_called_once()
+        linked_object.FreeCAD.Console.PrintWarning.assert_not_called()
+        linked_object.FreeCAD.Console.PrintError.assert_not_called()
+
+    def test_coupler_monitor_recovery_logs_once_and_resets_backoff(self):
+        linked_object = self._import_linked_object()
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintMessage=mock.Mock(), PrintWarning=mock.Mock(),
+            PrintError=mock.Mock())
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+        obj = types.SimpleNamespace(Label="board")
+
+        with mock.patch.object(linked_object.time, "monotonic",
+                               return_value=100.0):
+            proxy._handle_coupler_monitor_error(obj, "KiCad is not open")
+        proxy._record_coupler_monitor_recovery(obj)
+        proxy._record_coupler_monitor_recovery(obj)
+
+        self.assertEqual(proxy._coupler_monitor_failure_count, 0)
+        self.assertFalse(proxy._coupler_monitor_unavailable)
+        self.assertEqual(proxy._coupler_poll_retry_after, 0.0)
+        self.assertEqual(
+            linked_object.FreeCAD.Console.PrintMessage.call_count, 2)
+        messages = [call.args[0] for call in
+                    linked_object.FreeCAD.Console.PrintMessage.call_args_list]
+        self.assertIn("unavailable", messages[0])
+        self.assertIn("reconnected", messages[1])
+
     def test_applying_live_coupler_updates_marker_and_repositions(self):
         linked_object = self._import_linked_object()
         linked_object.FreeCAD.Console = types.SimpleNamespace(

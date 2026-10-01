@@ -369,7 +369,8 @@ def _request(message):
     return im_mesh.request(message)
 
 
-def send_request(action, filepath, object_label="", component=""):
+def send_request(action, filepath, object_label="", component="",
+                 log_errors=True):
     """Run a KiCad request off the GUI thread, then dispatch the reply."""
     message = _message(action, filepath, object_label, component)
 
@@ -381,7 +382,7 @@ def send_request(action, filepath, object_label="", component=""):
         reply.setdefault("action", action)
         reply.setdefault("object", object_label)
         reply.setdefault("component", component)
-        if reply.get("status") == "error":
+        if log_errors and reply.get("status") == "error":
             _log(reply.get("message", "unknown instance error"), error=True)
         if _response_handler is not None:
             dispatch_to_main_thread(lambda: _response_handler(reply))

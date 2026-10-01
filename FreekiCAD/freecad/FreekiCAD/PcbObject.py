@@ -35,6 +35,8 @@ COUPLER_FIXED_COLOR = (1.0, 0.1, 0.1)
 COUPLER_MOVING_COLOR = (1.0, 0.4, 0.1)
 _COUPLER_TYPES = {COUPLER_MOVING, COUPLER_FIXED, COUPLER_AT}
 COUPLER_MONITOR_INTERVAL_MS = 1000
+COUPLER_MONITOR_RETRY_INITIAL_S = 5.0
+COUPLER_MONITOR_RETRY_MAX_S = 20.0
 PCB_OBJECT_TYPES = {"PcbObject", "LinkedObject"}
 # Master switch for coupler synchronization in both directions.
 # Local FreeCAD marker editing and coupled-board positioning remain active.
@@ -2789,7 +2791,7 @@ def _handle_bus_response(reply):
                 obj, reply.get("message", "unknown workspace error"))
         elif action == "monitor-couplers":
             proxy._handle_coupler_monitor_error(
-                reply.get("message", "unknown workspace error"))
+                obj, reply.get("message", "unknown workspace error"))
         elif action == "update-coupler":
             proxy._handle_update_coupler_error(
                 obj, component,
@@ -3084,6 +3086,10 @@ class PcbObject:
             self._coupler_socket_pending = False
         if not hasattr(self, '_coupler_poll_retry_after'):
             self._coupler_poll_retry_after = 0.0
+        if not hasattr(self, '_coupler_monitor_failure_count'):
+            self._coupler_monitor_failure_count = 0
+        if not hasattr(self, '_coupler_monitor_unavailable'):
+            self._coupler_monitor_unavailable = False
         if not hasattr(self, '_coupler_update_timers'):
             self._coupler_update_timers = {}
         if not hasattr(self, '_pending_coupler_updates'):
@@ -4226,7 +4232,7 @@ class PcbObject:
             from .im_client import send_request
             send_request(
                 "monitor-couplers", _resolved_linked_filename(obj),
-                object_label=obj.Label)
+                object_label=obj.Label, log_errors=False)
             return
 
         import threading
@@ -4277,13 +4283,10 @@ class PcbObject:
             # ReferenceError, so silently discard the obsolete result.
             getattr(obj, 'Name', None)
             if error is not None:
-                self._coupler_poll_retry_after = time.monotonic() + 2.0
                 self._cached_socket_path = None
-                FreeCAD.Console.PrintWarning(
-                    f"FreekiCAD: Coupler monitor for '{obj.Label}' failed: "
-                    f"{error}; retrying later\n")
+                self._record_coupler_monitor_failure(obj, error)
                 return
-            self._coupler_poll_retry_after = 0.0
+            self._record_coupler_monitor_recovery(obj)
             if live_poses is None:
                 return
 
@@ -4356,13 +4359,39 @@ class PcbObject:
         self._coupler_poll_retry_after = 0.0
         self._cached_socket_path = socket_path
 
-    def _handle_coupler_monitor_error(self, message):
+    def _record_coupler_monitor_failure(self, obj, message):
+        """Back off repeated monitor failures and report a disconnect once."""
+        self._ensure_coupler_monitor_state()
+        self._coupler_monitor_failure_count += 1
+        exponent = min(self._coupler_monitor_failure_count - 1, 10)
+        delay = min(
+            COUPLER_MONITOR_RETRY_INITIAL_S * (2 ** exponent),
+            COUPLER_MONITOR_RETRY_MAX_S,
+        )
+        self._coupler_poll_retry_after = time.monotonic() + delay
+        if not self._coupler_monitor_unavailable:
+            self._coupler_monitor_unavailable = True
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Coupler monitor unavailable for "
+                f"'{obj.Label}': {message}; retrying in background\n")
+
+    def _record_coupler_monitor_recovery(self, obj):
+        """Clear monitor backoff and report recovery after a disconnect."""
+        self._ensure_coupler_monitor_state()
+        was_unavailable = self._coupler_monitor_unavailable
+        self._coupler_monitor_failure_count = 0
+        self._coupler_monitor_unavailable = False
+        self._coupler_poll_retry_after = 0.0
+        if was_unavailable:
+            FreeCAD.Console.PrintMessage(
+                f"FreekiCAD: Coupler monitor reconnected for "
+                f"'{obj.Label}'\n")
+
+    def _handle_coupler_monitor_error(self, obj, message):
         """Back off after a workspace socket-resolution failure."""
         self._ensure_coupler_monitor_state()
         self._coupler_socket_pending = False
-        self._coupler_poll_retry_after = time.monotonic() + 5.0
-        FreeCAD.Console.PrintWarning(
-            f"FreekiCAD: Coupler monitor unavailable: {message}\n")
+        self._record_coupler_monitor_failure(obj, message)
 
     def _build_coupler_children(self, obj, couplers):
         """Create hidden child markers for the board's coupler planes."""

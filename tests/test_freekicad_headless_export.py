@@ -332,6 +332,26 @@ def load_im_client_module(*, with_qt=True):
 
 
 class InstanceClientSyncTests(unittest.TestCase):
+    def test_async_request_can_suppress_generic_error_log(self):
+        module = load_im_client_module()
+        module._request = mock.Mock(return_value={
+            "status": "error", "message": "KiCad is not open"})
+        response_handler = mock.Mock()
+        module._response_handler = response_handler
+        module.FreeCAD.Console.PrintError.reset_mock()
+
+        module.send_request(
+            "monitor-couplers", "/boards/current.kicad_pcb",
+            object_label="board", log_errors=False)
+
+        deadline = module.time.monotonic() + 2
+        while (not response_handler.called
+               and module.time.monotonic() < deadline):
+            module.time.sleep(0.01)
+
+        response_handler.assert_called_once()
+        module.FreeCAD.Console.PrintError.assert_not_called()
+
     def test_headless_node_does_not_publish_its_documents_or_require_pyside(self):
         module = load_im_client_module(with_qt=False)
         node = mock.Mock()
