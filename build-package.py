@@ -10,7 +10,9 @@ import sys
 import kikit
 kikit_base = os.path.dirname(kikit.__file__)
 
-from differ import kicad_cli
+from kicad_cli import resolve_kicad_cli
+
+kicad_cli, _ = resolve_kicad_cli()
 
 PKG_BASE = os.path.dirname(__file__)
 

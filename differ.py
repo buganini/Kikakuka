@@ -8,7 +8,6 @@ import platform
 import subprocess
 from threading import Thread
 import queue
-import glob
 import pypdfium2 as pdfium
 import cv2
 import numpy as np
@@ -17,6 +16,7 @@ import atexit
 import shutil
 import githelper
 import pcbnew
+from kicad_cli import resolve_kicad_cli
 from pcb_open import open_kicad_file
 from gerber import is_gerber_dir, is_gerber_zip
 from differ_input import prepare_differ_source
@@ -98,27 +98,7 @@ def premultiplied_image_resource(width, height):
     resource.qimage = qimage
     return resource, buffer
 
-if platform.system() == "Darwin":
-    kicad_cli = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
-elif platform.system() == "Windows":
-    cands = glob.glob("C:/Program Files/KiCad/*/bin/kicad-cli.exe")
-    kicad_cli = cands[0] if cands else "C:/Program Files/KiCad/bin/kicad-cli.exe"
-else:
-    kicad_cli = "/usr/bin/kicad-cli"
-
-kicad_cli_source = "System"
-try:
-    base_path = sys._MEIPASS
-    cands = None
-    if platform.system() == "Darwin":
-        cands = glob.glob(os.path.join(os.path.abspath(base_path, "..", "MacOS"), "kicad-cli*"))
-    elif platform.system() == "Windows":
-        cands = glob.glob(os.path.join(base_path, "KiCad", "bin", "kicad-cli*"))
-    if cands:
-        kicad_cli = cands[0]
-        kicad_cli_source = "Bundled"
-except Exception:
-    pass
+kicad_cli, kicad_cli_source = resolve_kicad_cli()
 
 _kicad_cli_version = None
 
