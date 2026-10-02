@@ -212,7 +212,11 @@ class _DocumentObserver:
                 raise
             return True
 
-        return self._on_gui_thread(open_on_gui, timeout=300)
+        try:
+            return self._on_gui_thread(open_on_gui, timeout=300)
+        except Exception as exc:
+            _log(f"Open in FreeCAD failed: {exc}", error=True)
+            raise
 
     def open_document(self, filepath):
         """Open a new file in this GUI process and identify its document."""

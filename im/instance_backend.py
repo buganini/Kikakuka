@@ -547,6 +547,7 @@ def _systemd_run_freecad(command, environment, log_path):
         f"--unit={unit}",
         f"--working-directory={Path.home()}",
         "--property=KillMode=process",
+        "--property=PrivateTmp=no",
         f"--property=StandardOutput=append:{log_path}",
         f"--property=StandardError=append:{log_path}",
         "--property=UnsetEnvironment=" + " ".join(

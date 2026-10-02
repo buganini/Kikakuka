@@ -441,6 +441,7 @@ class InstanceClientSyncTests(unittest.TestCase):
 
     def _pcb_open_fixture(self):
         module = load_im_client_module()
+        module.FreeCAD.Console.PrintError.reset_mock()
         observer = module._DocumentObserver(mock.Mock())
         board = types.SimpleNamespace(
             FileName="/boards/current.kicad_pcb",
@@ -569,6 +570,11 @@ class InstanceClientSyncTests(unittest.TestCase):
                     module.FreeCAD.closeDocument.assert_not_called()
                 else:
                     module.FreeCAD.closeDocument.assert_called_once_with(document.Name)
+                module.FreeCAD.Console.PrintError.assert_called_once()
+                self.assertIn(
+                    "FreekiCAD: Open in FreeCAD failed: bad geometry",
+                    module.FreeCAD.Console.PrintError.call_args.args[0],
+                )
 
     def test_activate_imported_assembly_selects_matching_mdi_tab(self):
         module = load_im_client_module()

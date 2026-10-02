@@ -166,6 +166,7 @@ class InstanceBackendTests(unittest.TestCase):
             self.assertIn("--service-type=exec", invocation)
             self.assertIn("--working-directory=/home/tester", invocation)
             self.assertIn("--property=KillMode=process", invocation)
+            self.assertIn("--property=PrivateTmp=no", invocation)
             self.assertIn(
                 f"--property=StandardOutput=append:{log_path}", invocation
             )

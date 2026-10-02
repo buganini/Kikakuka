@@ -594,10 +594,13 @@ FreeCAD/AppImage process is owned by the desktop user manager instead of the
 short-lived KiCad action process. The service receives only the sanitized
 desktop/session, locale, and graphics variables needed to open a GUI. If no
 user manager is available or submission fails, the launcher falls back to a
-new process session with standard input disconnected. Both paths use the
-user's home directory as the working directory. Standard output and error are
-redirected to `/tmp/kikakuka-<UID>/freecad-startup.log`, which is truncated for
-each launch, retaining startup diagnostics without attaching a console.
+new process session with standard input disconnected. The transient service
+explicitly disables `PrivateTmp` so FreeCAD and KiCad see the same instance
+mesh and KiCad API sockets under `/tmp`. Both paths use the user's home
+directory as the working directory. Standard output and error are redirected
+to `/tmp/kikakuka-<UID>/freecad-startup.log`, which is truncated for each
+launch, retaining startup diagnostics without attaching a console. PCB-open
+failures are also written to FreeCAD's Report View and this redirected output.
 
 KiCad API tokens are separate from the IM mesh token. IM endpoint probes and
 FreekiCAD connections to a selected KiCad socket explicitly initialize kipy
