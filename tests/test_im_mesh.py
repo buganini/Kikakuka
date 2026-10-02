@@ -590,6 +590,8 @@ class InstanceMeshTests(unittest.TestCase):
         gui.set_document_provider(lambda: [])
         started = threading.Event()
         release = threading.Event()
+        caller_alive = threading.Event()
+        caller_alive.set()
         opened = []
 
         def slow_open(path, socket, **kwargs):
@@ -608,15 +610,23 @@ class InstanceMeshTests(unittest.TestCase):
             "probe": False,
             "document": None,
             "defer": True,
+            "caller_pid": 424242,
         }
         try:
-            first = im_mesh._exchange(
-                gui.endpoint, dict(base, id="first"), token=gui.token)
-            second = im_mesh._exchange(
-                gui.endpoint, dict(base, id="second"), token=gui.token)
+            with mock.patch.object(
+                    im_mesh, "owned_pid_exists",
+                    side_effect=lambda pid: caller_alive.is_set()):
+                first = im_mesh._exchange(
+                    gui.endpoint, dict(base, id="first"), token=gui.token)
+                second = im_mesh._exchange(
+                    gui.endpoint, dict(base, id="second"), token=gui.token)
+                self.assertEqual(first, {"status": "accepted", "id": "first"})
+                self.assertEqual(second, {"status": "accepted", "id": "first"})
+                self.assertFalse(started.wait(0.1))
+                caller_alive.clear()
+                self.assertTrue(started.wait(1))
             self.assertEqual(first, {"status": "accepted", "id": "first"})
             self.assertEqual(second, {"status": "accepted", "id": "first"})
-            self.assertTrue(started.wait(1))
             self.assertEqual(len(opened), 1)
         finally:
             release.set()

@@ -66,6 +66,7 @@ class OpenInFreeCADTests(unittest.TestCase):
         request = exchange.call_args.args[1]
         self.assertTrue(request['defer'])
         self.assertEqual(request['document'], 'Assembly')
+        self.assertEqual(request['caller_pid'], os.getpid())
 
     def test_active_document_in_later_instance_precedes_inactive_match(self):
         calls = []

@@ -24,7 +24,7 @@ def _open_pcb(peer, filepath, socket_path, *, create=False, active_only=False,
         "mesh_action": "freecad-open-pcb", "id": request_id,
         "filepath": filepath, "socket": socket_path, "create": create,
         "active_only": active_only, "probe": probe, "document": document_name,
-        "defer": not wait_for_result,
+        "defer": not wait_for_result, "caller_pid": os.getpid(),
     })
     if ack.get("status") != "accepted":
         raise RuntimeError(ack.get("message", "FreeCAD rejected the PCB request"))

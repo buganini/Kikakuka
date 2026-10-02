@@ -564,6 +564,10 @@ class InstanceNode:
                     or not isinstance(request.get("active_only", False), bool)
                     or not isinstance(request.get("probe", False), bool)
                     or not isinstance(request.get("defer", False), bool)
+                    or (request.get("caller_pid") is not None
+                        and (not isinstance(request["caller_pid"], int)
+                             or isinstance(request["caller_pid"], bool)
+                             or request["caller_pid"] <= 0))
                     or (request.get("document") is not None
                         and not isinstance(request["document"], str))):
                 return {"status": "error", "message": "Invalid Open in FreeCAD request"}
@@ -587,7 +591,8 @@ class InstanceNode:
                                            request.get("active_only", False),
                                            request.get("probe", False),
                                            request.get("document"),
-                                           request.get("defer", False)), daemon=True).start()
+                                           request.get("defer", False),
+                                           request.get("caller_pid")), daemon=True).start()
             return {"status": "accepted", "id": request_id}
         if action == "freecad-open-document":
             if self.document_opener is None:
@@ -670,12 +675,17 @@ class InstanceNode:
             self._result_finished[request_id] = time.monotonic()
 
     def _work_freecad_pcb(self, request_id, filepath, socket_path, create, active_only,
-                          probe, document_name, defer):
+                          probe, document_name, defer, caller_pid):
         try:
             if defer:
-                # Give the KiCad API action time to receive the acceptance and
-                # exit before FreeCAD opens a second connection to KiCad.
-                time.sleep(POLL_INTERVAL)
+                # KiCad waits for its API action process to exit.  Do not
+                # connect back to that KiCad API while the action is alive;
+                # using the caller PID avoids a timing-dependent sleep race on
+                # slower systems and AppImage installations.
+                deadline = time.monotonic() + 30
+                while (caller_pid and owned_pid_exists(caller_pid)
+                       and time.monotonic() < deadline):
+                    time.sleep(0.05)
             result = self.pcb_opener(filepath, socket_path, create=create,
                                      active_only=active_only, probe=probe,
                                      document_name=document_name)

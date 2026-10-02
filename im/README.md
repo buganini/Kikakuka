@@ -301,7 +301,8 @@ Optional `freecad-open-pcb` fields:
 | `active_only` | `false` | Search only this instance's active document; prevents creation even when `create` is true. |
 | `probe` | `false` | Only search; do not reload, create, activate tabs, or foreground the window. Returns the matching internal document name in `document`, or `null`. |
 | `document` | Omitted / `null` | Restrict the request to this internal FreeCAD document name. This overrides candidate selection by `active_only`; a non-probe request fails if the document or PCB link disappeared. |
-| `defer` | `false` | Delay a non-probe job briefly after acceptance so the invoking KiCad action can exit before FreeCAD connects to its API socket. The caller may return after `accepted` instead of polling the result. |
+| `defer` | `false` | For a non-probe job, wait for `caller_pid` to exit after acceptance before FreeCAD connects to KiCad's API socket. The caller may return after `accepted` instead of polling the result. |
+| `caller_pid` | Omitted / `null` | Positive PID of the invoking action process. Used with `defer`; the node waits up to 30 seconds for this process to exit. |
 
 The `socket` identifies the invoking KiCad editor. The normal caller supplies
 its endpoint without the `ipc://` prefix. `freecad-open-pcb` addresses **one**
