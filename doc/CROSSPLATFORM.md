@@ -9,8 +9,9 @@ workflow on every supported platform.
 
 | Behavior | macOS | Windows | Linux |
 | --- | --- | --- | --- |
-| Open a KiCad file | Launch Services through `open`; new applications are requested in the background. | The registered file association; the new window is requested without activation. | Launch `pcbnew`, `eeschema`, or `kicad` directly according to the file suffix. |
-| Open a FreeCAD file | Launch Services through `open -a ... -n -W --args`, with the file path passed as an application argument. | Start the detected or selected FreeCAD executable directly with the file path. | Start the detected executable or AppImage with the file path in a detached user service or process session. |
+| Open a KiCad file | Run `open -n -g <file>`; a new application instance is requested in the background. | The registered file association; the new window is requested without activation. | Launch `pcbnew`, `eeschema`, or `kicad` directly according to the file suffix. |
+| Start FreeCAD | Run `open -a FreeCAD -n -W --args` without a file argument. | Start the detected or selected FreeCAD executable directly. | Start the detected executable or AppImage in a detached user service or process session. |
+| Open a FreeCAD file | Run `open -a FreeCAD -n -W --args <file>`, passing the file path as an application argument. | Start the detected or selected FreeCAD executable directly with the file path. | Start the detected executable or AppImage with the file path in a detached user service or process session. |
 | Bring a process to front | AppleScript selects the application process by PID. | Win32 enumerates visible windows by PID, restores a minimized window, and requests foreground activation. | EWMH `_NET_ACTIVE_WINDOW` for X11 or XWayland; unavailable for native Wayland windows. |
 | Open a folder | `open` | `explorer` | `xdg-open` |
 | Instance Manager transport | Per-user Unix domain sockets. | Per-user Windows named pipes. | Per-user Unix domain sockets. |
