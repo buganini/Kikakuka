@@ -625,6 +625,10 @@ class InstanceMeshTests(unittest.TestCase):
                 self.assertFalse(started.wait(0.1))
                 caller_alive.clear()
                 self.assertTrue(started.wait(1))
+                probe = im_mesh._exchange(gui.endpoint,
+                    dict(base, id="probe", probe=True), token=gui.token)
+                self.assertEqual(probe, {
+                    "status": "busy", "pid": gui.pid, "id": "first"})
             self.assertEqual(first, {"status": "accepted", "id": "first"})
             self.assertEqual(second, {"status": "accepted", "id": "first"})
             self.assertEqual(len(opened), 1)

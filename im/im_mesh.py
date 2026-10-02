@@ -577,9 +577,13 @@ class InstanceNode:
                 for key in expired:
                     self._result_finished.pop(key, None)
                     self._results.pop(key, None)
-                existing_id = (None if request.get("probe", False) else
-                               self._freecad_pcb_inflight.get(filepath))
+                existing_id = self._freecad_pcb_inflight.get(filepath)
                 if existing_id is not None:
+                    # The GUI may be building geometry. Do not queue a probe
+                    # behind that work and keep another KiCad action alive.
+                    if request.get("probe", False):
+                        return {"status": "busy", "pid": self.pid,
+                                "id": existing_id}
                     return {"status": "accepted", "id": existing_id}
                 if request_id not in self._results:
                     self._results[request_id] = {"status": "pending"}

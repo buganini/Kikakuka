@@ -2078,6 +2078,60 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(proxy._surface_reload_deadline, 0)
         proxy._reposition_all_coupled_objects.assert_called_once_with(document)
 
+    def test_import_busy_status_is_restored_even_when_geometry_fails(self):
+        module = self._import_linked_object()
+        status_bar = mock.Mock()
+        status_bar.currentMessage.side_effect = ["Ready", "Importing PCB board; complex bends may take a while..."]
+        gui = types.SimpleNamespace(getMainWindow=lambda:
+            types.SimpleNamespace(statusBar=lambda: status_bar))
+        application = mock.Mock()
+        pyside = types.SimpleNamespace(
+            QtWidgets=types.SimpleNamespace(QApplication=application),
+            QtCore=types.SimpleNamespace(Qt=types.SimpleNamespace(WaitCursor="busy")))
+        with mock.patch.object(module.FreeCAD, "GuiUp", True, create=True), \
+                mock.patch.dict(sys.modules, {"FreeCADGui": gui, "PySide": pyside}):
+            with self.assertRaisesRegex(RuntimeError, "geometry failed"):
+                with module._pcb_import_status(types.SimpleNamespace(Label="board")):
+                    status_bar.repaint.assert_called_once_with()
+                    raise RuntimeError("geometry failed")
+        application.setOverrideCursor.assert_called_once_with("busy")
+        application.restoreOverrideCursor.assert_called_once_with()
+        application.processEvents.assert_not_called()
+        self.assertEqual(status_bar.showMessage.call_args.args, ("Ready",))
+
+    def test_manual_reload_only_caches_stable_inputs_and_nonempty_geometry(self):
+        module = self._import_linked_object()
+        module.FreeCAD.GuiUp = False
+        module.FreeCAD.Console = types.SimpleNamespace(PrintMessage=mock.Mock())
+        proxy = module.PcbObject.__new__(module.PcbObject)
+        proxy._remove_board_children = mock.Mock(return_value=({}, {}))
+        proxy._do_execute = mock.Mock()
+        proxy._suspend_component_move_sync = mock.Mock()
+        proxy._resume_component_move_sync = mock.Mock()
+        proxy._reposition_all_coupled_objects = mock.Mock()
+        child = types.SimpleNamespace(Name="Board_Board",
+            Shape=types.SimpleNamespace(isNull=lambda: False))
+        obj = types.SimpleNamespace(Name="Board", Label="board",
+            FileName="/project/board.kicad_pcb", Group=[child],
+            Document=types.SimpleNamespace(FileName=""))
+        for fingerprints, valid_shape, expected in [
+                (["same", "same"], True, "same"),
+                (["before", "changed"], True, None),
+                ([None], True, None),
+                (["same"], False, None)]:
+            with self.subTest(fingerprints=fingerprints, valid_shape=valid_shape):
+                proxy._reloading = True
+                child.Shape.isNull = lambda: not valid_shape
+                proxy._read_import_fingerprint = mock.Mock(side_effect=fingerprints)
+                proxy._handle_reload_response(obj, "/tmp/live.sock", cache_import=True)
+                self.assertEqual(proxy._last_import_fingerprint,
+                    None if expected is None else (expected, proxy._import_child_state(obj)))
+        proxy._read_import_fingerprint = mock.Mock(return_value="same")
+        proxy._do_execute.side_effect = RuntimeError("geometry failed")
+        with self.assertRaisesRegex(RuntimeError, "geometry failed"):
+            proxy._handle_reload_response(obj, "/tmp/live.sock", cache_import=True)
+        self.assertIsNone(proxy._last_import_fingerprint)
+
     def test_synchronous_reload_waits_for_workspace_and_board_geometry(self):
         linked_object = self._import_linked_object()
         proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)

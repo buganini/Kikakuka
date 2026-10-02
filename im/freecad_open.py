@@ -9,6 +9,7 @@ from .instance_backend import _editors, _focus, _launch
 
 
 OPEN_TIMEOUT = 300
+_PCB_BUSY = object()
 
 
 def _gui_peers():
@@ -26,6 +27,8 @@ def _open_pcb(peer, filepath, socket_path, *, create=False, active_only=False,
         "active_only": active_only, "probe": probe, "document": document_name,
         "defer": not wait_for_result, "caller_pid": os.getpid(),
     })
+    if probe and ack.get("status") == "busy" and ack.get("pid") == peer["pid"]:
+        return _PCB_BUSY
     if ack.get("status") != "accepted":
         raise RuntimeError(ack.get("message", "FreeCAD rejected the PCB request"))
     if not wait_for_result:
@@ -84,6 +87,9 @@ def open_board(filepath, socket_path):
                 for peer in peers:
                     document_name = _open_pcb(
                         peer, filepath, socket_path, active_only=active_only, probe=True)
+                    if document_name is _PCB_BUSY:
+                        _focus(peer["pid"])
+                        return None
                     if document_name:
                         _focus(peer["pid"])
                         if not _open_pcb(peer, filepath, socket_path,

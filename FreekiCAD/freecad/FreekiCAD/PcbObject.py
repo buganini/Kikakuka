@@ -3,6 +3,7 @@ import math
 import json
 import re
 import time
+from contextlib import contextmanager
 import FreeCAD
 import Part
 
@@ -41,6 +42,28 @@ PCB_OBJECT_TYPES = {"PcbObject", "LinkedObject"}
 # Master switch for coupler synchronization in both directions.
 # Local FreeCAD marker editing and coupled-board positioning remain active.
 COUPLER_KICAD_SYNC_ENABLED = True
+
+
+@contextmanager
+def _pcb_import_status(obj):
+    """Paint a busy indication without pumping callbacks during an import."""
+    status_bar = None
+    if getattr(FreeCAD, 'GuiUp', False):
+        import FreeCADGui
+        from PySide import QtWidgets, QtCore
+        status_bar = FreeCADGui.getMainWindow().statusBar()
+        previous_message = status_bar.currentMessage()
+        message = f"Importing PCB {obj.Label}; complex bends may take a while..."
+        status_bar.showMessage(message)
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        status_bar.repaint()
+    try:
+        yield
+    finally:
+        if status_bar is not None:
+            QtWidgets.QApplication.restoreOverrideCursor()
+            if status_bar.currentMessage() == message:
+                status_bar.showMessage(previous_message)
 
 
 def _outer_body_bounds(thickness, layer_groups):
@@ -2804,7 +2827,7 @@ def _handle_bus_response(reply):
         return
 
     if action == "reload":
-        proxy._handle_reload_response(obj, socket_path)
+        proxy._handle_reload_response(obj, socket_path, cache_import=True)
     elif action == "open-sketch":
         proxy._handle_open_sketch_response(obj, socket_path)
     elif action == "move-component":
@@ -12891,9 +12914,12 @@ class PcbObject:
                     fingerprint, self._import_child_state(obj))
         return True
 
-    def _handle_reload_response(self, obj, socket_path, reposition=True):
+    def _handle_reload_response(self, obj, socket_path, reposition=True,
+                                cache_import=False):
         """Called when the workspace bus responds to a reload request."""
         self._last_import_fingerprint = None
+        fingerprint = (self._read_import_fingerprint(obj, socket_path)
+                       if cache_import else None)
         # This load consumes the current layer settings. A previously queued
         # debounce must not force another load after this one completes.
         self._ensure_surface_reload_timer_state()
@@ -12914,28 +12940,29 @@ class PcbObject:
         if _sketch_observer is not None:
             _sketch_observer.suppress(outline_name)
         try:
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: Reloading '{obj.Name}'...\n")
-            self._suppress_execute = True
-            if hasattr(obj, 'FileMtime'):
-                obj.FileMtime = ""
-            _t_remove = _time.time()
-            existing_comps, existing_bends = self._remove_board_children(obj)
-            FreeCAD.Console.PrintMessage(
-                f"FreekiCAD: [profile] _remove_board_children: "
-                f"{_time.time() - _t_remove:.3f}s\n")
-            self._in_execute = True
-            self._do_execute(obj, socket_path,
-                             existing_components=existing_comps,
-                             existing_bends=existing_bends)
-            portable_filename = _portable_linked_filename(
-                obj, resolved_filename)
-            if portable_filename != obj.FileName:
-                self._updating_filename = True
-                try:
-                    obj.FileName = portable_filename
-                finally:
-                    self._updating_filename = False
+            with _pcb_import_status(obj):
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: Reloading '{obj.Name}'...\n")
+                self._suppress_execute = True
+                if hasattr(obj, 'FileMtime'):
+                    obj.FileMtime = ""
+                _t_remove = _time.time()
+                existing_comps, existing_bends = self._remove_board_children(obj)
+                FreeCAD.Console.PrintMessage(
+                    f"FreekiCAD: [profile] _remove_board_children: "
+                    f"{_time.time() - _t_remove:.3f}s\n")
+                self._in_execute = True
+                self._do_execute(obj, socket_path,
+                                 existing_components=existing_comps,
+                                 existing_bends=existing_bends)
+                portable_filename = _portable_linked_filename(
+                    obj, resolved_filename)
+                if portable_filename != obj.FileName:
+                    self._updating_filename = True
+                    try:
+                        obj.FileName = portable_filename
+                    finally:
+                        self._updating_filename = False
         finally:
             self._in_execute = False
             self._suppress_execute = False
@@ -12951,6 +12978,16 @@ class PcbObject:
                 f"{_time.time() - _t0_reload:.3f}s\n")
         if reposition:
             self._reposition_all_coupled_objects(obj.Document)
+        if (fingerprint is not None
+                and any(child.Name.endswith('_Board')
+                        and hasattr(child, 'Shape')
+                        and not child.Shape.isNull()
+                        for child in getattr(obj, 'Group', []))
+                and self._read_import_fingerprint(obj, socket_path) == fingerprint):
+            # The async/manual path must obey the same before/after check as
+            # reload_sync: KiCad can change while geometry is being built.
+            self._last_import_fingerprint = (
+                fingerprint, self._import_child_state(obj))
 
     def _handle_reload_error(self, obj, message):
         """Release a failed asynchronous reload so AutoReload can retry."""

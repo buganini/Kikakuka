@@ -68,6 +68,15 @@ class OpenInFreeCADTests(unittest.TestCase):
         self.assertEqual(request['document'], 'Assembly')
         self.assertEqual(request['caller_pid'], os.getpid())
 
+    def test_busy_import_returns_without_polling_or_queuing_another_update(self):
+        with mock.patch.object(im_mesh, '_exchange', return_value={
+                'status': 'busy', 'pid': 1, 'id': 'existing'}) as exchange:
+            self.assertIsNone(freecad_open.open_board(
+                str(self.filepath), '/tmp/editor.sock'))
+        exchange.assert_called_once()
+        self.assertTrue(exchange.call_args.args[1]['probe'])
+        self.focus.assert_called_once_with(1)
+
     def test_active_document_in_later_instance_precedes_inactive_match(self):
         calls = []
         def open_pcb(peer, path, socket, **kwargs):
