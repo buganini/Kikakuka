@@ -658,6 +658,44 @@ class AddonManagerTest(unittest.TestCase):
 
             self.assertEqual(commands, [[str(snap_cli)]])
 
+    def test_addon_diagnostics_lists_installations_and_socket_folder(self):
+        with (
+            mock.patch.object(
+                addon_manager,
+                "get_kicad_installations",
+                return_value=((Path("/opt/kicad-cli"), "10.0.2"),),
+            ),
+            mock.patch.object(
+                addon_manager,
+                "freecad_commands",
+                return_value=[["/snap/bin/freecad.cmd"]],
+            ),
+            mock.patch.object(
+                addon_manager,
+                "_freecad_version_from_installation",
+                return_value=None,
+            ),
+            mock.patch.object(
+                addon_manager,
+                "_command_version",
+                return_value="1.1.4",
+            ),
+            mock.patch(
+                "im.im_mesh.runtime_dir",
+                return_value=Path("/tmp/kikakuka-1000"),
+            ),
+        ):
+            diagnostics = addon_manager.addon_diagnostics()
+
+        self.assertEqual(
+            diagnostics,
+            {
+                "kicad": "/opt/kicad-cli (10.0.2)",
+                "freecad": "/snap/bin/freecad.cmd (1.1.4)",
+                "socket_folder": "/tmp/kikakuka-1000",
+            },
+        )
+
     def test_freecad_helper_main_reads_environment_action(self):
         with (
             mock.patch.dict(

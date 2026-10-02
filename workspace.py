@@ -18,6 +18,7 @@ from addon_manager import (
     FREEKICAD,
     KICAD_LIBRARY,
     KICAD_PLUGIN,
+    addon_diagnostics,
     addon_statuses,
     find_any_kicad_version,
     freekicad_status,
@@ -677,6 +678,11 @@ class MainUI(Application):
                 (FREEKICAD, "FreekiCAD"),
             )
         })
+        self.addon_diagnostics_state = StateDict({
+            "kicad": "Checking…",
+            "freecad": "Checking…",
+            "socket_folder": "Checking…",
+        })
         self._freecad_addon_refreshing = False
 
         # Host a symmetric instance node. No workspace-owned socket or
@@ -701,9 +707,13 @@ class MainUI(Application):
     def refresh_addons(self, _event=None):
         try:
             statuses = addon_statuses()
+            diagnostics = addon_diagnostics()
         except Exception as exc:
             print(f"Addon manager: Could not inspect addons: {exc}")
             return
+        with self.addon_diagnostics_state:
+            for key, value in diagnostics.items():
+                self.addon_diagnostics_state[key] = value
         for status in statuses:
             self._set_addon_row(status.key, status.as_row())
         if not self._freecad_addon_refreshing:
@@ -892,6 +902,30 @@ class MainUI(Application):
 
                     with Tab("Add-ons"):
                         with VBox():
+                            with HBox():
+                                with Grid():
+                                    Label("KiCad installation").grid(
+                                        row=0, column=0
+                                    )
+                                    Label(
+                                        self.addon_diagnostics_state["kicad"],
+                                        selectable=True,
+                                    ).grid(row=0, column=1)
+                                    Label("FreeCAD installation").grid(
+                                        row=1, column=0
+                                    )
+                                    Label(
+                                        self.addon_diagnostics_state["freecad"],
+                                        selectable=True,
+                                    ).grid(row=1, column=1)
+                                    Label("Socket folder").grid(
+                                        row=2, column=0
+                                    )
+                                    Label(
+                                        self.addon_diagnostics_state["socket_folder"],
+                                        selectable=True,
+                                    ).grid(row=2, column=1)
+                                Spacer()
                             with HBox():
                                 with Grid():
                                     for addon_row, key in enumerate(

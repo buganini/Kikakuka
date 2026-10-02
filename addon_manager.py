@@ -1070,6 +1070,33 @@ def freecad_installation_version(commands: list[list[str]]) -> Optional[str]:
     return None
 
 
+def addon_diagnostics() -> dict[str, str]:
+    """Return the installations and instance socket directory in use."""
+    kicad = [
+        f"{path} ({version})"
+        for path, version in get_kicad_installations()
+    ]
+
+    freecad = []
+    for command in freecad_commands():
+        if not command:
+            continue
+        version = (
+            _freecad_version_from_installation(Path(command[0]))
+            or _command_version(command)
+        )
+        display = " ".join(command)
+        freecad.append(f"{display} ({version})" if version else display)
+
+    from im.im_mesh import runtime_dir
+
+    return {
+        "kicad": "\n".join(kicad) if kicad else "Not found",
+        "freecad": "\n".join(freecad) if freecad else "Not found",
+        "socket_folder": str(runtime_dir()),
+    }
+
+
 def _parse_helper_result(output: str) -> Optional[dict]:
     for line in reversed(output.splitlines()):
         if line.startswith(_RESULT_PREFIX):
