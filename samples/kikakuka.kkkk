@@ -25,6 +25,22 @@
             "description": ""
         },
         {
+            "path": "maze.kicad_pro",
+            "description": ""
+        },
+        {
+            "path": "maze_radius.kicad_pro",
+            "description": ""
+        },
+        {
+            "path": "maze_radius_fan.kicad_pro",
+            "description": ""
+        },
+        {
+            "path": "maze_radius_skewed.kicad_pro",
+            "description": ""
+        },
+        {
             "path": "fpc-assembly.kkkk_asm",
             "description": ""
         },
