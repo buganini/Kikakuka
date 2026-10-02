@@ -1,16 +1,22 @@
 # Next:
-* FreekiCAD: Add reloadable native STL mesh objects with a unit-aware `LengthPerUnit` field, STL footprint-model import, portable assembly support, and headless STEP/STL export with closed-mesh validation for STEP conversion; preserve linked STEP/STL placements across source reloads
-* KiCad add-on: Add Open in FreeCAD to refresh the current PCB in a matching FreeCAD document, prioritizing the active document, or create a new document when no match exists, and bring FreeCAD to the front
-* FreekiCAD: Add Goto KiCad to the PCB object's context menu to open or focus the linked PCB in KiCad
-* Workspace Manager: Bring Linux X11 and XWayland windows to the front through EWMH `_NET_ACTIVE_WINDOW`, and report native Wayland activation as unsupported
-* FreekiCAD: Support mm, cm, um, in, and mil units in bending r/s annotations instead of ignoring unit suffixes
-* FreekiCAD and KiCad add-on: Add cm support to length fields, including coupler coordinates and offsets, stiffener thickness, and placeholder dimensions
-* FreekiCAD: Speed up bending and importing copper layers and silkscreen
-* FreekiCAD: Fix board outline distortion during sketch import and synchronization back to KiCad by preserving arc geometry and matching coincident endpoints correctly
-* Differ: Add file-location buttons for both comparison inputs that open the location of the currently selected working, revision-checkout, or converted file
-* Gerber Conversion: Recognize CAM350 `.GBX` files and map `L<n>[LQ|T|P]` filenames to copper, solder-mask, silkscreen, and paste layers
-* Gerber Conversion: Preserve ordered dark/clear Gerber layer polarity when converting regions
-* Gerber Conversion: Read `.xlsx` CPL tables, recognize SMT filenames and localized CPL headers, and create reference-only footprints when no BOM is present
+* FreekiCAD
+    * Add reloadable native STL mesh objects with a unit-aware `LengthPerUnit` field, STL footprint-model import, portable assembly support, and headless STEP/STL export with closed-mesh validation for STEP conversion; preserve linked STEP/STL placements across source reloads
+    * Add Goto KiCad to the PCB object's context menu to open or focus the linked PCB in KiCad
+    * Support mm, cm, um, in, and mil units in bending r/s annotations instead of ignoring unit suffixes
+    * Add cm support to length fields in FreekiCAD and the KiCad add-on, including coupler coordinates and offsets, stiffener thickness, and placeholder dimensions
+    * Speed up bending and importing copper layers and silkscreen
+    * Fix board outline distortion during sketch import and synchronization back to KiCad by preserving arc geometry and matching coincident endpoints correctly
+* KiCad Addons
+    * Add Open in FreeCAD to refresh the current PCB in a matching FreeCAD document, prioritizing the active document, or create a new document when no match exists, and bring FreeCAD to the front
+* Workspace Manager
+    * Allow selecting custom KiCad and FreeCAD installations in the Add-ons tab, with an option to restore automatic detection
+    * Bring Linux X11 and XWayland windows to the front through EWMH `_NET_ACTIVE_WINDOW`, and report native Wayland activation as unsupported
+* Differ
+    * Add file-location buttons for both comparison inputs that open the location of the currently selected working, revision-checkout, or converted file
+* Gerber Conversion
+    * Recognize CAM350 `.GBX` files and map `L<n>[LQ|T|P]` filenames to copper, solder-mask, silkscreen, and paste layers
+    * Preserve ordered dark/clear Gerber layer polarity when converting regions
+    * Read `.xlsx` CPL tables, recognize SMT filenames and localized CPL headers, and create reference-only footprints when no BOM is present
 
 # 8.1.1:
 * Fix Windows Instance Manager lock sharing, FreeCAD file launching, and add-on management errors
