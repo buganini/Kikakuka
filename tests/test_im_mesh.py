@@ -585,6 +585,42 @@ class InstanceMeshTests(unittest.TestCase):
         finally:
             release.set()
 
+    def test_freecad_node_defers_and_deduplicates_pcb_import(self):
+        gui = self.node(lambda _: {"status": "ok"})
+        gui.set_document_provider(lambda: [])
+        started = threading.Event()
+        release = threading.Event()
+        opened = []
+
+        def slow_open(path, socket, **kwargs):
+            opened.append((path, socket, kwargs))
+            started.set()
+            release.wait(2)
+            return True
+
+        gui.set_pcb_opener(slow_open)
+        base = {
+            "mesh_action": "freecad-open-pcb",
+            "filepath": "/boards/current.kicad_pcb",
+            "socket": "/tmp/editor.sock",
+            "create": True,
+            "active_only": False,
+            "probe": False,
+            "document": None,
+            "defer": True,
+        }
+        try:
+            first = im_mesh._exchange(
+                gui.endpoint, dict(base, id="first"), token=gui.token)
+            second = im_mesh._exchange(
+                gui.endpoint, dict(base, id="second"), token=gui.token)
+            self.assertEqual(first, {"status": "accepted", "id": "first"})
+            self.assertEqual(second, {"status": "accepted", "id": "first"})
+            self.assertTrue(started.wait(1))
+            self.assertEqual(len(opened), 1)
+        finally:
+            release.set()
+
     def test_existing_gui_without_open_handler_does_not_trigger_new_launch(self):
         gui = self.node(lambda _: {"status": "ok"})
         gui.set_document_provider(lambda: [])

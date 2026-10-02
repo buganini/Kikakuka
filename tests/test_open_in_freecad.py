@@ -53,7 +53,19 @@ class OpenInFreeCADTests(unittest.TestCase):
         with mock.patch.object(freecad_open, '_open_pcb', side_effect=create_after_search) as op:
             freecad_open.open_board(str(self.filepath), '/tmp/editor.sock')
         self.assertEqual([call.args[0]['pid'] for call in op.call_args_list], [1, 2, 1, 2, 1])
-        self.assertEqual(op.call_args.kwargs, {'create': True})
+        self.assertEqual(op.call_args.kwargs, {
+            'create': True, 'wait_for_result': False})
+
+    def test_actual_update_is_deferred_until_after_action_returns(self):
+        with mock.patch.object(im_mesh, '_exchange', return_value={
+                'status': 'accepted', 'id': 'job'}) as exchange:
+            self.assertTrue(freecad_open._open_pcb(
+                self.peers[0], str(self.filepath), '/tmp/editor.sock',
+                document_name='Assembly', wait_for_result=False))
+        exchange.assert_called_once()
+        request = exchange.call_args.args[1]
+        self.assertTrue(request['defer'])
+        self.assertEqual(request['document'], 'Assembly')
 
     def test_active_document_in_later_instance_precedes_inactive_match(self):
         calls = []

@@ -477,6 +477,7 @@ class InstanceNode:
         self._results = {}
         self._result_finished = {}
         self._freecad_open_inflight = {}
+        self._freecad_pcb_inflight = {}
         self._mappings = {}
         self._running = True
         self._ready = threading.Event()
@@ -562,6 +563,7 @@ class InstanceNode:
                     or not isinstance(request.get("create", False), bool)
                     or not isinstance(request.get("active_only", False), bool)
                     or not isinstance(request.get("probe", False), bool)
+                    or not isinstance(request.get("defer", False), bool)
                     or (request.get("document") is not None
                         and not isinstance(request["document"], str))):
                 return {"status": "error", "message": "Invalid Open in FreeCAD request"}
@@ -571,14 +573,21 @@ class InstanceNode:
                 for key in expired:
                     self._result_finished.pop(key, None)
                     self._results.pop(key, None)
+                existing_id = (None if request.get("probe", False) else
+                               self._freecad_pcb_inflight.get(filepath))
+                if existing_id is not None:
+                    return {"status": "accepted", "id": existing_id}
                 if request_id not in self._results:
                     self._results[request_id] = {"status": "pending"}
+                    if not request.get("probe", False):
+                        self._freecad_pcb_inflight[filepath] = request_id
                     threading.Thread(target=self._work_freecad_pcb,
                                      args=(request_id, filepath, socket_path,
                                            request.get("create", False),
                                            request.get("active_only", False),
                                            request.get("probe", False),
-                                           request.get("document")), daemon=True).start()
+                                           request.get("document"),
+                                           request.get("defer", False)), daemon=True).start()
             return {"status": "accepted", "id": request_id}
         if action == "freecad-open-document":
             if self.document_opener is None:
@@ -661,8 +670,12 @@ class InstanceNode:
             self._result_finished[request_id] = time.monotonic()
 
     def _work_freecad_pcb(self, request_id, filepath, socket_path, create, active_only,
-                          probe, document_name):
+                          probe, document_name, defer):
         try:
+            if defer:
+                # Give the KiCad API action time to receive the acceptance and
+                # exit before FreeCAD opens a second connection to KiCad.
+                time.sleep(POLL_INTERVAL)
             result = self.pcb_opener(filepath, socket_path, create=create,
                                      active_only=active_only, probe=probe,
                                      document_name=document_name)
@@ -674,6 +687,8 @@ class InstanceNode:
         with self._lock:
             self._results[request_id] = reply
             self._result_finished[request_id] = time.monotonic()
+            if self._freecad_pcb_inflight.get(filepath) == request_id:
+                self._freecad_pcb_inflight.pop(filepath, None)
 
     def _work_freecad_open(self, request_id, filepath):
         # The caller already holds the per-file lock. Acquiring it again here

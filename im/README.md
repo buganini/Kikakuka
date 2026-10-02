@@ -221,8 +221,9 @@ commands are not restricted by the sender application's name.
 ```text
 KiCad add-on action process
   -> FreeCAD IM nodes: hello, freecad-open-pcb(probe=true), result
-  -> selected FreeCAD IM node: freecad-open-pcb(document=...), result
+  -> selected FreeCAD IM node: freecad-open-pcb(document=..., defer=true), accepted
      (or create=true when no document matches)
+  -> KiCad add-on action process exits
   -> FreekiCAD GUI callback: compare inputs, reload if needed, activate document
      -> invoking pcbnew's KiCad IPC socket: read live PCB contents
 ```
@@ -230,7 +231,10 @@ KiCad add-on action process
 The add-on process coordinates instance selection and foregrounding through
 `im.freecad_open`. It already knows the invoking KiCad socket, so it does not
 send `dispatch(action=reload)` to resolve one. The final `result` is returned
-after FreekiCAD finishes the GUI operation. IM probes never address pcbnew.
+after FreekiCAD finishes a probe. The actual update is accepted and deferred so
+the KiCad API action can exit before FreeCAD connects back to pcbnew. Later
+import errors are shown in FreeCAD's Report View. IM probes never address
+pcbnew.
 
 **Reload KiCad PCB** starts in the FreeCAD process containing the PCB object:
 
@@ -297,6 +301,7 @@ Optional `freecad-open-pcb` fields:
 | `active_only` | `false` | Search only this instance's active document; prevents creation even when `create` is true. |
 | `probe` | `false` | Only search; do not reload, create, activate tabs, or foreground the window. Returns the matching internal document name in `document`, or `null`. |
 | `document` | Omitted / `null` | Restrict the request to this internal FreeCAD document name. This overrides candidate selection by `active_only`; a non-probe request fails if the document or PCB link disappeared. |
+| `defer` | `false` | Delay a non-probe job briefly after acceptance so the invoking KiCad action can exit before FreeCAD connects to its API socket. The caller may return after `accepted` instead of polling the result. |
 
 The `socket` identifies the invoking KiCad editor. The normal caller supplies
 its endpoint without the `ipc://` prefix. `freecad-open-pcb` addresses **one**
@@ -353,7 +358,8 @@ Example editor request and result polling (the token is illustrative):
 ```
 
 The standard mesh request client polls every 0.2 seconds and waits up to 120
-seconds by default. Open in FreeCAD waits up to 300 seconds per PCB request.
+seconds by default. Open in FreeCAD waits up to 300 seconds for each read-only
+document probe, but returns after the selected update/create job is accepted.
 A timeout does not cancel queued or running work. Completed results are
 eligible for cleanup after 300 seconds when a subsequent `dispatch` or
 `freecad-open-pcb` request performs cleanup; they are not durable records.

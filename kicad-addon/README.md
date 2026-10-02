@@ -118,9 +118,12 @@ forward:
    connect. An already running instance without a responsive FreekiCAD node
    produces an error after the connection wait instead of launching a duplicate.
 4. Bring the selected instance to the foreground and restore its window if
-   minimized. Update the matching PCB objects in the selected document, or
-   create a document and add the PCB. After loading, make that document and
-its tab active. A new document's view is fitted to the imported geometry.
+   minimized. Queue an update of the matching PCB objects in the selected
+   document, or creation of a document containing the PCB. The KiCad action
+   exits after FreeCAD accepts that work, allowing FreeCAD to connect back to
+   the invoking KiCad API without the two applications waiting on each other.
+   After loading, make that document and its tab active. A new document's view
+   is fitted to the imported geometry.
 
 FreekiCAD compares the live PCB contents, import settings, text variables, and
 external model file state with the last successful Open in FreeCAD import.
@@ -137,8 +140,9 @@ link is removed before the update, the action reports an error.
 
 Repeated clicks for the same PCB are ignored while its request is running.
 Failed new imports close the document created by the action; existing
-documents are not closed on failure. Errors are reported through the plugin's
-error output.
+documents are not closed on failure. Selection/acceptance errors are reported
+through the plugin's error output; deferred import errors appear in FreeCAD's
+Report View.
 
 This action requires FreeCAD with an updated FreekiCAD that supports PCB
 selection and opening. The original FreekiCAD **8.1.1 release does not support

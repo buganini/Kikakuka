@@ -16,7 +16,7 @@ def _gui_peers():
 
 
 def _open_pcb(peer, filepath, socket_path, *, create=False, active_only=False,
-              probe=False, document_name=None):
+              probe=False, document_name=None, wait_for_result=True):
     if peer.get("freecad_pcb", 0) != 2:
         raise RuntimeError("Update FreekiCAD in the running FreeCAD instance, then restart it")
     request_id = uuid.uuid4().hex
@@ -24,9 +24,16 @@ def _open_pcb(peer, filepath, socket_path, *, create=False, active_only=False,
         "mesh_action": "freecad-open-pcb", "id": request_id,
         "filepath": filepath, "socket": socket_path, "create": create,
         "active_only": active_only, "probe": probe, "document": document_name,
+        "defer": not wait_for_result,
     })
     if ack.get("status") != "accepted":
         raise RuntimeError(ack.get("message", "FreeCAD rejected the PCB request"))
+    if not wait_for_result:
+        # KiCad waits for an API action process to exit.  Let that happen
+        # before FreeCAD connects back to the invoking editor's API socket.
+        # The FreeCAD node owns the accepted job and reports later failures in
+        # its Report View, just like the manual Add KiCad PCB command.
+        return True
     # Once accepted, never retry in a different process: an import may still
     # be running even if its result cannot be retrieved.
     deadline = time.monotonic() + OPEN_TIMEOUT
@@ -80,11 +87,13 @@ def open_board(filepath, socket_path):
                     if document_name:
                         _focus(peer["pid"])
                         if not _open_pcb(peer, filepath, socket_path,
-                                         document_name=document_name):
+                                         document_name=document_name,
+                                         wait_for_result=False):
                             raise RuntimeError("The selected FreeCAD document is no longer available")
                         return peer["pid"]
             peer = peers[0]
             _focus(peer["pid"])
-            if not _open_pcb(peer, filepath, socket_path, create=True):
+            if not _open_pcb(peer, filepath, socket_path, create=True,
+                             wait_for_result=False):
                 raise RuntimeError("FreeCAD did not create a PCB document")
             return peer["pid"]
