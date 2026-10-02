@@ -946,7 +946,7 @@ def freecad_commands(system: Optional[str] = None) -> list[list[str]]:
             [executable.with_name("freecadcmd"), executable.with_name("FreeCADCmd.exe")]
         )
 
-    for name in ("freecadcmd", "FreeCADCmd", "freecad.cmd", "FreeCADCmd.exe"):
+    for name in ("freecadcmd", "FreeCADCmd", "FreeCADCmd.exe"):
         found = shutil.which(name)
         if found:
             cmd_candidates.append(Path(found))
