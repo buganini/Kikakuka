@@ -242,6 +242,66 @@ def _configured_gui_executable(program):
     return next((str(path) for path in candidates if path.is_file()), None)
 
 
+def _linux_kicad_executable(filepath):
+    """Resolve the Linux KiCad editor for a supported design-file suffix."""
+    suffix = Path(filepath).suffix.casefold()
+    editor = {
+        ".kicad_pcb": "pcbnew",
+        ".kicad_sch": "eeschema",
+        ".kicad_pro": "kicad",
+    }.get(suffix)
+    if editor is None:
+        raise ValueError(f"unsupported KiCad file type: {filepath}")
+
+    configured = _custom_executable("kicad")
+    if configured is not None:
+        name = configured.name.casefold()
+        if (configured.suffix.casefold() == ".appimage" or
+                name not in {
+                    "kicad-cli", "kicad", "pcbnew", "eeschema",
+                }):
+            if configured.is_file():
+                return str(configured)
+        sibling = configured.with_name(editor)
+        if sibling.is_file():
+            return str(sibling)
+        raise FileNotFoundError(
+            f"The selected KiCad installation has no {editor} executable"
+        )
+
+    executable = shutil.which(editor)
+    if executable:
+        return executable
+
+    cli = shutil.which("kicad-cli")
+    if cli:
+        sibling = Path(cli).with_name(editor)
+        if sibling.is_file():
+            return str(sibling)
+    raise FileNotFoundError(
+        f"KiCad {editor} executable was not found in PATH"
+    )
+
+
+def _linux_kicad_environment(environ=None):
+    """Use XWayland for launched KiCad editors when it is available."""
+    environment = dict(os.environ if environ is None else environ)
+    from .linux_window import xwayland_available
+
+    if xwayland_available(environment):
+        environment["GDK_BACKEND"] = "x11"
+    return environment
+
+
+def launch_linux_kicad(filepath):
+    """Launch a KiCad editor directly instead of using a file association."""
+    executable = _linux_kicad_executable(filepath)
+    return subprocess.Popen(
+        [executable, filepath],
+        env=_linux_kicad_environment(),
+    )
+
+
 def _unix_socket_owner(
         socket_path, editors, excluded_pids=(),
         max_retries=SOCKET_OWNER_RETRIES,
@@ -635,7 +695,9 @@ def _launch(filepath, program="kicad"):
         and platform.system() == "Darwin"
         and Path(configured).suffix == ".app"
     )
-    if configured_app and program == "freecad":
+    if platform.system() == "Linux" and program == "kicad":
+        launch_linux_kicad(filepath)
+    elif configured_app and program == "freecad":
         _popen_freecad(
             ["open", "-a", configured, "-n", "-W", "--args"]
             + ([filepath] if filepath else []),
@@ -674,7 +736,9 @@ def _launch(filepath, program="kicad"):
             raise FileNotFoundError("FreeCAD executable was not found in PATH")
         _popen_freecad([freecad] + ([filepath] if filepath else []), freecad)
     else:
-        subprocess.Popen(["xdg-open", filepath])
+        raise RuntimeError(
+            f"Unsupported {program} launch platform: {platform.system()}"
+        )
     deadline = time.monotonic() + (20 if program == "freecad" else 8)
     while time.monotonic() < deadline:
         after = _editors(program)

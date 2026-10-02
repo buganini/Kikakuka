@@ -18,19 +18,24 @@ def _ensure_instance_node():
 
 
 def system_open_command(filepath, mac_args=()):
-    """Return the POSIX associated-file opener command."""
+    """Return the macOS associated-file opener command."""
     system = platform.system()
     if system == "Darwin":
         return ["open", *mac_args, filepath]
     if system == "Windows":
         raise ValueError("Windows uses os.startfile instead")
-    return ["xdg-open", filepath]
+    raise ValueError("Linux KiCad files are launched directly")
 
 
 def open_with_system(filepath):
-    """Open a KiCad file using its OS file association."""
-    if platform.system() == "Windows":
+    """Open a KiCad file through the platform-specific launcher."""
+    system = platform.system()
+    if system == "Windows":
         os.startfile(filepath)
+    elif system == "Linux":
+        from im.instance_backend import launch_linux_kicad
+
+        launch_linux_kicad(filepath)
     else:
         subprocess.Popen(system_open_command(filepath, mac_args=("-n",)))
 

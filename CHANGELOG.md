@@ -14,6 +14,7 @@
     * Allow selecting custom KiCad and FreeCAD installations in the Add-ons tab, with an option to restore automatic detection
     * Identify unsupported Snap-installed FreeCAD installations in the Add-ons tab, including manually selected Snap executables
     * Bring Linux X11 and XWayland windows to the front through EWMH `_NET_ACTIVE_WINDOW`, and report native Wayland activation as unsupported
+    * Launch Linux KiCad editors directly without `xdg-open`, selecting the editor by file type and using XWayland when available without a `python-xlib` dependency
 * Differ
     * Add file-location buttons for both comparison inputs that open the location of the currently selected working, revision-checkout, or converted file
 * Gerber Conversion

@@ -9,8 +9,8 @@ workflow on every supported platform.
 
 | Behavior | macOS | Windows | Linux |
 | --- | --- | --- | --- |
-| Open a KiCad file | Launch Services through `open`; new applications are requested in the background. | The registered file association; the new window is requested without activation. | The desktop file association through `xdg-open`. |
-| Start FreeCAD | Launch Services through `open -a ... -n -W --args`, with the file passed as an application argument. | Start the detected or selected FreeCAD executable directly. | Start the detected executable or AppImage in a detached user service or process session. |
+| Open a KiCad file | Launch Services through `open`; new applications are requested in the background. | The registered file association; the new window is requested without activation. | Launch `pcbnew`, `eeschema`, or `kicad` directly according to the file suffix. |
+| Open a FreeCAD file | Launch Services through `open -a ... -n -W --args`, with the file path passed as an application argument. | Start the detected or selected FreeCAD executable directly with the file path. | Start the detected executable or AppImage with the file path in a detached user service or process session. |
 | Bring a process to front | AppleScript selects the application process by PID. | Win32 enumerates visible windows by PID, restores a minimized window, and requests foreground activation. | EWMH `_NET_ACTIVE_WINDOW` for X11 or XWayland; unavailable for native Wayland windows. |
 | Open a folder | `open` | `explorer` | `xdg-open` |
 | Instance Manager transport | Per-user Unix domain sockets. | Per-user Windows named pipes. | Per-user Unix domain sockets. |
@@ -71,11 +71,18 @@ best effort.
 > remove this isolation; use a non-Snap FreeCAD package or the official
 > AppImage.
 
-KiCad files are opened through `xdg-open`, so the desktop's file association
-chooses the final editor executable and whether an existing process is reused.
-Kikakuka cannot guarantee the environment or initial foreground state of the
-final KiCad process when a desktop portal or D-Bus activation handles the
-request.
+KiCad files do not use `xdg-open`. Kikakuka launches `pcbnew` for
+`.kicad_pcb`, `eeschema` for `.kicad_sch`, and `kicad` for `.kicad_pro`
+directly. A manually selected KiCad AppImage is launched directly for all
+three file types. If the selected executable belongs to a normal KiCad
+installation, Kikakuka resolves the matching editor beside it.
+
+In a Wayland session, Kikakuka tests whether `DISPLAY` reaches a working
+XWayland server. When it does, only the new KiCad child receives
+`GDK_BACKEND=x11`; this makes its window visible to the same X11/EWMH
+activation path used by Instance Manager. Native X11 sessions need no backend
+override. If XWayland is unavailable, KiCad is launched without the override
+and uses its normal native backend.
 
 FreeCAD is launched directly from a detected executable or selected AppImage.
 The launcher removes inherited KiCad Python, Qt, QML, library, and IPC
@@ -114,8 +121,8 @@ not offer to install FreekiCAD into it.
 
 Kikakuka finds a top-level X11 window through `_NET_WM_PID` and sends the EWMH
 `_NET_ACTIVE_WINDOW` message. This works for native X11 windows and for
-applications exposing an XWayland window. It requires `python-xlib` and a
-usable `DISPLAY`.
+applications exposing an XWayland window. It uses the system `libX11` library
+directly and requires a usable `DISPLAY`; no Python Xlib package is needed.
 
 The window manager or Wayland compositor makes the final focus decision, so a
 bring-to-front request may still be rejected. Under a Wayland desktop, an

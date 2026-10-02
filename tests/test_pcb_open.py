@@ -112,17 +112,18 @@ class PcbOpenTests(unittest.TestCase):
         self.assertEqual(result, "system")
         fallback.assert_called_once_with("/boards/panel.kicad_pcb")
 
-    def test_system_fallback_uses_platform_file_association(self):
+    def test_system_fallback_uses_platform_launcher(self):
         path = "/boards/panel.kicad_pcb"
-        for platform_name, command in (
-            ("Darwin", ["open", "-n", path]),
-            ("Linux", ["xdg-open", path]),
-        ):
-            with self.subTest(platform=platform_name):
-                with mock.patch("pcb_open.platform.system", return_value=platform_name):
-                    with mock.patch("pcb_open.subprocess.Popen") as popen:
-                        pcb_open.open_with_system(path)
-                popen.assert_called_once_with(command)
+        with mock.patch("pcb_open.platform.system", return_value="Darwin"):
+            with mock.patch("pcb_open.subprocess.Popen") as popen:
+                pcb_open.open_with_system(path)
+        popen.assert_called_once_with(["open", "-n", path])
+
+        with mock.patch("pcb_open.platform.system", return_value="Linux"):
+            with mock.patch(
+                    "im.instance_backend.launch_linux_kicad") as launch:
+                pcb_open.open_with_system(path)
+        launch.assert_called_once_with(path)
 
         with mock.patch("pcb_open.platform.system", return_value="Windows"):
             with mock.patch.object(os, "startfile", create=True) as startfile:

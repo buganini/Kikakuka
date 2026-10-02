@@ -147,8 +147,9 @@ effect of discovering or launching an editor:
   foreground during normal operation. New KiCad processes are therefore
   launched without activation on macOS (`open -g`) and Windows
   (`SW_SHOWNOACTIVATE`). On Linux, Instance Manager does not issue an explicit
-  focus request; final activation is controlled by the desktop and
-  `xdg-open` implementation.
+  focus request. Linux launches the matching KiCad executable directly; in a
+  Wayland session with a usable XWayland display, only the child KiCad process
+  receives `GDK_BACKEND=x11` so later EWMH activation can find its window.
 - The exception for an integration request is a KiCad lock that may produce an
   **Open Anyway** prompt. Before launching, the backend checks KiCad's sibling
   lock path (`~<filename>.<ext>.lck`) and reads its `username` and `hostname`
@@ -629,8 +630,10 @@ when the process's own live KiCad endpoint is working.
 macOS starts a new FreeCAD with `open -a FreeCAD -n -W --args <file>` and
 uses AppleScript for best-effort focus; other new editors use `open -n`.
 Windows starts FreeCAD directly and uses file associations for KiCad, with
-Win32 foreground APIs. Linux starts FreeCAD directly and uses `xdg-open` for
-other editors; it currently has no reliable cross-desktop focus operation.
+Win32 foreground APIs. Linux starts FreeCAD directly and launches `pcbnew`,
+`eeschema`, or `kicad` according to the KiCad file suffix. X11 and XWayland
+focus uses EWMH through the system `libX11`; native Wayland has no generic
+PID-based focus operation.
 File-to-PID discovery uses ordinary process enumeration and KiCad's IPC. On
 all platforms, process enumeration first reads only the PID and OS owner field;
 name, creation time, command line, current directory, and socket details are

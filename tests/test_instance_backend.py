@@ -337,6 +337,99 @@ class InstanceBackendTests(unittest.TestCase):
                     backend._configured_gui_executable("kicad")
                 )
 
+    def test_linux_kicad_executable_matches_file_type(self):
+        paths = {
+            "pcbnew": "/usr/bin/pcbnew",
+            "eeschema": "/usr/bin/eeschema",
+            "kicad": "/usr/bin/kicad",
+        }
+        with mock.patch.object(
+                backend.shutil, "which", side_effect=paths.get):
+            self.assertEqual(
+                backend._linux_kicad_executable("/boards/main.kicad_pcb"),
+                "/usr/bin/pcbnew",
+            )
+            self.assertEqual(
+                backend._linux_kicad_executable("/boards/main.kicad_sch"),
+                "/usr/bin/eeschema",
+            )
+            self.assertEqual(
+                backend._linux_kicad_executable("/boards/main.kicad_pro"),
+                "/usr/bin/kicad",
+            )
+
+    def test_linux_manual_kicad_cli_resolves_matching_sibling(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cli = root / "kicad-cli"
+            pcbnew = root / "pcbnew"
+            cli.touch()
+            pcbnew.touch()
+            with mock.patch.object(
+                    backend, "_custom_executable", return_value=cli):
+                self.assertEqual(
+                    backend._linux_kicad_executable(
+                        "/boards/main.kicad_pcb"),
+                    str(pcbnew),
+                )
+
+    def test_linux_manual_kicad_appimage_opens_every_file_type(self):
+        with tempfile.TemporaryDirectory() as directory:
+            appimage = Path(directory) / "KiCad.AppImage"
+            appimage.touch()
+            with mock.patch.object(
+                    backend, "_custom_executable", return_value=appimage):
+                for suffix in (".kicad_pcb", ".kicad_sch", ".kicad_pro"):
+                    with self.subTest(suffix=suffix):
+                        self.assertEqual(
+                            backend._linux_kicad_executable(
+                                "/boards/main" + suffix),
+                            str(appimage),
+                        )
+
+    def test_linux_kicad_environment_uses_x11_only_with_xwayland(self):
+        original = {
+            "XDG_SESSION_TYPE": "wayland",
+            "DISPLAY": ":0",
+            "GDK_BACKEND": "wayland",
+        }
+        with mock.patch(
+                "im.linux_window.xwayland_available",
+                return_value=True):
+            environment = backend._linux_kicad_environment(original)
+        self.assertEqual(environment["GDK_BACKEND"], "x11")
+        self.assertEqual(original["GDK_BACKEND"], "wayland")
+
+        with mock.patch(
+                "im.linux_window.xwayland_available",
+                return_value=False):
+            environment = backend._linux_kicad_environment({
+                "XDG_SESSION_TYPE": "wayland",
+                "DISPLAY": ":0",
+            })
+        self.assertNotIn("GDK_BACKEND", environment)
+
+    def test_linux_kicad_launch_does_not_use_xdg_open(self):
+        environment = {"GDK_BACKEND": "x11"}
+        with mock.patch.object(
+                backend.platform, "system", return_value="Linux"), \
+                mock.patch.object(
+                    backend, "_editors", side_effect=[{}, {321: 1}]), \
+                mock.patch.object(
+                    backend, "_linux_kicad_executable",
+                    return_value="/usr/bin/pcbnew"), \
+                mock.patch.object(
+                    backend, "_linux_kicad_environment",
+                    return_value=environment), \
+                mock.patch.object(backend.subprocess, "Popen") as popen:
+            self.assertEqual(
+                backend._launch("/boards/main.kicad_pcb", "kicad"), 321
+            )
+        popen.assert_called_once_with(
+            ["/usr/bin/pcbnew", "/boards/main.kicad_pcb"],
+            env=environment,
+        )
+
     def test_kicad_lock_path_matches_kicad_convention(self):
         self.assertEqual(
             backend._kicad_lock_path("/boards/main.kicad_pcb"),
