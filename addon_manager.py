@@ -385,7 +385,7 @@ def _running_editor_pids(key: str) -> list[int]:
         from im.im_mesh import is_kicad_editor_process, owned_process_iter
 
         pids = []
-        for process in owned_process_iter(["pid", "name"]):
+        for process in owned_process_iter(["pid", "name", "cmdline"]):
             try:
                 name = process.info.get("name") or ""
                 stem = Path(name).stem.casefold()
@@ -394,6 +394,11 @@ def _running_editor_pids(key: str) -> list[int]:
                     if key == FREEKICAD
                     else is_kicad_editor_process(name)
                 )
+                if (key == FREEKICAD and is_editor
+                        and _is_own_freecad_helper(
+                            process.info.get("cmdline") or []
+                        )):
+                    continue
                 if is_editor:
                     pids.append(process.pid)
             except Exception:
@@ -401,6 +406,24 @@ def _running_editor_pids(key: str) -> list[int]:
         return sorted(set(pids))
     except Exception:
         return []
+
+
+def _is_own_freecad_helper(cmdline: Iterable[str]) -> bool:
+    """Recognize only the addon helper launched by this Kikakuka runtime."""
+    try:
+        helper = os.path.normcase(os.path.realpath(freecad_helper_path()))
+    except OSError:
+        return False
+    for argument in cmdline:
+        if not isinstance(argument, str) or not argument:
+            continue
+        try:
+            candidate = os.path.normcase(os.path.realpath(argument))
+        except OSError:
+            continue
+        if candidate == helper:
+            return True
+    return False
 
 
 def _require_no_running_instances(key: str, operation: str) -> None:

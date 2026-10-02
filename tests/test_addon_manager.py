@@ -975,27 +975,45 @@ class AddonManagerTest(unittest.TestCase):
     def test_running_instance_scan_uses_editor_process_names(self):
         from im import im_mesh
 
-        def process(pid, name):
+        def process(pid, name, cmdline=None):
             value = mock.Mock(pid=pid)
-            value.info = {"pid": pid, "name": name}
+            value.info = {
+                "pid": pid,
+                "name": name,
+                "cmdline": cmdline or [],
+            }
             return value
 
+        helper = Path("/opt/Kikakuka/freecad_addon_installer.py")
         processes = [
             process(10, "pcbnew"),
             process(20, "FreeCAD"),
             process(30, "FreeCADCmd.exe"),
             process(40, "python"),
+            process(50, "FreeCAD", ["freecad", "--console", str(helper)]),
+            process(
+                60,
+                "FreeCAD_1.1.4-Linux-x86_64.AppImage",
+                ["FreeCAD.AppImage", "--console", str(helper)],
+            ),
+            process(
+                70,
+                "FreeCADCmd",
+                ["freecadcmd", "/tmp/freecad_addon_installer.py"],
+            ),
         ]
         with mock.patch.object(
-            im_mesh, "owned_process_iter", return_value=processes
-        ):
+                im_mesh, "owned_process_iter", return_value=processes), \
+                mock.patch.object(
+                    addon_manager, "freecad_helper_path", return_value=helper
+                ):
             self.assertEqual(
                 addon_manager._running_editor_pids(addon_manager.KICAD_PLUGIN),
                 [10],
             )
             self.assertEqual(
                 addon_manager._running_editor_pids(addon_manager.FREEKICAD),
-                [20, 30],
+                [20, 30, 70],
             )
 
     def test_uninstall_requires_all_freecad_instances_to_be_closed(self):
