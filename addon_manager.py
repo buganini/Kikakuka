@@ -978,11 +978,18 @@ def _owned_freecad_executables() -> Iterable[Path]:
             try:
                 name = process.name().casefold()
                 if "freecad" in name:
-                    yield Path(process.exe())
+                    executable = Path(process.exe())
+                    if not _is_transient_appimage_mount(executable):
+                        yield executable
             except Exception:
                 continue
     except Exception:
         return
+
+
+def _is_transient_appimage_mount(path: Path) -> bool:
+    """Return whether a path lives inside AppImage's disposable FUSE mount."""
+    return any(part.startswith(".mount_") for part in Path(path).parts)
 
 
 def freecad_commands(system: Optional[str] = None) -> list[list[str]]:
@@ -1025,6 +1032,8 @@ def freecad_commands(system: Optional[str] = None) -> list[list[str]]:
     commands: list[list[str]] = []
     seen = set()
     for candidate in cmd_candidates:
+        if _is_transient_appimage_mount(candidate):
+            continue
         try:
             key = str(candidate.resolve())
         except OSError:

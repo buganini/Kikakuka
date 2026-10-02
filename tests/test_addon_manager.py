@@ -662,6 +662,25 @@ class AddonManagerTest(unittest.TestCase):
 
             self.assertEqual(commands, [[str(console)]])
 
+    def test_freecad_commands_ignore_transient_appimage_mount(self):
+        with tempfile.TemporaryDirectory() as directory:
+            console = (
+                Path(directory)
+                / ".mount_FreeCAD123/usr/bin/freecadcmd"
+            )
+            console.parent.mkdir(parents=True)
+            console.touch()
+            with mock.patch.object(
+                    addon_manager,
+                    "_owned_freecad_executables",
+                    return_value=[console],
+                    ), mock.patch.object(
+                        addon_manager.shutil, "which", return_value=None
+                    ):
+                commands = addon_manager.freecad_commands(system="Linux")
+
+        self.assertEqual(commands, [])
+
     def test_manual_freecad_gui_uses_snap_console_companion(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
