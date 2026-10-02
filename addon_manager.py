@@ -1262,6 +1262,10 @@ def run_freecad_helper(action: str, archive: Optional[Path] = None) -> dict:
         try:
             completed = subprocess.run(
                 command,
+                # GUI-capable AppImages can remain in their interactive
+                # console after the helper script returns. EOF makes that
+                # console exit instead of leaving a background helper behind.
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -1353,7 +1357,12 @@ def freekicad_status(*, query_freecad: bool = False) -> AddonStatus:
             symlink_target = result.get("symlink_target")
         except Exception as exc:
             print(f"Addon manager: FreeCAD status check failed: {exc}")
+            error = str(exc).strip()
+            if len(error) > 300:
+                error = "…" + error[-299:]
             detail = "Could not query FreeCAD addon status"
+            if error:
+                detail += f": {error}"
     if installed is None:
         installed = _heuristic_freekicad_version()
     if installed is not None:

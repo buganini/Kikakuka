@@ -3,6 +3,7 @@ import builtins
 import contextlib
 import io
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import types
@@ -578,6 +579,7 @@ class AddonManagerTest(unittest.TestCase):
         self.assertEqual(result["version"], "8.0")
         args, kwargs = run.call_args
         self.assertEqual(args[0], ["freecadcmd", str(helper)])
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
         self.assertEqual(kwargs["env"]["KIKAKUKA_ADDON_ACTION"], "install")
         self.assertEqual(
             kwargs["env"]["KIKAKUKA_ADDON_ARCHIVE"], str(archive)
@@ -947,6 +949,33 @@ class AddonManagerTest(unittest.TestCase):
             status = addon_manager.install_freekicad()
 
         self.assertNotIn("Restart", status.status_text)
+
+    def test_freecad_status_exposes_query_failure_detail(self):
+        with (
+            mock.patch.object(
+                addon_manager, "freecad_commands", return_value=[["freecadcmd"]]
+            ),
+            mock.patch.object(
+                addon_manager,
+                "freecad_installation_version",
+                return_value="1.1.4",
+            ),
+            mock.patch.object(
+                addon_manager,
+                "run_freecad_helper",
+                side_effect=TimeoutError("helper did not exit"),
+            ),
+            mock.patch.object(
+                addon_manager, "_heuristic_freekicad_version", return_value=None
+            ),
+            mock.patch.object(
+                addon_manager, "bundled_version", return_value="8.1.1"
+            ),
+        ):
+            status = addon_manager.freekicad_status(query_freecad=True)
+
+        self.assertIn("Could not query FreeCAD addon status", status.status_text)
+        self.assertIn("helper did not exit", status.status_text)
 
     def test_freecad_uninstall_status_does_not_prompt_for_restart(self):
         with (
