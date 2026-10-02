@@ -589,6 +589,12 @@ or change its environment. The cleanup currently targets FreeCAD launches;
 it is not a global environment change or a claim that KiCad's file-association
 launchers apply the same policy.
 
+On Linux, FreeCAD is started in a new process session with standard input
+disconnected. Standard output and error are redirected to
+`/tmp/kikakuka-<UID>/freecad-startup.log`, which is truncated for each launch.
+This keeps a GUI FreeCAD/AppImage process independent of the short-lived KiCad
+action process while retaining startup diagnostics.
+
 KiCad API tokens are separate from the IM mesh token. IM endpoint probes and
 FreekiCAD connections to a selected KiCad socket explicitly initialize kipy
 with `kicad_token=""`, allowing the response to supply that instance's token.

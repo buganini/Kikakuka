@@ -1,6 +1,7 @@
 """Tests for the editor logic executed by each mesh node."""
 
 import os
+import subprocess
 import unittest
 import tempfile
 import threading
@@ -101,17 +102,27 @@ class InstanceBackendTests(unittest.TestCase):
         self.assertIs(ready.call_args.args[0], client.return_value)
 
     def test_linux_file_launch_uses_isolated_freecad_environment(self):
-        with mock.patch.object(backend.platform, "system", return_value="Linux"), \
-                mock.patch.object(backend, "_editors", side_effect=[{}, {321: 1}]), \
-                mock.patch.object(backend.shutil, "which", return_value="/usr/bin/freecad"), \
-                mock.patch.object(backend.subprocess, "Popen") as popen:
-            self.assertEqual(backend._launch("/models/part.FCStd", "freecad"), 321)
-        popen.assert_called_once_with(["/usr/bin/freecad", "/models/part.FCStd"],
-            env=backend.freecad_process_environment("/usr/bin/freecad"))
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "freecad-startup.log"
+            with mock.patch.object(backend.platform, "system", return_value="Linux"), \
+                    mock.patch.object(backend, "_editors", side_effect=[{}, {321: 1}]), \
+                    mock.patch.object(backend.shutil, "which", return_value="/usr/bin/freecad"), \
+                    mock.patch.object(backend, "freecad_launch_log_path", return_value=log_path), \
+                    mock.patch.object(backend.subprocess, "Popen") as popen:
+                self.assertEqual(backend._launch("/models/part.FCStd", "freecad"), 321)
+            args, kwargs = popen.call_args
+            self.assertEqual(args[0], ["/usr/bin/freecad", "/models/part.FCStd"])
+            self.assertEqual(kwargs["env"],
+                             backend.freecad_process_environment("/usr/bin/freecad"))
+            self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+            self.assertEqual(kwargs["stderr"], subprocess.STDOUT)
+            self.assertTrue(kwargs["start_new_session"])
+            self.assertEqual(Path(kwargs["stdout"].name), log_path)
 
     def test_manual_snap_console_launches_gui_companion(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            log_path = root / "freecad-startup.log"
             console = root / "freecad.cmd"
             gui = root / "freecad"
             console.touch()
@@ -124,14 +135,19 @@ class InstanceBackendTests(unittest.TestCase):
                         backend, "_editors", side_effect=[{}, {321: 1}]), \
                     mock.patch.object(
                         backend, "freecad_process_environment", return_value={}), \
+                    mock.patch.object(
+                        backend, "freecad_launch_log_path", return_value=log_path), \
                     mock.patch.object(backend.subprocess, "Popen") as popen:
                 self.assertEqual(
                     backend._launch("/models/part.FCStd", "freecad"), 321
                 )
-
-        popen.assert_called_once_with(
-            [str(gui), "/models/part.FCStd"], env={}
-        )
+            args, kwargs = popen.call_args
+            self.assertEqual(args[0], [str(gui), "/models/part.FCStd"])
+            self.assertEqual(kwargs["env"], {})
+            self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+            self.assertEqual(kwargs["stderr"], subprocess.STDOUT)
+            self.assertTrue(kwargs["start_new_session"])
+            self.assertEqual(Path(kwargs["stdout"].name), log_path)
 
     def test_manual_macos_app_bundle_is_launched_explicitly(self):
         with tempfile.TemporaryDirectory() as directory:

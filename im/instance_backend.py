@@ -494,6 +494,34 @@ def freecad_process_environment(executable=None):
     return environment
 
 
+def freecad_launch_log_path():
+    """Return the per-user log used by detached Linux FreeCAD launches."""
+    if hasattr(os, "getuid"):
+        scope = str(os.getuid())
+    else:
+        scope = getpass.getuser()
+    return Path(tempfile.gettempdir()) / f"kikakuka-{scope}" / "freecad-startup.log"
+
+
+def _popen_freecad(command, executable=None):
+    """Launch FreeCAD without tying its lifetime to a KiCad action process."""
+    kwargs = {"env": freecad_process_environment(executable)}
+    if platform.system() != "Linux":
+        return subprocess.Popen(command, **kwargs)
+
+    log_path = freecad_launch_log_path()
+    log_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with log_path.open("wb") as output:
+        return subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            **kwargs,
+        )
+
+
 def _windows_open_kicad_background(filepath):
     """Open an associated KiCad file without activating its new window."""
     try:
@@ -531,10 +559,9 @@ def _launch(filepath, program="kicad"):
         and Path(configured).suffix == ".app"
     )
     if configured_app and program == "freecad":
-        subprocess.Popen(
+        _popen_freecad(
             ["open", "-a", configured, "-n", "-W", "--args"]
             + ([filepath] if filepath else []),
-            env=freecad_process_environment(),
         )
     elif configured_app:
         subprocess.Popen(
@@ -542,26 +569,24 @@ def _launch(filepath, program="kicad"):
             + ([filepath] if filepath else []),
         )
     elif configured:
-        subprocess.Popen(
-            [configured] + ([filepath] if filepath else []),
-            env=(freecad_process_environment(configured)
-                 if program == "freecad" else None),
-        )
+        command = [configured] + ([filepath] if filepath else [])
+        if program == "freecad":
+            _popen_freecad(command, configured)
+        else:
+            subprocess.Popen(command)
     elif platform.system() == "Darwin":
         if program == "freecad":
             # FreeCAD on macOS does not reliably handle Finder's open-file
             # event. Pass the path as an application argument, as the former
             # Workspace Manager launcher did.
-            subprocess.Popen(["open", "-a", "FreeCAD", "-n", "-W", "--args"]
-                             + ([filepath] if filepath else []),
-                             env=freecad_process_environment())
+            _popen_freecad(["open", "-a", "FreeCAD", "-n", "-W", "--args"]
+                           + ([filepath] if filepath else []))
         else:
             subprocess.Popen(["open", "-n", "-g", filepath])
     elif platform.system() == "Windows":
         freecad = _windows_freecad_executable() if program == "freecad" else None
         if freecad:
-            subprocess.Popen([freecad] + ([filepath] if filepath else []),
-                             env=freecad_process_environment(freecad))
+            _popen_freecad([freecad] + ([filepath] if filepath else []), freecad)
         elif program == "freecad":
             raise FileNotFoundError("FreeCAD executable was not found")
         else:
@@ -570,8 +595,7 @@ def _launch(filepath, program="kicad"):
         freecad = shutil.which("FreeCAD") or shutil.which("freecad")
         if not freecad:
             raise FileNotFoundError("FreeCAD executable was not found in PATH")
-        subprocess.Popen([freecad] + ([filepath] if filepath else []),
-                         env=freecad_process_environment(freecad))
+        _popen_freecad([freecad] + ([filepath] if filepath else []), freecad)
     else:
         subprocess.Popen(["xdg-open", filepath])
     deadline = time.monotonic() + (20 if program == "freecad" else 8)
