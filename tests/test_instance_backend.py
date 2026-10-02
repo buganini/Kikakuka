@@ -31,6 +31,27 @@ class RetryKicadCallTests(unittest.TestCase):
 
 
 class InstanceBackendTests(unittest.TestCase):
+    def setUp(self):
+        self.read_custom_executable = backend._custom_executable
+        self.custom_executable = mock.patch.object(
+            backend, "_custom_executable", return_value=None
+        )
+        self.custom_executable.start()
+        self.addCleanup(self.custom_executable.stop)
+
+    def test_each_node_can_read_manual_executable_from_user_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            (home / ".kikakuka").write_text(
+                '{"freecad_executable": "/opt/FreeCAD.AppImage"}',
+                encoding="utf-8",
+            )
+            with mock.patch.object(Path, "home", return_value=home):
+                self.assertEqual(
+                    self.read_custom_executable("freecad"),
+                    Path("/opt/FreeCAD.AppImage"),
+                )
+
     def test_linux_focus_uses_x11_backend(self):
         with mock.patch.object(backend, "owned_pid_exists", return_value=True), \
                 mock.patch.object(
@@ -87,6 +108,114 @@ class InstanceBackendTests(unittest.TestCase):
             self.assertEqual(backend._launch("/models/part.FCStd", "freecad"), 321)
         popen.assert_called_once_with(["/usr/bin/freecad", "/models/part.FCStd"],
             env=backend.freecad_process_environment("/usr/bin/freecad"))
+
+    def test_manual_snap_console_launches_gui_companion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            console = root / "freecad.cmd"
+            gui = root / "freecad"
+            console.touch()
+            gui.touch()
+            with mock.patch.object(
+                    backend, "_custom_executable", return_value=console), \
+                    mock.patch.object(
+                        backend.platform, "system", return_value="Linux"), \
+                    mock.patch.object(
+                        backend, "_editors", side_effect=[{}, {321: 1}]), \
+                    mock.patch.object(
+                        backend, "freecad_process_environment", return_value={}), \
+                    mock.patch.object(backend.subprocess, "Popen") as popen:
+                self.assertEqual(
+                    backend._launch("/models/part.FCStd", "freecad"), 321
+                )
+
+        popen.assert_called_once_with(
+            [str(gui), "/models/part.FCStd"], env={}
+        )
+
+    def test_manual_macos_app_bundle_is_launched_explicitly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "FreeCAD.app"
+            app.mkdir()
+            with mock.patch.object(
+                    backend, "_custom_executable", return_value=app), \
+                    mock.patch.object(
+                        backend.platform, "system", return_value="Darwin"), \
+                    mock.patch.object(
+                        backend, "_editors", side_effect=[{}, {321: 1}]), \
+                    mock.patch.object(
+                        backend, "freecad_process_environment", return_value={}), \
+                    mock.patch.object(backend.subprocess, "Popen") as popen:
+                self.assertEqual(
+                    backend._launch("/models/part.FCStd", "freecad"), 321
+                )
+
+        popen.assert_called_once_with(
+            [
+                "open", "-a", str(app), "-n", "-W", "--args",
+                "/models/part.FCStd",
+            ],
+            env={},
+        )
+
+    def test_manual_macos_console_command_launches_containing_app(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "FreeCAD.app"
+            command = app / "Contents/Resources/bin/freecadcmd"
+            command.parent.mkdir(parents=True)
+            command.touch()
+            with mock.patch.object(
+                    backend, "_custom_executable", return_value=command), \
+                    mock.patch.object(
+                        backend.platform, "system", return_value="Darwin"), \
+                    mock.patch.object(
+                        backend, "_editors", side_effect=[{}, {321: 1}]), \
+                    mock.patch.object(
+                        backend, "freecad_process_environment", return_value={}), \
+                    mock.patch.object(backend.subprocess, "Popen") as popen:
+                self.assertEqual(
+                    backend._launch("/models/part.FCStd", "freecad"), 321
+                )
+
+        popen.assert_called_once_with(
+            [
+                "open", "-a", str(app), "-n", "-W", "--args",
+                "/models/part.FCStd",
+            ],
+            env={},
+        )
+
+    def test_manual_macos_kicad_binary_launches_containing_app(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "KiCad.app"
+            executable = app / "Contents/MacOS/kicad"
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            with mock.patch.object(
+                    backend, "_custom_executable", return_value=executable), \
+                    mock.patch.object(
+                        backend.platform, "system", return_value="Darwin"), \
+                    mock.patch.object(
+                        backend, "_editors", side_effect=[{}, {321: 1}]), \
+                    mock.patch.object(backend.subprocess, "Popen") as popen:
+                self.assertEqual(
+                    backend._launch("/boards/main.kicad_pcb", "kicad"), 321
+                )
+
+        popen.assert_called_once_with([
+            "open", "-a", str(app), "-n", "-g", "/boards/main.kicad_pcb",
+        ])
+
+    def test_orphaned_manual_kicad_cli_is_not_used_as_gui(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cli = Path(directory) / "kicad-cli"
+            cli.touch()
+            with mock.patch.object(
+                backend, "_custom_executable", return_value=cli
+            ):
+                self.assertIsNone(
+                    backend._configured_gui_executable("kicad")
+                )
 
     def test_kicad_lock_path_matches_kicad_convention(self):
         self.assertEqual(

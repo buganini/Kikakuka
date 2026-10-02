@@ -12,6 +12,11 @@ instance when opening a file; see [Instance Manager](https://github.com/buganini
 for details.
 
 > [!NOTE]
+> FreeCAD installed through Snap is not supported. Snap confinement isolates
+> the filesystem and local sockets, preventing FreekiCAD from connecting to
+> KiCad's IPC endpoint. Selecting the Snap executable manually does not remove
+> this isolation; use a non-Snap FreeCAD installation or the official AppImage.
+>
 > Affected Windows builds expose only one IPC endpoint for multiple instances
 > due to [KiCad issue #23994](https://gitlab.com/kicad/code/kicad/-/work_items/23994).
 > Close all running KiCad applications before first using Kikakuka or

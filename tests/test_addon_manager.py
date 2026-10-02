@@ -27,6 +27,11 @@ def metadata(identifier, package_type, version="8.0"):
 
 class AddonManagerTest(unittest.TestCase):
     def setUp(self):
+        self.custom_executable = mock.patch.object(
+            addon_manager, "custom_executable", return_value=None
+        )
+        self.custom_executable.start()
+        self.addCleanup(self.custom_executable.stop)
         addon_manager.clear_kicad_installations_cache()
 
     def test_kicad_installation_getter_caches_until_cleared(self):
@@ -85,6 +90,7 @@ class AddonManagerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             executable = Path(directory) / "kicad-cli"
             executable.touch()
+            executable.with_name("kicad").touch()
             with (
                 mock.patch.object(
                     addon_manager,
@@ -104,6 +110,22 @@ class AddonManagerTest(unittest.TestCase):
                 installations = addon_manager._detected_kicad_installations()
 
         self.assertEqual(installations, [(executable, "10.0.1")])
+        command_version.assert_not_called()
+
+    def test_kicad_detection_rejects_orphaned_cli(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "kicad-cli"
+            executable.touch()
+            with mock.patch.object(
+                    addon_manager,
+                    "_kicad_cli_candidates",
+                    return_value=[executable],
+                    ), mock.patch.object(
+                        addon_manager, "_command_version"
+                    ) as command_version:
+                installations = addon_manager._detected_kicad_installations()
+
+        self.assertEqual(installations, [])
         command_version.assert_not_called()
 
     def test_bundle_archive_uses_cli_runtime_resource_path(self):
@@ -640,6 +662,83 @@ class AddonManagerTest(unittest.TestCase):
 
             self.assertEqual(commands, [[str(console)]])
 
+    def test_manual_freecad_gui_uses_snap_console_companion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gui = root / "freecad"
+            console = root / "freecad.cmd"
+            gui.touch()
+            console.touch()
+            with mock.patch.object(
+                addon_manager,
+                "custom_executable",
+                return_value=gui,
+            ):
+                commands = addon_manager.freecad_commands(system="Linux")
+
+        self.assertEqual(commands, [[str(console)]])
+
+    def test_manual_freecad_appimage_uses_console_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            appimage = Path(directory) / "FreeCAD.AppImage"
+            appimage.touch()
+            with mock.patch.object(
+                addon_manager,
+                "custom_executable",
+                return_value=appimage,
+            ):
+                commands = addon_manager.freecad_commands(system="Linux")
+
+        self.assertEqual(commands, [[str(appimage), "--console"]])
+
+    def test_manual_kicad_gui_prefers_cli_companion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gui = root / "kicad"
+            cli = root / "kicad-cli"
+            gui.touch()
+            cli.touch()
+            with mock.patch.object(
+                addon_manager,
+                "custom_executable",
+                return_value=gui,
+            ):
+                candidates = addon_manager._kicad_cli_candidates()
+
+        self.assertEqual(candidates, [cli])
+
+    def test_manual_macos_app_bundles_use_internal_console_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            kicad_app = root / "KiCad.app"
+            kicad_cli = kicad_app / "Contents/MacOS/kicad-cli"
+            kicad_cli.parent.mkdir(parents=True)
+            kicad_cli.touch()
+            freecad_app = root / "FreeCAD.app"
+            freecad_cmd = freecad_app / "Contents/Resources/bin/freecadcmd"
+            freecad_cmd.parent.mkdir(parents=True)
+            freecad_cmd.touch()
+
+            with mock.patch.object(
+                    addon_manager.platform, "system", return_value="Darwin"), \
+                    mock.patch.object(
+                        addon_manager,
+                        "custom_executable",
+                        return_value=kicad_app,
+                    ):
+                self.assertEqual(
+                    addon_manager._kicad_cli_candidates(), [kicad_cli]
+                )
+            with mock.patch.object(
+                    addon_manager,
+                    "custom_executable",
+                    return_value=freecad_app,
+                    ):
+                self.assertEqual(
+                    addon_manager.freecad_commands(system="Darwin"),
+                    [[str(freecad_cmd)]],
+                )
+
     def test_addon_diagnostics_lists_installations_and_socket_folder(self):
         with (
             mock.patch.object(
@@ -674,6 +773,8 @@ class AddonManagerTest(unittest.TestCase):
             {
                 "kicad": "/opt/kicad-cli (10.0.2)",
                 "freecad": "/snap/bin/freecad.cmd (1.1.4)",
+                "kicad_manual": False,
+                "freecad_manual": False,
                 "socket_folder": "/tmp/kikakuka-1000",
             },
         )

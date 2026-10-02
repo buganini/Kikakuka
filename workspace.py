@@ -7,6 +7,7 @@ import PUI
 import re
 import subprocess
 import platform
+from pathlib import Path
 from PySide6 import QtCore
 from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
@@ -20,12 +21,15 @@ from addon_manager import (
     KICAD_PLUGIN,
     addon_diagnostics,
     addon_statuses,
+    clear_kicad_installations_cache,
     find_any_kicad_version,
     freekicad_status,
     install_addon,
     install_freekicad_symlink,
+    resolve_kicad_installation,
     uninstall_addon,
 )
+from user_config import config_path, load_config, set_custom_executable, update_config
 from kicad_compat import (
     KICAD10_COMPAT,
     UnsupportedKiCadVersion,
@@ -641,16 +645,11 @@ class MainUI(Application):
     def __init__(self, filepaths=None):
         workspaces = []
 
-        from pathlib import Path
-        self.cfgfile = Path.home() / ".kikakuka"
-        if os.path.exists(self.cfgfile):
-            try:
-                cfg = json.load(open(self.cfgfile))
-                for workspace in cfg["workspaces"]:
-                    if os.path.exists(workspace):
-                        workspaces.append(workspace)
-            except Exception:
-                pass
+        self.cfgfile = config_path()
+        cfg = load_config(self.cfgfile)
+        for workspace in cfg.get("workspaces", []):
+            if os.path.exists(workspace):
+                workspaces.append(workspace)
 
         if filepaths is not None:
             workspaces.extend([os.path.abspath(filepath) for filepath in filepaths])
@@ -681,6 +680,8 @@ class MainUI(Application):
         self.addon_diagnostics_state = StateDict({
             "kicad": "Checking…",
             "freecad": "Checking…",
+            "kicad_manual": False,
+            "freecad_manual": False,
             "socket_folder": "Checking…",
         })
         self._freecad_addon_refreshing = False
@@ -719,6 +720,48 @@ class MainUI(Application):
         if not self._freecad_addon_refreshing:
             self._freecad_addon_refreshing = True
             Thread(target=self._refresh_freecad_addon, daemon=True).start()
+
+    def change_addon_installation(self, _event, application):
+        filepath = OpenFile(
+            f"Select {'KiCad' if application == 'kicad' else 'FreeCAD'} installation",
+            types="All files (*)|*",
+        )
+        if not filepath:
+            return
+        executable = Path(filepath).expanduser().absolute()
+        app_bundle = (
+            platform.system() == "Darwin"
+            and executable.suffix == ".app"
+            and executable.is_dir()
+        )
+        if not executable.is_file() and not app_bundle:
+            Critical(f"Executable not found: {executable}", "Invalid executable")
+            return
+        if (not app_bundle and platform.system() != "Windows"
+                and not os.access(executable, os.X_OK)):
+            Critical(
+                f"The selected file is not executable: {executable}",
+                "Invalid executable",
+            )
+            return
+        if (application == "kicad"
+                and resolve_kicad_installation(executable) is None):
+            Critical(
+                "The selected path does not contain both the KiCad GUI and "
+                "kicad-cli.",
+                "Incomplete KiCad installation",
+            )
+            return
+        set_custom_executable(application, executable)
+        if application == "kicad":
+            clear_kicad_installations_cache()
+        self.refresh_addons()
+
+    def auto_addon_installation(self, _event, application):
+        set_custom_executable(application, None)
+        if application == "kicad":
+            clear_kicad_installations_cache()
+        self.refresh_addons()
 
     def _refresh_freecad_addon(self):
         try:
@@ -835,11 +878,10 @@ class MainUI(Application):
             self._bus = None
 
     def commit(self):
-        f = open(self.cfgfile, "w")
-        json.dump({
-            "workspaces": list(self.state.workspaces)
-        }, f)
-        f.close()
+        update_config(
+            {"workspaces": list(self.state.workspaces)},
+            self.cfgfile,
+        )
 
     def content(self):
         title = (
@@ -904,21 +946,37 @@ class MainUI(Application):
                         with VBox():
                             with HBox():
                                 with Grid():
-                                    Label("KiCad installation").grid(
+                                    Label("KiCad Installation").grid(
                                         row=0, column=0
                                     )
                                     Label(
                                         self.addon_diagnostics_state["kicad"],
                                         selectable=True,
                                     ).grid(row=0, column=1)
-                                    Label("FreeCAD installation").grid(
+                                    with HBox().grid(row=0, column=2):
+                                        Button("Change").click(
+                                            self.change_addon_installation, "kicad"
+                                        )
+                                        if self.addon_diagnostics_state["kicad_manual"]:
+                                            Button("Auto").click(
+                                                self.auto_addon_installation, "kicad"
+                                            )
+                                    Label("FreeCAD Installation").grid(
                                         row=1, column=0
                                     )
                                     Label(
                                         self.addon_diagnostics_state["freecad"],
                                         selectable=True,
                                     ).grid(row=1, column=1)
-                                    Label("Socket folder").grid(
+                                    with HBox().grid(row=1, column=2):
+                                        Button("Change").click(
+                                            self.change_addon_installation, "freecad"
+                                        )
+                                        if self.addon_diagnostics_state["freecad_manual"]:
+                                            Button("Auto").click(
+                                                self.auto_addon_installation, "freecad"
+                                            )
+                                    Label("Socket Folder").grid(
                                         row=2, column=0
                                     )
                                     Label(

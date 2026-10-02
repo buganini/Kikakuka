@@ -19,6 +19,7 @@ from typing import Iterable, Mapping, Optional
 import zipfile
 
 from kicad_compat import get_kicad_compat
+from user_config import custom_executable
 
 
 KICAD_PLUGIN = "kicad_plugin"
@@ -412,7 +413,60 @@ def _require_no_running_instances(key: str, operation: str) -> None:
     )
 
 
+def resolve_kicad_installation(
+    selected: Path,
+    system: Optional[str] = None,
+) -> Optional[tuple[Path, Path]]:
+    """Return the CLI and GUI belonging to one complete KiCad installation."""
+    selected = Path(selected)
+    system = system or platform.system()
+    if (system == "Darwin" and selected.suffix.casefold() == ".app"
+            and selected.is_dir()):
+        cli = selected / "Contents/MacOS/kicad-cli"
+        return (cli, selected) if cli.is_file() else None
+    if (selected.suffix.casefold() == ".appimage"
+            and selected.is_file()):
+        return selected, selected
+
+    name = selected.name.casefold()
+    stem = selected.stem.casefold()
+    if name in {"kicad-cli", "kicad-cli.exe"}:
+        if system == "Darwin":
+            app = next(
+                (parent for parent in selected.parents
+                 if parent.suffix.casefold() == ".app" and parent.is_dir()),
+                None,
+            )
+            if app is not None:
+                return selected, app
+        gui_names = (
+            ("kicad.exe", "pcbnew.exe")
+            if selected.suffix.casefold() == ".exe"
+            else ("kicad", "pcbnew")
+        )
+        gui = next(
+            (selected.with_name(value) for value in gui_names
+             if selected.with_name(value).is_file()),
+            None,
+        )
+        return (selected, gui) if gui is not None else None
+
+    if stem in {"kicad", "pcbnew"} and selected.is_file():
+        cli = selected.with_name(
+            "kicad-cli.exe"
+            if selected.suffix.casefold() == ".exe"
+            else "kicad-cli"
+        )
+        return (cli, selected) if cli.is_file() else None
+    return None
+
+
 def _kicad_cli_candidates() -> list[Path]:
+    configured = custom_executable("kicad")
+    if configured is not None:
+        installation = resolve_kicad_installation(configured)
+        return [installation[0] if installation is not None else configured]
+
     candidates: list[Path] = list(_owned_kicad_cli_candidates())
     for name in ("kicad-cli", "kicad-cli.exe"):
         found = shutil.which(name)
@@ -485,7 +539,11 @@ def _detected_kicad_installations() -> list[tuple[Path, str]]:
     installations = []
 
     seen = set()
-    for candidate in candidates:
+    for selected in candidates:
+        installation = resolve_kicad_installation(selected)
+        if installation is None:
+            continue
+        candidate, _gui = installation
         try:
             resolved = candidate.resolve()
         except OSError:
@@ -932,6 +990,55 @@ def freecad_commands(system: Optional[str] = None) -> list[list[str]]:
     system = system or platform.system()
     cmd_candidates: list[Path] = []
 
+    configured = custom_executable("freecad")
+    if configured is not None:
+        if configured.name.casefold().endswith(".appimage"):
+            return ([[str(configured), "--console"]]
+                    if configured.is_file() else [])
+        companions = []
+        if system == "Darwin":
+            app = configured if configured.suffix == ".app" else next(
+                (parent for parent in configured.parents
+                 if parent.suffix == ".app"),
+                None,
+            )
+            if app:
+                companions.append(
+                    app / "Contents/Resources/bin/freecadcmd"
+                )
+        elif configured.name.casefold() not in {
+            "freecadcmd", "freecadcmd.exe", "freecad.cmd",
+        }:
+            companions.extend([
+                configured.with_name("freecadcmd"),
+                configured.with_name("FreeCADCmd.exe"),
+                configured.with_name("freecad.cmd"),
+            ])
+        command = next(
+            (candidate for candidate in companions if candidate.is_file()),
+            configured,
+        )
+        cmd_candidates.append(command)
+    else:
+        cmd_candidates.extend(_automatic_freecad_command_candidates(system))
+
+    commands: list[list[str]] = []
+    seen = set()
+    for candidate in cmd_candidates:
+        try:
+            key = str(candidate.resolve())
+        except OSError:
+            key = str(candidate)
+        if key in seen or not candidate.is_file():
+            continue
+        seen.add(key)
+        commands.append([str(candidate)])
+    return commands
+
+
+def _automatic_freecad_command_candidates(system: str) -> list[Path]:
+    cmd_candidates: list[Path] = []
+
     for executable in _owned_freecad_executables():
         if Path(executable).stem.casefold() == "freecadcmd":
             cmd_candidates.append(executable)
@@ -965,18 +1072,7 @@ def freecad_commands(system: Optional[str] = None) -> list[list[str]]:
             base = Path(root)
             cmd_candidates.extend(sorted(base.glob("FreeCAD*/bin/FreeCADCmd.exe"), reverse=True))
 
-    commands: list[list[str]] = []
-    seen = set()
-    for candidate in cmd_candidates:
-        try:
-            key = str(candidate.resolve())
-        except OSError:
-            key = str(candidate)
-        if key in seen or not candidate.is_file():
-            continue
-        seen.add(key)
-        commands.append([str(candidate)])
-    return commands
+    return cmd_candidates
 
 
 def _windows_executable_version(path: Path) -> Optional[str]:
@@ -1070,7 +1166,7 @@ def freecad_installation_version(commands: list[list[str]]) -> Optional[str]:
     return None
 
 
-def addon_diagnostics() -> dict[str, str]:
+def addon_diagnostics() -> dict[str, object]:
     """Return the installations and instance socket directory in use."""
     kicad = [
         f"{path} ({version})"
@@ -1093,6 +1189,8 @@ def addon_diagnostics() -> dict[str, str]:
     return {
         "kicad": "\n".join(kicad) if kicad else "Not found",
         "freecad": "\n".join(freecad) if freecad else "Not found",
+        "kicad_manual": custom_executable("kicad") is not None,
+        "freecad_manual": custom_executable("freecad") is not None,
         "socket_folder": str(runtime_dir()),
     }
 

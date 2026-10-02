@@ -160,6 +160,62 @@ def _windows_freecad_executable():
     return None
 
 
+def _custom_executable(application):
+    """Read a launch override without depending on the Kikakuka package."""
+    try:
+        config = json.loads(
+            (Path.home() / ".kikakuka").read_text(encoding="utf-8")
+        )
+        value = config.get(f"{application}_executable")
+    except (OSError, UnicodeError, ValueError, AttributeError):
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return Path(value).expanduser()
+
+
+def _configured_gui_executable(program):
+    configured = _custom_executable(program)
+    if configured is None:
+        return None
+
+    candidates = []
+    name = configured.name.casefold()
+    command_only = program == "freecad" and name in {
+        "freecadcmd", "freecadcmd.exe", "freecad.cmd",
+    }
+    if platform.system() == "Darwin":
+        app = (
+            configured
+            if configured.suffix.casefold() == ".app" and configured.is_dir()
+            else next(
+                (parent for parent in configured.parents
+                 if parent.suffix.casefold() == ".app" and parent.is_dir()),
+                None,
+            )
+        )
+        if app is not None:
+            return str(app)
+
+    if command_only:
+        candidates.extend([
+            configured.with_name("freecad"),
+            configured.with_name("FreeCAD.exe"),
+            configured.with_name("FreeCAD"),
+        ])
+    elif program == "kicad" and name in {"kicad-cli", "kicad-cli.exe"}:
+        command_only = True
+        candidates.extend([
+            configured.with_name("pcbnew.exe"),
+            configured.with_name("pcbnew"),
+            configured.with_name("kicad.exe"),
+            configured.with_name("kicad"),
+        ])
+    if not command_only:
+        candidates.append(configured)
+    return next((str(path) for path in candidates if path.is_file()), None)
+
+
 def _unix_socket_owner(
         socket_path, editors, excluded_pids=(),
         max_retries=SOCKET_OWNER_RETRIES,
@@ -468,7 +524,30 @@ def _launch(filepath, program="kicad"):
     if platform.system() == "Windows" and program == "kicad":
         ensure_windows_kicad_api_sentinel()
     before = _editors(program)
-    if platform.system() == "Darwin":
+    configured = _configured_gui_executable(program)
+    configured_app = (
+        configured
+        and platform.system() == "Darwin"
+        and Path(configured).suffix == ".app"
+    )
+    if configured_app and program == "freecad":
+        subprocess.Popen(
+            ["open", "-a", configured, "-n", "-W", "--args"]
+            + ([filepath] if filepath else []),
+            env=freecad_process_environment(),
+        )
+    elif configured_app:
+        subprocess.Popen(
+            ["open", "-a", configured, "-n", "-g"]
+            + ([filepath] if filepath else []),
+        )
+    elif configured:
+        subprocess.Popen(
+            [configured] + ([filepath] if filepath else []),
+            env=(freecad_process_environment(configured)
+                 if program == "freecad" else None),
+        )
+    elif platform.system() == "Darwin":
         if program == "freecad":
             # FreeCAD on macOS does not reliably handle Finder's open-file
             # event. Pass the path as an application argument, as the former
