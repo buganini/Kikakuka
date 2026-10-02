@@ -12,6 +12,7 @@
     * Add Open in FreeCAD to refresh the current PCB in a matching FreeCAD document, prioritizing the active document, or create a new document when no match exists, and bring FreeCAD to the front
 * Workspace Manager
     * Allow selecting custom KiCad and FreeCAD installations in the Add-ons tab, with an option to restore automatic detection
+    * Identify unsupported Snap-installed FreeCAD installations in the Add-ons tab, including manually selected Snap executables
     * Bring Linux X11 and XWayland windows to the front through EWMH `_NET_ACTIVE_WINDOW`, and report native Wayland activation as unsupported
 * Differ
     * Add file-location buttons for both comparison inputs that open the location of the currently selected working, revision-checkout, or converted file

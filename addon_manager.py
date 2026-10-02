@@ -59,6 +59,9 @@ _RESULT_PREFIX = "KIKAKUKA_ADDON_RESULT="
 _INSTALL_LOCK = threading.Lock()
 _MIN_FREECAD_VERSION = (1, 0)
 _MIN_FREECAD_VERSION_TEXT = "1.0"
+_SNAP_FREECAD_UNSUPPORTED = (
+    "Unsupported: Snap-installed FreeCAD cannot communicate with KiCad"
+)
 _kicad_installations_cache: Optional[tuple[tuple[Path, str], ...]] = None
 
 
@@ -1015,6 +1018,33 @@ def _is_transient_appimage_mount(path: Path) -> bool:
     return any(part.startswith(".mount_") for part in Path(path).parts)
 
 
+def _is_snap_freecad_path(path: Path) -> bool:
+    """Return whether *path* is provided by the Linux Snap installation."""
+    value = os.path.abspath(os.path.expanduser(str(path)))
+    return (value.startswith("/snap/")
+            or value.startswith("/var/lib/snapd/snap/"))
+
+
+def _snap_freecad_installed() -> bool:
+    """Detect a configured, aliased, or mounted Snap FreeCAD installation."""
+    if platform.system() != "Linux":
+        return False
+    configured = custom_executable("freecad")
+    if configured is not None and _is_snap_freecad_path(configured):
+        return True
+    for name in ("freecad", "freecad.cmd"):
+        found = shutil.which(name)
+        if found and _is_snap_freecad_path(Path(found)):
+            return True
+    return any(
+        path.exists()
+        for path in (
+            Path("/snap/freecad/current"),
+            Path("/var/lib/snapd/snap/freecad/current"),
+        )
+    )
+
+
 def freecad_commands(system: Optional[str] = None) -> list[list[str]]:
     """Return supported FreeCADCmd invocations."""
     system = system or platform.system()
@@ -1022,6 +1052,8 @@ def freecad_commands(system: Optional[str] = None) -> list[list[str]]:
 
     configured = custom_executable("freecad")
     if configured is not None:
+        if _is_snap_freecad_path(configured):
+            return []
         if configured.name.casefold().endswith(".appimage"):
             return ([[str(configured), "--console"]]
                     if configured.is_file() else [])
@@ -1055,7 +1087,8 @@ def freecad_commands(system: Optional[str] = None) -> list[list[str]]:
     commands: list[list[str]] = []
     seen = set()
     for candidate in cmd_candidates:
-        if _is_transient_appimage_mount(candidate):
+        if (_is_transient_appimage_mount(candidate)
+                or _is_snap_freecad_path(candidate)):
             continue
         try:
             key = str(candidate.resolve())
@@ -1207,7 +1240,7 @@ def addon_diagnostics() -> dict[str, object]:
 
     freecad = []
     for command in freecad_commands():
-        if not command:
+        if not command or _is_snap_freecad_path(Path(command[0])):
             continue
         version = (
             _freecad_version_from_installation(Path(command[0]))
@@ -1220,7 +1253,9 @@ def addon_diagnostics() -> dict[str, object]:
 
     return {
         "kicad": "\n".join(kicad) if kicad else "Not found",
-        "freecad": "\n".join(freecad) if freecad else "Not found",
+        "freecad": ("\n".join(freecad) if freecad else
+                    _SNAP_FREECAD_UNSUPPORTED
+                    if _snap_freecad_installed() else "Not found"),
         "kicad_manual": custom_executable("kicad") is not None,
         "freecad_manual": custom_executable("freecad") is not None,
         "socket_folder": str(runtime_dir()),
@@ -1315,12 +1350,15 @@ def _heuristic_freekicad_version() -> Optional[str]:
 def freekicad_status(*, query_freecad: bool = False) -> AddonStatus:
     commands = freecad_commands()
     if not commands:
+        detail = (_SNAP_FREECAD_UNSUPPORTED
+                  if _snap_freecad_installed()
+                  else "Cannot find FreeCAD installation")
         return AddonStatus(
             FREEKICAD,
             ADDON_LABELS[FREEKICAD],
             bundled_version(FREEKICAD),
             None,
-            "Cannot find FreeCAD installation",
+            detail,
             False,
         )
     freecad_version = freecad_installation_version(commands)

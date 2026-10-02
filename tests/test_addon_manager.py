@@ -703,7 +703,7 @@ class AddonManagerTest(unittest.TestCase):
 
         self.assertEqual(commands, [])
 
-    def test_manual_freecad_gui_uses_snap_console_companion(self):
+    def test_manual_freecad_gui_uses_console_companion(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             gui = root / "freecad"
@@ -718,6 +718,27 @@ class AddonManagerTest(unittest.TestCase):
                 commands = addon_manager.freecad_commands(system="Linux")
 
         self.assertEqual(commands, [[str(console)]])
+
+    def test_manual_snap_freecad_is_not_a_supported_command(self):
+        with mock.patch.object(
+                addon_manager,
+                "custom_executable",
+                return_value=Path("/snap/bin/freecad"),
+                ):
+            commands = addon_manager.freecad_commands(system="Linux")
+
+        self.assertEqual(commands, [])
+
+    def test_detects_snap_freecad_alias(self):
+        def which(name):
+            return "/snap/bin/freecad" if name == "freecad" else None
+
+        with (
+            mock.patch.object(addon_manager.platform, "system", return_value="Linux"),
+            mock.patch.object(addon_manager, "custom_executable", return_value=None),
+            mock.patch.object(addon_manager.shutil, "which", side_effect=which),
+        ):
+            self.assertTrue(addon_manager._snap_freecad_installed())
 
     def test_manual_freecad_appimage_uses_console_mode(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -790,7 +811,7 @@ class AddonManagerTest(unittest.TestCase):
             mock.patch.object(
                 addon_manager,
                 "freecad_commands",
-                return_value=[["/snap/bin/freecad.cmd"]],
+                return_value=[["/opt/freecadcmd"]],
             ),
             mock.patch.object(
                 addon_manager,
@@ -813,12 +834,61 @@ class AddonManagerTest(unittest.TestCase):
             diagnostics,
             {
                 "kicad": "/opt/kicad-cli (10.0.2)",
-                "freecad": "/snap/bin/freecad.cmd (1.1.4)",
+                "freecad": "/opt/freecadcmd (1.1.4)",
                 "kicad_manual": False,
                 "freecad_manual": False,
                 "socket_folder": "/tmp/kikakuka-1000",
             },
         )
+
+    def test_addon_diagnostics_reports_unsupported_snap_freecad(self):
+        with (
+            mock.patch.object(
+                addon_manager, "get_kicad_installations", return_value=()
+            ),
+            mock.patch.object(addon_manager, "freecad_commands", return_value=[]),
+            mock.patch.object(
+                addon_manager, "_snap_freecad_installed", return_value=True
+            ),
+            mock.patch.object(
+                addon_manager, "custom_executable",
+                return_value=Path("/snap/bin/freecad"),
+            ),
+            mock.patch(
+                "im.im_mesh.runtime_dir",
+                return_value=Path("/tmp/kikakuka-1000"),
+            ),
+        ):
+            diagnostics = addon_manager.addon_diagnostics()
+
+        self.assertEqual(
+            diagnostics["freecad"],
+            "Unsupported: Snap-installed FreeCAD cannot communicate with KiCad",
+        )
+        self.assertTrue(diagnostics["freecad_manual"])
+
+    def test_addon_diagnostics_reports_auto_detected_snap_freecad(self):
+        with (
+            mock.patch.object(
+                addon_manager, "get_kicad_installations", return_value=()
+            ),
+            mock.patch.object(addon_manager, "freecad_commands", return_value=[]),
+            mock.patch.object(
+                addon_manager, "_snap_freecad_installed", return_value=True
+            ),
+            mock.patch.object(addon_manager, "custom_executable", return_value=None),
+            mock.patch(
+                "im.im_mesh.runtime_dir",
+                return_value=Path("/tmp/kikakuka-1000"),
+            ),
+        ):
+            diagnostics = addon_manager.addon_diagnostics()
+
+        self.assertEqual(
+            diagnostics["freecad"],
+            "Unsupported: Snap-installed FreeCAD cannot communicate with KiCad",
+        )
+        self.assertFalse(diagnostics["freecad_manual"])
 
     def test_freecad_helper_main_reads_environment_action(self):
         with (
@@ -1085,6 +1155,22 @@ class AddonManagerTest(unittest.TestCase):
             status = addon_manager.freekicad_status()
 
         self.assertEqual(status.status_text, "Cannot find FreeCAD installation")
+        self.assertEqual(status.action, "")
+        self.assertEqual(status.uninstall_action, "")
+
+    def test_snap_freecad_installation_is_unsupported(self):
+        with (
+            mock.patch.object(addon_manager, "freecad_commands", return_value=[]),
+            mock.patch.object(
+                addon_manager, "_snap_freecad_installed", return_value=True
+            ),
+        ):
+            status = addon_manager.freekicad_status()
+
+        self.assertEqual(
+            status.status_text,
+            "Unsupported: Snap-installed FreeCAD cannot communicate with KiCad",
+        )
         self.assertEqual(status.action, "")
         self.assertEqual(status.uninstall_action, "")
 
