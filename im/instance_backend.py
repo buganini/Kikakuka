@@ -33,6 +33,32 @@ WINDOWS_KICAD_API_SENTINEL = (
 )
 _BOARD_COMPATIBILITY = WeakKeyDictionary()
 
+_FREECAD_ENVIRONMENT_REMOVALS = (
+    "PYTHONHOME", "PYTHONPATH", "PYTHONUSERBASE", "PYTHONSTARTUP",
+    "PYTHONEXECUTABLE", "VIRTUAL_ENV", "VIRTUAL_ENV_PROMPT",
+    "__PYVENV_LAUNCHER__",
+    "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH",
+    "QML_IMPORT_PATH", "QML2_IMPORT_PATH", "QT_QPA_FONTDIR",
+    "KICAD_API_TOKEN", "KICAD_API_SOCKET",
+    "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
+    "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FALLBACK_FRAMEWORK_PATH",
+    "DYLD_INSERT_LIBRARIES", "LD_LIBRARY_PATH", "LD_PRELOAD",
+)
+
+_SYSTEMD_FREECAD_ENVIRONMENT = {
+    "DBUS_SESSION_BUS_ADDRESS", "DESKTOP_SESSION", "DISPLAY",
+    "GTK_IM_MODULE", "HOME", "LANG", "LANGUAGE", "LOGNAME", "PATH",
+    "QT_ACCESSIBILITY", "QT_IM_MODULE", "USER", "WAYLAND_DISPLAY",
+    "XAUTHORITY", "XDG_CACHE_HOME", "XDG_CONFIG_HOME",
+    "XDG_CURRENT_DESKTOP", "XDG_DATA_DIRS", "XDG_DATA_HOME",
+    "XDG_MENU_PREFIX", "XDG_RUNTIME_DIR", "XDG_SESSION_CLASS",
+    "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "PYTHONNOUSERSITE",
+}
+
+_SYSTEMD_FREECAD_ENVIRONMENT_PREFIXES = (
+    "GBM_", "GALLIUM_", "LC_", "LIBGL_", "MESA_", "VK_", "__GL_",
+)
+
 
 def _normal(path):
     return os.path.normcase(os.path.realpath(os.path.abspath(path)))
@@ -477,17 +503,7 @@ def _focus(pid):
 def freecad_process_environment(executable=None):
     """Run FreeCAD with its own Python/Qt, not the launching KiCad runtime."""
     environment = os.environ.copy()
-    for name in (
-        "PYTHONHOME", "PYTHONPATH", "PYTHONUSERBASE", "PYTHONSTARTUP",
-        "PYTHONEXECUTABLE", "VIRTUAL_ENV", "VIRTUAL_ENV_PROMPT",
-        "__PYVENV_LAUNCHER__",
-        "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH",
-        "QML_IMPORT_PATH", "QML2_IMPORT_PATH", "QT_QPA_FONTDIR",
-        "KICAD_API_TOKEN", "KICAD_API_SOCKET",
-        "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
-        "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_FALLBACK_FRAMEWORK_PATH",
-        "DYLD_INSERT_LIBRARIES", "LD_LIBRARY_PATH", "LD_PRELOAD",
-    ):
+    for name in _FREECAD_ENVIRONMENT_REMOVALS:
         environment.pop(name, None)
     # FreeCAD explicitly adds its AdditionalPythonPackages directory itself.
     environment["PYTHONNOUSERSITE"] = "1"
@@ -505,17 +521,75 @@ def freecad_launch_log_path():
     return Path(tempfile.gettempdir()) / f"kikakuka-{scope}" / "freecad-startup.log"
 
 
+def _systemd_freecad_environment(environment):
+    """Return non-secret desktop variables needed by a transient user unit."""
+    return {
+        name: value for name, value in environment.items()
+        if name in _SYSTEMD_FREECAD_ENVIRONMENT
+        or name.startswith(_SYSTEMD_FREECAD_ENVIRONMENT_PREFIXES)
+    }
+
+
+def _systemd_run_freecad(command, environment, log_path):
+    """Ask the Linux user manager to own FreeCAD independently of KiCad."""
+    systemd_run = shutil.which("systemd-run")
+    if not systemd_run or not environment.get("DBUS_SESSION_BUS_ADDRESS") \
+            or not environment.get("XDG_RUNTIME_DIR"):
+        return None
+
+    unit = f"kikakuka-freecad-{os.getpid()}-{time.monotonic_ns()}"
+    invocation = [
+        systemd_run,
+        "--user",
+        "--collect",
+        "--quiet",
+        "--service-type=exec",
+        f"--unit={unit}",
+        f"--working-directory={Path.home()}",
+        "--property=KillMode=process",
+        f"--property=StandardOutput=append:{log_path}",
+        f"--property=StandardError=append:{log_path}",
+        "--property=UnsetEnvironment=" + " ".join(
+            _FREECAD_ENVIRONMENT_REMOVALS
+        ),
+    ]
+    for name, value in sorted(_systemd_freecad_environment(environment).items()):
+        invocation.append(f"--setenv={name}={value}")
+    invocation.extend(("--", *command))
+    try:
+        completed = subprocess.run(
+            invocation,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return completed if completed.returncode == 0 else None
+
+
 def _popen_freecad(command, executable=None):
     """Launch FreeCAD without tying its lifetime to a KiCad action process."""
-    kwargs = {"env": freecad_process_environment(executable)}
+    environment = freecad_process_environment(executable)
+    kwargs = {"env": environment}
     if platform.system() != "Linux":
         return subprocess.Popen(command, **kwargs)
 
     log_path = freecad_launch_log_path()
     log_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    log_path.write_bytes(b"")
+    systemd_launch = _systemd_run_freecad(command, environment, log_path)
+    if systemd_launch is not None:
+        return systemd_launch
+
     with log_path.open("wb") as output:
         return subprocess.Popen(
             command,
+            cwd=Path.home(),
             stdin=subprocess.DEVNULL,
             stdout=output,
             stderr=subprocess.STDOUT,

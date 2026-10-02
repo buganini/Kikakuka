@@ -117,6 +117,109 @@ class InstanceBackendTests(unittest.TestCase):
             self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
             self.assertEqual(kwargs["stderr"], subprocess.STDOUT)
             self.assertTrue(kwargs["start_new_session"])
+            self.assertEqual(kwargs["cwd"], Path.home())
+            self.assertEqual(Path(kwargs["stdout"].name), log_path)
+
+    def test_linux_prefers_systemd_user_service_for_freecad(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log_path = root / "freecad-startup.log"
+            environment = {
+                "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1002/bus",
+                "DISPLAY": ":10.0",
+                "PATH": "/usr/bin",
+                "PYTHONNOUSERSITE": "1",
+                "XDG_RUNTIME_DIR": "/run/user/1002",
+                "KICAD_API_TOKEN": "must-not-be-forwarded",
+                "UNRELATED_SECRET": "must-not-be-forwarded",
+            }
+            completed = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(
+                    backend.platform, "system", return_value="Linux"), \
+                    mock.patch.object(
+                        backend, "freecad_process_environment",
+                        return_value=environment), \
+                    mock.patch.object(
+                        backend, "freecad_launch_log_path",
+                        return_value=log_path), \
+                    mock.patch.object(
+                        backend.shutil, "which",
+                        return_value="/usr/bin/systemd-run"), \
+                    mock.patch.object(
+                        Path, "home", return_value=Path("/home/tester")), \
+                    mock.patch.object(
+                        backend.subprocess, "run",
+                        return_value=completed) as run, \
+                    mock.patch.object(backend.subprocess, "Popen") as popen:
+                result = backend._popen_freecad(
+                    ["/opt/FreeCAD.AppImage", "/models/part.FCStd"],
+                    "/opt/FreeCAD.AppImage",
+                )
+
+            self.assertIs(result, completed)
+            popen.assert_not_called()
+            invocation = run.call_args.args[0]
+            self.assertEqual(invocation[0], "/usr/bin/systemd-run")
+            self.assertIn("--user", invocation)
+            self.assertIn("--collect", invocation)
+            self.assertNotIn("--scope", invocation)
+            self.assertIn("--service-type=exec", invocation)
+            self.assertIn("--working-directory=/home/tester", invocation)
+            self.assertIn("--property=KillMode=process", invocation)
+            self.assertIn(
+                f"--property=StandardOutput=append:{log_path}", invocation
+            )
+            self.assertIn("--setenv=DISPLAY=:10.0", invocation)
+            self.assertIn("--setenv=PYTHONNOUSERSITE=1", invocation)
+            self.assertFalse(any(
+                argument.startswith("--setenv=KICAD_API_TOKEN=")
+                for argument in invocation
+            ))
+            self.assertFalse(any(
+                argument.startswith("--setenv=UNRELATED_SECRET=")
+                for argument in invocation
+            ))
+            self.assertEqual(
+                invocation[-2:],
+                ["/opt/FreeCAD.AppImage", "/models/part.FCStd"],
+            )
+            self.assertEqual(run.call_args.kwargs["env"], environment)
+
+    def test_linux_falls_back_when_systemd_launch_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log_path = root / "freecad-startup.log"
+            environment = {
+                "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1002/bus",
+                "XDG_RUNTIME_DIR": "/run/user/1002",
+            }
+            failed = subprocess.CompletedProcess([], 1, "", "no user manager")
+            with mock.patch.object(
+                    backend.platform, "system", return_value="Linux"), \
+                    mock.patch.object(
+                        backend, "freecad_process_environment",
+                        return_value=environment), \
+                    mock.patch.object(
+                        backend, "freecad_launch_log_path",
+                        return_value=log_path), \
+                    mock.patch.object(
+                        backend.shutil, "which",
+                        return_value="/usr/bin/systemd-run"), \
+                    mock.patch.object(
+                        Path, "home", return_value=Path("/home/tester")), \
+                    mock.patch.object(
+                        backend.subprocess, "run", return_value=failed), \
+                    mock.patch.object(backend.subprocess, "Popen") as popen:
+                result = backend._popen_freecad(
+                    ["/opt/FreeCAD.AppImage"], "/opt/FreeCAD.AppImage"
+                )
+
+            self.assertIs(result, popen.return_value)
+            args, kwargs = popen.call_args
+            self.assertEqual(args[0], ["/opt/FreeCAD.AppImage"])
+            self.assertEqual(kwargs["cwd"], Path("/home/tester"))
+            self.assertEqual(kwargs["env"], environment)
+            self.assertTrue(kwargs["start_new_session"])
             self.assertEqual(Path(kwargs["stdout"].name), log_path)
 
     def test_manual_snap_console_launches_gui_companion(self):
