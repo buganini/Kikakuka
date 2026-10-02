@@ -1,4 +1,6 @@
 # Next:
+* Cross-platform
+    * Test the KiCad/FreeCAD add-on and Instance Manager workflows on Linux (X11), macOS, and Windows
 * FreekiCAD
     * Add reloadable native STL mesh objects with a unit-aware `LengthPerUnit` field, STL footprint-model import, portable assembly support, and headless STEP/STL export with closed-mesh validation for STEP conversion; preserve linked STEP/STL placements across source reloads
     * Add Goto KiCad to the PCB object's context menu to open or focus the linked PCB in KiCad
