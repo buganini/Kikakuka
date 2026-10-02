@@ -73,7 +73,7 @@ class _DocumentObserver:
         current = {}
         documents = FreeCAD.listDocuments()
         for document in documents.values():
-            name = getattr(document, "Name", None)
+            name = self._document_name(document)
             path = self._document_path(document)
             if name and path:
                 current[name] = path
@@ -88,9 +88,22 @@ class _DocumentObserver:
             self.events.put((path, os.getpid()))
         return sorted(current_paths)
 
+    @staticmethod
+    def _document_name(document):
+        try:
+            return getattr(document, "Name", None)
+        except ReferenceError:
+            # FreeCAD document observers may retain a Python proxy briefly
+            # after its underlying C++ document has already been deleted.
+            return None
+
     def _document_path(self, document):
-        name = getattr(document, "Name", None)
-        path = getattr(document, "FileName", "") or self.source_paths.get(name, "")
+        try:
+            name = getattr(document, "Name", None)
+            path = (getattr(document, "FileName", "")
+                    or self.source_paths.get(name, ""))
+        except ReferenceError:
+            return ""
         return os.path.normcase(os.path.realpath(os.path.abspath(path))) if path else ""
 
     def _on_gui_thread(self, callback, timeout=2):
@@ -272,7 +285,7 @@ class _DocumentObserver:
                     pass
 
     def _record(self, document):
-        name = getattr(document, "Name", None)
+        name = self._document_name(document)
         path = self._document_path(document)
         if not name or not path:
             return
@@ -302,7 +315,10 @@ class _DocumentObserver:
         self._record(document)
 
     def slotDeletedDocument(self, document):
-        name = getattr(document, "Name", None)
+        name = self._document_name(document)
+        if not name:
+            self._scan_paths()
+            return
         self.source_paths.pop(name, None)
         path = self.paths.pop(name, None)
         if path and path not in self.paths.values():

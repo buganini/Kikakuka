@@ -702,6 +702,43 @@ class InstanceClientSyncTests(unittest.TestCase):
             module.time.sleep(0.01)
         node.publish.assert_called_once_with("/boards/board.FCStd", os.getpid())
 
+    def test_delayed_create_ignores_document_deleted_before_callback(self):
+        module = load_im_client_module()
+        callbacks = []
+        module.QtCore.QTimer = types.SimpleNamespace(
+            singleShot=lambda _delay, callback: callbacks.append(callback))
+        node = mock.Mock()
+        observer = module._DocumentObserver(node)
+
+        class DeletedDocument:
+            @property
+            def Name(self):
+                raise ReferenceError("Cannot access attribute 'Name' of deleted object")
+
+        observer.slotCreatedDocument(DeletedDocument())
+        callbacks.pop()()
+        self.assertEqual(observer.paths, {})
+        node.publish.assert_not_called()
+
+    def test_deleted_proxy_rescans_live_documents(self):
+        module = load_im_client_module()
+        node = mock.Mock()
+        observer = module._DocumentObserver(node)
+        observer.paths = {"Temporary": "/models/temporary.FCStd"}
+        module.FreeCAD.listDocuments = mock.Mock(return_value={})
+
+        class DeletedDocument:
+            @property
+            def Name(self):
+                raise ReferenceError("Cannot access attribute 'Name' of deleted object")
+
+        observer.slotDeletedDocument(DeletedDocument())
+        deadline = module.time.monotonic() + 2
+        while node.publish.call_count < 1 and module.time.monotonic() < deadline:
+            module.time.sleep(0.01)
+        node.publish.assert_called_once_with("/models/temporary.FCStd", None)
+        self.assertEqual(observer.paths, {})
+
     def test_activation_publishes_document_loaded_after_create(self):
         module = load_im_client_module()
         node = mock.Mock()
