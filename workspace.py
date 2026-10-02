@@ -4,7 +4,6 @@ import json
 from PUI.PySide6 import *
 from PUI.interfaces import BaseTreeAdapter
 import PUI
-import re
 import subprocess
 import platform
 from pathlib import Path
@@ -40,7 +39,7 @@ FREECAD_SUFFIXES = (
     ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX, ".stp", STL_SUFFIX)
 FILE_ORDER = [
     *PNL_SUFFIXES, ASSEMBLY_SUFFIX, FREECAD_SUFFIX, STEP_SUFFIX,
-    STL_SUFFIX, ".kicad_pro"]
+    STL_SUFFIX, KICAD_PROJECT_SUFFIX]
 KICAD_SOCKET_REFRESH_RETRIES = 12
 KICAD_SOCKET_REFRESH_DELAY_S = 0.5
 ADDON_ROW_HEIGHT = 32
@@ -202,9 +201,9 @@ def populateProject(project, root, types=None, compatibility=None):
     project["project_path"] = project["path"]
     if project["path"].lower().endswith(PNL_SUFFIXES):
         return
-    if project["path"].endswith(".kicad_pro"):
+    if project["path"].lower().endswith(KICAD_PROJECT_SUFFIX):
         for ext in types:
-            fpath = re.sub(r"\.kicad_pro$", ext, project["path"])
+            fpath = project["path"][:-len(KICAD_PROJECT_SUFFIX)] + ext
             if not os.path.isabs(fpath):
                 fpath = os.path.join(root, fpath)
             if os.path.exists(fpath):
@@ -355,7 +354,7 @@ class WorkspaceUI(PUIView):
                     .dragEnter(self.handleDragEnter).drop(self.handleDrop)):
                     for project in self.state.workspace["projects"]:
                         folder = os.path.basename(os.path.dirname(project["path"]))
-                        file = os.path.basename(project["path"])
+                        file = workspace_filename(project["path"])
                         folder_file = f"{folder}/{file}"
                         with (TreeNode(folder_file)
                                 .click(lambda e, project: self.selectFile(project), project)
@@ -394,7 +393,9 @@ class WorkspaceUI(PUIView):
                     focus_project = self.state.focus
                     if focus_project and focus_project["parent"]:
                         focus_project = focus_project["parent"]
-                    if focus_project is not None and focus_project["path"].endswith(".kicad_pro"):
+                    if (focus_project is not None and
+                            focus_project["path"].lower().endswith(
+                                KICAD_PROJECT_SUFFIX)):
                         with Scroll().layout(weight=1):
                             with VBox():
 
@@ -468,18 +469,12 @@ class WorkspaceUI(PUIView):
             for url in event.mimeData().urls():
                 filepath = os.path.abspath(url.toLocalFile())
                 lower = filepath.lower()
-                for suffix in (
-                        ".kicad_pro", ".kicad_sch", ".kicad_pcb",
-                        ".kicad_prl"):
-                    if lower.endswith(suffix):
-                        filepath = filepath[:-len(suffix)] + ".kicad_pro"
-                        break
-                else:
-                    if not lower.endswith((*PNL_SUFFIXES,
-                                           *FREECAD_SUFFIXES)):
-                        continue
-                if os.path.exists(filepath):
-                    self.addFile(filepath)
+                if not lower.endswith((
+                        *KICAD_PROJECT_MEMBER_SUFFIXES,
+                        *PNL_SUFFIXES,
+                        *FREECAD_SUFFIXES)):
+                    continue
+                self.addFile(filepath)
             event.accept()
             return True
         event.ignore()
@@ -518,14 +513,14 @@ class WorkspaceUI(PUIView):
         filepath = OpenFile(
             "Open KiCad/FabPlan/Assembly",
             dir=dir,
-            types="KiCad/FabPlan/Assembly (*.kicad_pro *.kkkk_fab *.kikit_pnl *.kkkk_asm *.FCStd *.step *.stp *.stl)|*.kicad_pro;*.kkkk_fab;*.kikit_pnl;*.kkkk_asm;*.FCStd;*.step;*.stp;*.stl",
+            types="KiCad/FabPlan/Assembly (*.kicad_pro *.kicad_pcb *.kicad_sch *.kkkk_fab *.kikit_pnl *.kkkk_asm *.FCStd *.step *.stp *.stl)|*.kicad_pro;*.kicad_pcb;*.kicad_sch;*.kkkk_fab;*.kikit_pnl;*.kkkk_asm;*.FCStd;*.step;*.stp;*.stl",
         )
         if filepath:
             self.addFile(filepath)
 
     def addFile(self, filepath):
-        filepath = os.path.abspath(filepath)
-        if not os.path.exists(filepath):
+        filepath = workspace_entry_path(filepath)
+        if filepath is None:
             return
         if filepath in [project["path"] for project in self.state.workspace["projects"]]:
             return
@@ -564,6 +559,13 @@ class WorkspaceUI(PUIView):
             self.openPanelizer(filepath)
 
     def openFile(self, path, bring_to_front=False):
+        if (path.lower().endswith(KICAD_PROJECT_SUFFIX)
+                and not os.path.isfile(path)):
+            Critical(
+                f"KiCad project file does not exist:\n{path}",
+                "Cannot Open KiCad Project",
+            )
+            return
         if path.lower().endswith(PNL_SUFFIXES):
             self.openPanelizer(path)
             return

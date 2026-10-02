@@ -95,6 +95,12 @@ It creates a few more dimensions for KiCad:
 
 # Workspace Manager
 The `.kkkk` file saves workspace information in JSON format.
+Adding or dropping a `.kicad_pcb` or `.kicad_sch` records its sibling
+`.kicad_pro` project entry, even when that project file has not been created
+yet. A virtual project row omits the `.kicad_pro` suffix; an existing project
+file keeps it. Rows list only PCB/schematic files that currently exist.
+Opening a missing project row reports the missing project instead of launching
+KiCad.
 ![Workspace Manager](screenshots/workspace.png)
 
 # Differ

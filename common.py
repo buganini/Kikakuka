@@ -1,6 +1,5 @@
 import os
 import sys
-import re
 import sexpr
 
 VERSION = "8.1.1"
@@ -15,6 +14,39 @@ STEP_SUFFIX = ".step"
 STL_SUFFIX = ".stl"
 FREECAD_SUFFIX = ".fcstd"
 ASSEMBLY_SUFFIX = ".kkkk_asm"
+KICAD_PROJECT_SUFFIX = ".kicad_pro"
+KICAD_PROJECT_MEMBER_SUFFIXES = (
+    KICAD_PROJECT_SUFFIX, PCB_SUFFIX, SCH_SUFFIX, ".kicad_prl")
+
+
+def kicad_project_path(path):
+    """Return the sibling .kicad_pro represented by a KiCad project file."""
+    path = os.fspath(path)
+    lower = path.lower()
+    if lower.endswith(KICAD_PROJECT_SUFFIX):
+        return path
+    for suffix in KICAD_PROJECT_MEMBER_SUFFIXES[1:]:
+        if lower.endswith(suffix):
+            return path[:-len(suffix)] + KICAD_PROJECT_SUFFIX
+    return path
+
+
+def workspace_entry_path(path):
+    """Normalize an existing selected file into its workspace entry path."""
+    path = os.path.abspath(os.fspath(path))
+    if not os.path.exists(path):
+        return None
+    return kicad_project_path(path)
+
+
+def workspace_filename(path):
+    """Hide .kicad_pro only for a virtual entry without a project file."""
+    path = os.fspath(path)
+    filename = os.path.basename(path)
+    if (filename.lower().endswith(KICAD_PROJECT_SUFFIX)
+            and not os.path.isfile(path)):
+        return filename[:-len(KICAD_PROJECT_SUFFIX)]
+    return filename
 
 def resource_path(relative_path):
     try:
@@ -52,9 +84,9 @@ def findFiles(workspace, root, types=None):
         project["project_path"] = project["path"]
         if project["path"].lower().endswith(PNL_SUFFIXES):
             continue
-        if project["path"].endswith(".kicad_pro"):
+        if project["path"].lower().endswith(KICAD_PROJECT_SUFFIX):
             for ext in types:
-                fpath = re.sub(r"\.kicad_pro$", ext, project["path"])
+                fpath = project["path"][:-len(KICAD_PROJECT_SUFFIX)] + ext
                 if not os.path.isabs(fpath):
                     fpath = os.path.join(root, fpath)
                 if os.path.exists(fpath):
