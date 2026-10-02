@@ -654,6 +654,10 @@ class InstanceBackendTests(unittest.TestCase):
         contaminated = {
             "PYTHONUSERBASE": "C:/KiCad/3rdparty", "PYTHONPATH": "C:/KiCad/python",
             "PYTHONHOME": "C:/KiCad", "QT_PLUGIN_PATH": "C:/KiCad/Qt/plugins",
+            "PYTHONEXECUTABLE": "C:/KiCad/python.exe",
+            "VIRTUAL_ENV": "C:/KiCad/plugin-venv",
+            "VIRTUAL_ENV_PROMPT": "kicad-plugin",
+            "__PYVENV_LAUNCHER__": "C:/KiCad/python.exe",
             "QT_QPA_PLATFORM_PLUGIN_PATH": "C:/KiCad/Qt/platforms",
             "QML2_IMPORT_PATH": "C:/KiCad/qml", "PATH": "C:/Windows",
             "APPDATA": "C:/Users/test/AppData/Roaming",

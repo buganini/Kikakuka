@@ -479,6 +479,8 @@ def freecad_process_environment(executable=None):
     environment = os.environ.copy()
     for name in (
         "PYTHONHOME", "PYTHONPATH", "PYTHONUSERBASE", "PYTHONSTARTUP",
+        "PYTHONEXECUTABLE", "VIRTUAL_ENV", "VIRTUAL_ENV_PROMPT",
+        "__PYVENV_LAUNCHER__",
         "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH",
         "QML_IMPORT_PATH", "QML2_IMPORT_PATH", "QT_QPA_FONTDIR",
         "KICAD_API_TOKEN", "KICAD_API_SOCKET",

@@ -575,7 +575,7 @@ modify the parent process or repair an already-running contaminated FreeCAD.
 
 | Variable group | Child-process policy |
 | --- | --- |
-| `PYTHONHOME`, `PYTHONPATH`, `PYTHONUSERBASE`, `PYTHONSTARTUP` | Remove inherited values so FreeCAD selects its own Python runtime. FreeCAD's launcher may then set its own `PYTHONHOME`. |
+| `PYTHONHOME`, `PYTHONPATH`, `PYTHONUSERBASE`, `PYTHONSTARTUP`, `PYTHONEXECUTABLE`, `VIRTUAL_ENV`, `VIRTUAL_ENV_PROMPT`, `__PYVENV_LAUNCHER__` | Remove inherited values and KiCad's per-plugin virtual-environment markers so FreeCAD selects its own Python runtime. FreeCAD's launcher may then set its own `PYTHONHOME`. |
 | `QT_PLUGIN_PATH`, `QT_QPA_PLATFORM_PLUGIN_PATH`, `QT_QPA_FONTDIR`, `QML_IMPORT_PATH`, `QML2_IMPORT_PATH` | Remove paths pointing to the caller's Qt plugins, fonts, or QML modules. |
 | `DYLD_LIBRARY_PATH`, `DYLD_FRAMEWORK_PATH`, `DYLD_FALLBACK_LIBRARY_PATH`, `DYLD_FALLBACK_FRAMEWORK_PATH`, `DYLD_INSERT_LIBRARIES`, `LD_LIBRARY_PATH`, `LD_PRELOAD` | Remove inherited library search/injection overrides. |
 | `KICAD_API_TOKEN`, `KICAD_API_SOCKET` | Remove credentials and endpoint selection belonging to the invoking KiCad instance. |
