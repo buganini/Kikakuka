@@ -104,19 +104,16 @@ can use the existing component placement and export pipeline.
 ## Manual Installation
 
 You can install FreekiCAD from Kikakuka's **Add-ons** tab, which installs
-FreekiCAD and its required Python dependencies together. Kikakuka release
-builds already contain the addon package. When running Kikakuka from source,
-generate the packages with
+FreekiCAD and its required `psutil`, `kicad-python`, and `shapely` packages
+together. Kikakuka release builds already contain the addon package. When
+running Kikakuka from source, generate the packages with
 `python3 build_addon_archives.py` (or `make archive-zips`) before using its
 Add-ons tab.
 
-FreekiCAD requires FreeCAD 1.0 or later and `psutil>=7.2.2`
-for instance discovery and FreeCAD document-state publication. KiCad PCB
-integration additionally requires KiCad 9.0 or later plus
-`kicad-python>=0.8,<0.9` and `shapely>=2.0.7`; these two packages are optional
-for STEP-only workflows. FreeCAD Addon Manager may not automatically install
-`psutil` where its allowed-package list excludes it; install
-it manually inside FreeCAD if necessary.
+FreekiCAD requires FreeCAD 1.0 or later, KiCad 9.0 or later, `psutil>=7.2.2`,
+`kicad-python>=0.8,<0.9`, and `shapely>=2.0.7`. FreeCAD Addon Manager may not
+automatically install packages where its allowed-package list excludes them;
+install them manually inside FreeCAD if necessary.
 
 For a fully manual installation:
 
@@ -125,9 +122,8 @@ For a fully manual installation:
    installation directory.
 3. Create the `Mod` directory if it does not exist, then copy the `FreekiCAD`
    folder into it.
-4. Install `psutil` inside FreeCAD. For full KiCad integration, this single
-   line also installs the KiCad extras. It waits for pip to finish, then prints
-   its output:
+4. Install the required Python packages inside FreeCAD. This waits for pip to
+   finish, then prints its output:
 
    ```python
    import subprocess,os,sys; print(subprocess.run([os.path.join(os.path.dirname(sys.executable),"python"),"-m","pip","install","kicad-python>=0.8,<0.9","shapely>=2.0.7","psutil>=7.2.2"],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True).stdout)

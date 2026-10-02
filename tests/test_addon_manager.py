@@ -439,6 +439,20 @@ class AddonManagerTest(unittest.TestCase):
             ["psutil>=7.2.2", "example>=1.0,<2.0"],
         )
 
+    def test_freekicad_metadata_requires_full_kicad_integration(self):
+        package_xml = (
+            Path(__file__).resolve().parents[1] / "FreekiCAD/package.xml"
+        ).read_bytes()
+
+        self.assertEqual(
+            dependency_specs(package_xml),
+            [
+                "kicad-python>=0.8.0,<0.9.0",
+                "shapely>=2.0.7",
+                "psutil>=7.2.2",
+            ],
+        )
+
     def test_freecad_dependencies_fall_back_without_headless_pyside(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -495,6 +509,7 @@ class AddonManagerTest(unittest.TestCase):
                     '<package xmlns="https://wiki.freecad.org/Package_Metadata">'
                     '<version>8.0</version>'
                     '<depend type="python" version_gte="7.2.2">psutil</depend>'
+                    '<depend type="python" version_gte="2.0">shapely</depend>'
                     "</package>",
                 )
                 output.writestr("freecad/FreekiCAD/module.py", "VALUE = 1\n")
@@ -518,7 +533,9 @@ class AddonManagerTest(unittest.TestCase):
                     "installed_package_xml",
                     return_value=package_xml,
                 ),
-                mock.patch.object(freecad_addon_installer, "install_dependencies"),
+                mock.patch.object(
+                    freecad_addon_installer, "install_dependencies"
+                ) as install_dependencies,
                 mock.patch.object(
                     builtins, "__import__", side_effect=import_without_pyside
                 ),
@@ -531,10 +548,13 @@ class AddonManagerTest(unittest.TestCase):
                 "VALUE = 1\n",
             )
             self.assertFalse((package_xml.parent / "old.py").exists())
+            install_dependencies.assert_called_once_with(
+                ["psutil>=7.2.2", "shapely>=2.0"]
+            )
             emit.assert_called_once_with(
                 ok=True,
                 version="8.0",
-                dependencies=["psutil>=7.2.2"],
+                dependencies=["psutil>=7.2.2", "shapely>=2.0"],
             )
 
     def test_direct_freecad_install_rejects_archive_traversal(self):

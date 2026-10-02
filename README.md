@@ -186,13 +186,11 @@ Drag inside the PCB for moving selected tab, drag outside the PCB for changing t
 ![Manual Tab](screenshots/manual_tab.gif)
 
 # FreekiCAD (FreeCAD Addon)
-Requires **FreeCAD 1.0** or later and `psutil>=7.2.2` for
-instance discovery and FreeCAD document-state publication. KiCad PCB
-integration additionally requires **KiCad 9.0** or later,
-`kicad-python>=0.8,<0.9`, and `shapely>=2.0.7`. The latter two packages are
-optional for STEP-only workflows. FreeCAD Addon Manager may not automatically
-install `psutil` where its allowed-package list excludes it;
-install it manually inside FreeCAD if necessary.
+Requires **FreeCAD 1.0** or later, **KiCad 9.0** or later,
+`psutil>=7.2.2`, `kicad-python>=0.8,<0.9`, and `shapely>=2.0.7`. FreeCAD Addon
+Manager may not automatically install packages where its allowed-package list
+excludes them; install them manually inside FreeCAD if necessary. Installing
+FreekiCAD from Kikakuka's Add-ons tab installs all three Python packages.
 
 FreekiCAD and Kikakuka discover each other on demand through local Unix sockets
 or Windows named pipes. FreeCAD can manage KiCad
