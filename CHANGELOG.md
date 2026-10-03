@@ -1,4 +1,4 @@
-# Next:
+# 8.2:
 * Cross-platform
     * Test the KiCad/FreeCAD add-on and Instance Manager workflows on Linux (X11), macOS, and Windows
     * Build a Linux AppImage
