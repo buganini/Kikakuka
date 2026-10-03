@@ -354,8 +354,12 @@ an area are also errors; unannotated areas are skipped with a warning. The
 [FPC sample board][fpc-sample] contains a complete stiffener example.
 
 ## Flexible PCB Bending
+Tutorial Video
+[![Kikakuka/FreekiCAD – Flexible PCB Bending](https://img.youtube.com/vi/iNXvksXA2hA/0.jpg)](https://www.youtube.com/watch?v=iNXvksXA2hA)
 
+<!--
 ![Flexible PCB bending](https://github.com/buganini/Kikakuka/raw/main/screenshots/freekicad_fpc.png)
+-->
 
 Rename an unused KiCad user layer to `FreekiCAD` (case-insensitive). This is
 the layer name used for flexible-PCB bending. Draw each bend as a line segment

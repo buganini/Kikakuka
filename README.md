@@ -364,13 +364,18 @@ Stiffener thickness is additive outside the finished PCB and is never counted
 in or subtracted from the board body.
 
 ## Flexible PCB Bending
+Tutorial Video
+[![Kikakuka/FreekiCAD – Flexible PCB Bending](https://img.youtube.com/vi/iNXvksXA2hA/0.jpg)](https://www.youtube.com/watch?v=iNXvksXA2hA)
+
 Manual bending checks are currently done with these sample boards:
 
 * [`samples/fpc.kicad_pcb`](samples/fpc.kicad_pcb)
 * [`samples/maze.kicad_pcb`](samples/maze.kicad_pcb)
 * [`samples/maze_radius.kicad_pcb`](samples/maze_radius.kicad_pcb)
 
+<!--
 ![FreekiCAD-FPC](screenshots/freekicad_fpc.png)
+-->
 
 For the implementation details of the bending pipeline, see [`FreekiCAD/ARCHITECTURE.md`](FreekiCAD/ARCHITECTURE.md).
 
