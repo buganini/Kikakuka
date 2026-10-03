@@ -82,6 +82,7 @@ It creates a few more dimensions for KiCad:
     * Coupler footprints for [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment)
     * Plugin actions for previewing and hiding coupler helpers in the 3D Viewer
     * Populate scaled placeholder 3D models for footprints without a valid model, using `SizeX`, `SizeY`, and `SizeZ` properties
+
     [![Kikakuka - Placeholder 3D Models](https://img.youtube.com/vi/fXU9RkxEFV0/0.jpg)](https://www.youtube.com/watch?v=fXU9RkxEFV0)
 
 * Instance Manager
