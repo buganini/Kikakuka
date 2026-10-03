@@ -6,11 +6,44 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
 
 
 ROOT = Path(__file__).resolve().parent
+
+
+def _git_symlinks() -> set[Path]:
+    """Identify path-text placeholders without guessing from file contents."""
+    if not (ROOT / ".git").exists():
+        return set()
+    result = subprocess.run(
+        ["git", "-c", f"safe.directory={ROOT.as_posix()}", "ls-files", "--stage", "-z"],
+        cwd=ROOT, check=True, stdout=subprocess.PIPE,
+    )
+    links = set()
+    for record in result.stdout.split(b"\0"):
+        if record:
+            metadata, name = record.split(b"\t", 1)
+            if metadata.split()[0] == b"120000":
+                links.add(ROOT / name.decode("utf-8"))
+    return links
+
+
+def _dereference(source: Path, links: set[Path]) -> Path:
+    seen = set()
+    while source.is_symlink() or source.absolute() in links:
+        source = source.absolute()
+        if source in seen:
+            raise ValueError(f"Symlink cycle: {source}")
+        seen.add(source)
+        target = (source.readlink() if source.is_symlink()
+                  else Path(source.read_text(encoding="utf-8")))
+        source = Path(os.path.abspath(source.parent / target))
+    if not source.exists():
+        raise FileNotFoundError(f"Missing archive source or symlink target: {source}")
+    return source
 
 
 def _json_version(path: Path) -> str:
@@ -35,23 +68,25 @@ def _add_tree(
     archive: zipfile.ZipFile,
     source: Path,
     archive_root: Path = Path(),
+    links: set[Path] | None = None,
+    overrides: set[Path] | None = None,
+    ancestors: frozenset[Path] = frozenset(),
 ) -> None:
-    """Add a tree in lexical order, following links into regular ZIP files."""
-    for current, directories, files in os.walk(source, followlinks=True):
-        current_path = Path(current)
-        relative_dir = current_path.relative_to(source)
-        directories[:] = sorted(
-            directory
-            for directory in directories
-            if not _excluded(relative_dir / directory)
-        )
-        for filename in sorted(files):
-            relative = relative_dir / filename
-            if _excluded(relative):
+    """Store target contents, including Git's regular-file link placeholders."""
+    links = _git_symlinks() if links is None else links
+    source = _dereference(source, links)
+    if source.is_dir():
+        identity = source.resolve()
+        if identity in ancestors:
+            raise ValueError(f"Directory symlink cycle: {source}")
+        for child in sorted(source.iterdir()):
+            destination = archive_root / child.name
+            if _excluded(destination) or destination in (overrides or set()):
                 continue
-            # ZipFile.write() uses stat(), not lstat(), so file links are
-            # dereferenced and consumers receive ordinary files.
-            archive.write(current_path / filename, (archive_root / relative).as_posix())
+            _add_tree(archive, child, destination, links, overrides,
+                      ancestors | {identity})
+    else:
+        archive.write(source, archive_root.as_posix())
 
 
 def _build_archive(
@@ -60,12 +95,11 @@ def _build_archive(
     generated: dict[Path, str] | None = None,
 ) -> None:
     output.unlink(missing_ok=True)
+    links = _git_symlinks()
+    overrides = {destination for _, destination in entries}
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         for source, archive_path in entries:
-            if source.is_dir():
-                _add_tree(archive, source, archive_path)
-            else:
-                archive.write(source, archive_path.as_posix())
+            _add_tree(archive, source, archive_path, links, overrides)
         for archive_path, content in (generated or {}).items():
             archive.writestr(archive_path.as_posix(), content + "\n")
 
@@ -97,6 +131,7 @@ def build() -> list[Path]:
         [
             (plugin_root / "metadata.json", Path("metadata.json")),
             (plugin_root / "plugins", Path("plugins")),
+            (ROOT / "im", Path("plugins/im")),
             (plugin_root / "resources", Path("resources")),
         ],
         {Path("plugins/.kikakuka-version"): plugin_version},
