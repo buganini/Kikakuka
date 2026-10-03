@@ -19,3 +19,5 @@ fp-info-cache
 /kikakuka-plugin-*.zip
 /freekicad-*.zip
 /workdir/
+/dist/
+/Kikakuka.spec

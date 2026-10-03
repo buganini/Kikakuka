@@ -1,4 +1,3 @@
-import PyInstaller.__main__
 import platform
 import subprocess
 import os
@@ -7,12 +6,21 @@ import glob
 import shutil
 import sys
 
-import kikit
-kikit_base = os.path.dirname(kikit.__file__)
-
 from kicad_cli import resolve_kicad_cli
+from tools.package_dependencies import check_dependencies
 
 kicad_cli, _ = resolve_kicad_cli()
+try:
+    check_dependencies(kicad_cli)
+except RuntimeError as error:
+    sys.exit(str(error))
+if "--check-dependencies" in sys.argv[1:]:
+    print("Build dependencies OK")
+    sys.exit(0)
+
+import PyInstaller.__main__
+import kikit
+kikit_base = os.path.dirname(kikit.__file__)
 
 PKG_BASE = os.path.dirname(__file__)
 
@@ -103,6 +111,15 @@ elif platform.system() == "Windows":
     else:
         print("KiCad CLI not found at", kicad_cli)
         exit(1)
+
+elif platform.system() == "Linux":
+    from tools.linux_appimage import build_appimage
+    from pathlib import Path
+
+    build_appimage(
+        Path(PKG_BASE) / "dist/Kikakuka", Path(kicad_cli),
+        Path(PKG_BASE) / "dist", Path(PKG_BASE) / "build/linux-tools",
+    )
 
 if codesign_identity:
     for path in itertools.chain(

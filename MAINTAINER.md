@@ -96,6 +96,45 @@ If any packaged file or package metadata changes after this step, run
 in the publish metadata; never replace the archive for an already published
 version.
 
+## Linux AppImage
+
+The native x86_64 Linux build keeps PyInstaller's onedir payload and packages it
+with sharun, uruntime and DwarFS, using the version pins and SHA256 checksums
+from KiCad's AppImage toolchain. Install the build requirements on Ubuntu:
+
+```sh
+sudo apt install bash file binutils patchelf
+env/bin/python -m pip install PyInstaller
+env/bin/python build-package.py --check-dependencies
+env/bin/python build-package.py
+```
+
+Use a Python environment that can import the installed KiCad `pcbnew` bindings
+(including its matching Python ABI), as described in README.md. The installed
+`kicad-cli` must be from the same KiCad release. The build downloads and verifies
+the three pinned tools into `build/linux-tools/`; a verified cache permits
+offline packaging. Nothing is installed into system directories.
+
+The output is `dist/Kikakuka-{version}-x86_64.AppImage`, its SHA256 file and a
+build-info JSON containing the source commit, tool versions and addon hashes.
+The image includes KiCad CLI and all three offline addon ZIPs. KiCad and FreeCAD
+GUI applications remain external. AppRun captures the original desktop
+environment before sharun changes library and resource paths; editor launches
+restore it and keep the user's normal HOME, settings and IPC directories.
+
+To rebuild only the AppImage from an existing onedir:
+
+```sh
+env/bin/python tools/linux_appimage.py
+```
+
+The build checks the staged application, bundled CLI, addon archive integrity,
+AppImage extraction launch and PCB/schematic PDF exports. For diagnostics, invoke the
+bundled CLI with `./Kikakuka-{version}-x86_64.AppImage kicad-cli --version`.
+Before release, also test normal FUSE launch,
+Differ exports and Open in FreeCAD on a clean desktop VM. Extraction fallback
+is enabled for images of any size; users need no PyInstaller or packaging tools.
+
 ## Release
 
 1. Commit the version bump and release notes.

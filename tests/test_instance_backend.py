@@ -105,6 +105,7 @@ class InstanceBackendTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "freecad-startup.log"
             with mock.patch.object(backend.platform, "system", return_value="Linux"), \
+                    mock.patch.object(backend, "_systemd_run_freecad", return_value=None), \
                     mock.patch.object(backend, "_editors", side_effect=[{}, {321: 1}]), \
                     mock.patch.object(backend.shutil, "which", return_value="/usr/bin/freecad"), \
                     mock.patch.object(backend, "freecad_launch_log_path", return_value=log_path), \

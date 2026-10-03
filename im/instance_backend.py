@@ -1,6 +1,7 @@
 """KiCad editor operations shared by Kikakuka and FreekiCAD mesh nodes."""
 
 import getpass
+import base64
 import json
 import os
 import platform
@@ -269,11 +270,13 @@ def _linux_kicad_executable(filepath):
             f"The selected KiCad installation has no {editor} executable"
         )
 
-    executable = shutil.which(editor)
+    host_environment = external_process_environment()
+    search = {"path": host_environment.get("PATH", os.defpath)} if os.environ.get("KIKAKUKA_HOST_ENV") else {}
+    executable = shutil.which(editor, **search)
     if executable:
         return executable
 
-    cli = shutil.which("kicad-cli")
+    cli = shutil.which("kicad-cli", **search)
     if cli:
         sibling = Path(cli).with_name(editor)
         if sibling.is_file():
@@ -285,7 +288,7 @@ def _linux_kicad_executable(filepath):
 
 def _linux_kicad_environment(environ=None):
     """Use XWayland for launched KiCad editors when it is available."""
-    environment = dict(os.environ if environ is None else environ)
+    environment = external_process_environment() if environ is None else dict(environ)
     from .linux_window import xwayland_available
 
     if xwayland_available(environment):
@@ -560,9 +563,29 @@ def _focus(pid):
     return None
 
 
+def external_process_environment():
+    """Restore the desktop environment captured before sharun changed it."""
+    environment = os.environ.copy()
+    snapshot = environment.get("KIKAKUKA_HOST_ENV")
+    if snapshot:
+        try:
+            entries = base64.b64decode(snapshot, validate=True).split(b"\0")
+            restored = dict(os.fsdecode(entry).split("=", 1) for entry in entries if entry)
+            if "PATH" not in restored:
+                raise ValueError("AppImage host environment has no PATH")
+            environment = restored
+        except (ValueError, UnicodeError):
+            raise RuntimeError("Invalid AppImage host environment snapshot") from None
+        for name in list(environment):
+            if name in {"APPDIR", "APPIMAGE", "ARGV0", "OWD", "KIKAKUKA_HOST_ENV"} \
+                    or name.startswith(("SHARUN_", "URUNTIME_")):
+                environment.pop(name, None)
+    return environment
+
+
 def freecad_process_environment(executable=None):
     """Run FreeCAD with its own Python/Qt, not the launching KiCad runtime."""
-    environment = os.environ.copy()
+    environment = external_process_environment()
     for name in _FREECAD_ENVIRONMENT_REMOVALS:
         environment.pop(name, None)
     # FreeCAD explicitly adds its AdditionalPythonPackages directory itself.
