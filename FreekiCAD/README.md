@@ -354,7 +354,8 @@ an area are also errors; unannotated areas are skipped with a warning. The
 [FPC sample board][fpc-sample] contains a complete stiffener example.
 
 ## Flexible PCB Bending
-Tutorial Video
+### Tutorial Video
+
 [![Kikakuka/FreekiCAD – Flexible PCB Bending](https://img.youtube.com/vi/iNXvksXA2hA/0.jpg)](https://www.youtube.com/watch?v=iNXvksXA2hA)
 
 <!--

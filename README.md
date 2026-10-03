@@ -82,8 +82,8 @@ It creates a few more dimensions for KiCad:
     * Coupler footprints for [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment)
     * Plugin actions for previewing and hiding coupler helpers in the 3D Viewer
     * Populate scaled placeholder 3D models for footprints without a valid model, using `SizeX`, `SizeY`, and `SizeZ` properties
-
-    [![Kikakuka - Placeholder 3D Models](https://img.youtube.com/vi/fXU9RkxEFV0/0.jpg)](https://www.youtube.com/watch?v=fXU9RkxEFV0)
+        - Tutorial Video
+        [![Kikakuka - Placeholder 3D Models](https://img.youtube.com/vi/fXU9RkxEFV0/0.jpg)](https://www.youtube.com/watch?v=fXU9RkxEFV0)
 
 * Instance Manager
     * An Instance Manager mesh node runs in every Kikakuka and FreekiCAD host process
@@ -365,7 +365,8 @@ Stiffener thickness is additive outside the finished PCB and is never counted
 in or subtracted from the board body.
 
 ## Flexible PCB Bending
-Tutorial Video
+### Tutorial Video
+
 [![Kikakuka/FreekiCAD – Flexible PCB Bending](https://img.youtube.com/vi/iNXvksXA2hA/0.jpg)](https://www.youtube.com/watch?v=iNXvksXA2hA)
 
 Manual bending checks are currently done with these sample boards:
