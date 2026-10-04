@@ -39,6 +39,7 @@ from panelizer_freekicad import (
     FREEKICAD_LAYER_NAME,
     prepare_panel_freekicad_sources,
 )
+from panelizer_outline import merge_collinear_segments
 
 BUILDEXPR = "BUILDEXPR"
 KICAD_RUNTIME_SOURCE = "Bundled" if getattr(sys, "_MEIPASS", None) else "System"
@@ -57,6 +58,8 @@ OUTLINE_CHAINING_EPSILON = round(OUTLINE_CHAINING_EPSILON_MM * pcbnew.PCB_IU_PER
 def workaround_panel_save(self, reconstructArcs=False, refillAllZones=False,
                           edgeWidth=panelize.fromMm(0.1)):
     panelEdges = self.boardSubstrate.serialize(reconstructArcs)
+    panelEdges = merge_collinear_segments(
+        panelEdges, pcbnew.SHAPE_T_SEGMENT)
     boardsEdges = self._getRefillEdges(reconstructArcs)
 
     for e in panelEdges:
