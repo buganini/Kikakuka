@@ -1,49 +1,71 @@
-STEP and KiCad PCB Assembly
+Kikakuka/FreekiCAD – STL/STEP and KiCad PCB Assembly
+
+STL/STEP and KiCad PCB Assembly
 
 Let’s start by assembling STEP files without involving KiCad
 Create a new document
 Switch to the FreekiCAD workbench
-Select FreekiCAD → Add STEP from the menu
-This object can be reloaded
-In fact, it reloads automatically
-when the file’s modification time changes
-You can also switch files while preserving the placement
-Let’s add another STEP file
+Add a STEP file from the NIST MBE PMI Validation Project
+Add an STL file from OpenSCAD’s letterbox example
 And set its placement
+These objects are linked to external files
+And they can be reloaded
+In fact, each object reloads automatically
+when its source file’s modification time changes
+Let’s replace the loaded letterbox STL file
+It reloads while preserving its placement
+
 You can, of course, save the document as a standard .FCStd file
 But let’s export it as a .kkkk_asm file
+Select all objects before exporting
 And take a look inside
 The file stores only file paths and placements, not the models themselves
 The paths are relative, so the assembly is portable
-If you don’t use KiCad, you can stop here. Ciao!
-Now let’s add some PCBs
-First, let’s anchor the PCB here
-Note its coordinates
+If you don’t use KiCad, you can stop here
+
+Now add a KiCad PCB
+It loads here, but we want to anchor it here
+Use FreeCAD’s Measure tool to find the target coordinates
+The CouplerAt footprint is usually placed on the back of the PCB
+Set the CouplerAt footprint’s target to those coordinates
+Save the board
+Now it’s in the right place
+
 Then add another PCB
 Let’s mount the second PCB here
-Add a CouplerFixed footprint to the first PCB
-Place it anywhere, then use the Move tool (M) to snap it into position
+Navigate to the first PCB
+Note that this footprint is on the back of the PCB
+Add a CouplerFixed footprint
+Place it anywhere first
+Set its Reference and Side
+Use the Move tool (M) to snap it into position
+Navigate to the second PCB
+Note that this footprint is also on the back of the PCB
 Add a CouplerMoving footprint to the second PCB
 Give both couplers the same reference
 Save both boards
-Now they’re assembled in a 2D plane
+Now the boards are aligned in X and Y
+
+Next, let’s align them in Z
 Open the Coupler 3D Viewer
 You need to do this to update the coupler helpers’ positions
+Increase Z to raise the PCB for a better view
+Do the same to the other PCB
+Save both boards
+
+Let’s find the correct Z values
+And the assembly is complete
+Now they are all in place
+
+Here’s how to use Offset and Tilt for horizontal connectors
+You can usually move the coupler instead of using the Offset setting
+But it must stay in the correct bend region when PCB bending is enabled
+
+Offset and Tilt also work in the 3D Viewer
+
 When you no longer need the coupler helpers
 Use the Hide Coupler action to hide them
-Increase Z to raise the PCB for a better view
-Change the side (F)
-Save both boards
-Let’s find the correct Z values
-Enter them
-And the assembly is complete
-Next, let’s handle horizontal connectors
-Add another CouplerFixed footprint
-Update the 3D Viewer
-Set Tilt, then update the 3D Viewer again
-Estimate the distance
-Set Offset, then update the 3D Viewer again
-Now everything is in place
+
 With the couplers saved in the KiCad files
 You can reassemble the boards at any time
 Just add all boards to the same FreeCAD document
