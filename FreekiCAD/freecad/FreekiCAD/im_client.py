@@ -378,7 +378,12 @@ def dispatch_to_main_thread(callback):
 
 
 def _message(action, filepath, object_label, component):
-    message = {"action": action, "filepath": filepath, "object": object_label}
+    message = {
+        "action": action,
+        "filepath": filepath,
+        "object": object_label,
+        "caller_pid": os.getpid(),
+    }
     if component:
         message["component"] = component
     return message

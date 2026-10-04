@@ -835,7 +835,8 @@ def _revert_ready_board(board):
     )
 
 
-def _open_new(filepath, program, is_board, node, ensure_fresh=False):
+def _open_new(filepath, program, is_board, node, ensure_fresh=False,
+              restore_focus_pid=None):
     """Serialize launches for different files as well as for the same file."""
     with launch_lock(program):
         # The previous launch may have completed while this request waited
@@ -874,8 +875,21 @@ def _open_new(filepath, program, is_board, node, ensure_fresh=False):
             # The modal prompt blocks IPC startup. Bring it forward before
             # waiting for the board to become discoverable.
             _focus(pid)
+        elif pid is not None and restore_focus_pid is not None:
+            # LaunchServices' ``open -g`` is only a request.  PCB Editor can
+            # still activate itself while constructing its wx window, so put
+            # the requesting FreeCAD process back in front immediately.
+            _focus(restore_focus_pid)
         if is_board:
-            return _wait_for_board(filepath)
+            result = _wait_for_board(filepath)
+            if (restore_focus_pid is not None
+                    and (result[0] is not None
+                         or not may_prompt_open_anyway)):
+                # PCB Editor may activate after the process first appears.
+                # Restore again once startup/IPC has settled.  If a lock
+                # prompt never resolves, leave it visible instead.
+                _focus(restore_focus_pid)
+            return result
         if program == "freecad" and pid is not None:
             if not bind_freecad_source(pid, filepath):
                 raise RuntimeError(
@@ -899,6 +913,12 @@ def handle(request):
     if action not in {"open-file", "reload", "open-sketch", "move-component",
                       "update-coupler", "monitor-couplers"}:
         return {"status": "error", "message": f"unknown action: {action}"}
+    caller_pid = request.get("caller_pid")
+    if (caller_pid is not None
+            and (not isinstance(caller_pid, int)
+                 or isinstance(caller_pid, bool)
+                 or caller_pid <= 0)):
+        return {"status": "error", "message": "invalid caller PID"}
     is_freecad = filepath.lower().endswith(FREECAD_SUFFIXES)
     if not filepath.lower().endswith((".kicad_pcb", ".kicad_sch", ".kicad_pro", *FREECAD_SUFFIXES)) or not os.path.isfile(filepath):
         return {"status": "error", "message": f"editor file not found: {filepath}"}
@@ -926,9 +946,15 @@ def handle(request):
     if pid is None and action == "monitor-couplers":
         return {"status": "error", "message": "file is not open in KiCad"}
     if pid is None:
+        restore_focus_pid = (
+            caller_pid
+            if action != "open-file" and platform.system() == "Darwin"
+            else None
+        )
         pid, socket_path = _open_new(
             filepath, "freecad" if is_freecad else "kicad", is_board, node,
-            ensure_fresh=ensure_fresh)
+            ensure_fresh=ensure_fresh,
+            restore_focus_pid=restore_focus_pid)
         if pid is None:
             message = ("KiCad IPC did not report the requested board within 30 seconds"
                        if is_board else "could not determine editor PID")

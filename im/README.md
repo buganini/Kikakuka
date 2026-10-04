@@ -150,6 +150,9 @@ effect of discovering or launching an editor:
   focus request. Linux launches the matching KiCad executable directly; in a
   Wayland session with a usable XWayland display, only the child KiCad process
   receives `GDK_BACKEND=x11` so later EWMH activation can find its window.
+  Because macOS applications may activate themselves despite `open -g`,
+  FreekiCAD includes its PID in integration requests and Instance Manager
+  restores that process after launch and again when PCB IPC becomes ready.
 - The exception for an integration request is a KiCad lock that may produce an
   **Open Anyway** prompt. Before launching, the backend checks KiCad's sibling
   lock path (`~<filename>.<ext>.lck`) and reads its `username` and `hostname`

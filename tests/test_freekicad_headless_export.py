@@ -800,7 +800,8 @@ class InstanceClientSyncTests(unittest.TestCase):
 
         self.assertEqual(result["socket"], "/tmp/kicad/api-123.sock")
         request.assert_called_once_with({
-            "action": "reload", "filepath": "/board/main.kicad_pcb", "object": ""})
+            "action": "reload", "filepath": "/board/main.kicad_pcb",
+            "object": "", "caller_pid": os.getpid()})
 
     def test_request_sync_raises_instance_error(self):
         module = load_im_client_module()

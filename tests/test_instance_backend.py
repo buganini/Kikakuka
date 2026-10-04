@@ -983,6 +983,97 @@ class InstanceBackendTests(unittest.TestCase):
         self.assertEqual(result, (111, "/ipc/api.sock"))
         focus.assert_not_called()
 
+    def test_macos_linked_board_restores_requesting_freecad_focus(self):
+        events = []
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(im_mesh, "runtime_dir", return_value=Path(directory)), \
+                    mock.patch.object(
+                        backend, "_find_board", return_value=(None, None, None)), \
+                    mock.patch.object(
+                        backend, "_kicad_file_may_prompt_open_anyway",
+                        return_value=False,
+                    ), \
+                    mock.patch.object(
+                        backend, "_launch",
+                        side_effect=lambda _path, _program:
+                        events.append(("launch", 111)) or 111,
+                    ), \
+                    mock.patch.object(
+                        backend, "_wait_for_board",
+                        side_effect=lambda _path:
+                        events.append(("ready", 111)) or
+                        (111, "/ipc/api.sock"),
+                    ), \
+                    mock.patch.object(
+                        backend, "_focus",
+                        side_effect=lambda pid: events.append(("focus", pid)),
+                    ):
+                result = backend._open_new(
+                    "/boards/main.kicad_pcb", "kicad", True, None,
+                    restore_focus_pid=222)
+
+        self.assertEqual(result, (111, "/ipc/api.sock"))
+        self.assertEqual(events, [
+            ("launch", 111),
+            ("focus", 222),
+            ("ready", 111),
+            ("focus", 222),
+        ])
+
+    def test_macos_lock_prompt_stays_front_until_board_is_ready(self):
+        events = []
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(im_mesh, "runtime_dir", return_value=Path(directory)), \
+                    mock.patch.object(
+                        backend, "_find_board", return_value=(None, None, None)), \
+                    mock.patch.object(
+                        backend, "_kicad_file_may_prompt_open_anyway",
+                        return_value=True,
+                    ), \
+                    mock.patch.object(
+                        backend, "_launch", return_value=111), \
+                    mock.patch.object(
+                        backend, "_wait_for_board",
+                        side_effect=lambda _path:
+                        events.append(("ready", 111)) or
+                        (111, "/ipc/api.sock"),
+                    ), \
+                    mock.patch.object(
+                        backend, "_focus",
+                        side_effect=lambda pid: events.append(("focus", pid)),
+                    ):
+                result = backend._open_new(
+                    "/boards/main.kicad_pcb", "kicad", True, None,
+                    restore_focus_pid=222)
+
+        self.assertEqual(result, (111, "/ipc/api.sock"))
+        self.assertEqual(events, [
+            ("focus", 111),
+            ("ready", 111),
+            ("focus", 222),
+        ])
+
+    def test_unresolved_macos_lock_prompt_remains_in_front(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(im_mesh, "runtime_dir", return_value=Path(directory)), \
+                    mock.patch.object(
+                        backend, "_find_board", return_value=(None, None, None)), \
+                    mock.patch.object(
+                        backend, "_kicad_file_may_prompt_open_anyway",
+                        return_value=True,
+                    ), \
+                    mock.patch.object(
+                        backend, "_launch", return_value=111), \
+                    mock.patch.object(
+                        backend, "_wait_for_board", return_value=(None, None)), \
+                    mock.patch.object(backend, "_focus") as focus:
+                result = backend._open_new(
+                    "/boards/main.kicad_pcb", "kicad", True, None,
+                    restore_focus_pid=222)
+
+        self.assertEqual(result, (None, None))
+        focus.assert_called_once_with(111)
+
     def test_freekicad_linked_action_does_not_focus_ready_board(self):
         node = mock.Mock()
         node.snapshot.return_value = {}
@@ -1002,6 +1093,41 @@ class InstanceBackendTests(unittest.TestCase):
         self.assertEqual(reply["status"], "ok")
         self.assertEqual(reply["pid"], 111)
         focus.assert_not_called()
+
+    def test_macos_reload_passes_caller_to_new_board_launch(self):
+        node = mock.Mock()
+        node.snapshot.return_value = {}
+        with mock.patch.object(backend, "local_node", return_value=node), \
+                mock.patch.object(
+                    backend.platform, "system", return_value="Darwin"), \
+                mock.patch.object(
+                    backend.os.path, "isfile", return_value=True), \
+                mock.patch.object(
+                    backend, "_find_board", return_value=(None, None, None)), \
+                mock.patch.object(
+                    backend, "_open_new",
+                    return_value=(111, "/ipc/api.sock"),
+                ) as open_new:
+            reply = backend.handle({
+                "action": "reload",
+                "filepath": "/boards/main.kicad_pcb",
+                "caller_pid": 222,
+            })
+
+        self.assertEqual(reply["status"], "ok")
+        open_new.assert_called_once_with(
+            "/boards/main.kicad_pcb", "kicad", True, node,
+            ensure_fresh=False, restore_focus_pid=222)
+
+    def test_rejects_invalid_caller_pid(self):
+        reply = backend.handle({
+            "action": "reload",
+            "filepath": "/boards/main.kicad_pcb",
+            "caller_pid": True,
+        })
+
+        self.assertEqual(reply, {
+            "status": "error", "message": "invalid caller PID"})
 
     def test_board_reuses_only_verified_matching_socket(self):
         node = mock.Mock()

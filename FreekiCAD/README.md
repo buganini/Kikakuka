@@ -70,7 +70,10 @@ to current-user editor processes. FreekiCAD-linked operations do not normally
 activate the KiCad window. If a pre-existing KiCad lock may show an **Open
 Anyway** prompt, Instance Manager brings that newly launched KiCad process to
 the foreground before waiting for its IPC endpoint. User-initiated file opens
-always activate KiCad; the complete policy is documented in
+always activate KiCad. On macOS, linked operations restore the originating
+FreeCAD process after launch and again when PCB IPC becomes ready because PCB
+Editor can activate itself despite LaunchServices' background option. The
+complete policy is documented in
 [Instance Manager](https://github.com/buganini/Kikakuka/blob/main/im/README.md#kicad-foreground-policy).
 
 `.kicad_pcb` boards, STEP models, and STL meshes remain linked to their external

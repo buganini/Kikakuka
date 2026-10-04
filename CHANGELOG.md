@@ -1,6 +1,8 @@
 # Next:
 * Panelizer
     * Merge collinear Edge.Cuts segments after panel outline serialization, eliminating 2 µm splits introduced at auto-tab seams
+* FreekiCAD
+    * Restore FreeCAD after background linked-PCB launches activate KiCad on macOS, while keeping a possible **Open Anyway** prompt visible until resolved
 
 # 8.2:
 * Cross-platform
