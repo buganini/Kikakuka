@@ -1,3 +1,7 @@
+# Next:
+* Panelizer
+    * Merge collinear Edge.Cuts segments after panel outline serialization, eliminating 2 µm splits introduced at auto-tab seams
+
 # 8.2:
 * Cross-platform
     * Test the KiCad/FreeCAD add-on and Instance Manager workflows on Linux (X11), macOS, and Windows
