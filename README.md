@@ -294,7 +294,8 @@ For a standalone FreekiCAD deployment without Kikakuka, follow the
 
 ## Coupler-Based PCB Alignment
 
-https://github.com/user-attachments/assets/c20a8d80-be67-4816-9a69-82f348ab255e
+### Tutorial Video
+[![Kikakuka/FreekiCAD – STL/STEP and KiCad PCB Assembly](https://img.youtube.com/vi/geRS6CZaJ4s/0.jpg)](https://www.youtube.com/watch?v=geRS6CZaJ4s)
 
 ### Positioning Arguments
 ![Coupler-Arguments](screenshots/coupler-args.png)
