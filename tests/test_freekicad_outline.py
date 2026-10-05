@@ -912,6 +912,15 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         self.assertEqual(order, [1, 0])
 
+    def test_outline_sketch_includes_outer_boundary_and_cutout_loops(self):
+        linked_object = self._import_linked_object()
+        outer = [object(), object(), object(), object()]
+        cutout = [object(), object(), object()]
+
+        edges = linked_object._outline_sketch_edges([outer, cutout])
+
+        self.assertEqual(edges, outer + cutout)
+
     def test_board_circle_uses_radius_method_without_end_attribute(self):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_part = types.ModuleType("Part")

@@ -766,6 +766,16 @@ def _outline_wire_order(wires):
     return sorted(range(len(wires)), key=enclosed_area, reverse=True)
 
 
+def _outline_sketch_edges(edge_groups):
+    """Flatten every connected Edge.Cuts loop for the editable sketch.
+
+    The first group is the outer boundary after ``_outline_wire_order`` has
+    been applied, but the remaining groups are just as important: they are
+    board cutouts that must survive a full Edge.Cuts rebuild from the sketch.
+    """
+    return [edge for group in edge_groups for edge in group]
+
+
 def _single_planar_face(shape):
     """Unwrap FreeCAD's one-face Shell result from planar boolean cuts."""
     if hasattr(shape, "OuterWire"):
@@ -1765,7 +1775,11 @@ def load_board(filepath, socket_path, import_outer_copper=False,
             wire_order = _outline_wire_order(wires)
             wires = [wires[i] for i in wire_order]
             sorted_groups = [sorted_groups[i] for i in wire_order]
-            outline_edges = sorted_groups[0]
+            # The editable sketch is the source for a full Edge.Cuts rebuild,
+            # so it must contain the cutout loops as well as the outer loop.
+            # Keeping only sorted_groups[0] here made every hole disappear the
+            # first time the outline sketch was synchronized back to KiCad.
+            outline_edges = _outline_sketch_edges(sorted_groups)
             for wi, w in enumerate(wires):
                 try:
                     enclosed_area = abs(Part.Face(w).Area)
