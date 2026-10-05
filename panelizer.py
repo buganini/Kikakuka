@@ -1297,6 +1297,16 @@ class PanelizerUI(Application):
     def duplicate(self, e, pcb):
         self._addPCB(pcb.clone())
 
+    def open_file(self, e, pcb):
+        if (pcb.file_type != "kicad"
+                or not pcb.file.lower().endswith(".kicad_pcb")):
+            return
+        Thread(
+            target=open_pcb_file,
+            args=[pcb.file],
+            daemon=True,
+        ).start()
+
     def remove(self, e, obj):
         if isinstance(obj, PanelCell):
             self.state.pcb = [p for p in self.state.pcb if p is not obj]
@@ -3639,6 +3649,8 @@ class PanelizerUI(Application):
 
                                             Spacer()
 
+                                            if self.state.focus.file_type == "kicad":
+                                                Button("Open in KiCad").click(self.open_file, self.state.focus)
                                             Button("Duplicate").click(self.duplicate, self.state.focus)
                                             Button("Remove").click(self.remove, self.state.focus)
 

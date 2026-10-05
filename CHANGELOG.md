@@ -1,6 +1,7 @@
 # Next:
 * Panelizer
     * Merge collinear Edge.Cuts segments after panel outline serialization, eliminating 2 µm splits introduced at auto-tab seams
+    * Add an **Open in KiCad** action for selected KiCad PCB sources, opening and focusing them through Instance Manager
 * FreekiCAD
     * Restore FreeCAD after background linked-PCB launches activate KiCad on macOS, while keeping a possible **Open Anyway** prompt visible until resolved
 
