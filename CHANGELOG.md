@@ -7,6 +7,7 @@
     * Rename the PCB context-menu action from **Goto KiCad** to **Open in KiCad**
 * Gerber Conversion
     * Skip blank BOM/CPL rows and report invalid data rows without aborting conversion
+    * Preserve modal G02/G03 interpolation within Gerber regions so circular clearances do not become polygons
 
 # 8.2:
 * Cross-platform
