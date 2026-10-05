@@ -113,6 +113,7 @@ M02*
             sheet.append(
                 ["位置", "num", "Center-X", "Center-Y", "角度", "面向"])
             sheet.append(["R1", 1, 1.25, 2.5, 90, "T"])
+            sheet.append([None, None, None, None, None, None])
             sheet.append(["C1", 2, 3.75, 4.5, 180, "B"])
             workbook.save(cpl_path)
             workbook.close()
@@ -138,6 +139,71 @@ M02*
             footprints["R1"].GetPosition(),
             pcbnew.VECTOR2I(1250000, -2500000),
         )
+
+    def test_xlsx_cpl_invalid_nonempty_row_reports_and_continues(self):
+        from openpyxl import Workbook
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Path(temp_dir, "unclassified.gbr").touch()
+            cpl_path = Path(temp_dir, "placements.xlsx")
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(
+                ["Designator", "Mid X", "Mid Y", "Rotation", "Layer"])
+            sheet.append(["R1", 1.25, 2.5, 90, "T"])
+            sheet.append(["C1", None, 4.5, 180, "T"])
+            sheet.append(["R2", 5.25, 6.5, 0, "B"])
+            workbook.save(cpl_path)
+            workbook.close()
+
+            output = os.path.join(temp_dir, "board.kicad_pcb")
+            errors = convert_to_kicad(
+                temp_dir, output, required_edge_cuts=False,
+                cpl_file=str(cpl_path))
+            board = pcbnew.LoadBoard(output)
+
+        self.assertEqual(errors, [
+            "CPL row 3 is missing required values: x",
+        ])
+        self.assertEqual(
+            {footprint.GetReference() for footprint in board.GetFootprints()},
+            {"R1", "R2"},
+        )
+
+    def test_blank_bom_and_cpl_rows_are_ignored(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            Path(temp_dir, "unclassified.gbr").touch()
+            bom_path = Path(temp_dir, "bom.csv")
+            bom_path.write_text(
+                "Designator,Comment,Footprint\n"
+                "R1,10k,Resistor_SMD:R_0603\n"
+                ",,\n"
+                "C1,1u,Capacitor_SMD:C_0603\n",
+                encoding="utf-8",
+            )
+            cpl_path = Path(temp_dir, "cpl.csv")
+            cpl_path.write_text(
+                "Designator,Mid X,Mid Y,Rotation,Layer\n"
+                "R1,1,2,0,top\n"
+                ",,,,\n"
+                "C1,3,4,90,bottom\n",
+                encoding="utf-8",
+            )
+
+            output = os.path.join(temp_dir, "board.kicad_pcb")
+            errors = convert_to_kicad(
+                temp_dir, output, required_edge_cuts=False,
+                bom_file=str(bom_path), cpl_file=str(cpl_path))
+            board = pcbnew.LoadBoard(output)
+            footprints = {
+                footprint.GetReference(): footprint
+                for footprint in board.GetFootprints()
+            }
+
+        self.assertEqual(errors, [])
+        self.assertEqual(set(footprints), {"R1", "C1"})
+        self.assertEqual(footprints["R1"].GetValue(), "10k")
+        self.assertEqual(footprints["C1"].GetValue(), "1u")
 
 
 if __name__ == "__main__":

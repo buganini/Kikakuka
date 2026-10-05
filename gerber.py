@@ -283,6 +283,11 @@ def find_table_header(headers, aliases):
     return next((header for header in aliases if header in headers), None)
 
 
+def table_value_is_blank(value):
+    return value is None or (
+        isinstance(value, str) and not value.strip())
+
+
 def resolve_table_file(input_path, filename):
     if os.path.isfile(filename):
         return filename
@@ -980,9 +985,17 @@ def convert_to_kicad(
                     bom_footprint_header = find_table_header(
                         bom_header, ("Footprint",))
                     if bom_designator_header:
-                        for row in bom_rows:
+                        for row_number, row in enumerate(bom_rows, start=2):
+                            if all(table_value_is_blank(value)
+                                   for value in row):
+                                continue
                             entry = {k: v for k, v in zip(bom_header, row)}
                             designators = entry.pop(bom_designator_header)
+                            if table_value_is_blank(designators):
+                                errors.append(
+                                    f"BOM row {row_number} is missing "
+                                    "Designator")
+                                continue
                             for designator in str(designators).split(","):
                                 bom_entries[designator.strip()] = entry
                 finally:
@@ -1026,16 +1039,42 @@ def convert_to_kicad(
                         + ", ".join(missing_headers))
                 else:
                     unit = pcbnew.PCB_IU_PER_MM
-                    for row in cpl_rows:
+                    for row_number, row in enumerate(cpl_rows, start=2):
+                        if all(table_value_is_blank(value) for value in row):
+                            continue
                         entry = {k: v for k, v in zip(cpl_header, row)}
-                        designator = str(entry.pop(cpl_designator_header))
-                        mid_x = float(entry.pop(cpl_x_header)) * unit
-                        mid_y = -float(entry.pop(cpl_y_header)) * unit
-                        rotation = float(entry.pop(cpl_rotation_header))
-                        layer = str(
-                            entry.pop(cpl_layer_header)).strip().lower()
+                        required_values = {
+                            "designator": entry.get(cpl_designator_header),
+                            "x": entry.get(cpl_x_header),
+                            "y": entry.get(cpl_y_header),
+                            "rotation": entry.get(cpl_rotation_header),
+                            "layer": entry.get(cpl_layer_header),
+                        }
+                        missing_values = [
+                            name for name, value in required_values.items()
+                            if table_value_is_blank(value)
+                        ]
+                        if missing_values:
+                            errors.append(
+                                f"CPL row {row_number} is missing required "
+                                "values: " + ", ".join(missing_values))
+                            continue
+
+                        designator = str(required_values["designator"]).strip()
+                        try:
+                            mid_x = float(required_values["x"]) * unit
+                            mid_y = -float(required_values["y"]) * unit
+                            rotation = float(required_values["rotation"])
+                        except (TypeError, ValueError):
+                            errors.append(
+                                f"CPL row {row_number} has invalid numeric "
+                                "values")
+                            continue
+                        layer = str(required_values["layer"]).strip().lower()
                         if layer not in layer_map:
-                            cpl_unknown_layers.append(layer)
+                            errors.append(
+                                f"CPL row {row_number} has unknown layer: "
+                                f"{required_values['layer']}")
                             continue
 
                         # print(designator, mid_x/mm, -mid_y/mm, rotation, layer)

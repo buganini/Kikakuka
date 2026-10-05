@@ -5,6 +5,8 @@
 * FreekiCAD
     * Restore FreeCAD after background linked-PCB launches activate KiCad on macOS, while keeping a possible **Open Anyway** prompt visible until resolved
     * Rename the PCB context-menu action from **Goto KiCad** to **Open in KiCad**
+* Gerber Conversion
+    * Skip blank BOM/CPL rows and report invalid data rows without aborting conversion
 
 # 8.2:
 * Cross-platform
