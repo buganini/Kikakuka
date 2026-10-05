@@ -13291,7 +13291,7 @@ class PcbObjectViewProvider:
     def setupContextMenu(self, vobj, menu):
         action = menu.addAction("Reload KiCad PCB")
         action.triggered.connect(lambda: self._reload(vobj))
-        action = menu.addAction("Goto KiCad")
+        action = menu.addAction("Open in KiCad")
         action.setEnabled(bool(getattr(vobj.Object, "FileName", "")))
         action.triggered.connect(lambda: self._goto_kicad(vobj))
 

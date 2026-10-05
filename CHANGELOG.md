@@ -4,6 +4,7 @@
     * Add an **Open in KiCad** action for selected KiCad PCB sources, opening and focusing them through Instance Manager
 * FreekiCAD
     * Restore FreeCAD after background linked-PCB launches activate KiCad on macOS, while keeping a possible **Open Anyway** prompt visible until resolved
+    * Rename the PCB context-menu action from **Goto KiCad** to **Open in KiCad**
 
 # 8.2:
 * Cross-platform
