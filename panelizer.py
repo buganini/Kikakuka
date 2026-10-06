@@ -1654,7 +1654,8 @@ class PanelizerUI(Application):
         except Exception:
             return None
 
-    def build(self, e=None, export=False, generate_holes=False):
+    def build(self, e=None, export=False, generate_holes=False,
+              open_export=True):
         if export:
             self.state.last_exported_path = ""
 
@@ -1683,7 +1684,8 @@ class PanelizerUI(Application):
             if completion["error"] is not None:
                 raise completion["error"]
             exported_path = self.state.last_exported_path
-            if exported_path and os.path.isfile(exported_path):
+            if (open_export and exported_path
+                    and os.path.isfile(exported_path)):
                 Thread(
                     target=open_pcb_file,
                     args=[exported_path],

@@ -60,7 +60,7 @@ if inputs:
         ui = PanelizerUI()
         ui.load(None, inputs[0])
         if len(inputs) > 1:
-            ui.build(export=inputs[1])
+            ui.build(export=inputs[1], open_export=False)
             sys.exit(0)
         else:
             ui.build()
