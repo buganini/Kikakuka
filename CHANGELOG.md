@@ -154,7 +154,7 @@
 * Workspace Manager
     * Serialize simultaneous KiCad editor launches to avoid PID and IPC socket conflicts
 * Panelizer / Fabrication Planner
-    * Accept multi-board `.kicad_pcb` files
+    * Accept multi-board `.kicad_pcb` files #33
     * Add `Variable` and `StringTemplate` footprints for build-dependent text
     * Add vertex and midpoint-handle editing for panel holes
     * Rename `.kikit_pnl` to `.kkkk_fab`
