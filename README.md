@@ -3,7 +3,7 @@
   <img src="resources/icon.svg" alt="Kikakuka" width="64" height="64">
   <img src="resources/fabplanner-icon.svg" alt="FabPlanner" width="64" height="64">
   <img src="resources/differ-icon.svg" alt="Differ" width="64" height="64">
-  <img src="FreekiCAD/freecad/FreekiCAD/resources/icons/FreekiCAD.svg" alt="FreekiCAD" width="64" height="64">
+  <img src="FreekiCAD/readme-icon.svg" alt="FreekiCAD" width="64" height="64">
 </p>
 
 Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely), modified [pcb-tools](https://github.com/curtacircuitos/pcb-tools), [OpenCV](https://github.com/opencv/opencv-python), [pypdfium2](https://github.com/pypdfium2-team/pypdfium2) and [PUI](https://github.com/buganini/PUI).

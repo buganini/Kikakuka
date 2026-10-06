@@ -4,7 +4,7 @@ set -eu
 repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 plugin_dir="$repo_dir/kicad-addon/plugin/plugins"
 overlay_dir="$repo_dir/tools/kicad-plugin-icons"
-freekicad_icon="$repo_dir/FreekiCAD/freecad/FreekiCAD/resources/icons/FreekiCAD.svg"
+freekicad_icon="$repo_dir/FreekiCAD/readme-icon.svg"
 
 command -v magick >/dev/null 2>&1 || {
     echo "ImageMagick (magick) is required" >&2
