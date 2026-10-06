@@ -9,7 +9,7 @@
     * Add a distinct icon for the FreeCAD Addon and workbench, with a matching **Open in FreeCAD** KiCad plugin icon
     * Restore FreeCAD after background linked-PCB launches activate KiCad on macOS, while keeping a possible **Open Anyway** prompt visible until resolved
     * Rename the PCB context-menu action from **Goto KiCad** to **Open in KiCad**
-    * Include Edge.Cuts holes in the editable FreeCAD board-outline sketch
+    * Include Edge.Cuts holes in the editable FreeCAD board-outline sketch #35
 * Gerber Conversion
     * Skip blank BOM/CPL rows and report invalid data rows without aborting conversion
     * Preserve modal G02/G03 interpolation within Gerber regions so circular clearances do not become polygons
