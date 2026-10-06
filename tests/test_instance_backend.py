@@ -101,6 +101,30 @@ class InstanceBackendTests(unittest.TestCase):
                                        kicad_token="", timeout_ms=1000)
         self.assertIs(ready.call_args.args[0], client.return_value)
 
+    def test_connected_board_skips_full_shape_probe(self):
+        board = mock.Mock()
+        with mock.patch("kipy.kicad.KiCad") as client, \
+                mock.patch(
+                    "im.kicad_api_retry.get_ready_kicad_board",
+                ) as ready, \
+                mock.patch(
+                    "im.kicad_api_retry.retry_kicad_call",
+                    return_value=board,
+                ) as retry, \
+                mock.patch.object(backend, "get_kicad_compat"):
+            self.assertIs(
+                backend._connected_board(
+                    "/tmp/selected.sock", max_retries=12, delay_s=0.25),
+                board,
+            )
+        retry.assert_called_once_with(
+            client.return_value.get_board,
+            max_retries=12,
+            delay_s=0.25,
+            retry_connection_timeout=True,
+        )
+        ready.assert_not_called()
+
     def test_linux_file_launch_uses_isolated_freecad_environment(self):
         with tempfile.TemporaryDirectory() as directory:
             log_path = Path(directory) / "freecad-startup.log"
@@ -1170,7 +1194,7 @@ class InstanceBackendTests(unittest.TestCase):
         self.assertEqual(reply["activation_error"], "native Wayland")
         self.assertEqual(reply["message"], "native Wayland")
 
-    def test_ensure_fresh_reuses_ready_probe_connection_for_revert(self):
+    def test_ensure_fresh_uses_lightweight_connection_before_revert(self):
         node = mock.Mock()
         node.snapshot.return_value = {"/boards/main.kicad_pcb": 111}
         board = mock.Mock()
@@ -1182,8 +1206,8 @@ class InstanceBackendTests(unittest.TestCase):
                     return_value=[(111, "/ipc/api.sock")],
                 ), \
                 mock.patch.object(
-                    backend, "_ready_board", return_value=board,
-                ) as ready, \
+                    backend, "_connected_board", return_value=board,
+                ) as connected, \
                 mock.patch.object(backend, "_launch") as launch, \
                 mock.patch.object(backend, "_focus"):
             reply = backend.handle({
@@ -1192,7 +1216,7 @@ class InstanceBackendTests(unittest.TestCase):
                 "ensure_fresh": True,
             })
         self.assertEqual(reply["pid"], 111)
-        ready.assert_called_once_with(
+        connected.assert_called_once_with(
             "/ipc/api.sock",
             max_retries=backend.FRESH_READY_RETRIES,
             delay_s=backend.FRESH_READY_DELAY_S,
