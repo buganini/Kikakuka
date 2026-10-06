@@ -1,5 +1,6 @@
 # Next:
-* Panelizer
+* FabPlanner
+    * Add a distinct application and window icon for FabPlanner
     * Merge collinear Edge.Cuts segments after panel outline serialization, eliminating 2 µm splits introduced at auto-tab seams
     * Add an **Open in KiCad** action for selected KiCad PCB sources, opening and focusing them through Instance Manager
 * FreekiCAD
