@@ -9,9 +9,9 @@
 
   <!-- Differ uses the Kikakuka artwork with a left/right color split. -->
   <path fill="#2446d1"
-        d="M136 52H281L231 460H136A84 84 0 0 1 52 376V136A84 84 0 0 1 136 52Z"/>
+        d="M136 52H275.925L225.925 460H136A84 84 0 0 1 52 376V136A84 84 0 0 1 136 52Z"/>
   <path fill="#417e5a"
-        d="M281 52H376A84 84 0 0 1 460 136V376A84 84 0 0 1 376 460H231Z"/>
+        d="M296.075 52H376A84 84 0 0 1 460 136V376A84 84 0 0 1 376 460H246.075Z"/>
 
   <g fill="#ffffff">
     <use href="#k-mark" xlink:href="#k-mark"/>
