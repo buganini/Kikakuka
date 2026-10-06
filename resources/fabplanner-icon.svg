@@ -8,18 +8,19 @@
   </defs>
 
   <!-- The original Kikakuka four-quadrant artwork, routed apart. -->
+  <!-- Tooling holes use r=10 cutouts positioned with an invisible r=18 clearance. -->
   <g>
     <g fill="#2446d1" fill-rule="evenodd">
-      <path d="M136 52H242V239Q242 242 239 242H52V136A84 84 0 0 1 136 52ZM70 88A10 10 0 1 0 90 88A10 10 0 1 0 70 88Z"/>
-      <path d="M273 270H460V376A84 84 0 0 1 376 460H270V273Q270 270 273 270ZM422 424A10 10 0 1 0 442 424A10 10 0 1 0 422 424Z"/>
+      <path d="M136 52H242V239Q242 242 239 242H52V136A84 84 0 0 1 136 52ZM75.4 92A10 10 0 1 0 95.4 92A10 10 0 1 0 75.4 92Z"/>
+      <path d="M273 270H460V376A84 84 0 0 1 376 460H270V273Q270 270 273 270ZM416.6 420A10 10 0 1 0 436.6 420A10 10 0 1 0 416.6 420Z"/>
       <path d="M245 99H256V203H245Q242 203 242 200V102Q242 99 245 99Z"/>
       <path d="M256 309H267Q270 309 270 312V410Q270 413 267 413H256Z"/>
       <path d="M102 242H200Q203 242 203 245V256H99V245Q99 242 102 242Z"/>
       <path d="M309 256H413V267Q413 270 410 270H312Q309 270 309 267Z"/>
     </g>
     <g fill="#417e5a" fill-rule="evenodd">
-      <path d="M270 52H376A84 84 0 0 1 460 136V242H273Q270 242 270 239ZM422 88A10 10 0 1 0 442 88A10 10 0 1 0 422 88Z"/>
-      <path d="M52 270H239Q242 270 242 273V460H136A84 84 0 0 1 52 376ZM70 424A10 10 0 1 0 90 424A10 10 0 1 0 70 424Z"/>
+      <path d="M270 52H376A84 84 0 0 1 460 136V242H273Q270 242 270 239ZM416.6 92A10 10 0 1 0 436.6 92A10 10 0 1 0 416.6 92Z"/>
+      <path d="M52 270H239Q242 270 242 273V460H136A84 84 0 0 1 52 376ZM75.4 420A10 10 0 1 0 95.4 420A10 10 0 1 0 75.4 420Z"/>
       <path d="M256 99H267Q270 99 270 102V200Q270 203 267 203H256Z"/>
       <path d="M245 309H256V413H245Q242 413 242 410V312Q242 309 245 309Z"/>
       <path d="M99 256H203V267Q203 270 200 270H102Q99 270 99 267Z"/>
@@ -48,7 +49,7 @@
   </g>
 
   <!-- Mouse-bite rows crossing each blue/green boundary. -->
-  <g fill="#ffffff" stroke="#183184" stroke-width="6">
+  <g fill="#ffffff">
     <g transform="translate(256 151)">
       <circle cx="0" cy="-36" r="12"/>
       <circle cx="0" cy="0" r="12"/>
