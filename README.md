@@ -153,18 +153,25 @@ Single PCB without panelization can be done with frameless setting
 `Field#Opt=A`, `Field#Opt=B` will be displayed as dropdown options.
 
 # Fabrication Planner - Panelizer
+## Tutorial Video
 
+[![
+Kikakuka/FabPlanner – Panelization](https://img.youtube.com/vi/40IOZ7cjGgk/0.jpg)](https://www.youtube.com/watch?v=40IOZ7cjGgk)
+
+<!--
 ## Global Alignment
 ![Global Alignment](screenshots/global_alignment.gif)
 
 ## Per-PCB Alignment
 ![Per-PCB Alignment](screenshots/single_alignment.gif)
+-->
 
 ## Substrate Hole
 ![Substrate Hole](screenshots/substrate_hole.png)
 ### 3D Output
 ![Substrate Hole 3D Output](screenshots/substrate_hole_output_3d.png)
 
+<!--
 ## Tight Frame + Auto Tab + V-Cuts *or* Mousebites
 ![UI](screenshots/tight_frame_autotab_autocut.png)
 ### Output
@@ -190,6 +197,7 @@ In the image below with debug mode on, small red dots are tab position candidate
 Auto tab is off for PCB with manual tabs.
 Drag inside the PCB for moving selected tab, drag outside the PCB for changing the direction for the selected tab.
 ![Manual Tab](screenshots/manual_tab.gif)
+-->
 
 # FreekiCAD (FreeCAD Addon)
 Requires **FreeCAD 1.0** or later, **KiCad 9.0** or later,
