@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="512" height="512" viewBox="0 0 512 512">
+     width="64" height="64" viewBox="0 0 512 512">
   <defs>
     <!-- Open Sans Bold glyph outlines. -->
     <path id="open-sans-k"
@@ -9,22 +9,22 @@
     <path id="open-sans-f"
           d="M79.753906-80.550781H30.679688V-58.039062H73.644531V-41.039062H30.679688V0H10.359375V-97.75H79.753906Z"/>
   </defs>
-  <g>
+  <g transform="translate(256 256) scale(1.038961039) translate(-256 -256)">
     <path fill="#2446d1"
-          d="M117 25H256V256H25V117A92 92 0 0 1 117 25Z"/>
+          d="M117 25H256V256H25V117A92 92 0 0 1 117 25ZM256 256H487V395A92 92 0 0 1 395 487H256Z"/>
     <path fill="#417e5a"
-          d="M256 25H395A92 92 0 0 1 487 117V256H256ZM25 256H256V487H117A92 92 0 0 1 25 395Z"/>
+          d="M25 256H256V487H117A92 92 0 0 1 25 395Z"/>
     <path fill="#cb343b"
-          d="M256 256H487V395A92 92 0 0 1 395 487H256Z"/>
+          d="M256 25H395A92 92 0 0 1 487 117V256H256Z"/>
     <g fill="#fff">
       <use href="#open-sans-k" xlink:href="#open-sans-k"
            transform="translate(61 213) scale(1.3894)"/>
-      <use href="#open-sans-k" xlink:href="#open-sans-k"
-           transform="translate(292 213) scale(1.3894)"/>
+      <use href="#open-sans-f" xlink:href="#open-sans-f"
+           transform="translate(309 213) scale(1.3894)"/>
       <use href="#open-sans-k" xlink:href="#open-sans-k"
            transform="translate(61 444) scale(1.3894)"/>
-      <use href="#open-sans-f" xlink:href="#open-sans-f"
-           transform="translate(309 444) scale(1.3894)"/>
+      <use href="#open-sans-k" xlink:href="#open-sans-k"
+           transform="translate(292 444) scale(1.3894)"/>
     </g>
   </g>
 </svg>
