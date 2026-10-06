@@ -23,6 +23,7 @@ import itertools
 from shootly import *
 from common import *
 from PUI.PySide6 import *
+from ui_application import DesktopApplication
 # from PUI.wx import *
 import PUI
 import wx
@@ -915,7 +916,12 @@ def autotab(boardSubstrate, sideOriginA, sideOriginB, direction,
         return tabs[0][1]
     return None
 
-class PanelizerUI(Application):
+class PanelizerUI(DesktopApplication):
+    desktop_id = "Kikakuka-FabPlanner"
+    desktop_name = "Kikakuka Fab Planner"
+    desktop_icon = "fabplanner-icon.png"
+    desktop_arguments = ("--fabplanner",)
+
     def __init__(self):
         # pcbnew my crash with "./src/common/stdpbase.cpp(59): assert ""traits"" failed in Get(): create wxApp before calling this" without this
         # Be aware that this will break atexit

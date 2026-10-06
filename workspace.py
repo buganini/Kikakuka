@@ -2,6 +2,7 @@ import os
 import sys
 import json
 from PUI.PySide6 import *
+from ui_application import DesktopApplication
 from PUI.interfaces import BaseTreeAdapter
 import PUI
 import subprocess
@@ -643,7 +644,7 @@ class WorkspaceUI(PUIView):
             self.main.state.workspaces = [f for f in self.main.state.workspaces if f != self.filepath]
             self.main.commit()
 
-class MainUI(Application):
+class MainUI(DesktopApplication):
     def __init__(self, filepaths=None):
         workspaces = []
 

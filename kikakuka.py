@@ -2,6 +2,9 @@
 import sys
 
 inputs = sys.argv[1:]
+fabplanner_requested = inputs[:1] == ["--fabplanner"]
+if fabplanner_requested:
+    inputs = inputs[1:]
 if "--open" in inputs or "--fresh" in inputs:
     from pcb_open import open_requested_kicad_files
 
@@ -21,6 +24,9 @@ if inputs:
         print("Usage:")
         print("  # Just open it")
         print(f"  {sys.argv[0]}")
+        print()
+        print("  # Start Fab Planner")
+        print(f"  {sys.argv[0]} --fabplanner [a.kicad_pcb ...]")
         print()
         print("  # Start with PCB files")
         print(f"  {sys.argv[0]} a.kicad_pcb b.kicad_pcb...")
@@ -80,7 +86,7 @@ if inputs:
         ui.build()
         ui.run()
 else:
-    if "PANELIZER" in os.environ:
+    if fabplanner_requested or "FABPLANNER" in os.environ:
         ui = PanelizerUI()
         ui.run()
     else:

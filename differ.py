@@ -1,5 +1,6 @@
 import os
 from PUI.PySide6 import *
+from ui_application import DesktopApplication
 import PUI
 from common import *
 import json
@@ -715,7 +716,12 @@ class SchDiffView(PdfTileDiffView):
     zoom_limit = 4
 
 
-class DifferUI(Application):
+class DifferUI(DesktopApplication):
+    desktop_id = "Kikakuka-Differ"
+    desktop_name = "Kikakuka Differ"
+    desktop_icon = "differ-icon.png"
+    desktop_arguments = ("--differ",)
+
     def __init__(self, *argv):
         super().__init__(icon=resource_path("differ-icon.ico"))
 

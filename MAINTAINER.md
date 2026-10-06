@@ -122,6 +122,17 @@ GUI applications remain external. AppRun captures the original desktop
 environment before sharun changes library and resource paths; editor launches
 restore it and keep the user's normal HOME, settings and IPC directories.
 
+Before creating its first Linux GUI window, Kikakuka sets Qt's desktop identity and
+registers a launcher and PNG icon under `XDG_DATA_HOME` (normally
+`~/.local/share`). This lets Ubuntu's Wayland dock resolve the icon and pin a
+launcher that uses the original AppImage path rather than its temporary mount.
+Source runs use the current Python interpreter and an absolute script path.
+Generated launchers are refreshed when the application moves; custom or system
+launchers are preserved. Headless commands do not register desktop files.
+Workspace, Fab Planner, and Differ use `Kikakuka`, `Kikakuka-FabPlanner`, and
+`Kikakuka-Differ` respectively, each with its own icon. The Fab Planner launcher
+passes `--fabplanner` so a pinned launcher reopens the correct tool.
+
 To rebuild only the AppImage from an existing onedir:
 
 ```sh

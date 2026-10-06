@@ -224,7 +224,8 @@ def build_appimage(onedir, cli, output_dir, cache):
         (appdir / ".DirIcon").symlink_to("Kikakuka.png")
         (appdir / "Kikakuka.desktop").write_text(
             '[Desktop Entry]\nType=Application\nName=Kikakuka\nExec=Kikakuka %F\n'
-            'Icon=Kikakuka\nTerminal=false\nCategories=Development;Electronics;\n')
+            'Icon=Kikakuka\nTerminal=false\nCategories=Development;Electronics;\n'
+            'StartupWMClass=Kikakuka\n')
         (appdir / ".env").write_text(
             'APPDIR=${SHARUN_DIR}\nKICAD_STOCK_DATA_HOME=${SHARUN_DIR}/share/kicad\n'
             'QT_PLUGIN_PATH=${SHARUN_DIR}/shared/bin/_internal/PySide6/Qt/plugins\n')
