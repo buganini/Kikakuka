@@ -86,6 +86,7 @@ PyInstaller.__main__.run([
     "--noconfirm",
     "--windowed",
     "--add-data=resources/icon.ico:.",
+    "--add-data=resources/fabplanner-icon.ico:.",
     *pyinstaller_args
 ])
 

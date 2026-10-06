@@ -921,7 +921,7 @@ class PanelizerUI(Application):
         # Be aware that this will break atexit
         # self.wx_app = wx.App()
 
-        super().__init__(icon=resource_path("icon.ico"))
+        super().__init__(icon=resource_path("fabplanner-icon.ico"))
 
         self.temp_dir = tempfile.mkdtemp(prefix="kikakuka_panelizer_")
         self._instance_node = None
@@ -3408,7 +3408,11 @@ class PanelizerUI(Application):
             f"Shapely {shapely.__version__}, "
             f"PUI {PUI.__version__} {PUI_BACKEND})"
         )
-        with Window(maximize=True, title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
+        with Window(
+                maximize=True,
+                title=title,
+                icon=resource_path("fabplanner-icon.ico"),
+        ).keypress(self.keypress):
             with VBox():
                 with HBox().layout(weight=1):
                     self.state.redraw

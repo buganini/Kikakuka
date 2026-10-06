@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <path id="k-mark"
+          d="M122 107h23v48l40-48h27l-47 56 48 54h-29l-39-46v46h-23z"/>
+  </defs>
+
+  <!-- The original Kikakuka four-quadrant artwork, routed apart. -->
+  <g>
+    <g fill="#2446d1" fill-rule="evenodd">
+      <path d="M136 52H242V239Q242 242 239 242H52V136A84 84 0 0 1 136 52ZM70 88A10 10 0 1 0 90 88A10 10 0 1 0 70 88Z"/>
+      <path d="M273 270H460V376A84 84 0 0 1 376 460H270V273Q270 270 273 270ZM422 424A10 10 0 1 0 442 424A10 10 0 1 0 422 424Z"/>
+      <path d="M245 99H256V203H245Q242 203 242 200V102Q242 99 245 99Z"/>
+      <path d="M256 309H267Q270 309 270 312V410Q270 413 267 413H256Z"/>
+      <path d="M102 242H200Q203 242 203 245V256H99V245Q99 242 102 242Z"/>
+      <path d="M309 256H413V267Q413 270 410 270H312Q309 270 309 267Z"/>
+    </g>
+    <g fill="#417e5a" fill-rule="evenodd">
+      <path d="M270 52H376A84 84 0 0 1 460 136V242H273Q270 242 270 239ZM422 88A10 10 0 1 0 442 88A10 10 0 1 0 422 88Z"/>
+      <path d="M52 270H239Q242 270 242 273V460H136A84 84 0 0 1 52 376ZM70 424A10 10 0 1 0 90 424A10 10 0 1 0 70 424Z"/>
+      <path d="M256 99H267Q270 99 270 102V200Q270 203 267 203H256Z"/>
+      <path d="M245 309H256V413H245Q242 413 242 410V312Q242 309 245 309Z"/>
+      <path d="M99 256H203V267Q203 270 200 270H102Q99 270 99 267Z"/>
+      <path d="M312 242H410Q413 242 413 245V256H309V245Q309 242 312 242Z"/>
+    </g>
+    <g fill="#ffffff">
+      <use href="#k-mark" xlink:href="#k-mark"/>
+      <use href="#k-mark" xlink:href="#k-mark" transform="translate(193 0)"/>
+      <use href="#k-mark" xlink:href="#k-mark" transform="translate(0 193)"/>
+      <use href="#k-mark" xlink:href="#k-mark" transform="translate(193 193)"/>
+    </g>
+  </g>
+
+  <!-- Fiducials sit beside the tooling holes, toward the panel centre. -->
+  <g fill="#35131d">
+    <circle cx="116" cy="72" r="18"/>
+    <circle cx="396" cy="72" r="18"/>
+    <circle cx="116" cy="440" r="18"/>
+    <circle cx="396" cy="440" r="18"/>
+  </g>
+  <g fill="#f2c94c">
+    <circle cx="116" cy="72" r="10"/>
+    <circle cx="396" cy="72" r="10"/>
+    <circle cx="116" cy="440" r="10"/>
+    <circle cx="396" cy="440" r="10"/>
+  </g>
+
+  <!-- Mouse-bite rows crossing each blue/green boundary. -->
+  <g fill="#ffffff" stroke="#183184" stroke-width="6">
+    <g transform="translate(256 151)">
+      <circle cx="0" cy="-36" r="12"/>
+      <circle cx="0" cy="0" r="12"/>
+      <circle cx="0" cy="36" r="12"/>
+    </g>
+    <g transform="translate(256 361)">
+      <circle cx="0" cy="-36" r="12"/>
+      <circle cx="0" cy="0" r="12"/>
+      <circle cx="0" cy="36" r="12"/>
+    </g>
+    <g transform="translate(151 256)">
+      <circle cx="-36" cy="0" r="12"/>
+      <circle cx="0" cy="0" r="12"/>
+      <circle cx="36" cy="0" r="12"/>
+    </g>
+    <g transform="translate(361 256)">
+      <circle cx="-36" cy="0" r="12"/>
+      <circle cx="0" cy="0" r="12"/>
+      <circle cx="36" cy="0" r="12"/>
+    </g>
+  </g>
+</svg>
