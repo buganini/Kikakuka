@@ -4,6 +4,7 @@
     * Merge collinear Edge.Cuts segments after panel outline serialization, eliminating 2 µm splits introduced at auto-tab seams
     * Add an **Open in KiCad** action for selected KiCad PCB sources, opening and focusing them through Instance Manager
     * Avoid a redundant full-board shape query before refreshing an already-open exported panel in KiCad
+    * Preserve the canvas scale when only its width or height changes, refitting after both dimensions change
 * Differ
     * Add a distinct application and window icon for Differ
 * FreekiCAD

@@ -3150,7 +3150,9 @@ class PanelizerUI(Application):
         return [topLeft, topRight, bottomLeft, bottomRight]
 
     def painter(self, canvas):
-        if self.state.scale is None or (self.canvas_width, self.canvas_height) != (canvas.width, canvas.height):
+        if (self.state.scale is None
+                or (self.canvas_width != canvas.width
+                    and self.canvas_height != canvas.height)):
             self.autoScale(canvas.width, canvas.height)
             return
 
