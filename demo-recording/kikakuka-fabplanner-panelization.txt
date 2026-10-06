@@ -1,0 +1,35 @@
+Kikakuka/FabPlanner – Panelization
+
+Panelization with FabPlanner
+
+Open the Fabrication Planner
+Add a KiCad PCB
+You can also drag and drop a board
+Or duplicate an existing one
+Align all boards
+Align a single board
+Fit the frame to the boards
+Export the panel
+Done!
+
+The PCB reloads automatically when its source file changes
+
+Let’s try some other configurations
+With or without a frame
+A tight or loose frame
+Use mouse bites instead of V-cuts
+Tooling Holes and Fiducials
+Arbitrary rotation
+Copperfill
+Let’s take another look at the export
+
+If automatic tabs don’t work well
+You can add tabs manually
+By default, a manual tab targets the nearest point on the board edge
+But you can aim it at any angle
+Drag inside the board to move the anchor point
+Drag outside the board to move the aim point
+
+Export again
+Let’s view it in the 3D Viewer
+That’s it. Ciao!
