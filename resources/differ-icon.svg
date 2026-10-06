@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <path id="k-mark"
+          d="M122 107h23v48l40-48h27l-47 56 48 54h-29l-39-46v46h-23z"/>
+  </defs>
+
+  <!-- Differ uses the Kikakuka artwork with a left/right color split. -->
+  <path fill="#2446d1"
+        d="M136 52H281L231 460H136A84 84 0 0 1 52 376V136A84 84 0 0 1 136 52Z"/>
+  <path fill="#417e5a"
+        d="M281 52H376A84 84 0 0 1 460 136V376A84 84 0 0 1 376 460H231Z"/>
+
+  <g fill="#ffffff">
+    <use href="#k-mark" xlink:href="#k-mark"/>
+    <use href="#k-mark" xlink:href="#k-mark" transform="translate(193 0)"/>
+    <use href="#k-mark" xlink:href="#k-mark" transform="translate(0 193)"/>
+    <use href="#k-mark" xlink:href="#k-mark" transform="translate(193 193)"/>
+  </g>
+</svg>

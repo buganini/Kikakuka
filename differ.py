@@ -717,7 +717,7 @@ class SchDiffView(PdfTileDiffView):
 
 class DifferUI(Application):
     def __init__(self, *argv):
-        super().__init__(icon=resource_path("icon.ico"))
+        super().__init__(icon=resource_path("differ-icon.ico"))
 
         self.temp_dir = tempfile.mkdtemp(prefix="kikakuka_differ_")
         atexit.register(self.cleanup)
@@ -823,7 +823,11 @@ class DifferUI(Application):
             f"OpenCV {cv2.__version__}, "
             f"PUI {PUI.__version__} {PUI_BACKEND})"
         )
-        with Window(maximize=True, title=title, icon=resource_path("icon.ico")):
+        with Window(
+                maximize=True,
+                title=title,
+                icon=resource_path("differ-icon.ico"),
+        ):
             with VBox():
                 if not os.path.exists(kicad_cli):
                     Label("KiCad CLI not found")
