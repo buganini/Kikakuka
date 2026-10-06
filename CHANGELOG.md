@@ -3,7 +3,10 @@
     * Add a distinct application and window icon for FabPlanner
     * Merge collinear Edge.Cuts segments after panel outline serialization, eliminating 2 µm splits introduced at auto-tab seams
     * Add an **Open in KiCad** action for selected KiCad PCB sources, opening and focusing them through Instance Manager
+* Differ
+    * Add a distinct application and window icon for Differ
 * FreekiCAD
+    * Add a distinct icon for the FreeCAD Addon and workbench, with a matching **Open in FreeCAD** KiCad plugin icon
     * Restore FreeCAD after background linked-PCB launches activate KiCad on macOS, while keeping a possible **Open Anyway** prompt visible until resolved
     * Rename the PCB context-menu action from **Goto KiCad** to **Open in KiCad**
     * Include Edge.Cuts holes in the editable FreeCAD board-outline sketch
