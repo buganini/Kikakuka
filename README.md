@@ -1,4 +1,4 @@
-# KiCad Workspace / Panelizer / Build Variants / Differ
+# Kikakuka — KiCad Workspace, Panelization, Build Variants, Differ & FreeCAD PCB Bending and Assembly
 <p>
   <img src="resources/icon.svg" alt="Kikakuka" width="64" height="64">
   <img src="resources/fabplanner-icon.svg" alt="FabPlanner" width="64" height="64">
