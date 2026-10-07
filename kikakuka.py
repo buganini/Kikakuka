@@ -6,6 +6,12 @@ if inputs[:1] == ["--freecadcmd"]:
     from freecad_cli import run_freecadcmd
 
     sys.exit(run_freecadcmd(inputs[1:]))
+if (len(inputs) == 2
+        and inputs[0].lower().endswith(".kkkk_asm")
+        and inputs[1].lower().endswith((".step", ".stp", ".stl"))):
+    from freecad_cli import run_freekicad_export
+
+    sys.exit(run_freekicad_export(inputs[0], inputs[1]))
 
 fabplanner_requested = inputs[:1] == ["--fabplanner"]
 if fabplanner_requested:
@@ -42,6 +48,9 @@ if inputs:
         print()
         print("  # Run the detected FreeCADCmd with pass-through arguments")
         print(f"  {sys.argv[0]} --freecadcmd [arguments ...]")
+        print()
+        print("  # Headless FreekiCAD assembly export")
+        print(f"  {sys.argv[0]} input.kkkk_asm output.step|output.stp|output.stl")
         print()
         print("  # Load file (.kkkk, .kkkk_fab, or legacy .kikit_pnl)")
         print(f"  {sys.argv[0]} a.kkkk_fab")

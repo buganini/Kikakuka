@@ -27,6 +27,12 @@ PKG_BASE = os.path.dirname(__file__)
 # Build the exact addon payloads embedded in this Kikakuka release without
 # assuming that make(1) or zip(1) exists on the target packaging platform.
 subprocess.run([sys.executable, "build_addon_archives.py"], cwd=PKG_BASE, check=True)
+freekicad_runtime = os.path.join(PKG_BASE, "build", "freekicad-runtime")
+shutil.rmtree(freekicad_runtime, ignore_errors=True)
+shutil.unpack_archive(
+    os.path.join(PKG_BASE, "build", "addons", "freekicad.zip"),
+    freekicad_runtime,
+)
 
 # macOS
 ## brew install create-dmg
@@ -66,6 +72,8 @@ pyinstaller_args.extend([
     f"{os.path.join(PKG_BASE, 'build', 'addons')}:addons",
     "--add-data",
     f"{os.path.join(PKG_BASE, 'freecad_addon_installer.py')}:addons",
+    "--add-data",
+    f"{freekicad_runtime}:freekicad",
 ])
 
 # pypdfium2 for differ
