@@ -13,6 +13,41 @@ SCRIPT = Path(__file__).resolve().parents[1] / "kikakuka.py"
 
 
 class KikakukaCliTest(unittest.TestCase):
+    def test_killall_mode_is_dispatched_before_ui_imports(self):
+        process_control = types.ModuleType("process_control")
+        process_control.kill_all_cad_instances = mock.Mock(return_value=17)
+
+        blocked_ui_modules = {
+            "differ": None,
+            "workspace": None,
+            "panelizer": None,
+            "gerber": None,
+        }
+        with mock.patch.object(
+                sys, "argv", [str(SCRIPT), "--killall"]), \
+                mock.patch.dict(
+                    sys.modules,
+                    {"process_control": process_control, **blocked_ui_modules},
+                ):
+            with self.assertRaises(SystemExit) as exited:
+                runpy.run_path(str(SCRIPT), run_name="__main__")
+
+        self.assertEqual(exited.exception.code, 17)
+        process_control.kill_all_cad_instances.assert_called_once_with()
+
+    def test_killall_rejects_arguments(self):
+        process_control = types.ModuleType("process_control")
+        process_control.kill_all_cad_instances = mock.Mock(return_value=0)
+        with mock.patch.object(
+                sys, "argv", [str(SCRIPT), "--killall", "extra"]), \
+                mock.patch.dict(sys.modules, {"process_control": process_control}), \
+                mock.patch.object(sys, "stderr"):
+            with self.assertRaises(SystemExit) as exited:
+                runpy.run_path(str(SCRIPT), run_name="__main__")
+
+        self.assertEqual(exited.exception.code, 2)
+        process_control.kill_all_cad_instances.assert_not_called()
+
     def test_assembly_export_is_dispatched_before_ui_imports(self):
         for target in ("model.step", "model.STP", "model.stl"):
             with self.subTest(target=target):

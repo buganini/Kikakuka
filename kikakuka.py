@@ -2,6 +2,13 @@
 import sys
 
 inputs = sys.argv[1:]
+if inputs[:1] == ["--killall"]:
+    from process_control import kill_all_cad_instances
+
+    if len(inputs) != 1:
+        print("--killall does not accept arguments", file=sys.stderr)
+        sys.exit(2)
+    sys.exit(kill_all_cad_instances())
 if inputs[:1] == ["--freecadcmd"]:
     from freecad_cli import run_freecadcmd
 
@@ -48,6 +55,10 @@ if inputs:
         print()
         print("  # Run the detected FreeCADCmd with pass-through arguments")
         print(f"  {sys.argv[0]} --freecadcmd [arguments ...]")
+        print()
+        print("  # Stop all same-user KiCad and FreeCAD GUI instances")
+        print(f"  {sys.argv[0]} --killall")
+        print("  # Warning: unsaved work may be lost")
         print()
         print("  # Headless FreekiCAD assembly export")
         print(f"  {sys.argv[0]} input.kkkk_asm output.step|output.stp|output.stl")

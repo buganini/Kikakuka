@@ -495,6 +495,10 @@ blocks local scripts, run
 # Run the detected FreeCADCmd with pass-through arguments
 ./env/bin/python3 kikakuka.py --freecadcmd FreekiCAD/scripts/kkkk_export.py input.kkkk_asm output.step
 
+# Stop all same-user KiCad and FreeCAD GUI instances (not FreeCADCmd)
+# Warning: unsaved work may be lost.
+./env/bin/python3 kikakuka.py --killall
+
 # Export a FreekiCAD assembly through the detected FreeCADCmd and bundled exporter
 ./env/bin/python3 kikakuka.py input.kkkk_asm output.step
 ./env/bin/python3 kikakuka.py input.kkkk_asm output.stp
