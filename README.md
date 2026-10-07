@@ -458,9 +458,19 @@ But however in my Windows environment venv is not working properly, here is how 
 # Initialize bundled submodules after cloning
 git submodule update --init --recursive
 
+# Git for Windows may check symlinks out as text files containing their target
+# paths. Replace all tracked symlinks with physical files/directories so the
+# source tree can run without Windows symlink support.
+& .\tools\materialize-symlinks.ps1
+
 &"C:\Program Files\KiCad\10.0\bin\python.exe" -m pip install -r requirements.txt
 &"C:\Program Files\KiCad\10.0\bin\python.exe" kikakuka.py
 ```
+
+The materialization only changes the working tree; Git still tracks those paths
+as symlinks. Re-running the script refreshes the physical copies. If PowerShell
+blocks local scripts, run
+`powershell -ExecutionPolicy Bypass -File .\tools\materialize-symlinks.ps1`.
 
 # CLI Usage
 ```
