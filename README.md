@@ -492,6 +492,9 @@ blocks local scripts, run
 # In a mixed list, --fresh affects only .kicad_pcb files; schematics and
 # projects are opened normally.
 
+# Run the detected FreeCADCmd with pass-through arguments
+./env/bin/python3 kikakuka.py --freecadcmd FreekiCAD/scripts/kkkk_export.py input.kkkk_asm output.step
+
 # Load file (.kkkk, .kkkk_fab, or legacy .kikit_pnl)
 ./env/bin/python3 kikakuka.py a.kkkk_fab
 

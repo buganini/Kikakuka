@@ -2,6 +2,11 @@
 import sys
 
 inputs = sys.argv[1:]
+if inputs[:1] == ["--freecadcmd"]:
+    from freecad_cli import run_freecadcmd
+
+    sys.exit(run_freecadcmd(inputs[1:]))
+
 fabplanner_requested = inputs[:1] == ["--fabplanner"]
 if fabplanner_requested:
     inputs = inputs[1:]
@@ -34,6 +39,9 @@ if inputs:
         print("  # Open KiCad files through the instance manager")
         print(f"  {sys.argv[0]} --open [--fresh] a.kicad_pcb [b.kicad_pcb ...]")
         print("  # --fresh reloads only already-open .kicad_pcb files from disk")
+        print()
+        print("  # Run the detected FreeCADCmd with pass-through arguments")
+        print(f"  {sys.argv[0]} --freecadcmd [arguments ...]")
         print()
         print("  # Load file (.kkkk, .kkkk_fab, or legacy .kikit_pnl)")
         print(f"  {sys.argv[0]} a.kkkk_fab")

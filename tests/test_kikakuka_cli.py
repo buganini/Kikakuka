@@ -5,11 +5,35 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import freecad_cli
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "kikakuka.py"
 
 
 class KikakukaCliTest(unittest.TestCase):
+    def test_freecadcmd_mode_is_dispatched_before_ui_imports(self):
+        launcher = types.ModuleType("freecad_cli")
+        launcher.run_freecadcmd = mock.Mock(return_value=23)
+        arguments = ["--freecadcmd", "export.py", "input.FCStd", "output.step"]
+
+        blocked_ui_modules = {
+            "differ": None,
+            "workspace": None,
+            "panelizer": None,
+            "gerber": None,
+        }
+        with mock.patch.object(sys, "argv", [str(SCRIPT), *arguments]), \
+                mock.patch.dict(
+                    sys.modules,
+                    {"freecad_cli": launcher, **blocked_ui_modules},
+                ):
+            with self.assertRaises(SystemExit) as exited:
+                runpy.run_path(str(SCRIPT), run_name="__main__")
+
+        self.assertEqual(exited.exception.code, 23)
+        launcher.run_freecadcmd.assert_called_once_with(arguments[1:])
+
     def test_open_mode_is_dispatched_before_ui_imports(self):
         pcb_open = types.ModuleType("pcb_open")
         pcb_open.open_requested_kicad_files = mock.Mock(return_value=True)
@@ -31,6 +55,82 @@ class KikakukaCliTest(unittest.TestCase):
 
         self.assertEqual(exited.exception.code, 0)
         pcb_open.open_requested_kicad_files.assert_called_once_with(arguments)
+
+    def test_freecadcmd_passes_arguments_and_exit_status_through(self):
+        completed = mock.Mock(returncode=7)
+        environment = {"PATH": "/opt"}
+        with mock.patch.object(
+                freecad_cli, "freecad_commands",
+                return_value=[["/opt/freecadcmd"]]), \
+                mock.patch.object(
+                    freecad_cli, "_freecad_environment",
+                    return_value=environment,
+                ), \
+                mock.patch.object(
+                    freecad_cli.subprocess, "run", return_value=completed,
+                ) as run:
+            result = freecad_cli.run_freecadcmd(
+                ["export.py", "input.FCStd", "output.step"]
+            )
+
+        self.assertEqual(result, 7)
+        run.assert_called_once_with([
+            "/opt/freecadcmd", "export.py", "input.FCStd", "output.step",
+        ], env=environment)
+
+    def test_freecadcmd_reports_missing_executable(self):
+        with mock.patch.object(
+                freecad_cli, "freecad_commands", return_value=[]), \
+                mock.patch.object(freecad_cli.sys, "stderr") as stderr:
+            result = freecad_cli.run_freecadcmd([])
+
+        self.assertEqual(result, 127)
+        self.assertTrue(stderr.write.called)
+
+    def test_freecadcmd_uses_isolated_environment(self):
+        completed = mock.Mock(returncode=0)
+        environment = {"PATH": "C:\\FreeCAD\\bin"}
+        with mock.patch.object(
+                freecad_cli, "freecad_commands",
+                return_value=[["C:\\FreeCAD\\bin\\FreeCADCmd.exe"]]), \
+                mock.patch.object(
+                    freecad_cli, "_freecad_environment",
+                    return_value=environment,
+                ) as process_environment, \
+                mock.patch.object(
+                    freecad_cli.subprocess, "run", return_value=completed,
+                ) as run:
+            result = freecad_cli.run_freecadcmd(["export.py"])
+
+        self.assertEqual(result, 0)
+        process_environment.assert_called_once_with(
+            "C:\\FreeCAD\\bin\\FreeCADCmd.exe"
+        )
+        run.assert_called_once_with([
+            "C:\\FreeCAD\\bin\\FreeCADCmd.exe", "export.py",
+        ], env=environment)
+
+    def test_freecadcmd_preserves_appimage_console_prefix(self):
+        completed = mock.Mock(returncode=0)
+        environment = {"PATH": "/usr/bin"}
+        appimage = "/opt/FreeCAD.AppImage"
+        with mock.patch.object(
+                freecad_cli, "freecad_commands",
+                return_value=[[appimage, "--console"]]), \
+                mock.patch.object(
+                    freecad_cli, "_freecad_environment",
+                    return_value=environment,
+                ) as process_environment, \
+                mock.patch.object(
+                    freecad_cli.subprocess, "run", return_value=completed,
+                ) as run:
+            result = freecad_cli.run_freecadcmd(["export.py", "input.FCStd"])
+
+        self.assertEqual(result, 0)
+        process_environment.assert_called_once_with(appimage)
+        run.assert_called_once_with([
+            appimage, "--console", "export.py", "input.FCStd",
+        ], env=environment)
 
 
 if __name__ == "__main__":
