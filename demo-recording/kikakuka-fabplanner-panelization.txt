@@ -1,4 +1,4 @@
-Kikakuka/FabPlanner – Panelization
+Kikakuka/FabPlanner – Panelization for KiCad and Gerber Files
 
 Panelization with FabPlanner
 
