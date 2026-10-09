@@ -129,6 +129,23 @@ class AddonManagerTest(unittest.TestCase):
         self.assertEqual(installations, [])
         command_version.assert_not_called()
 
+    def test_kicad_detection_ignores_transient_appimage_mount(self):
+        executable = Path("/tmp/.mount_kicadABC/bin/kicad-cli")
+        with (
+            mock.patch.object(
+                addon_manager,
+                "_kicad_cli_candidates",
+                return_value=[executable],
+            ),
+            mock.patch.object(
+                addon_manager, "resolve_kicad_installation"
+            ) as resolve,
+        ):
+            installations = addon_manager._detected_kicad_installations()
+
+        self.assertEqual(installations, [])
+        resolve.assert_not_called()
+
     def test_bundle_archive_uses_cli_runtime_resource_path(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

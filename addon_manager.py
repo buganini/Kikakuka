@@ -566,6 +566,11 @@ def _detected_kicad_installations() -> list[tuple[Path, str]]:
 
     seen = set()
     for selected in candidates:
+        # Running AppImages expose their mounted executables through process
+        # inspection (and sometimes PATH).  Those FUSE paths disappear when
+        # the application exits and are not separate host installations.
+        if _is_transient_appimage_mount(selected):
+            continue
         installation = resolve_kicad_installation(selected)
         if installation is None:
             continue

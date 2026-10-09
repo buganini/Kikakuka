@@ -1,6 +1,7 @@
 # 8.3:
 * Workspace Manager
     * Open PCB, schematic, and project files with their matching editor when a custom KiCad AppImage is selected
+    * Hide transient AppImage mount paths from the detected KiCad installation list
 * FabPlanner
     * Add a distinct application and window icon for FabPlanner
     * Merge collinear Edge.Cuts segments after panel outline serialization, eliminating 2 µm splits introduced at auto-tab seams
