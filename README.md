@@ -23,16 +23,6 @@ It creates a few more dimensions for KiCad:
 > KiCad's IPC endpoint. Selecting the Snap executable manually does not remove
 > this isolation; use a non-Snap FreeCAD installation or the official AppImage.
 >
-> Affected Windows builds expose only one IPC endpoint for multiple instances
-> due to [KiCad issue #23994](https://gitlab.com/kicad/code/kicad/-/work_items/23994).
-> Close all running KiCad applications before first using Kikakuka or
-> FreekiCAD. Instance Manager creates a persistent filesystem sentinel that
-> makes subsequently launched instances use PID-specific named pipes.
->
-> With an older Kikakuka or FreekiCAD release, close all KiCad applications,
-> create the `%TEMP%\kicad` directory if it does not exist, and create an empty
-> regular file named `%TEMP%\kicad\api.sock`. Leave this sentinel file in place
-> for future KiCad launches.
 
 # Features
 * Kikakuka main program
@@ -60,6 +50,10 @@ It creates a few more dimensions for KiCad:
         * Build Variants
             * Single PCB without panelization can be done with frameless setting
             * Each PCB can have its own flag settings
+        * Reproducible workflows
+            * Create and edit fabrication plans interactively in the GUI.
+            * Save configurations in a portable, JSON-based `.kkkk_fab` file.
+            * Generate outputs from the saved plan using either the GUI or CLI.
     * Gerber handling
         * Available in the fabrication planner (panelizer)
         * Or direct conversion to .kicad_pcb
