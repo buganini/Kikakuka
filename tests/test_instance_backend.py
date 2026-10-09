@@ -455,6 +455,28 @@ class InstanceBackendTests(unittest.TestCase):
             env=environment,
         )
 
+    def test_linux_kicad_appimage_dispatches_to_matching_editor(self):
+        environment = {"GDK_BACKEND": "x11"}
+        cases = (
+            ("/boards/main.kicad_pcb", "pcbnew"),
+            ("/boards/main.kicad_sch", "eeschema"),
+            ("/boards/main.kicad_pro", "kicad"),
+        )
+        for filepath, editor in cases:
+            with self.subTest(filepath=filepath), \
+                    mock.patch.object(
+                        backend, "_linux_kicad_executable",
+                        return_value="/opt/KiCad.AppImage"), \
+                    mock.patch.object(
+                        backend, "_linux_kicad_environment",
+                        return_value=environment), \
+                    mock.patch.object(backend.subprocess, "Popen") as popen:
+                backend.launch_linux_kicad(filepath)
+            popen.assert_called_once_with(
+                ["/opt/KiCad.AppImage", editor, filepath],
+                env=environment,
+            )
+
     def test_kicad_lock_path_matches_kicad_convention(self):
         self.assertEqual(
             backend._kicad_lock_path("/boards/main.kicad_pcb"),

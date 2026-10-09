@@ -243,8 +243,8 @@ def _configured_gui_executable(program):
     return next((str(path) for path in candidates if path.is_file()), None)
 
 
-def _linux_kicad_executable(filepath):
-    """Resolve the Linux KiCad editor for a supported design-file suffix."""
+def _linux_kicad_editor(filepath):
+    """Return the KiCad editor name for a supported design-file suffix."""
     suffix = Path(filepath).suffix.casefold()
     editor = {
         ".kicad_pcb": "pcbnew",
@@ -253,6 +253,12 @@ def _linux_kicad_executable(filepath):
     }.get(suffix)
     if editor is None:
         raise ValueError(f"unsupported KiCad file type: {filepath}")
+    return editor
+
+
+def _linux_kicad_executable(filepath):
+    """Resolve the Linux KiCad editor for a supported design-file suffix."""
+    editor = _linux_kicad_editor(filepath)
 
     configured = _custom_executable("kicad")
     if configured is not None:
@@ -299,8 +305,15 @@ def _linux_kicad_environment(environ=None):
 def launch_linux_kicad(filepath):
     """Launch a KiCad editor directly instead of using a file association."""
     executable = _linux_kicad_executable(filepath)
+    command = [executable]
+    # KiCad's multi-program AppImage dispatches on its first argument.  Passing
+    # the document directly selects the project manager, which then rejects a
+    # board or schematic as not being a project file.
+    if Path(executable).suffix.casefold() == ".appimage":
+        command.append(_linux_kicad_editor(filepath))
+    command.append(filepath)
     return subprocess.Popen(
-        [executable, filepath],
+        command,
         env=_linux_kicad_environment(),
     )
 
