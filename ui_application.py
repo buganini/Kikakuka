@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from PUI.PySide6 import Application
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -34,6 +35,10 @@ class DesktopApplication(Application):
     def update(self, prev=None):
         if not self.ui:
             clear_opencv_qt_paths()
+            if sys.platform.startswith("linux") and os.environ.get("APPDIR"):
+                # GTK's native chooser can load host pixbuf/glycin helpers into
+                # the bundled runtime. Use Qt's chooser within the AppImage.
+                QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs)
         if not self.ui and sys.platform.startswith("linux"):
             QGuiApplication.setApplicationName(self.desktop_id)
             QGuiApplication.setDesktopFileName(self.desktop_id)
