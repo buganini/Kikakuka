@@ -6,23 +6,29 @@
   <img src="FreekiCAD/readme-icon.svg" alt="FreekiCAD" width="64" height="64">
 </p>
 
-Kikakuka (企画課, きかくか, Planning Section) (formerly Kikit-UI) is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely), modified [pcb-tools](https://github.com/curtacircuitos/pcb-tools), [OpenCV](https://github.com/opencv/opencv-python), [pypdfium2](https://github.com/pypdfium2-team/pypdfium2) and [PUI](https://github.com/buganini/PUI).
+Kikakuka (企画課, きかくか, Planning Section) creates a few more dimensions for KiCad:
 
-Its FreeCAD integration is inspired by [KiCadStepUp](https://github.com/easyw/kicadStepUpMod) and [KiConnect](https://codeberg.org/kiconnect/KiConnect).
-
-It creates a few more dimensions for KiCad:
 * Workspace and project management
 * Revision management
 * Build variants
 * Panelization
 * FreeCAD integration for flexible PCB bending and multi-board assembly
 
-> [!NOTE]
-> FreeCAD installed through Snap is not supported. Snap confinement isolates
-> the filesystem and local sockets, preventing FreekiCAD from connecting to
-> KiCad's IPC endpoint. Selecting the Snap executable manually does not remove
-> this isolation; use a non-Snap FreeCAD installation or the official AppImage.
->
+## Quick links
+
+* [Features](#features)
+* [Workspace Manager](#workspace-manager)
+* [Schematic and PCB Differ](#differ)
+* [PCB Build Variants](#fabrication-planner---build-variants)
+* [PCB Panelization](#fabrication-planner---panelizer)
+* [FreekiCAD Integration](#freekicad-freecad-addon)
+* [Flexible PCB Bending](#flexible-pcb-bending)
+* [Kikakuka KiCad Library](#kikakuka-library)
+* [Project Background](#project-background)
+* [Run from source on Linux/macOS](#run-from-source-linuxmacos)
+* [Run from source on Windows](#run-from-source-windows)
+* [CLI Usage](#cli-usage)
+* [Gerber-to-KiCad Conversion](#reverse-engineering-notes-for-kicad-gerber)
 
 # Features
 * Kikakuka main program
@@ -199,6 +205,13 @@ Requires **FreeCAD 1.0** or later, **KiCad 9.0** or later,
 Manager may not automatically install packages where its allowed-package list
 excludes them; install them manually inside FreeCAD if necessary. Installing
 FreekiCAD from Kikakuka's Add-ons tab installs all three Python packages.
+
+> [!NOTE]
+> FreeCAD installed through Snap is not supported. Snap confinement isolates
+> the filesystem and local sockets, preventing FreekiCAD from connecting to
+> KiCad's IPC endpoint. Selecting the Snap executable manually does not remove
+> this isolation; use a non-Snap FreeCAD installation or the official AppImage.
+>
 
 FreekiCAD and Kikakuka discover each other on demand through local Unix sockets
 or Windows named pipes. FreeCAD can manage KiCad
@@ -410,6 +423,11 @@ For coupler length properties (`Z`, `Offset`, `TargetX`, `TargetY`, and `TargetZ
 All three coupler footprints use the `Unspecified` type, placing their helper models under **Virtual Models** in KiCad's 3D Viewer.
 
 The separate Kikakuka Tools IPC plugin provides **Coupler 3D Viewer** and **Hide Couplers** actions. Coupler 3D Viewer applies each coupler's `Z`, `Tilt`, and `Offset` to its helper model and opens KiCad's 3D Viewer; Hide Couplers marks these models hidden without removing them and also opens the Viewer. **Populate Placeholder 3D Models** likewise opens the Viewer after populating models. To omit couplers from STEP export, enable **Ignore 'Unspecified' components**.
+
+# Project Background
+Kikakuka is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely), modified [pcb-tools](https://github.com/curtacircuitos/pcb-tools), [OpenCV](https://github.com/opencv/opencv-python), [pypdfium2](https://github.com/pypdfium2-team/pypdfium2) and [PUI](https://github.com/buganini/PUI).
+
+Its FreeCAD integration is inspired by [KiCadStepUp](https://github.com/easyw/kicadStepUpMod) and [KiConnect](https://codeberg.org/kiconnect/KiConnect).
 
 # Run from source (Linux/macOS)
 Make sure your python can import `pcbnew`
