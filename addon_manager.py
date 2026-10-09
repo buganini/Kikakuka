@@ -1289,11 +1289,10 @@ def run_freecad_helper(action: str, archive: Optional[Path] = None) -> dict:
         # Pass helper inputs through the environment so only the script path
         # appears on FreeCAD's command line.
         command = [*prefix, str(helper)]
-        if platform.system() == "Windows":
-            from im.instance_backend import freecad_process_environment
-            process_env = freecad_process_environment(prefix[0])
-        else:
-            process_env = os.environ.copy()
+        # Use FreeCAD's own Python/Qt and libraries, including when the
+        # launching application runs inside the Linux AppImage.
+        from im.instance_backend import freecad_process_environment
+        process_env = freecad_process_environment(prefix[0])
         process_env["KIKAKUKA_ADDON_ACTION"] = action
         if archive is not None:
             process_env["KIKAKUKA_ADDON_ARCHIVE"] = str(archive)

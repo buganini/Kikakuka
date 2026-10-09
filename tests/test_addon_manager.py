@@ -1,7 +1,9 @@
+import base64
 import json
 import builtins
 import contextlib
 import io
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -622,6 +624,48 @@ class AddonManagerTest(unittest.TestCase):
             kwargs["env"]["KIKAKUKA_ADDON_ARCHIVE"], str(archive)
         )
 
+    def test_freecad_helper_restores_appimage_host_environment(self):
+        host = {"PATH": "/usr/bin:/bin", "HOME": "/home/user",
+                "XDG_DATA_HOME": "/home/user/data", "DISPLAY": ":0"}
+        snapshot = base64.b64encode(b"\0".join(
+            os.fsencode(f"{key}={value}") for key, value in host.items()
+        )).decode()
+        contaminated = {
+            "KIKAKUKA_HOST_ENV": snapshot, "PATH": "/tmp/Kikakuka/bin",
+            "QT_PLUGIN_PATH": "/tmp/Kikakuka/qt",
+            "PYTHONHOME": "/tmp/Kikakuka/python",
+            "LD_LIBRARY_PATH": "/tmp/Kikakuka/lib",
+            "KIKAKUKA_ADDON_ARCHIVE": "stale.zip",
+        }
+        completed = mock.Mock(stdout=addon_manager._RESULT_PREFIX + '{"ok": true}',
+                              stderr="", returncode=0)
+        for action in ("status", "install", "install-symlink", "uninstall"):
+            with (
+                self.subTest(action=action),
+                mock.patch.dict(os.environ, contaminated, clear=True),
+                mock.patch.object(addon_manager.platform, "system", return_value="Linux"),
+                mock.patch.object(addon_manager, "freecad_commands",
+                                  return_value=[["/opt/FreeCAD.AppImage", "--console"]]),
+                mock.patch.object(addon_manager.subprocess, "run",
+                                  return_value=completed) as run,
+            ):
+                archive = Path("/bundle/payload") if action in (
+                    "install", "install-symlink") else None
+                addon_manager.run_freecad_helper(action, archive)
+                environment = run.call_args.kwargs["env"]
+                self.assertEqual(environment["PATH"], "/opt" + os.pathsep + host["PATH"])
+                for key in ("HOME", "XDG_DATA_HOME", "DISPLAY"):
+                    self.assertEqual(environment[key], host[key])
+                for key in ("PYTHONHOME", "QT_PLUGIN_PATH", "LD_LIBRARY_PATH",
+                            "KIKAKUKA_HOST_ENV"):
+                    self.assertNotIn(key, environment)
+                self.assertEqual(environment["PYTHONNOUSERSITE"], "1")
+                self.assertEqual(environment["KIKAKUKA_ADDON_ACTION"], action)
+                if archive is None:
+                    self.assertNotIn("KIKAKUKA_ADDON_ARCHIVE", environment)
+                else:
+                    self.assertEqual(environment["KIKAKUKA_ADDON_ARCHIVE"], str(archive))
+
     def test_freecad_helper_preserves_result_with_non_utf8_logs(self):
         for ok in (True, False):
             with self.subTest(ok=ok):
@@ -1168,7 +1212,10 @@ class AddonManagerTest(unittest.TestCase):
         uninstall.assert_not_called()
 
     def test_missing_freecad_installation_has_no_action(self):
-        with mock.patch.object(addon_manager, "freecad_commands", return_value=[]):
+        with (
+            mock.patch.object(addon_manager, "freecad_commands", return_value=[]),
+            mock.patch.object(addon_manager, "_snap_freecad_installed", return_value=False),
+        ):
             status = addon_manager.freekicad_status()
 
         self.assertEqual(status.status_text, "Cannot find FreeCAD installation")
