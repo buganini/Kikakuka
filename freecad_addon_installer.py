@@ -93,8 +93,13 @@ def _run_pip_specs(specs, target: Path, create_command):
         if completed.stderr:
             print(completed.stderr, file=sys.stderr, end="")
         if completed.returncode:
+            output = "\n".join((completed.stderr or "", completed.stdout or ""))
+            lines = [line.strip() for line in output.splitlines() if line.strip()]
+            errors = [line for line in lines if line.startswith("ERROR:")]
+            detail = "\n".join(errors or lines[-8:])[-1500:]
             raise RuntimeError(
                 f"Could not install required FreeCAD dependency {spec}"
+                + (f": {detail}" if detail else f" (pip exit status {completed.returncode})")
             )
 
 

@@ -701,7 +701,7 @@ class AddonManagerTest(unittest.TestCase):
                         return [sys.executable, "-c", script]
                     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                         if exit_code:
-                            with self.assertRaisesRegex(RuntimeError, "dependency psutil"):
+                            with self.assertRaisesRegex(RuntimeError, "dependency psutil:.*pip error"):
                                 freecad_addon_installer._run_pip_specs(
                                     ["psutil"], Path(directory), command,
                                 )
