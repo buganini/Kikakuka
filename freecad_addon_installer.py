@@ -84,6 +84,11 @@ def _run_pip_specs(specs, target: Path, create_command):
             str(target),
             spec,
         ])
+        # FreeCAD's AppImage helper can strip --target when its system-pip
+        # preference is enabled. Keep dependencies outside the read-only image.
+        command = list(command)
+        if "--target" not in command:
+            command.extend(["--target", str(target)])
         completed = subprocess.run(
             command, text=True, capture_output=True,
             encoding="utf-8", errors="replace",

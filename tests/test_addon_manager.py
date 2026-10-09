@@ -472,6 +472,29 @@ class AddonManagerTest(unittest.TestCase):
             ],
         )
 
+    def test_freecad_pip_target_survives_helper_removing_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "packages"
+
+            def create_command(args):
+                args = list(args)
+                index = args.index("--target")
+                del args[index:index + 2]
+                return ["python", "-m", "pip", *args, "--constraint", "constraints.txt"]
+
+            with mock.patch.object(
+                freecad_addon_installer.subprocess, "run",
+                return_value=mock.Mock(returncode=0, stdout="", stderr=""),
+            ) as run:
+                freecad_addon_installer._run_pip_specs(
+                    ["kicad-python>=0.8,<0.9"], target, create_command,
+                )
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index("--target") + 1], str(target))
+            self.assertIn("--upgrade", command)
+            self.assertIn("kicad-python>=0.8,<0.9", command)
+            self.assertEqual(command[command.index("--constraint") + 1], "constraints.txt")
+
     def test_freecad_dependencies_fall_back_without_headless_pyside(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
