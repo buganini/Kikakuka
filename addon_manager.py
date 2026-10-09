@@ -307,12 +307,15 @@ def _pcm_installed_version(path: Path, identifier: str) -> Optional[str]:
 
 
 def _command_version(command: list[str]) -> Optional[str]:
+    from im.instance_backend import external_process_environment
+
     try:
         completed = subprocess.run(
             [*command, "--version"],
             capture_output=True,
             text=True,
             timeout=10,
+            env=external_process_environment(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -494,8 +497,13 @@ def _kicad_cli_candidates() -> list[Path]:
         return [installation[0] if installation is not None else configured]
 
     candidates: list[Path] = list(_owned_kicad_cli_candidates())
+    from im.instance_backend import external_process_environment
+
+    host_environment = external_process_environment()
+    search = ({"path": host_environment.get("PATH", os.defpath)}
+              if os.environ.get("KIKAKUKA_HOST_ENV") else {})
     for name in ("kicad-cli", "kicad-cli.exe"):
-        found = shutil.which(name)
+        found = shutil.which(name, **search)
         if found:
             candidates.append(Path(found))
 

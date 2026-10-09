@@ -1,3 +1,7 @@
+# 8.3.4:
+* Add-on Management
+    * Discover host KiCad installations and query their versions using the original desktop environment when running from a Linux AppImage
+
 # 8.3.3:
 * Add-on Management
     * Preserve FreeCAD's writable AdditionalPythonPackages directory when its pip helper removes the installation target, preventing dependency installation from modifying a read-only AppImage

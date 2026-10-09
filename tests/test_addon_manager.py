@@ -115,6 +115,47 @@ class AddonManagerTest(unittest.TestCase):
         self.assertEqual(installations, [(executable, "10.0.1")])
         command_version.assert_not_called()
 
+    def test_kicad_detection_matches_source_from_appimage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            host_bin = root / "host/bin"
+            bundled_bin = root / "bundled/bin"
+            for folder in (host_bin, bundled_bin):
+                folder.mkdir(parents=True)
+                (folder / "kicad").touch()
+            cli = host_bin / "kicad-cli"
+            # Exercise the actual version subprocess: inheriting the packaged
+            # library/Qt environment must make this probe fail.
+            cli.write_text(
+                f"#!{sys.executable}\n"
+                "import os, sys\n"
+                "if 'LD_LIBRARY_PATH' in os.environ or 'QT_PLUGIN_PATH' in os.environ:\n"
+                "    sys.exit(1)\n"
+                "print('10.0.2')\n"
+            )
+            cli.chmod(0o755)
+            (bundled_bin / "kicad-cli").touch()
+            host = {"PATH": str(host_bin), "HOME": str(root)}
+            snapshot = base64.b64encode(b"\0".join(
+                os.fsencode(f"{key}={value}") for key, value in host.items()
+            )).decode()
+            packaged = {
+                **host, "PATH": str(bundled_bin),
+                "KIKAKUKA_HOST_ENV": snapshot,
+                "LD_LIBRARY_PATH": str(root / "bundled/lib"),
+                "QT_PLUGIN_PATH": str(root / "bundled/qt"),
+            }
+            for environment in (host, packaged):
+                with (
+                    self.subTest(packaged=environment is packaged),
+                    mock.patch.dict(os.environ, environment, clear=True),
+                    mock.patch.object(addon_manager.platform, "system", return_value="Linux"),
+                    mock.patch.object(addon_manager, "_owned_kicad_cli_candidates", return_value=[]),
+                    mock.patch.object(addon_manager, "_kicad_version_from_installation", return_value=None),
+                    mock.patch.object(sys, "_MEIPASS", str(root / "bundled"), create=True),
+                ):
+                    self.assertIn((cli, "10.0.2"), addon_manager._detected_kicad_installations())
+
     def test_kicad_detection_rejects_orphaned_cli(self):
         with tempfile.TemporaryDirectory() as directory:
             executable = Path(directory) / "kicad-cli"
