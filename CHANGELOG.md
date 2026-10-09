@@ -1,7 +1,25 @@
-# 8.3:
+# 8.3.1:
+* Command Line
+    * Add `--freecadcmd` to pass arguments through to the detected FreeCAD console executable
+    * Export `.kkkk_asm` assemblies directly to STEP, STP, or STL through the bundled FreekiCAD exporter and detected FreeCAD console
+    * Add `--killall` to stop all same-user KiCad and FreeCAD GUI instances, escalating from terminate to kill when necessary
 * Workspace Manager
     * Open PCB, schematic, and project files with their matching editor when a custom KiCad AppImage is selected
-    * Hide transient AppImage mount paths from the detected KiCad installation list
+    * Ignore transient `.mount_*` paths from running KiCad AppImages so they are not shown or selected as duplicate installations
+* Linux
+    * Register persistent launchers and icons for Workspace Manager, Fab Planner, and Differ so docks identify and reopen each tool correctly from source and AppImage builds
+    * Add a dedicated `--fabplanner` launch mode used by the Fab Planner desktop entry
+    * Keep PyInstaller's bootloader paired with the bundled glibc to prevent startup crashes after the AppDir is relocated
+    * Use `opencv-python-headless` and discard stale OpenCV Qt plugin paths before creating PySide6 windows
+    * Use Qt file dialogs inside AppImages to avoid loading incompatible host GTK image helpers
+* Windows Development
+    * Add `tools/materialize-symlinks.ps1` to replace tracked symlinks with working-tree copies on systems without symlink checkout support
+* Documentation
+    * Convert the main SVG icon's text to paths while retaining an editable Inkscape source
+    * Revise the project title, feature descriptions, quick navigation, source-install requirements, and CLI examples, and fix README links
+    * Add panelization video links and refine the Fab Planner panelization recording script
+
+# 8.3:
 * FabPlanner
     * Add a distinct application and window icon for FabPlanner
     * Merge collinear Edge.Cuts segments after panel outline serialization, eliminating 2 µm splits introduced at auto-tab seams
