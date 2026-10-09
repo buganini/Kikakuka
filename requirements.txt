@@ -3,7 +3,7 @@ shapely>=2.0.7
 PySide6_Essentials
 QPUIQ>=0.48
 pypdfium2==5.4.0
-opencv-python
+opencv-python-headless
 psutil>=7.2.2
 pywin32; platform_system == "Windows"
 pygit2

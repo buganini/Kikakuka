@@ -451,6 +451,19 @@ ${PYTHON} -m venv --system-site-packages env
 ./env/bin/pip3 install -r requirements.txt
 ```
 
+On Debian/Ubuntu, PySide6's X11 platform plugin also needs these system libraries:
+```
+sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-xkb1
+```
+
+Kikakuka uses `opencv-python-headless` for image processing and PySide6 for its
+windows. If an existing environment has `opencv-python` installed, replace it
+before reinstalling requirements (both packages provide the same `cv2` module):
+```
+./env/bin/pip3 uninstall opencv-python
+./env/bin/pip3 install -r requirements.txt
+```
+
 Update submodule
 ```
 git submodule update --init --recursive

@@ -11,7 +11,7 @@ import sys
 PYTHON_DEPENDENCIES = {
     "PyInstaller": "PyInstaller", "kikit": "KiKit", "pcbnew": "KiCad Python bindings",
     "PUI": "QPUIQ", "PySide6": "PySide6_Essentials", "shapely": "shapely",
-    "pypdfium2": "pypdfium2", "cv2": "opencv-python", "psutil": "psutil",
+    "pypdfium2": "pypdfium2", "cv2": "opencv-python-headless", "psutil": "psutil",
     "pygit2": "pygit2", "parsimonious": "parsimonious", "kipy": "kicad-python",
     "openpyxl": "openpyxl",
 }

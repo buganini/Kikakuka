@@ -1,12 +1,28 @@
 """Shared desktop setup before PUI creates and shows Qt windows."""
 
+import os
 import sys
+from pathlib import Path
 
 from PUI.PySide6 import Application
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication
 
 from linux_desktop import DESKTOP_ID, register_linux_desktop
+
+
+def clear_opencv_qt_paths():
+    """Keep older GUI OpenCV wheels from redirecting PySide's Qt runtime."""
+    cv2 = sys.modules.get("cv2")
+    if not sys.platform.startswith("linux") or not getattr(cv2, "__file__", None):
+        return
+    qt_dir = Path(cv2.__file__).resolve().parent / "qt"
+    for variable, subdirectory in (
+            ("QT_QPA_PLATFORM_PLUGIN_PATH", "plugins"),
+            ("QT_QPA_FONTDIR", "fonts")):
+        value = os.environ.get(variable)
+        if value and Path(value).resolve() == qt_dir / subdirectory:
+            del os.environ[variable]
 
 
 class DesktopApplication(Application):
@@ -16,6 +32,8 @@ class DesktopApplication(Application):
     desktop_arguments = ()
 
     def update(self, prev=None):
+        if not self.ui:
+            clear_opencv_qt_paths()
         if not self.ui and sys.platform.startswith("linux"):
             QGuiApplication.setApplicationName(self.desktop_id)
             QGuiApplication.setDesktopFileName(self.desktop_id)
