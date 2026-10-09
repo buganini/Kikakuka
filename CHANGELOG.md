@@ -1,3 +1,7 @@
+# 8.3.2:
+* Add-on Management
+    * Isolate FreeCAD add-on helper commands from Kikakuka's Python, Qt, and library settings on all platforms, preventing runtime conflicts during FreekiCAD installation, update, status checks, and removal from Linux AppImage builds
+
 # 8.3.1:
 * Command Line
     * Add `--freecadcmd` to pass arguments through to the detected FreeCAD console executable
