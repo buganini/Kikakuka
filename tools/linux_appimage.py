@@ -125,6 +125,23 @@ def run(command, **kwargs):
     subprocess.run([str(part) for part in command], check=True, **kwargs)
 
 
+def link_bootloader_libraries(appdir):
+    """Keep PyInstaller's loader re-exec paired with the bundled glibc.
+
+    PyInstaller resets LD_LIBRARY_PATH to _internal and re-execs the loader
+    without sharun's --library-path. Host libc with the bundled loader can
+    segfault before Python starts, so expose the same glibc in _internal.
+    """
+    internal = appdir / "shared/bin/_internal"
+    for name in ("libc.so.6", "libdl.so.2", "libpthread.so.0", "libm.so.6",
+                 "librt.so.1", "libutil.so.1", "libresolv.so.2", "libanl.so.1"):
+        source = appdir / "shared/lib" / name
+        target = internal / name
+        if source.exists():
+            target.unlink(missing_ok=True)
+            target.symlink_to(Path("../../lib") / name)
+
+
 @contextmanager
 def build_directory():
     directory = Path(tempfile.mkdtemp(prefix="kikakuka-appimage-", dir=ROOT / "build"))
@@ -195,6 +212,7 @@ def build_appimage(onedir, cli, output_dir, cache):
         internal = appdir / "shared" / "bin" / "_internal"
         if not internal.is_dir():
             raise RuntimeError("sharun did not preserve PyInstaller's _internal resources")
+        link_bootloader_libraries(appdir)
         if validate_addons(internal) != addon_hashes:
             raise RuntimeError("Addon payload changed during dependency collection")
         bundled_cli = internal / "KiCad" / "bin"

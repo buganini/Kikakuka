@@ -8,10 +8,25 @@ from types import SimpleNamespace
 import zipfile
 
 from im.instance_backend import external_process_environment, freecad_process_environment
-from tools.linux_appimage import ADDONS, download_tool, external_dependencies, validate_addons
+from tools.linux_appimage import ADDONS, download_tool, external_dependencies, validate_addons, link_bootloader_libraries
 
 
 class LinuxAppImageTests(unittest.TestCase):
+    def test_bootloader_glibc_links_survive_appdir_relocation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "AppDir"
+            internal = root / "shared/bin/_internal"
+            internal.mkdir(parents=True)
+            libraries = root / "shared/lib"
+            libraries.mkdir()
+            (libraries / "libc.so.6").write_bytes(b"bundled libc")
+            (internal / "libc.so.6").write_bytes(b"other libc")
+            link_bootloader_libraries(root)
+            moved = root.rename(root.with_name("relocated"))
+            self.assertEqual((moved / "shared/bin/_internal/libc.so.6").read_bytes(),
+                             b"bundled libc")
+            self.assertFalse((moved / "shared/bin/_internal/libutil.so.1").exists())
+
     def test_dependency_scan_rejects_unresolved_libraries(self):
         result = SimpleNamespace(returncode=0, stdout="libmissing.so => not found\n", stderr="")
         with tempfile.TemporaryDirectory() as directory, \
