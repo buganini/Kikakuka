@@ -51,6 +51,7 @@ from .pcb_diff_tiles import (
     prioritize_selected_layer,
     sort_layers_in_kicad_ui_order,
     toggle_selected_layer,
+    toggled_flip_view_state,
     visible_similarity_signature,
     tile_pixel_bounds,
     visible_tile_indices,
@@ -206,6 +207,7 @@ class PdfTileDiffView(PUIView):
         self.tile_images = OrderedDict()
         self.mousehold = False
         self.cursor_position = None
+        self._flip_horizontal = None
         self._last_tile_log = 0.0
         self._last_tile_log_incomplete = False
 
@@ -393,9 +395,21 @@ class PdfTileDiffView(PUIView):
                 (self.diff_width, self.diff_height) != page_size):
             return self.autoScale(canvas.width, canvas.height)
 
+        flipped = self.flip_horizontal()
+        if self._flip_horizontal is None:
+            self._flip_horizontal = flipped
+        elif flipped != self._flip_horizontal:
+            view_transform, splitter_x = toggled_flip_view_state(
+                canvas.width, self.diff_width, self.state.scale,
+                self.state.splitter_x,
+            )
+            self._flip_horizontal = flipped
+            with self.state:
+                self.state.scale = view_transform
+                self.state.splitter_x = splitter_x
+
         immediate = False
         offx, offy, scale = self.state.scale
-        flipped = self.flip_horizontal()
         view_transform = (
             mirrored_view_transform(
                 canvas.width, self.diff_width, self.state.scale

@@ -46,6 +46,7 @@ from kikakuka.pcb_diff_tiles import (
     select_fallback_results,
     sort_layers_in_kicad_ui_order,
     toggle_selected_layer,
+    toggled_flip_view_state,
     standard_layer_style,
     tile_bounds,
     visible_tile_indices,
@@ -90,6 +91,25 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
                 cursor_region, 300.0, view_transform, flipped=True
             ),
             (60.0, 80.0),
+        )
+
+    def test_flip_toggle_preserves_source_viewport_and_splitter(self):
+        original_transform = (-600.0, -20.0, 2.0)
+        flipped_transform, flipped_splitter = toggled_flip_view_state(
+            400.0, 1000.0, original_transform, 0.4
+        )
+
+        self.assertEqual(flipped_transform, (-1000.0, -20.0, 2.0))
+        self.assertAlmostEqual(flipped_splitter, 0.6)
+        self.assertEqual(
+            mirrored_view_transform(400.0, 1000.0, flipped_transform),
+            original_transform,
+        )
+        self.assertEqual(
+            toggled_flip_view_state(
+                400.0, 1000.0, flipped_transform, flipped_splitter
+            ),
+            (original_transform, 0.4),
         )
 
     def test_similarity_signature_ignores_focused_layer_order(self):

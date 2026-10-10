@@ -475,6 +475,15 @@ def mirrored_view_transform(canvas_width, page_width, view_transform):
     return canvas_width - offx - page_width * scale, offy, scale
 
 
+def toggled_flip_view_state(
+        canvas_width, page_width, view_transform, splitter_fraction):
+    """Keep the same source viewport and splitter when flip is toggled."""
+    return (
+        mirrored_view_transform(canvas_width, page_width, view_transform),
+        1.0 - splitter_fraction,
+    )
+
+
 def canvas_region_edges(region, canvas_width, view_transform, flipped=False):
     """Map a source-space horizontal region to ordered canvas edges."""
     offx, _offy, scale = view_transform
