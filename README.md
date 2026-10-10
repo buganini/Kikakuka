@@ -86,16 +86,11 @@ Kikakuka (企画課, きかくか, Planning Section) creates a few more dimensio
     * Plugin actions for previewing and hiding coupler helpers in the 3D Viewer
     * Populate scaled placeholder 3D models for footprints without a valid model, using `SizeX`, `SizeY`, and `SizeZ` properties
         - Tutorial Video
+
         [![Kikakuka - Placeholder 3D Models](https://img.youtube.com/vi/fXU9RkxEFV0/0.jpg)](https://www.youtube.com/watch?v=fXU9RkxEFV0)
 
 * CADhoc / Instance Manager
-    * A CADhoc mesh node runs in every Kikakuka and FreekiCAD host process
-    * Discover KiCad and FreeCAD instances on demand and coordinate file-opening requests across Kikakuka and FreekiCAD, even without the Workspace Manager
-    * Publish verified KiCad PCB PID/socket mappings between nodes so editors opened for FreekiCAD appear automatically in the Instance Manager UI
-    * Restrict process inspection, socket ownership checks, reuse, and focus to current-user processes; helper executables such as `kicad-api` and `kicad-cli` are not treated as editors
-    * Navigate KiCad files by reusing open PCB editors or recalling editor windows (macOS and Windows); launch multiple KiCad instances automatically on macOS
-    * Seamlessly navigate FreeCAD files by activating an open document or opening it in an existing instance
-
+    * Seamless navigation among Kikakuka, KiCad, and FreeCAD across multiple instances and open documents
 
 # Workspace Manager
 The `.kkkk` file saves workspace information in JSON format.
