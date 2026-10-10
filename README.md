@@ -67,23 +67,19 @@ Kikakuka (企画課, きかくか, Planning Section) creates a few more dimensio
         * Compared with KiCad output
             * Better restoration of oval drill holes
             * Allow attaching BOM/CPL (converted to [reference-only footprints](resources/kikakuka-internal.pretty/Footprint.kicad_mod))
-    * CLI
-        * Convert saved fabrication plans (`.kkkk_fab`, or legacy `.kikit_pnl`) to KiCad files in one command
-        * Export saved assembly manifests (`.kkkk_asm`) to STEP or STL in one command
+    * CLI - Convert saved fabrication plans (`.kkkk_fab`, or legacy `.kikit_pnl`) to KiCad files in one command
 
 * FreekiCAD (FreeCAD Addon)
-    * Requires FreeCAD 1.0 or later
-    * `FreekiCAD` creates linked FreeCAD objects for external `.kicad_pcb` and STEP files; an `.FCStd` document caches generated geometry while retaining the reloadable source paths
-    * Import and export lightweight `.kkkk_asm` assembly manifests as JSON; manifests contain no cached geometry, prefer source paths relative to the manifest, and freshly load every external source when imported
-    * Linked objects work with the `Assembly` and `Manipulator` workbenches, as well as FreeCAD's built-in transform tool; FreeCAD Assembly can place `PcbObject` Links but currently cannot resolve their child component or connector faces for joints, so use the Manipulator workbench to align those faces; exporting selected `App::Link` instances or an Assembly to `.kkkk_asm` flattens their final global placements
-    * A sketch is provided for real-time board outline editing in FreeCAD
-    * Components moved in FreeCAD are synced to KiCad in real time
-    * `AutoReload` is enabled by default for both linked PCB and STEP objects; source-file changes are reloaded automatically, with manual reload also available
-    * Optional copper and solder-mask import, with outer copper, inner copper, and mask controlled independently
-    * Solid [stiffeners](#flexible-pcb-stiffener) from annotated `F.Stiffener` and `B.Stiffener` user-layer areas
-    * [Flex PCB bending](#flexible-pcb-bending) driven by bend lines and parameters defined in KiCad
-    * [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment) using matching `CouplerFixed` and `CouplerMoving` footprints or an absolute `CouplerAt`, with coupler plane markers for inspection
-    * `kicad-python` is used and the on-demand CADhoc mesh handles multiple KiCad instances & API sockets, even without Kikakuka's main program.
+    * Reloadable KiCad PCB Object
+        * Optional copper and solder-mask import, with outer copper, inner copper, and mask controlled independently
+        * Solid [stiffeners](#flexible-pcb-stiffener) from annotated `F.Stiffener` and `B.Stiffener` user-layer areas
+        * [Flex PCB bending](#flexible-pcb-bending) driven by bend lines and parameters defined in KiCad
+        * [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment) using matching `CouplerFixed` and `CouplerMoving` footprints or an absolute `CouplerAt`, with coupler plane markers for inspection
+        * A sketch is provided for real-time board outline editing in FreeCAD
+        * Components moved in FreeCAD are synced to KiCad in real time
+    * Reloadable STEP/STL Object
+    * Import and export assembly manifests (`.kkkk_asm`)
+    * CLI - Export saved assembly manifests (`.kkkk_asm`) to STEP or STL in one command
 
 * KiCad Plugin/Library
     * Coupler footprints for [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment)
@@ -206,7 +202,7 @@ Requires **FreeCAD 1.0** or later, **KiCad 9.0** or later,
 `psutil>=7.2.2`, `kicad-python>=0.8,<0.9`, and `shapely>=2.0.7`. FreeCAD Addon
 Manager may not automatically install packages where its allowed-package list
 excludes them; install them manually inside FreeCAD if necessary. Installing
-FreekiCAD from Kikakuka's Add-ons tab installs all three Python packages.
+FreekiCAD from Kikakuka's Integration tab installs all three Python packages.
 
 > [!NOTE]
 > FreeCAD installed through Snap is not supported. Snap confinement isolates
@@ -235,7 +231,7 @@ both object types, so changing either source file reloads its linked FreeCAD
 object. The option can be disabled independently for each object.
 
 > [!TIP]
-> You can use Kikakuka's **Add-ons** tab to install, update, or uninstall the
+> You can use Kikakuka's **Integration** tab to install, update, or uninstall the
 > bundled KiCad plugin, KiCad library, and FreekiCAD addon. Close all instances
 > of the affected application before using an install or uninstall button.
 > Release builds already contain the addon packages. When running Kikakuka
@@ -260,6 +256,9 @@ For a standalone FreekiCAD deployment without Kikakuka, follow the
     * Add STEP
         * Menubar -> FreekiCAD -> Add STEP
         * The selected STEP model remains an external file. Its `AutoReload` property defaults to enabled, and its Placement is preserved when the source file is manually or automatically reloaded.
+    * Position and assemble linked objects
+        * Linked objects work with the `Assembly` and `Manipulator` workbenches, as well as FreeCAD's built-in transform tool.
+        * FreeCAD Assembly can place `PcbObject` Links, but currently cannot resolve their child component or connector faces for joints. Use the Manipulator workbench to align those faces.
     * Reload PCB
         * Right-click on the board object -> Reload KiCad PCB
     * Export or import an assembly manifest
@@ -410,7 +409,7 @@ For the implementation details of the bending pipeline, see [`FreekiCAD/ARCHITEC
 
 # Kikakuka Library
 The KiCad library is stored under [`kicad-addon/library`](kicad-addon/library).
-You can install it from Kikakuka's **Add-ons** tab. For a manual installation,
+You can install it from Kikakuka's **Integration** tab. For a manual installation,
 add [`kicad-addon/library/footprints/Kikakuka.pretty`](kicad-addon/library/footprints/Kikakuka.pretty)
 to KiCad's footprint library table (for example, as `Kikakuka`). Its
 [`Kikakuka.3dshapes`](kicad-addon/library/3dmodels/Kikakuka.3dshapes) directory
@@ -524,9 +523,6 @@ blocks local scripts, run
 # In a mixed list, --fresh affects only .kicad_pcb files; schematics and
 # projects are opened normally.
 
-# Run the detected FreeCADCmd with pass-through arguments
-./env/bin/python3 -m kikakuka --freecadcmd FreekiCAD/scripts/kkkk_export.py input.kkkk_asm output.step
-
 # Stop all same-user KiCad and FreeCAD GUI instances (not FreeCADCmd)
 # Warning: unsaved work may be lost.
 ./env/bin/python3 -m kikakuka --killall
@@ -535,6 +531,9 @@ blocks local scripts, run
 ./env/bin/python3 -m kikakuka input.kkkk_asm output.step
 ./env/bin/python3 -m kikakuka input.kkkk_asm output.stp
 ./env/bin/python3 -m kikakuka input.kkkk_asm output.stl
+
+# Run the detected FreeCADCmd with pass-through arguments
+./env/bin/python3 -m kikakuka --freecadcmd FreekiCAD/scripts/kkkk_export.py input.kkkk_asm output.step
 
 # Load file (.kkkk, .kkkk_fab, or legacy .kikit_pnl)
 ./env/bin/python3 -m kikakuka a.kkkk_fab
