@@ -1,3 +1,15 @@
+# Next:
+* CADhoc
+    * Rename the shared Instance Manager coordination library to CADhoc and add dedicated icon assets and Python API documentation
+    * Add a confirmation-protected **Close All** action for same-user KiCad and FreeCAD GUI instances
+* Differ
+    * Draw the comparison cursor at the correct position in flipped board view
+    * Preserve the visible board area and comparison cursor position when toggling **Flip Board View**
+* Source and packaging
+    * Support both `python -m kikakuka` and `python kikakuka/` through the package entry point
+    * Move Kikakuka runtime modules and the maintained `pcb_tools` submodule under `kikakuka/`
+    * Group build scripts under `build-tools/` and screenshots and recording scripts under `demo/`
+
 # 8.3.4:
 * Add-on Management
     * Discover host KiCad installations and query their versions using the original desktop environment when running from a Linux AppImage
