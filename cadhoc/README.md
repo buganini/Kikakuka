@@ -1,5 +1,7 @@
 # CADhoc
 
+<img src="../resources/cadhoc.svg" alt="CADhoc logo" width="64" height="64">
+
 CADhoc is the local coordination library for instance management and
 cross-application integration. Kikakuka and each FreekiCAD process host an
 equivalent peer CADhoc node,

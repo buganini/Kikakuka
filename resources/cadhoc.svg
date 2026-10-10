@@ -38,7 +38,8 @@
     </symbol>
   </defs>
 
-  <g clip-path="url(#outer-corners)">
+  <g transform="translate(52 52) scale(0.796875)"
+     clip-path="url(#outer-corners)">
     <!-- Top-left: Kikakuka. -->
     <rect x="0" y="0" width="128" height="128" fill="#2446d1"/>
     <rect x="128" y="0" width="128" height="128" fill="#417e5a"/>

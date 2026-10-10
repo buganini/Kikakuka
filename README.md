@@ -4,6 +4,7 @@
   <img src="resources/fabplanner-icon.svg" alt="FabPlanner" width="64" height="64">
   <img src="resources/differ-icon.svg" alt="Differ" width="64" height="64">
   <img src="FreekiCAD/readme-icon.svg" alt="FreekiCAD" width="64" height="64">
+  <img src="resources/cadhoc.svg" alt="CADhoc" width="64" height="64">
 </p>
 
 Kikakuka (企画課, きかくか, Planning Section) creates a few more dimensions for KiCad:
