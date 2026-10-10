@@ -9,7 +9,7 @@ import pcbnew
 import math
 import kikit.common
 import shapely
-from shapely.geometry import Polygon
+from shapely.geometry import LineString, Point, Polygon
 
 from .tableloader import TableLoader
 
@@ -424,13 +424,28 @@ def arc_path_points(arc, max_error):
     return points
 
 
-def region_geometry(region):
-    """Convert a Gerber region, including curved edges, to Shapely geometry."""
-    if not region.primitives:
+def geometry_max_error(units):
+    return 0.001 if units != "inch" else 0.001 / 25.4
+
+
+def circle_quad_segs(radius, max_error):
+    """Return a Shapely circle resolution within the requested chord error."""
+    if radius <= max_error:
+        max_step = math.pi / 12
+    else:
+        max_step = 2 * math.acos(max(-1, 1 - max_error / radius))
+        max_step = min(max_step, math.pi / 12)
+    return max(1, math.ceil(math.pi / 2 / max_step))
+
+
+def path_geometry(path, units=None):
+    """Convert a closed Gerber path, including curved edges, to geometry."""
+    if not path.primitives:
         return Polygon()
-    max_error = 0.001 if region.units == "metric" else 0.001 / 25.4
-    points = [region.primitives[0].start]
-    for edge in region.primitives:
+    units = path.units or units
+    max_error = geometry_max_error(units)
+    points = [path.primitives[0].start]
+    for edge in path.primitives:
         if isinstance(edge, gerber.primitives.Arc):
             points.extend(arc_path_points(edge, max_error))
         else:
@@ -439,6 +454,157 @@ def region_geometry(region):
     if not geometry.is_valid:
         geometry = shapely.make_valid(geometry)
     return geometry
+
+
+def rectangle_geometry(position, width, height, rotation=0):
+    """Create a rectangle rotated about its center."""
+    angle = math.radians(rotation)
+    cos_angle = math.cos(angle)
+    sin_angle = math.sin(angle)
+    geometry = []
+    for x, y in (
+            (-width / 2, -height / 2),
+            (-width / 2, height / 2),
+            (width / 2, height / 2),
+            (width / 2, -height / 2)):
+        geometry.append((
+            position[0] + x * cos_angle - y * sin_angle,
+            position[1] + x * sin_angle + y * cos_angle,
+        ))
+    return Polygon(geometry)
+
+
+def subtract_flash_holes(geometry, primitive, units=None):
+    """Subtract circular or rectangular holes from a flashed aperture."""
+    max_error = geometry_max_error(primitive.units or units)
+    hole_diameter = getattr(primitive, "hole_diameter", 0) or 0
+    if hole_diameter > 0:
+        radius = hole_diameter / 2
+        hole = Point(primitive.position).buffer(
+            radius, quad_segs=circle_quad_segs(radius, max_error))
+        geometry = geometry.difference(hole)
+
+    hole_width = getattr(primitive, "hole_width", 0) or 0
+    hole_height = getattr(primitive, "hole_height", 0) or 0
+    if hole_width > 0 and hole_height > 0:
+        hole = rectangle_geometry(
+            primitive.position,
+            hole_width,
+            hole_height,
+            getattr(primitive, "rotation", 0),
+        )
+        geometry = geometry.difference(hole)
+    return geometry
+
+
+def composite_geometry(primitives, units=None):
+    """Apply the ordered polarities in a sequence of Gerber primitives."""
+    geometry = Polygon()
+    for polarity, grouped in groupby(
+            primitives,
+            key=lambda primitive: getattr(
+                primitive, "level_polarity", "dark") or "dark"):
+        operands = []
+        for primitive in grouped:
+            operand = primitive_geometry(primitive, units)
+            if operand is None:
+                return None, primitive
+            operands.append(operand)
+        operand = shapely.union_all(operands)
+        if polarity == "clear":
+            geometry = geometry.difference(operand)
+        else:
+            geometry = geometry.union(operand)
+    return geometry, None
+
+
+def primitive_geometry(primitive, units=None):
+    """Convert a drawable Gerber primitive to polarity-composable geometry."""
+    units = primitive.units or units
+    max_error = geometry_max_error(units)
+
+    if isinstance(primitive, (gerber.primitives.Region,
+                              gerber.primitives.Outline)):
+        return path_geometry(primitive, units)
+
+    if isinstance(primitive, gerber.primitives.AMGroup):
+        geometry, unsupported = composite_geometry(
+            primitive.primitives, units)
+        return None if unsupported is not None else geometry
+
+    if isinstance(primitive, gerber.primitives.Circle):
+        geometry = Point(primitive.position).buffer(
+            primitive.radius,
+            quad_segs=circle_quad_segs(primitive.radius, max_error),
+        )
+        return subtract_flash_holes(geometry, primitive, units)
+
+    if isinstance(primitive, gerber.primitives.Rectangle):
+        geometry = rectangle_geometry(
+            primitive.position,
+            primitive.width,
+            primitive.height,
+            primitive.rotation,
+        )
+        return subtract_flash_holes(geometry, primitive, units)
+
+    if isinstance(primitive, gerber.primitives.Obround):
+        radius = min(primitive.width, primitive.height) / 2
+        length = abs(primitive.width - primitive.height)
+        if length == 0:
+            geometry = Point(primitive.position).buffer(
+                radius, quad_segs=circle_quad_segs(radius, max_error))
+        else:
+            if primitive.width > primitive.height:
+                delta = (length / 2, 0)
+            else:
+                delta = (0, length / 2)
+            angle = math.radians(primitive.rotation)
+            dx = delta[0] * math.cos(angle) - delta[1] * math.sin(angle)
+            dy = delta[0] * math.sin(angle) + delta[1] * math.cos(angle)
+            geometry = LineString([
+                (primitive.position[0] - dx, primitive.position[1] - dy),
+                (primitive.position[0] + dx, primitive.position[1] + dy),
+            ]).buffer(
+                radius,
+                quad_segs=circle_quad_segs(radius, max_error),
+                cap_style="round",
+            )
+        return subtract_flash_holes(geometry, primitive, units)
+
+    if isinstance(primitive, gerber.primitives.Polygon):
+        geometry = Polygon(primitive.vertices)
+        return subtract_flash_holes(geometry, primitive, units)
+
+    if isinstance(primitive, gerber.primitives.Line):
+        if isinstance(primitive.aperture, gerber.primitives.Circle):
+            radius = primitive.aperture.radius
+            return LineString([primitive.start, primitive.end]).buffer(
+                radius,
+                quad_segs=circle_quad_segs(radius, max_error),
+                cap_style="round",
+            )
+        if primitive.vertices is not None:
+            return Polygon(primitive.vertices)
+        return None
+
+    if isinstance(primitive, gerber.primitives.Arc):
+        if not isinstance(primitive.aperture, gerber.primitives.Circle):
+            return None
+        radius = primitive.aperture.radius
+        points = [primitive.start]
+        points.extend(arc_path_points(primitive, max_error))
+        return LineString(points).buffer(
+            radius,
+            quad_segs=circle_quad_segs(radius, max_error),
+            cap_style="round",
+            join_style="round",
+        )
+
+    vertices = getattr(primitive, "vertices", None)
+    if vertices is not None:
+        return subtract_flash_holes(Polygon(vertices), primitive, units)
+    return None
 
 
 def iter_polygons(geometry):
@@ -465,26 +631,13 @@ def append_ring(poly_set, coordinates, fromUnit, outline, hole=-1):
 
 def populate_kicad_by_composited_regions(
         board, primitives, fromUnit, layer, errors):
-    """Apply ordered dark/clear Gerber regions and add the resulting polygons."""
-    geometry = Polygon()
-    for polarity, grouped in groupby(
-            primitives, key=lambda primitive: primitive.level_polarity):
-        regions = list(grouped)
-        unsupported = [
-            primitive for primitive in regions
-            if not isinstance(primitive, gerber.primitives.Region)
-        ]
-        if unsupported:
-            errors.append(
-                "Cannot composite Gerber polarity containing "
-                f"{unsupported[0].__class__.__name__}")
-            return False
-        operand = shapely.union_all([
-            region_geometry(region) for region in regions])
-        if polarity == "clear":
-            geometry = geometry.difference(operand)
-        else:
-            geometry = geometry.union(operand)
+    """Apply ordered dark/clear Gerber primitives and add the result."""
+    geometry, unsupported = composite_geometry(primitives)
+    if unsupported is not None:
+        errors.append(
+            "Cannot composite Gerber polarity containing "
+            f"{unsupported.__class__.__name__}")
+        return False
 
     if not geometry.is_valid:
         geometry = shapely.make_valid(geometry)

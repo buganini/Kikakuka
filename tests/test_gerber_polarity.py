@@ -1,5 +1,6 @@
 import math
 import unittest
+from pathlib import Path
 
 import pcbnew
 from kikakuka.pcb_tools import gerber
@@ -8,6 +9,41 @@ from kikakuka.gerber import populate_kicad
 
 
 class GerberPolarityTests(unittest.TestCase):
+    def test_jlcpcb_silkscreen_composites_strokes_and_flashes(self):
+        sample_dir = (
+            Path(__file__).parents[1]
+            / "samples" / "gerber" / "jlcpcb" / "gerber"
+        )
+
+        top_board = pcbnew.BOARD()
+        top_errors = []
+        populate_kicad(
+            top_board,
+            gerber.read(str(sample_dir / "gerber-SilkTop.gbr")),
+            pcbnew.F_SilkS,
+            top_errors,
+        )
+        self.assertEqual(top_errors, [])
+        self.assertGreater(len(list(top_board.GetDrawings())), 0)
+        self.assertTrue(all(
+            drawing.GetShape() == pcbnew.SHAPE_T_POLY
+            for drawing in top_board.GetDrawings()
+        ))
+
+        # This layer contains only clear flashes, so its positive image is
+        # empty. Falling back to polarity-unaware rendering used to draw all
+        # of those flashes instead.
+        bottom_board = pcbnew.BOARD()
+        bottom_errors = []
+        populate_kicad(
+            bottom_board,
+            gerber.read(str(sample_dir / "gerber-SilkBottom.gbr")),
+            pcbnew.B_SilkS,
+            bottom_errors,
+        )
+        self.assertEqual(bottom_errors, [])
+        self.assertEqual(len(list(bottom_board.GetDrawings())), 0)
+
     def test_clear_region_becomes_polygon_hole(self):
         source = """G04 dark square with clear center *
 %FSLAX24Y24*%

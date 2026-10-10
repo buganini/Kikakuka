@@ -5,6 +5,8 @@
 * Differ
     * Draw the comparison cursor at the correct position in flipped board view
     * Preserve the visible board area and comparison cursor position when toggling **Flip Board View**
+* Gerber Conversion
+    * Apply dark and clear polarity across strokes, flashes, regions, and aperture macros when converting Gerber layers
 * Source and packaging
     * Support both `python -m kikakuka` and `python kikakuka/` through the package entry point
     * Move Kikakuka runtime modules and the maintained `pcb_tools` submodule under `kikakuka/`

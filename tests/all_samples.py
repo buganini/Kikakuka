@@ -7,6 +7,10 @@ from pathlib import Path
 
 PANEL_SUFFIXES = (".kkkk_fab", ".kikit_pnl", ".kiki_pnl")
 GERBER_SAMPLE_DIR = Path("samples/gerber/export")
+GERBER_SAMPLE_DIRS = (
+    GERBER_SAMPLE_DIR,
+    Path("samples/gerber/jlcpcb/gerber"),
+)
 DEFAULT_EXCLUDE_DIRS = {
     ".git",
     ".claude",
@@ -133,29 +137,57 @@ def main():
 
         print(f"  OK {output.stat().st_size} bytes")
 
-    gerber_dir = root / GERBER_SAMPLE_DIR
-    gerber_output = out_dir / "samples__gerber__export.kicad_pcb"
-    print(f"[gerber] {GERBER_SAMPLE_DIR} -> {gerber_output}")
-    if not gerber_dir.is_dir():
-        failures.append((gerber_dir, "sample gerber export directory does not exist", "", ""))
-        print("  FAIL missing input directory")
-    else:
-        try:
-            result = run_kikakuka(args.python, kikakuka, [gerber_dir.resolve()], gerber_output, args.timeout)
-        except subprocess.TimeoutExpired as exc:
-            failures.append((gerber_dir, f"timed out after {exc.timeout} seconds", "", exc.stderr or ""))
-            print("  FAIL timeout")
+    for gerber_sample_dir in GERBER_SAMPLE_DIRS:
+        gerber_dir = root / gerber_sample_dir
+        gerber_output = out_dir / (
+            "__".join(gerber_sample_dir.parts) + ".kicad_pcb")
+        print(f"[gerber] {gerber_sample_dir} -> {gerber_output}")
+        if not gerber_dir.is_dir():
+            failures.append((
+                gerber_dir,
+                "sample gerber export directory does not exist",
+                "",
+                "",
+            ))
+            print("  FAIL missing input directory")
         else:
-            if result.returncode != 0:
-                failures.append((gerber_dir, f"exit code {result.returncode}", result.stdout, result.stderr))
-                print(f"  FAIL exit code {result.returncode}")
+            try:
+                result = run_kikakuka(
+                    args.python,
+                    kikakuka,
+                    [gerber_dir.resolve()],
+                    gerber_output,
+                    args.timeout,
+                )
+            except subprocess.TimeoutExpired as exc:
+                failures.append((
+                    gerber_dir,
+                    f"timed out after {exc.timeout} seconds",
+                    "",
+                    exc.stderr or "",
+                ))
+                print("  FAIL timeout")
             else:
-                output_error = check_output(gerber_output)
-                if output_error:
-                    failures.append((gerber_dir, f"conversion {output_error}", result.stdout, result.stderr))
-                    print("  FAIL missing or empty output")
+                if result.returncode != 0:
+                    failures.append((
+                        gerber_dir,
+                        f"exit code {result.returncode}",
+                        result.stdout,
+                        result.stderr,
+                    ))
+                    print(f"  FAIL exit code {result.returncode}")
                 else:
-                    print(f"  OK {gerber_output.stat().st_size} bytes")
+                    output_error = check_output(gerber_output)
+                    if output_error:
+                        failures.append((
+                            gerber_dir,
+                            f"conversion {output_error}",
+                            result.stdout,
+                            result.stderr,
+                        ))
+                        print("  FAIL missing or empty output")
+                    else:
+                        print(f"  OK {gerber_output.stat().st_size} bytes")
 
     if failures:
         print()
