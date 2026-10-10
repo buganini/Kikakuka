@@ -1,4 +1,4 @@
-# CADhoc
+# CADhoc — Ad Hoc Coordination for CAD Applications
 
 <img src="../resources/cadhoc.svg" alt="CADhoc logo" width="64" height="64">
 
