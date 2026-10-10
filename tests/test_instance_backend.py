@@ -9,9 +9,9 @@ import time
 from pathlib import Path
 from unittest import mock
 
-from im import im_mesh
-from im import instance_backend as backend
-from im.kicad_api_retry import retry_kicad_call
+from cadhoc import mesh as im_mesh
+from cadhoc import instance_backend as backend
+from cadhoc.kicad_api_retry import retry_kicad_call
 from kipy.errors import ApiError
 from kipy.proto.common import ApiStatusCode
 
@@ -26,7 +26,7 @@ class RetryKicadCallTests(unittest.TestCase):
                 raise ApiError("busy", code=ApiStatusCode.AS_BUSY)
             return "ok"
 
-        with mock.patch("im.kicad_api_retry.time.sleep"):
+        with mock.patch("cadhoc.kicad_api_retry.time.sleep"):
             self.assertEqual(retry_kicad_call(func, max_retries=5), "ok")
         self.assertEqual(attempts["count"], 3)
 
@@ -58,20 +58,20 @@ class InstanceBackendTests(unittest.TestCase):
                 mock.patch.object(
                     backend.platform, "system", return_value="Linux"), \
                 mock.patch(
-                    "im.linux_window.bring_pid_to_front",
+                    "cadhoc.linux_window.bring_pid_to_front",
                     return_value=True,
                 ) as activate:
             self.assertIsNone(backend._focus(123))
         activate.assert_called_once_with(123)
 
     def test_linux_focus_returns_wayland_error_without_qt(self):
-        from im.linux_window import WindowActivationError
+        from cadhoc.linux_window import WindowActivationError
 
         with mock.patch.object(backend, "owned_pid_exists", return_value=True), \
                 mock.patch.object(
                     backend.platform, "system", return_value="Linux"), \
                 mock.patch(
-                    "im.linux_window.bring_pid_to_front",
+                    "cadhoc.linux_window.bring_pid_to_front",
                     side_effect=WindowActivationError("native Wayland"),
                 ):
             self.assertEqual(backend._focus(123), "native Wayland")
@@ -94,7 +94,7 @@ class InstanceBackendTests(unittest.TestCase):
     def test_ready_board_does_not_use_inherited_kicad_token(self):
         with mock.patch.dict(os.environ, {"KICAD_API_TOKEN": "stale"}), \
                 mock.patch("kipy.kicad.KiCad") as client, \
-                mock.patch("im.kicad_api_retry.get_ready_kicad_board") as ready, \
+                mock.patch("cadhoc.kicad_api_retry.get_ready_kicad_board") as ready, \
                 mock.patch.object(backend, "get_kicad_compat"):
             backend._ready_board("/tmp/selected.sock")
         client.assert_called_once_with(socket_path="ipc:///tmp/selected.sock",
@@ -105,10 +105,10 @@ class InstanceBackendTests(unittest.TestCase):
         board = mock.Mock()
         with mock.patch("kipy.kicad.KiCad") as client, \
                 mock.patch(
-                    "im.kicad_api_retry.get_ready_kicad_board",
+                    "cadhoc.kicad_api_retry.get_ready_kicad_board",
                 ) as ready, \
                 mock.patch(
-                    "im.kicad_api_retry.retry_kicad_call",
+                    "cadhoc.kicad_api_retry.retry_kicad_call",
                     return_value=board,
                 ) as retry, \
                 mock.patch.object(backend, "get_kicad_compat"):
@@ -419,14 +419,14 @@ class InstanceBackendTests(unittest.TestCase):
             "GDK_BACKEND": "wayland",
         }
         with mock.patch(
-                "im.linux_window.xwayland_available",
+                "cadhoc.linux_window.xwayland_available",
                 return_value=True):
             environment = backend._linux_kicad_environment(original)
         self.assertEqual(environment["GDK_BACKEND"], "x11")
         self.assertEqual(original["GDK_BACKEND"], "wayland")
 
         with mock.patch(
-                "im.linux_window.xwayland_available",
+                "cadhoc.linux_window.xwayland_available",
                 return_value=False):
             environment = backend._linux_kicad_environment({
                 "XDG_SESSION_TYPE": "wayland",

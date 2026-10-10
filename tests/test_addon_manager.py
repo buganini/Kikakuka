@@ -487,6 +487,26 @@ class AddonManagerTest(unittest.TestCase):
                     archive.read("plugins/.kikakuka-version"), b"8.0\n"
                 )
 
+    def test_addon_archive_dereferences_directory_symlink(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            (source / "module.py").write_text("VALUE = 1\n")
+            linked = root / "linked"
+            linked.symlink_to(source, target_is_directory=True)
+            output = root / "addon.zip"
+
+            build_addon_archives._build_archive(
+                output,
+                [(linked, Path("package"))],
+            )
+
+            with zipfile.ZipFile(output) as archive:
+                self.assertEqual(
+                    archive.read("package/module.py"), b"VALUE = 1\n"
+                )
+
     def test_required_freecad_dependencies_include_version_constraints(self):
         xml = b"""<package xmlns="https://wiki.freecad.org/Package_Metadata">
           <depend type="python" version_gte="7.2.2">psutil</depend>
@@ -949,7 +969,7 @@ class AddonManagerTest(unittest.TestCase):
                 return_value="1.1.4",
             ),
             mock.patch(
-                "im.im_mesh.runtime_dir",
+                "cadhoc.mesh.runtime_dir",
                 return_value=Path("/tmp/kikakuka-1000"),
             ),
         ):
@@ -980,7 +1000,7 @@ class AddonManagerTest(unittest.TestCase):
                 return_value=Path("/snap/bin/freecad"),
             ),
             mock.patch(
-                "im.im_mesh.runtime_dir",
+                "cadhoc.mesh.runtime_dir",
                 return_value=Path("/tmp/kikakuka-1000"),
             ),
         ):
@@ -1003,7 +1023,7 @@ class AddonManagerTest(unittest.TestCase):
             ),
             mock.patch.object(addon_manager, "custom_executable", return_value=None),
             mock.patch(
-                "im.im_mesh.runtime_dir",
+                "cadhoc.mesh.runtime_dir",
                 return_value=Path("/tmp/kikakuka-1000"),
             ),
         ):
@@ -1217,7 +1237,7 @@ class AddonManagerTest(unittest.TestCase):
         install.assert_not_called()
 
     def test_running_instance_scan_uses_editor_process_names(self):
-        from im import im_mesh
+        from cadhoc import mesh as im_mesh
 
         def process(pid, name, cmdline=None):
             value = mock.Mock(pid=pid)

@@ -45,7 +45,7 @@ class FreekiCADEntrypointTests(unittest.TestCase):
         environment["PYTHONPATH"] = str(PACKAGE_DIR.parent)
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run(
-                [sys.executable, "-c", "import FreekiCAD.instance_backend"],
+                [sys.executable, "-c", "import FreekiCAD.cadhoc.instance_backend"],
                 cwd=directory,
                 env=environment,
                 capture_output=True,
@@ -58,7 +58,7 @@ class FreekiCADEntrypointTests(unittest.TestCase):
         fake_freecad = types.ModuleType("FreeCAD")
         fake_freecad.addImportType = mock.Mock()
         fake_freecad.addExportType = mock.Mock()
-        fake_client = types.ModuleType(f"{PACKAGE_NAME}.im_client")
+        fake_client = types.ModuleType(f"{PACKAGE_NAME}.cadhoc_client")
         fake_client.ensure_node = mock.Mock()
         spec = importlib.util.spec_from_file_location(
             PACKAGE_NAME, PACKAGE_DIR / "__init__.py",
@@ -67,7 +67,7 @@ class FreekiCADEntrypointTests(unittest.TestCase):
         with mock.patch.dict(sys.modules, {
             "FreeCAD": fake_freecad,
             PACKAGE_NAME: package,
-            f"{PACKAGE_NAME}.im_client": fake_client,
+            f"{PACKAGE_NAME}.cadhoc_client": fake_client,
         }):
             spec.loader.exec_module(package)
         fake_client.ensure_node.assert_called_once_with()

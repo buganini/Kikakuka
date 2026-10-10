@@ -21,7 +21,7 @@ import uuid
 
 import psutil
 
-from . import im_transport
+from . import transport
 
 
 ACK_TIMEOUT_MS = 1000
@@ -327,7 +327,7 @@ def discover():
 
 def _exchange(endpoint, message, timeout_ms=ACK_TIMEOUT_MS, token=None):
     """One bounded JSON request on a fresh local connection."""
-    with im_transport.connect(endpoint, timeout_ms) as connection:
+    with transport.connect(endpoint, timeout_ms) as connection:
         connection.send(dict(message, token=_shared_token() if token is None else token))
         return connection.receive(timeout_ms)
 
@@ -504,7 +504,7 @@ class InstanceNode:
     def _serve(self):
         listener = None
         try:
-            listener = im_transport.Listener(self.endpoint)
+            listener = transport.Listener(self.endpoint)
             self._ready.set()
             while self._running:
                 connection = listener.accept()

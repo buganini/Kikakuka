@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest import mock
 
-from im import socket_discovery_test as discovery
+from cadhoc import socket_discovery_test as discovery
 
 
 class SocketDiscoveryProbeTests(unittest.TestCase):

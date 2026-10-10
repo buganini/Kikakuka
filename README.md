@@ -68,6 +68,7 @@ Kikakuka (企画課, きかくか, Planning Section) creates a few more dimensio
             * Allow attaching BOM/CPL (converted to [reference-only footprints](resources/kikakuka-internal.pretty/Footprint.kicad_mod))
     * CLI
         * Convert saved fabrication plans (`.kkkk_fab`, or legacy `.kikit_pnl`) to KiCad files in one command
+        * Export saved assembly manifests (`.kkkk_asm`) to STEP or STL in one command
 
 * FreekiCAD (FreeCAD Addon)
     * Requires FreeCAD 1.0 or later
@@ -81,7 +82,7 @@ Kikakuka (企画課, きかくか, Planning Section) creates a few more dimensio
     * Solid [stiffeners](#flexible-pcb-stiffener) from annotated `F.Stiffener` and `B.Stiffener` user-layer areas
     * [Flex PCB bending](#flexible-pcb-bending) driven by bend lines and parameters defined in KiCad
     * [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment) using matching `CouplerFixed` and `CouplerMoving` footprints or an absolute `CouplerAt`, with coupler plane markers for inspection
-    * `kicad-python` is used and an on-demand instance mesh handles multiple KiCad instances & API sockets, even without Kikakuka's main program.
+    * `kicad-python` is used and the on-demand CADhoc mesh handles multiple KiCad instances & API sockets, even without Kikakuka's main program.
 
 * KiCad Plugin/Library
     * Coupler footprints for [Automatic coupler-based PCB alignment](#coupler-based-pcb-alignment)
@@ -90,8 +91,8 @@ Kikakuka (企画課, きかくか, Planning Section) creates a few more dimensio
         - Tutorial Video
         [![Kikakuka - Placeholder 3D Models](https://img.youtube.com/vi/fXU9RkxEFV0/0.jpg)](https://www.youtube.com/watch?v=fXU9RkxEFV0)
 
-* Instance Manager
-    * An Instance Manager mesh node runs in every Kikakuka and FreekiCAD host process
+* CADhoc / Instance Manager
+    * A CADhoc mesh node runs in every Kikakuka and FreekiCAD host process
     * Discover KiCad and FreeCAD instances on demand and coordinate file-opening requests across Kikakuka and FreekiCAD, even without the Workspace Manager
     * Publish verified KiCad PCB PID/socket mappings between nodes so editors opened for FreekiCAD appear automatically in the Instance Manager UI
     * Restrict process inspection, socket ownership checks, reuse, and focus to current-user processes; helper executables such as `kicad-api` and `kicad-cli` are not treated as editors
@@ -220,7 +221,7 @@ data is sent to third parties.
 
 When opening a FreeCAD file, Kikakuka first looks for an already open document
 or reuses a responding FreeCAD instance; see
-[Instance Manager](im/README.md) for details.
+[CADhoc](cadhoc/README.md) for details.
 
 KiCad `.kicad_pcb` boards and STEP models remain external files referenced by
 path. When saved as `.FCStd`, the FreeCAD document caches their generated
@@ -429,7 +430,7 @@ Kikakuka is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Sh
 
 Its FreeCAD integration is inspired by [KiCadStepUp](https://github.com/easyw/kicadStepUpMod) and [KiConnect](https://codeberg.org/kiconnect/KiConnect).
 
-Kikakuka, formerly Kikit-UI, began as an interactive GUI for KiKit and later expanded to include a workspace manager. File-to-instance tracking was introduced to make navigation from the workspace manager to KiCad reliable, with the workspace manager initially serving as the central orchestrator. After FreekiCAD was introduced, that mechanism evolved into a mesh of peer Instance Manager nodes running in Kikakuka and FreekiCAD, without a permanent central orchestrator. The mesh also includes a client-only node in the KiCad add-on. The mesh maintains a shared view of KiCad and FreeCAD instances and their open documents, so navigation no longer depends on the workspace manager.
+Kikakuka, formerly Kikit-UI, began as an interactive GUI for KiKit and later expanded to include a workspace manager. File-to-instance tracking was introduced to make navigation from the workspace manager to KiCad reliable, with the workspace manager initially serving as the central orchestrator. After FreekiCAD was introduced, that mechanism evolved into CADhoc, a mesh of peer nodes running in Kikakuka and FreekiCAD without a permanent central orchestrator. The mesh also includes a client-only node in the KiCad add-on. CADhoc maintains a shared view of KiCad and FreeCAD instances and their open documents, so navigation no longer depends on the workspace manager.
 
 # Run from source (Linux/macOS)
 Make sure your python can import `pcbnew`
@@ -510,9 +511,9 @@ blocks local scripts, run
 # Open KiCad files through the instance manager
 ./env/bin/python3 kikakuka.py --open a.kicad_pcb
 
-# Run a foreground Instance Manager node with request/mapping logs
-./env/bin/python3 -m im
-# The equivalent directory entry point is: ./env/bin/python3 im
+# Run a foreground CADhoc node with request/mapping logs
+./env/bin/python3 -m cadhoc
+# The equivalent directory entry point is: ./env/bin/python3 cadhoc
 
 # Open or focus a PCB and reload it from disk once its IPC API is ready
 ./env/bin/python3 kikakuka.py --open --fresh a.kicad_pcb

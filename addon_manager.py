@@ -307,7 +307,7 @@ def _pcm_installed_version(path: Path, identifier: str) -> Optional[str]:
 
 
 def _command_version(command: list[str]) -> Optional[str]:
-    from im.instance_backend import external_process_environment
+    from cadhoc.instance_backend import external_process_environment
 
     try:
         completed = subprocess.run(
@@ -365,7 +365,7 @@ def _windows_associated_executable(extension: str) -> Optional[Path]:
 
 def _owned_kicad_cli_candidates() -> Iterable[Path]:
     try:
-        from im.im_mesh import owned_pids, owned_process
+        from cadhoc.mesh import owned_pids, owned_process
 
         for pid in owned_pids():
             process = owned_process(pid)
@@ -388,7 +388,7 @@ def _owned_kicad_cli_candidates() -> Iterable[Path]:
 def _running_editor_pids(key: str) -> list[int]:
     """Return same-user application instances that can hold addon state."""
     try:
-        from im.im_mesh import is_kicad_editor_process, owned_process_iter
+        from cadhoc.mesh import is_kicad_editor_process, owned_process_iter
 
         pids = []
         for process in owned_process_iter(["pid", "name", "cmdline"]):
@@ -497,7 +497,7 @@ def _kicad_cli_candidates() -> list[Path]:
         return [installation[0] if installation is not None else configured]
 
     candidates: list[Path] = list(_owned_kicad_cli_candidates())
-    from im.instance_backend import external_process_environment
+    from cadhoc.instance_backend import external_process_environment
 
     host_environment = external_process_environment()
     search = ({"path": host_environment.get("PATH", os.defpath)}
@@ -1008,7 +1008,7 @@ def uninstall_kicad_addon(key: str) -> AddonStatus:
 
 def _owned_freecad_executables() -> Iterable[Path]:
     try:
-        from im.im_mesh import owned_pids, owned_process
+        from cadhoc.mesh import owned_pids, owned_process
 
         for pid in owned_pids():
             process = owned_process(pid)
@@ -1262,7 +1262,7 @@ def addon_diagnostics() -> dict[str, object]:
         display = " ".join(command)
         freecad.append(f"{display} ({version})" if version else display)
 
-    from im.im_mesh import runtime_dir
+    from cadhoc.mesh import runtime_dir
 
     return {
         "kicad": "\n".join(kicad) if kicad else "Not found",
@@ -1299,7 +1299,7 @@ def run_freecad_helper(action: str, archive: Optional[Path] = None) -> dict:
         command = [*prefix, str(helper)]
         # Use FreeCAD's own Python/Qt and libraries, including when the
         # launching application runs inside the Linux AppImage.
-        from im.instance_backend import freecad_process_environment
+        from cadhoc.instance_backend import freecad_process_environment
         process_env = freecad_process_environment(prefix[0])
         process_env["KIKAKUKA_ADDON_ACTION"] = action
         if archive is not None:

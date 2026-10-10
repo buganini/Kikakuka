@@ -26,7 +26,7 @@ def kkkk_export_script_path() -> Path:
 
 
 def _freecad_environment(executable: str) -> dict[str, str]:
-    from im.instance_backend import freecad_process_environment
+    from cadhoc.instance_backend import freecad_process_environment
 
     return freecad_process_environment(executable)
 

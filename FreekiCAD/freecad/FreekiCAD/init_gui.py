@@ -133,7 +133,7 @@ FreeCADGui.addCommand("ReloadAllObjects", ReloadAllObjectsCommand())
 # Idempotent safeguard for GUI startup; package import also starts the node,
 # including in FreeCADCmd before a linked PCB object is created.
 try:
-    from .im_client import ensure_node
+    from .cadhoc_client import ensure_node
     ensure_node(observe_documents=True)
 except Exception as exc:
     if hasattr(FreeCAD, "Console"):

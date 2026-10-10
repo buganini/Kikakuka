@@ -16,7 +16,7 @@ HEADLESS_EXPORT_PATH = os.path.join(
 )
 IM_CLIENT_PATH = os.path.join(
     REPOSITORY_ROOT, "FreekiCAD", "freecad", "FreekiCAD",
-    "im_client.py"
+    "cadhoc_client.py"
 )
 STEP_LOADER_PATH = os.path.join(
     REPOSITORY_ROOT, "FreekiCAD", "freecad", "FreekiCAD",
@@ -320,7 +320,7 @@ def load_im_client_module(*, with_qt=True):
     )
     fake_pyside = types.ModuleType("PySide")
     fake_pyside.QtCore = qt_core
-    module_name = "FreekiCAD.freecad.FreekiCAD.im_client_sync_test"
+    module_name = "FreekiCAD.freecad.FreekiCAD.cadhoc_client_sync_test"
     spec = importlib.util.spec_from_file_location(module_name, IM_CLIENT_PATH)
     module = importlib.util.module_from_spec(spec)
     with mock.patch.dict(sys.modules, {
@@ -359,7 +359,7 @@ class InstanceClientSyncTests(unittest.TestCase):
         module.FreeCAD.listDocuments = mock.Mock(return_value={
             "Board": types.SimpleNamespace(
                 Name="Board", FileName="/boards/board.FCStd")})
-        with mock.patch.object(module.im_mesh, "start_node", return_value=node):
+        with mock.patch.object(module.mesh, "start_node", return_value=node):
             self.assertIs(module.ensure_node(), node)
         self.assertIsNone(module.QtCore)
         module.FreeCAD.addDocumentObserver.assert_not_called()
@@ -374,7 +374,7 @@ class InstanceClientSyncTests(unittest.TestCase):
             "Board": types.SimpleNamespace(
                 Name="Board", FileName="/boards/board.FCStd")})
         node = mock.Mock()
-        with mock.patch.object(module.im_mesh, "start_node", return_value=node):
+        with mock.patch.object(module.mesh, "start_node", return_value=node):
             module.ensure_node()
             module.FreeCAD.addDocumentObserver.assert_not_called()
             module.ensure_node(observe_documents=True)
@@ -391,7 +391,7 @@ class InstanceClientSyncTests(unittest.TestCase):
         module.FreeCAD.listDocuments = mock.Mock(return_value={
             "Board": types.SimpleNamespace(
                 Name="Board", FileName="/boards/board.FCStd")})
-        with mock.patch.object(module.im_mesh, "start_node", return_value=node):
+        with mock.patch.object(module.mesh, "start_node", return_value=node):
             self.assertIs(module.ensure_node(), node)
         module.FreeCAD.addDocumentObserver.assert_called_once()
         node.set_document_provider.assert_called_once()

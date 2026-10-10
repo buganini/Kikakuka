@@ -3,7 +3,7 @@
 import socket
 import unittest
 
-from im import im_transport
+from cadhoc import transport as im_transport
 
 
 class InstanceTransportTests(unittest.TestCase):

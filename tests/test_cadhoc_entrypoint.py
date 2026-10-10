@@ -4,15 +4,15 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from im import __main__ as entrypoint
+from cadhoc import __main__ as entrypoint
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class ImEntrypointTests(unittest.TestCase):
+class CADhocEntrypointTests(unittest.TestCase):
     def test_main_starts_and_closes_foreground_node(self):
-        node = mock.Mock(pid=123, endpoint="/tmp/im.sock", kicad_api=True)
+        node = mock.Mock(pid=123, endpoint="/tmp/cadhoc.sock", kicad_api=True)
         with mock.patch.object(entrypoint, "start_node", return_value=node) as start, \
                 mock.patch.object(entrypoint, "_wait_for_shutdown") as wait:
             self.assertEqual(entrypoint.main([]), 0)
@@ -25,8 +25,8 @@ class ImEntrypointTests(unittest.TestCase):
 
     def test_both_command_forms_expose_the_same_cli(self):
         for command in (
-            [sys.executable, "-m", "im", "--help"],
-            [sys.executable, "im", "--help"],
+            [sys.executable, "-m", "cadhoc", "--help"],
+            [sys.executable, "cadhoc", "--help"],
         ):
             with self.subTest(command=command):
                 result = subprocess.run(
@@ -37,7 +37,7 @@ class ImEntrypointTests(unittest.TestCase):
                     timeout=10,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("foreground Kikakuka Instance Manager node",
+                self.assertIn("foreground CADhoc node",
                               result.stdout)
 
 

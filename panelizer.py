@@ -1014,8 +1014,8 @@ class PanelizerUI(DesktopApplication):
 
     def run(self):
         try:
-            from im.im_mesh import start_node
-            from im.instance_backend import handle
+            from cadhoc.mesh import start_node
+            from cadhoc.instance_backend import handle
             self._instance_node = start_node(handle)
             self._publish_fabplan(self.state.target_path)
         except Exception as exc:

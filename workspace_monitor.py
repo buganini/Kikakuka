@@ -4,7 +4,7 @@ import os
 
 import psutil
 
-from im.im_mesh import is_kicad_editor_process, owned_process_iter
+from cadhoc.mesh import is_kicad_editor_process, owned_process_iter
 
 
 FILE_SUFFIXES = {

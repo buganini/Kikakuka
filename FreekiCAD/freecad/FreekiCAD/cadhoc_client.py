@@ -11,8 +11,8 @@ try:
 except ImportError:
     QtCore = None
 
-from . import im_mesh
-from .instance_backend import handle
+from .cadhoc import mesh
+from .cadhoc.instance_backend import handle
 
 
 _response_handler = None
@@ -340,7 +340,7 @@ def ensure_node(observe_documents=None):
     if observe_documents is None:
         observe_documents = bool(getattr(FreeCAD, "GuiUp", False))
     with _node_lock:
-        node = im_mesh.start_node(handle)
+        node = mesh.start_node(handle)
         if (observe_documents and _document_observer is None and
                 hasattr(FreeCAD, "addDocumentObserver")):
             _document_observer = _DocumentObserver(node)
@@ -391,7 +391,7 @@ def _message(action, filepath, object_label, component):
 
 def _request(message):
     ensure_node()
-    return im_mesh.request(message)
+    return mesh.request(message)
 
 
 def send_request(action, filepath, object_label="", component="",

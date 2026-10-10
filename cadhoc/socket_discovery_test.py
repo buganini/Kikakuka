@@ -1,7 +1,7 @@
 """Standalone probes for evaluating KiCad IPC discovery approaches.
 
 This module intentionally does not import the production Instance Manager
-discovery code.  It exists only for ``python -m im test`` so the two operating
+discovery code.  It exists only for ``python -m cadhoc test`` so the two operating
 system techniques can be compared independently across platforms.
 """
 

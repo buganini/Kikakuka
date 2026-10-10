@@ -18,7 +18,7 @@ from weakref import WeakKeyDictionary
 import psutil
 
 from .kicad_compat import KICAD10_COMPAT, get_kicad_compat
-from .im_mesh import (activate_open_freecad_document, bind_freecad_source,
+from .mesh import (activate_open_freecad_document, bind_freecad_source,
                       is_kicad_editor_process, launch_lock, local_node,
                       open_in_freecad_node, owned_pid_exists, owned_process,
                       owned_process_iter)

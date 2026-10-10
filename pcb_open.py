@@ -5,16 +5,16 @@ import platform
 import subprocess
 import sys
 
-from im import im_mesh
+from cadhoc import mesh
 
 WORKSPACE_OPEN_TIMEOUT = 120.0
 
 
 def _ensure_instance_node():
     """Make standalone Kikakuka tools participate in the instance mesh."""
-    from im.instance_backend import handle
+    from cadhoc.instance_backend import handle
 
-    return im_mesh.start_node(handle)
+    return mesh.start_node(handle)
 
 
 def system_open_command(filepath, mac_args=()):
@@ -36,11 +36,11 @@ def open_with_system(filepath, program="kicad"):
         os.startfile(filepath)
     elif system == "Linux":
         if program == "freecad":
-            from im.instance_backend import _launch
+            from cadhoc.instance_backend import _launch
 
             _launch(filepath, "freecad")
         else:
-            from im.instance_backend import launch_linux_kicad
+            from cadhoc.instance_backend import launch_linux_kicad
 
             launch_linux_kicad(filepath)
     else:
@@ -57,7 +57,7 @@ def request_workspace_open(
     request = {"action": "open-file", "filepath": filepath}
     if ensure_fresh:
         request["ensure_fresh"] = True
-    reply = im_mesh.request(request, timeout=timeout)
+    reply = mesh.request(request, timeout=timeout)
     if reply.get("status") == "error":
         raise RuntimeError(reply.get("message", "instance open failed"))
     if reply.get("status") != "ok" or reply.get("filepath") != filepath:

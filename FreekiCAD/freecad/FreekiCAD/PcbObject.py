@@ -8,7 +8,7 @@ import FreeCAD
 import Part
 
 from .constants import FREEKICAD_LAYER_NAME
-from .kicad_compat import KICAD10_COMPAT, get_kicad_compat
+from .cadhoc.kicad_compat import KICAD10_COMPAT, get_kicad_compat
 from .kicad_paths import (
     path_variables as _shared_path_variables,
     resolve_model_path as _shared_resolve_model_path,
@@ -231,7 +231,7 @@ def _log_surface_reload(message):
 def _kipy_retry(func, max_retries=15, delay_s=1.0):
     """Call *func* and retry up to *max_retries* times when KiCad reports
     AS_NOT_READY or AS_BUSY.  Sleeps *delay_s* seconds between attempts."""
-    from .kicad_api_retry import retry_kicad_call
+    from .cadhoc.kicad_api_retry import retry_kicad_call
 
     return retry_kicad_call(
         func,
@@ -256,7 +256,7 @@ def _is_kipy_import_error(error):
 
 def _kipy_ready_board(kicad, max_retries=15, delay_s=1.0):
     """Return a board proxy after KiCad's board API is ready."""
-    from .kicad_api_retry import get_ready_kicad_board
+    from .cadhoc.kicad_api_retry import get_ready_kicad_board
 
     return get_ready_kicad_board(
         kicad,
@@ -2290,7 +2290,7 @@ def load_board(filepath, socket_path, import_outer_copper=False,
         FreeCAD.Console.PrintWarning(
             f"FreekiCAD: KiCad API socket was: {socket_path}\n"
         )
-        from .im_client import report_error
+        from .cadhoc_client import report_error
         report_error(socket_path, e)
     return (None, [], None, [], DEFAULT_PCB_THICKNESS, [], None, [], [], [],
             [], [], 0)
@@ -2762,7 +2762,7 @@ class _OutlineSketchObserver:
             new_kicad_y = float(obj.Y) + delta_y
             new_kicad_angle = float(obj.Rotation) + delta_yaw
 
-            from .im_client import send_request
+            from .cadhoc_client import send_request
             send_request("move-component", _resolved_linked_filename(parent),
                          object_label=parent.Label, component=ref)
             # Stash computed coordinates on the proxy for the response
@@ -2884,7 +2884,7 @@ def _ensure_sketch_observer():
         except Exception:
             pass
         # Register the instance-client response handler.
-        from .im_client import set_response_handler
+        from .cadhoc_client import set_response_handler
         set_response_handler(_handle_bus_response)
     return _sketch_observer
 
@@ -4138,7 +4138,7 @@ class PcbObject:
         if update is None:
             return
         self._coupler_updates_in_flight[reference] = update
-        from .im_client import send_request
+        from .cadhoc_client import send_request
         send_request(
             "update-coupler", _resolved_linked_filename(obj),
             object_label=obj.Label, component=reference)
@@ -4159,7 +4159,7 @@ class PcbObject:
             except Exception as ex:
                 import traceback
                 error = (ex, traceback.format_exc())
-            from .im_client import dispatch_to_main_thread
+            from .cadhoc_client import dispatch_to_main_thread
             dispatch_to_main_thread(lambda: self._finish_coupler_update(
                 obj, reference, update, error))
 
@@ -4266,7 +4266,7 @@ class PcbObject:
         socket_path = getattr(self, '_cached_socket_path', None)
         if socket_path is None:
             self._coupler_socket_pending = True
-            from .im_client import send_request
+            from .cadhoc_client import send_request
             send_request(
                 "monitor-couplers", _resolved_linked_filename(obj),
                 object_label=obj.Label, log_errors=False)
@@ -4302,7 +4302,7 @@ class PcbObject:
             except Exception as ex:
                 error = ex
 
-            from .im_client import dispatch_to_main_thread
+            from .cadhoc_client import dispatch_to_main_thread
             dispatch_to_main_thread(lambda: self._finish_coupler_poll(
                 obj, generation, live_poses, error))
 
@@ -12528,7 +12528,7 @@ class PcbObject:
         self._suppress_execute = True
         FreeCAD.Console.PrintMessage(
             f"FreekiCAD: Outline sketch opened for '{obj.Name}'\n")
-        from .im_client import send_request
+        from .cadhoc_client import send_request
         send_request("open-sketch", _resolved_linked_filename(obj),
                      object_label=obj.Label)
 
@@ -12581,7 +12581,7 @@ class PcbObject:
                 f"FreekiCAD: Failed to connect to KiCad: "
                 f"{type(e).__name__}: {e}\n"
                 f"{traceback.format_exc()}\n")
-            from .im_client import report_error
+            from .cadhoc_client import report_error
             report_error(socket_path, e)
             return None
 
@@ -12820,7 +12820,7 @@ class PcbObject:
         self._ensure_coupler_monitor_state()
         self._coupler_monitor_generation += 1
         self._ensure_properties(obj)
-        from .im_client import send_request
+        from .cadhoc_client import send_request
         send_request("reload", _resolved_linked_filename(obj),
                      object_label=obj.Label)
         _log_surface_reload(
@@ -12879,7 +12879,7 @@ class PcbObject:
         self._ensure_properties(obj)
         try:
             if socket_path is None:
-                from .im_client import request_sync
+                from .cadhoc_client import request_sync
                 reply = request_sync(
                     "reload", filename, object_label=obj.Label)
                 socket_path = reply["socket"]
@@ -13310,7 +13310,7 @@ class PcbObjectViewProvider:
         action.triggered.connect(lambda: self._goto_kicad(vobj))
 
     def _goto_kicad(self, vobj):
-        from .im_client import send_request
+        from .cadhoc_client import send_request
         obj = vobj.Object
         filename = _resolved_linked_filename(obj)
         if filename:

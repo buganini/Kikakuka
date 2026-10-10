@@ -34,7 +34,7 @@ if FreeCAD is not None and hasattr(FreeCAD, "addExportType"):
 # broken dependency should be reported without breaking FreeCAD's startup.
 if FreeCAD is not None:
     try:
-        from .im_client import ensure_node
+        from .cadhoc_client import ensure_node
         ensure_node()
     except ImportError as exc:
         if hasattr(FreeCAD, "Console"):

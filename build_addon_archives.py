@@ -131,7 +131,7 @@ def build() -> list[Path]:
         [
             (plugin_root / "metadata.json", Path("metadata.json")),
             (plugin_root / "plugins", Path("plugins")),
-            (ROOT / "im", Path("plugins/im")),
+            (ROOT / "cadhoc", Path("plugins/cadhoc")),
             (plugin_root / "resources", Path("resources")),
         ],
         {Path("plugins/.kikakuka-version"): plugin_version},

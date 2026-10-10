@@ -6,8 +6,8 @@ import sys
 
 from kipy import KiCad
 
-from im.freecad_open import open_board
-from im.kicad_compat import get_kicad_compat
+from cadhoc.freecad_open import open_board
+from cadhoc.kicad_compat import get_kicad_compat
 
 
 def main():

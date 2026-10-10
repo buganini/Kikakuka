@@ -7,7 +7,7 @@ from unittest.mock import patch
 from types import SimpleNamespace
 import zipfile
 
-from im.instance_backend import external_process_environment, freecad_process_environment
+from cadhoc.instance_backend import external_process_environment, freecad_process_environment
 from tools.linux_appimage import ADDONS, download_tool, external_dependencies, validate_addons, link_bootloader_libraries
 
 

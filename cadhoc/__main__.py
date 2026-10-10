@@ -1,4 +1,4 @@
-"""Run a foreground Instance Manager mesh node."""
+"""Run a foreground CADhoc mesh node."""
 
 import argparse
 import logging
@@ -8,21 +8,21 @@ import sys
 import threading
 
 
-# ``python im`` executes this file as a directory entry point without package
+# ``python cadhoc`` executes this file as a directory entry point without package
 # context. Add the repository root so it shares the same imports as
-# ``python -m im``.
+# ``python -m cadhoc``.
 if __package__ in (None, ""):
     package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if package_root not in sys.path:
         sys.path.insert(0, package_root)
 
-from im.im_mesh import start_node
-from im.instance_backend import handle as instance_handle
-from im.socket_discovery_test import (enumerated_kicad_sockets,
-                                      owner_kicad_sockets)
+from cadhoc.mesh import start_node
+from cadhoc.instance_backend import handle as instance_handle
+from cadhoc.socket_discovery_test import (enumerated_kicad_sockets,
+                                          owner_kicad_sockets)
 
 
-LOGGER = logging.getLogger("im")
+LOGGER = logging.getLogger("cadhoc")
 
 
 def _handle(request):
@@ -69,7 +69,7 @@ def _wait_for_shutdown():
 
 def _parse_arguments(arguments):
     parser = argparse.ArgumentParser(
-        description="Run a foreground Kikakuka Instance Manager node.",
+        description="Run a foreground CADhoc node.",
     )
     parser.add_argument(
         "--log-level",

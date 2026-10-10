@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from im import freecad_open, im_mesh
+from cadhoc import freecad_open, mesh as im_mesh
 
 
 class OpenInFreeCADTests(unittest.TestCase):

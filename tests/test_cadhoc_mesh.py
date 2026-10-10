@@ -14,7 +14,7 @@ import types
 import unittest
 from unittest import mock
 
-from im import im_mesh
+from cadhoc import mesh as im_mesh
 
 
 def _child_node(runtime_path, ready, stop):

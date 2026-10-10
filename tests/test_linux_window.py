@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from im import linux_window
+from cadhoc import linux_window
 
 
 class _Connection:

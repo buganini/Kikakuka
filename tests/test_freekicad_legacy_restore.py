@@ -18,7 +18,7 @@ class LegacyRestoreTests(unittest.TestCase):
         freecad = types.ModuleType("freecad")
         freecad.__path__ = [str(ADDON_PACKAGE.parent)]
         freecad_app = types.ModuleType("FreeCAD")
-        im_client = types.ModuleType("freecad.FreekiCAD.im_client")
+        im_client = types.ModuleType("freecad.FreekiCAD.cadhoc_client")
         im_client.ensure_node = mock.Mock()
         implementation = types.ModuleType("freecad.FreekiCAD.PcbObject")
         implementation.PcbObject = type(
@@ -38,7 +38,7 @@ class LegacyRestoreTests(unittest.TestCase):
                 "freecad": freecad,
                 "FreeCAD": freecad_app,
                 name: package,
-                name + ".im_client": im_client,
+                name + ".cadhoc_client": im_client,
                 name + ".PcbObject": implementation,
         }):
             spec.loader.exec_module(package)

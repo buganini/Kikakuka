@@ -4,7 +4,7 @@ import os
 import time
 import uuid
 
-from . import im_mesh
+from . import mesh
 from .instance_backend import _editors, _focus, _launch
 
 
@@ -13,7 +13,7 @@ _PCB_BUSY = object()
 
 
 def _gui_peers():
-    return [peer for peer in im_mesh.discover() if peer.get("freecad_documents")]
+    return [peer for peer in mesh.discover() if peer.get("freecad_documents")]
 
 
 def _open_pcb(peer, filepath, socket_path, *, create=False, active_only=False,
@@ -21,7 +21,7 @@ def _open_pcb(peer, filepath, socket_path, *, create=False, active_only=False,
     if peer.get("freecad_pcb", 0) != 2:
         raise RuntimeError("Update FreekiCAD in the running FreeCAD instance, then restart it")
     request_id = uuid.uuid4().hex
-    ack = im_mesh._exchange(peer["endpoint"], {
+    ack = mesh._exchange(peer["endpoint"], {
         "mesh_action": "freecad-open-pcb", "id": request_id,
         "filepath": filepath, "socket": socket_path, "create": create,
         "active_only": active_only, "probe": probe, "document": document_name,
@@ -41,11 +41,11 @@ def _open_pcb(peer, filepath, socket_path, *, create=False, active_only=False,
     # be running even if its result cannot be retrieved.
     deadline = time.monotonic() + OPEN_TIMEOUT
     while time.monotonic() < deadline:
-        reply = im_mesh._exchange(peer["endpoint"], {
+        reply = mesh._exchange(peer["endpoint"], {
             "mesh_action": "result", "id": ack["id"],
         })
         if reply.get("status") == "pending":
-            time.sleep(im_mesh.POLL_INTERVAL)
+            time.sleep(mesh.POLL_INTERVAL)
             continue
         if reply.get("status") != "ok" or reply.get("pid") != peer["pid"]:
             raise RuntimeError(reply.get("message", "FreeCAD could not open the PCB"))
@@ -65,10 +65,10 @@ def open_board(filepath, socket_path):
     if not socket_path:
         raise ValueError("The invoking KiCad API socket is unavailable")
     socket_path = socket_path.removeprefix("ipc://")
-    with im_mesh._file_lock("open-in-freecad:" + filepath, blocking=False) as acquired:
+    with mesh._file_lock("open-in-freecad:" + filepath, blocking=False) as acquired:
         if not acquired:
             return None
-        with im_mesh.launch_lock("freecad"):
+        with mesh.launch_lock("freecad"):
             peers = _gui_peers()
             if not peers:
                 running = _editors("freecad")

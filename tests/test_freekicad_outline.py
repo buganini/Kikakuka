@@ -498,7 +498,7 @@ class OutlineWireOrderTests(unittest.TestCase):
             PrintError=mock.Mock(),
         )
         im_client = types.ModuleType(
-            "FreekiCAD.freecad.FreekiCAD.im_client")
+            "FreekiCAD.freecad.FreekiCAD.cadhoc_client")
         im_client.report_error = mock.Mock()
         blocked_kipy_modules = {
             name: None
@@ -507,7 +507,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         }
         blocked_kipy_modules["kipy"] = None
         blocked_kipy_modules[
-            "FreekiCAD.freecad.FreekiCAD.im_client"] = im_client
+            "FreekiCAD.freecad.FreekiCAD.cadhoc_client"] = im_client
 
         with mock.patch.dict(sys.modules, blocked_kipy_modules):
             result = linked_object.load_board("board.kicad_pcb", "/tmp/kicad")
@@ -2151,7 +2151,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         proxy._ensure_properties = mock.Mock()
         shape = types.SimpleNamespace(isNull=lambda: False)
         im_client = types.ModuleType(
-            "FreekiCAD.freecad.FreekiCAD.im_client")
+            "FreekiCAD.freecad.FreekiCAD.cadhoc_client")
         im_client.request_sync = mock.Mock(return_value={
             "socket": "/tmp/kicad.sock",
         })
@@ -2171,7 +2171,7 @@ class OutlineWireOrderTests(unittest.TestCase):
             proxy._handle_reload_response = mock.Mock(
                 side_effect=finish_reload)
             with mock.patch.dict(sys.modules, {
-                    "FreekiCAD.freecad.FreekiCAD.im_client":
+                    "FreekiCAD.freecad.FreekiCAD.cadhoc_client":
                     im_client}):
                 result = proxy.reload_sync(obj, reposition=False)
 
@@ -2193,7 +2193,7 @@ class OutlineWireOrderTests(unittest.TestCase):
                 Group=[types.SimpleNamespace(Name="Board_Board",
                     Shape=types.SimpleNamespace(isNull=lambda: False))])
             with mock.patch.dict(sys.modules, {
-                    "FreekiCAD.freecad.FreekiCAD.im_client": None}):
+                    "FreekiCAD.freecad.FreekiCAD.cadhoc_client": None}):
                 self.assertTrue(proxy.reload_sync(obj, socket_path="/tmp/live.sock"))
         proxy._handle_reload_response.assert_called_once_with(
             obj, "/tmp/live.sock", reposition=True)
@@ -2402,7 +2402,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
         with mock.patch.object(linked_object.time, "monotonic", return_value=100.0), \
                 mock.patch.dict(sys.modules, {
-                    "FreekiCAD.freecad.FreekiCAD.im_client": types.SimpleNamespace(
+                    "FreekiCAD.freecad.FreekiCAD.cadhoc_client": types.SimpleNamespace(
                         send_request=send_request),
                 }):
             proxy.reload(obj, force=True)

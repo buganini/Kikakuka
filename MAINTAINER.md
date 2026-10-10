@@ -67,16 +67,16 @@ The source archive contains only tracked files. Checked-out submodules are
 expanded recursively, and symlinks are dereferenced so archive consumers get
 regular files.
 
-## Shared Instance Manager modules
+## Shared CADhoc modules
 
 FreekiCAD is a separate deployment and cannot import modules from the
 Kikakuka repository root. During development,
-`FreekiCAD/freecad/FreekiCAD/{im_mesh,im_transport,instance_backend,kicad_api_retry}.py`
-are relative symlinks into `im/`, and `kicad_paths.py` links to the
+`FreekiCAD/freecad/FreekiCAD/cadhoc` is a relative directory symlink to the
+repository-root `cadhoc/` package, and `kicad_paths.py` links to the
 repository-root implementation. Edit those targets rather than creating
 divergent copies under FreekiCAD. Release archives and `make sync` must
-dereference all five links so the standalone addon contains ordinary
-package-local files.
+dereference both links recursively so the standalone addon contains ordinary
+package-local files and directories.
 
 Keep imports between these shared modules package-relative. In particular,
 they must not depend on `workspace.py`, `workspace_monitor.py`, or other

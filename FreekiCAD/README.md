@@ -8,7 +8,7 @@ PCB editing and mechanical assembly.
 FreekiCAD and Kikakuka discover each other on demand through local Unix sockets
 or Windows named pipes. No board, assembly, or usage data is sent to third
 parties. Kikakuka can find open FreeCAD documents and reuse an existing
-instance when opening a file; see [Instance Manager](https://github.com/buganini/Kikakuka/blob/main/im/README.md)
+instance when opening a file; see [CADhoc](https://github.com/buganini/Kikakuka/blob/main/cadhoc/README.md)
 for details.
 
 > [!NOTE]
@@ -20,7 +20,7 @@ for details.
 > Affected Windows builds expose only one IPC endpoint for multiple instances
 > due to [KiCad issue #23994](https://gitlab.com/kicad/code/kicad/-/work_items/23994).
 > Close all running KiCad applications before first using Kikakuka or
-> FreekiCAD. Instance Manager creates a persistent filesystem sentinel that
+> FreekiCAD. CADhoc creates a persistent filesystem sentinel that
 > makes subsequently launched instances use PID-specific named pipes.
 >
 > With an older Kikakuka or FreekiCAD release, close all KiCad applications,
@@ -50,15 +50,14 @@ for details.
 - Exporting `.kkkk_asm` assemblies or individual `.kicad_pcb` boards to STEP
   or STL with `freecadcmd`
 - Running independently of the Kikakuka main program through the local
-  per-process Instance Manager mesh
+  per-process CADhoc mesh
 
-## Independent Instance Manager deployment
+## Independent CADhoc deployment
 
 FreekiCAD is packaged and deployed independently from the Kikakuka application.
-Its release contains regular package-local copies of the shared Instance
-Manager modules (`im_mesh.py`, `im_transport.py`, `instance_backend.py`, and
-`kicad_api_retry.py`) plus `kicad_paths.py`; it never imports Kikakuka-root
-modules at runtime. Every FreeCAD process starts its node when the FreekiCAD
+Its release contains a regular package-local copy of the shared `cadhoc`
+package plus `cadhoc_client.py` and `kicad_paths.py`; it never imports
+Kikakuka-root modules at runtime. Every FreeCAD process starts its node when the FreekiCAD
 package is imported, including FreeCADCmd, so KiCad PCB operations do not
 require the Workspace Manager.
 
@@ -68,13 +67,13 @@ Kikakuka Instance Manager therefore updates the row and displayed socket
 basename automatically. Process discovery and socket inspection remain limited
 to current-user editor processes. FreekiCAD-linked operations do not normally
 activate the KiCad window. If a pre-existing KiCad lock may show an **Open
-Anyway** prompt, Instance Manager brings that newly launched KiCad process to
+Anyway** prompt, CADhoc brings that newly launched KiCad process to
 the foreground before waiting for its IPC endpoint. User-initiated file opens
 always activate KiCad. On macOS, linked operations restore the originating
 FreeCAD process after launch and again when PCB IPC becomes ready because PCB
 Editor can activate itself despite LaunchServices' background option. The
 complete policy is documented in
-[Instance Manager](https://github.com/buganini/Kikakuka/blob/main/im/README.md#kicad-foreground-policy).
+[CADhoc](https://github.com/buganini/Kikakuka/blob/main/cadhoc/README.md#file-opening-and-foreground-policy).
 
 `.kicad_pcb` boards, STEP models, and STL meshes remain linked to their external
 source files. When an assembly is saved as an `.FCStd` document, that document caches

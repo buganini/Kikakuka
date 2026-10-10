@@ -1,1 +1,0 @@
-../../../kicad_compat.py

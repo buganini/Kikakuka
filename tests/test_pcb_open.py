@@ -17,7 +17,7 @@ class PcbOpenTests(unittest.TestCase):
             "status": "ok", "action": "open-file", "filepath": path,
             "pid": 123,
         }
-        with mock.patch("pcb_open.im_mesh.request", return_value=reply) as request:
+        with mock.patch("pcb_open.mesh.request", return_value=reply) as request:
             self.assertTrue(pcb_open.request_workspace_open(path))
         request.assert_called_once_with(
             {"action": "open-file", "filepath": path}, timeout=pcb_open.WORKSPACE_OPEN_TIMEOUT)
@@ -27,7 +27,7 @@ class PcbOpenTests(unittest.TestCase):
             "status": "ok", "action": "open-file",
             "filepath": "/boards/other.kicad_pcb", "pid": 123,
         }
-        with mock.patch("pcb_open.im_mesh.request", return_value=reply):
+        with mock.patch("pcb_open.mesh.request", return_value=reply):
             with self.assertRaisesRegex(RuntimeError, "mismatched"):
                 pcb_open.request_workspace_open("/boards/panel.kicad_pcb")
 
@@ -38,7 +38,7 @@ class PcbOpenTests(unittest.TestCase):
             "pid": 123, "activation_error": "native Wayland",
         }
         handler = mock.Mock()
-        with mock.patch("pcb_open.im_mesh.request", return_value=reply):
+        with mock.patch("pcb_open.mesh.request", return_value=reply):
             self.assertTrue(pcb_open.request_workspace_open(
                 path, activation_error_handler=handler))
         handler.assert_called_once_with("native Wayland")
@@ -85,7 +85,7 @@ class PcbOpenTests(unittest.TestCase):
             "pid": 123,
         }
         with mock.patch("pcb_open.os.path.isfile", return_value=True), \
-                mock.patch("pcb_open.im_mesh.request", return_value=reply) as request:
+                mock.patch("pcb_open.mesh.request", return_value=reply) as request:
             result = pcb_open.open_pcb_file(path, ensure_fresh=True)
         self.assertEqual(result, "workspace")
         request.assert_called_once_with({
@@ -121,7 +121,7 @@ class PcbOpenTests(unittest.TestCase):
 
         with mock.patch("pcb_open.platform.system", return_value="Linux"):
             with mock.patch(
-                    "im.instance_backend.launch_linux_kicad") as launch:
+                    "cadhoc.instance_backend.launch_linux_kicad") as launch:
                 pcb_open.open_with_system(path)
         launch.assert_called_once_with(path)
 
@@ -133,8 +133,8 @@ class PcbOpenTests(unittest.TestCase):
     def test_linux_freecad_fallback_uses_freecad_launcher(self):
         path = "/models/assembly.FCStd"
         with mock.patch("pcb_open.platform.system", return_value="Linux"), \
-                mock.patch("im.instance_backend._launch") as launch, \
-                mock.patch("im.instance_backend.launch_linux_kicad") as kicad:
+                mock.patch("cadhoc.instance_backend._launch") as launch, \
+                mock.patch("cadhoc.instance_backend.launch_linux_kicad") as kicad:
             pcb_open.open_with_system(path, program="freecad")
 
         launch.assert_called_once_with(path, "freecad")
