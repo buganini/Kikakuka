@@ -76,7 +76,7 @@ class WorkspaceInstanceManagerTests(unittest.TestCase):
         content = ast.get_source_segment(
             self.source, self.methods["content"])
         manager = content.split('with Tab("Instance Manager"):', 1)[1]
-        manager = manager.split('with Tab("Add-ons"):', 1)[0]
+        manager = manager.split('with Tab("Integration"):', 1)[0]
 
         refresh = manager.index(
             'Button("Refresh").click(self.refresh_monitor)')

@@ -960,7 +960,7 @@ class MainUI(DesktopApplication):
                                                         )
                                     Spacer()
 
-                    with Tab("Add-ons"):
+                    with Tab("Integration"):
                         with VBox():
                             with HBox():
                                 with Grid():
