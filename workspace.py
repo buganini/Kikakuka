@@ -841,6 +841,20 @@ class MainUI(DesktopApplication):
         self.pidmap()
         return boards
 
+    def kill_all_instances(self, _event=None):
+        if not Confirm(
+                "Stop all running KiCad and FreeCAD instances?\n"
+                "Unsaved changes may be lost.",
+                "Close All Instances"):
+            return
+        Thread(target=self._kill_all_instances, daemon=True).start()
+
+    def _kill_all_instances(self):
+        from process_control import kill_all_cad_instances
+
+        kill_all_cad_instances()
+        self.refresh_monitor()
+
     def go_to_monitor_row(self, _event, pid, program, filepath):
         Thread(target=self._go_to_monitor_row,
                args=(pid, program, filepath), daemon=True).start()
@@ -912,6 +926,7 @@ class MainUI(DesktopApplication):
                                 Label("KiCad and FreeCAD processes")
                                 Button("Refresh").click(self.refresh_monitor)
                                 Spacer()
+                                Button("Close All").click(self.kill_all_instances)
                             with Scroll().layout(weight=1):
                                 with VBox():
                                     with Grid():
