@@ -1,8 +1,11 @@
 # Instance Manager
 
-Kikakuka and each FreekiCAD process host an equivalent Instance Manager
-node. FreekiCAD starts its node on package import, before its workbench is
-selected, including in FreeCADCmd.
+Kikakuka and each FreekiCAD process host an equivalent peer Instance Manager
+node, while the KiCad add-on uses a client-only node. FreekiCAD starts its node
+on package import, before its workbench is selected, including in FreeCADCmd.
+The client-only node shares the IM discovery, authentication, locking, and
+request implementation, but does not listen on a mesh endpoint, publish
+mappings, or execute requests for peers.
 Standalone Kikakuka tools start their local node on demand before opening a
 KiCad file, so the Fabrication Planner and Differ can reuse an existing editor
 without requiring the Workspace Manager to be running.
@@ -135,32 +138,71 @@ launches have no equivalent document probe, so they keep a short settling
 period before the next KiCad launch. The outer request may wait up to 120
 seconds to accommodate queued opens.
 
-### KiCad foreground policy
+## File-opening and foreground policy
 
-Bringing KiCad to the foreground is part of the request semantics, not a side
-effect of discovering or launching an editor:
+Instance Manager separates explicit user navigation from background integration
+work. A user navigation request brings its target editor to the foreground;
+an integration request normally preserves the user's current foreground
+application. Document discovery and read-only probes never change tabs, reload
+documents, launch applications, or focus windows.
 
-- A user-initiated `open-file` request must bring the reused or newly opened
-  KiCad editor to the foreground.
-- FreekiCAD integration requests such as `reload`, `open-sketch`,
-  `move-component`, and `update-coupler` must not bring KiCad to the
-  foreground during normal operation. New KiCad processes are therefore
-  launched without activation on macOS (`open -g`) and Windows
-  (`SW_SHOWNOACTIVATE`). On Linux, Instance Manager does not issue an explicit
-  focus request. Linux launches the matching KiCad executable directly; in a
-  Wayland session with a usable XWayland display, only the child KiCad process
-  receives `GDK_BACKEND=x11` so later EWMH activation can find its window.
-  Because macOS applications may activate themselves despite `open -g`,
-  FreekiCAD includes its PID in integration requests and Instance Manager
-  restores that process after launch and again when PCB IPC becomes ready.
-- The exception for an integration request is a KiCad lock that may produce an
-  **Open Anyway** prompt. Before launching, the backend checks KiCad's sibling
-  lock path (`~<filename>.<ext>.lck`) and reads its `username` and `hostname`
-  fields. A lock owned by the current user and host with no other same-user
-  KiCad editor is treated as a stale lock that KiCad can reclaim without a
-  prompt. A foreign lock, or a current-user lock while another KiCad editor is
-  running, may require user input; the newly launched process is focused
-  immediately, before waiting for PCB IPC, so the modal prompt is visible.
+"Foreground" below means that IM makes a best-effort OS activation request
+after selecting the target process and document. "Background" means that IM
+does not request activation and, where supported, launches the editor without
+activating it. Window-manager restrictions can still prevent or override the
+requested behavior; see [Process launching and access](#process-launching-and-access).
+
+| Entry point | Reuse or open behavior | Foreground behavior |
+| --- | --- | --- |
+| Workspace Manager, Differ, Fabrication Planner, or `kikakuka.py --open` | Send `open-file`; reuse the matching editor when possible, otherwise open one. | Foreground the reused or newly opened KiCad or FreeCAD process. |
+| Instance Manager **Go to** | Navigate to the selected already-open instance; for FreeCAD, also select its matching document/tab. It never opens a file or launches a new process. | Foreground the selected running process. |
+| Fabrication Planner after a successful export | Send PCB `open-file` with `ensure_fresh: true`; revert an already-open board from disk, or open the newly exported board. | Foreground KiCad after the board is ready. |
+| FreekiCAD **Open in KiCad** | Send PCB `open-file` without `ensure_fresh`; reuse or open the board without reverting unsaved KiCad content. | Foreground KiCad. |
+| FreekiCAD `reload`, `open-sketch`, `move-component`, or `update-coupler` | Reuse or open the PCB Editor only to obtain a verified KiCad IPC socket; FreekiCAD performs the subsequent operation. | Keep KiCad in the background and preserve the requesting FreeCAD process in front when possible. A possible **Open Anyway** prompt is the exception described below. |
+| FreekiCAD `monitor-couplers` | Resolve only an already-open PCB; never launch KiCad. | No focus change. |
+| KiCad add-on **Open in FreeCAD**, read-only probe phase | Search active documents first, then other documents, for an existing linked PCB. | No tab activation, reload, process launch, or focus change. |
+| KiCad add-on **Open in FreeCAD**, selected update/create phase | Update the selected document; create one in a responding FreeCAD GUI node when no match exists; launch FreeCAD only when no GUI instance is running. | Restore and foreground the selected or newly launched FreeCAD process, then activate the selected document. |
+| General `.FCStd`, `.step`, `.stp`, `.stl`, or `.kkkk_asm` `open-file` | Activate an already-open document; otherwise queue the open in a responding FreeCAD GUI node; launch a new process only when no FreeCAD GUI is running. | Foreground FreeCAD and select the matching document/tab when available. |
+| Shared opener with no reachable IM node | Fall back to the platform file association. An explicit error from a responding node does not fall back, because that could open a duplicate. | Controlled by the platform association rather than IM. |
+
+### Reuse and launch order
+
+- For `.kicad_pcb`, KiCad IPC must report the requested board path before IM
+  reuses the process or considers a new launch successful. A stored mapping by
+  itself is not sufficient.
+- For `.kicad_sch` and `.kicad_pro`, KiCad exposes no equivalent document
+  probe. IM reuses a live file-to-PID mapping when available; otherwise it
+  launches the matching editor and infers its PID on a best-effort basis.
+- For FreeCAD files, live GUI document queries take precedence over stored
+  mappings. IM first activates an existing document, then asks a responding GUI
+  node to open it, and launches a new FreeCAD process only when no GUI process
+  is running. If FreeCAD is running but its FreekiCAD node is unreachable, the
+  request fails instead of opening a duplicate process.
+- Per-file locks serialize requests for the same canonical path. A separate
+  per-program launch lock prevents two different files from racing through
+  editor startup and PID/socket discovery.
+
+### Background KiCad integration
+
+FreekiCAD integration requests launch a missing KiCad editor without activation
+on macOS (`open -g`) and Windows (`SW_SHOWNOACTIVATE`). On Linux, Instance
+Manager does not issue an explicit focus request. Linux launches the matching
+KiCad executable directly; in a Wayland session with a usable XWayland display,
+only the child KiCad process receives `GDK_BACKEND=x11` so later EWMH activation
+can find its window. Because macOS applications may activate themselves despite
+`open -g`, FreekiCAD includes its PID in integration requests and Instance
+Manager restores that process after launch and again when PCB IPC becomes
+ready.
+
+The exception is a KiCad lock that may produce an **Open Anyway** prompt.
+Before launching, the backend checks KiCad's sibling lock path
+(`~<filename>.<ext>.lck`) and reads its `username` and `hostname` fields. A lock
+owned by the current user and host with no other same-user KiCad editor is
+treated as stale and can be reclaimed without a prompt. A foreign lock, or a
+current-user lock while another same-user KiCad editor is running, may require
+input; the new process is focused before IM waits for PCB IPC so the modal
+prompt remains visible. On macOS, IM does not restore FreeCAD over an unresolved
+prompt.
 
 The lock check must happen before process launch because KiCad creates its own
 lock file during every successful open. Checking afterwards would incorrectly
@@ -191,7 +233,7 @@ return to the requesting process over the same request/reply connection.
 | `python -m im` | Standalone IM node using the same editor backend; can receive requests and query other nodes while executing them. |
 | FreeCAD GUI with FreekiCAD | Hosts an IM node, sends integration requests, and receives FreeCAD document commands. It can also execute generic editor requests for other callers. |
 | FreeCADCmd with FreekiCAD | Hosts an IM node and can send/execute editor requests, but does not offer GUI document commands. |
-| KiCad add-on's Open in FreeCAD Python process | Client of the IM mesh. Runs `im.freecad_open.open_board()` and sends requests directly to FreeCAD nodes; this action does not start its own IM node. |
+| KiCad add-on's Open in FreeCAD Python process | Client-only IM node. Runs `im.freecad_open.open_board()` and sends requests directly to FreeCAD nodes, but does not listen on an endpoint or receive peer requests. |
 | KiCad PCB Editor (`pcbnew`) | Server for **KiCad's own IPC API**, not an IM mesh receiver. IM nodes and FreekiCAD talk to its KiCad socket using kipy. |
 
 An **executor node** below means a selected node hosted by Kikakuka, FreekiCAD,
@@ -254,7 +296,7 @@ FreeCAD process, Kikakuka, or standalone IM. It returns the socket to the
 original requester; it does not choose another FreeCAD document or rebuild
 geometry in the executor's process.
 
-**Goto KiCad** also starts in the FreeCAD process containing the PCB object:
+**Open in KiCad** also starts in the FreeCAD process containing the PCB object:
 
 ```text
 FreekiCAD -> executor IM node: dispatch(request.action=open-file), result
@@ -263,7 +305,7 @@ executor -> operating system: foreground the selected KiCad process
 executor -> FreekiCAD: completion result; no FreeCAD geometry update
 ```
 
-Goto KiCad does not set `ensure_fresh`, so it does not revert unsaved KiCad
+Open in KiCad does not set `ensure_fresh`, so it does not revert unsaved KiCad
 contents. It uses the same editor action as Kikakuka's ordinary file opener.
 
 ### Mesh commands
@@ -292,7 +334,8 @@ A mapping `event` contains `filepath`, `pid` (or `null` for a tombstone), and
 may also contain `socket`. Stamps are compared lexicographically. Use
 `publish()` to canonicalize paths and broadcast events.
 
-`freecad-open-document` supports `.FCStd`, `.step`, `.stp`, and `.kkkk_asm`.
+`freecad-open-document` supports `.FCStd`, `.step`, `.stp`, `.stl`, and
+`.kkkk_asm`.
 It activates an already-open document when possible. Its asynchronous result
 can be polled, but the current general file opener proceeds after acceptance
 instead of waiting for a potentially long import to finish.
@@ -335,9 +378,9 @@ reply back to FreekiCAD; they do not identify an IM node or FreeCAD document.
 | `log` | None | Compatibility no-op; returns `ok`. Does not write a log message. |
 
 `open-file` accepts `.kicad_pcb`, `.kicad_sch`, `.kicad_pro`, `.fcstd`, `.step`,
-`.stp`, and `.kkkk_asm`. The five integration actions from `reload` through
+`.stp`, `.stl`, and `.kkkk_asm`. The five integration actions from `reload` through
 `monitor-couplers` are for `.kicad_pcb` files and normally do not foreground
-KiCad; see [KiCad foreground policy](#kicad-foreground-policy) for the lock-prompt
+KiCad; see [File-opening and foreground policy](#file-opening-and-foreground-policy) for the lock-prompt
 exception. Their successful replies contain `action`, `object`, `socket`,
 `pid`, and `component` when supplied, in addition to `status: "ok"`.
 **An integration action's IM success means the socket is ready, not that the
@@ -621,7 +664,7 @@ add-on's initial connection to its invoking editor still uses the environment
 provided by KiCad. FreekiCAD does not print API credentials in path-variable
 diagnostics.
 
-Goto KiCad uses `dispatch(action=open-file)` and Open in FreeCAD uses
+Open in KiCad uses `dispatch(action=open-file)` and Open in FreeCAD uses
 `freecad-open-pcb`; neither action writes a new token into an existing process's
 environment or overwrites an existing `mesh-token` file. A KiCad API client
 learning a token from a response stores it in that client, not in the mesh
