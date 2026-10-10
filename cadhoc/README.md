@@ -115,12 +115,12 @@ A process does not need to host a node to send a request. This opens or reuses
 the matching editor and brings it to the foreground:
 
 ```python
-from pathlib import Path
+import pathlib
 
-from cadhoc.mesh import request
+import cadhoc.mesh
 
-filepath = str(Path("boards/demo.kicad_pcb").resolve())
-reply = request({"action": "open-file", "filepath": filepath})
+filepath = str(pathlib.Path("boards/demo.kicad_pcb").resolve())
+reply = cadhoc.mesh.request({"action": "open-file", "filepath": filepath})
 if reply.get("status") != "ok":
     raise RuntimeError(reply.get("message", "editor request failed"))
 
@@ -137,15 +137,18 @@ Use the shared backend when the host process should both send and execute
 editor requests:
 
 ```python
-from cadhoc.mesh import start_node
-from cadhoc.instance_backend import handle
+import cadhoc.instance_backend
+import cadhoc.mesh
 
 
 def mapping_changed(filepath, pid, socket_path):
     print("mapping", filepath, pid, socket_path)
 
 
-node = start_node(handle, mapping_changed)
+node = cadhoc.mesh.start_node(
+    cadhoc.instance_backend.handle,
+    mapping_changed,
+)
 try:
     # Run the host application's event loop here.
     run_application()
@@ -153,8 +156,9 @@ finally:
     node.close()
 ```
 
-The listener is background-threaded, but `request()` itself blocks while the
-selected node works and should not be called directly from a GUI event handler.
+The listener is background-threaded, but `cadhoc.mesh.request()` itself blocks
+while the selected node works and should not be called directly from a GUI
+event handler.
 
 #### Publish an application-owned document
 
@@ -163,13 +167,13 @@ process so another process activates it instead of opening a duplicate:
 
 ```python
 import os
-from pathlib import Path
+import pathlib
 
-from cadhoc.mesh import start_node
-from cadhoc.instance_backend import handle
+import cadhoc.instance_backend
+import cadhoc.mesh
 
-node = start_node(handle)
-filepath = str(Path("jobs/demo.kkkk_fab").resolve())
+node = cadhoc.mesh.start_node(cadhoc.instance_backend.handle)
+filepath = str(pathlib.Path("jobs/demo.kkkk_fab").resolve())
 node.publish(filepath, os.getpid())
 
 try:
