@@ -429,7 +429,7 @@ Kikakuka is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Sh
 
 Its FreeCAD integration is inspired by [KiCadStepUp](https://github.com/easyw/kicadStepUpMod) and [KiConnect](https://codeberg.org/kiconnect/KiConnect).
 
-Kikakuka began as an interactive GUI for KiKit and later expanded to include a workspace manager. File-to-instance tracking was introduced to make navigation from the workspace manager to KiCad reliable, with the workspace manager initially serving as the central orchestrator. After FreekiCAD was introduced, that mechanism evolved into a mesh of peer Instance Manager nodes running in Kikakuka and FreekiCAD, without a permanent central orchestrator. The mesh also includes a client-only node in the KiCad add-on. The mesh maintains a shared view of KiCad and FreeCAD instances and their open documents, so navigation no longer depends on the workspace manager.
+Kikakuka, formerly Kikit-UI, began as an interactive GUI for KiKit and later expanded to include a workspace manager. File-to-instance tracking was introduced to make navigation from the workspace manager to KiCad reliable, with the workspace manager initially serving as the central orchestrator. After FreekiCAD was introduced, that mechanism evolved into a mesh of peer Instance Manager nodes running in Kikakuka and FreekiCAD, without a permanent central orchestrator. The mesh also includes a client-only node in the KiCad add-on. The mesh maintains a shared view of KiCad and FreeCAD instances and their open documents, so navigation no longer depends on the workspace manager.
 
 # Run from source (Linux/macOS)
 Make sure your python can import `pcbnew`
