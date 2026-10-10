@@ -424,7 +424,7 @@ def arc_path_points(arc, max_error):
     return points
 
 
-def geometry_max_error(units):
+def curve_approximation_error(units):
     return 0.001 if units != "inch" else 0.001 / 25.4
 
 
@@ -443,7 +443,7 @@ def path_geometry(path, units=None):
     if not path.primitives:
         return Polygon()
     units = path.units or units
-    max_error = geometry_max_error(units)
+    max_error = curve_approximation_error(units)
     points = [path.primitives[0].start]
     for edge in path.primitives:
         if isinstance(edge, gerber.primitives.Arc):
@@ -476,7 +476,7 @@ def rectangle_geometry(position, width, height, rotation=0):
 
 def subtract_flash_holes(geometry, primitive, units=None):
     """Subtract circular or rectangular holes from a flashed aperture."""
-    max_error = geometry_max_error(primitive.units or units)
+    max_error = curve_approximation_error(primitive.units or units)
     hole_diameter = getattr(primitive, "hole_diameter", 0) or 0
     if hole_diameter > 0:
         radius = hole_diameter / 2
@@ -521,7 +521,7 @@ def composite_geometry(primitives, units=None):
 def primitive_geometry(primitive, units=None):
     """Convert a drawable Gerber primitive to polarity-composable geometry."""
     units = primitive.units or units
-    max_error = geometry_max_error(units)
+    max_error = curve_approximation_error(units)
 
     if isinstance(primitive, (gerber.primitives.Region,
                               gerber.primitives.Outline)):
