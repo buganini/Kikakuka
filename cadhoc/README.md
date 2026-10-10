@@ -344,6 +344,13 @@ requested behavior; see [Process launching and access](#process-launching-and-ac
   per-program launch lock prevents two different files from racing through
   editor startup and PID/socket discovery.
 
+### User executable configuration
+
+Before launching an editor, CADhoc reads the JSON file `~/.kikakuka` and uses
+the `kicad_executable` and `freecad_executable` values when present. Kikakuka's
+Workspace Manager writes these settings; CADhoc only reads them and ignores a
+missing, invalid, or empty configuration.
+
 ### Background KiCad integration
 
 FreekiCAD integration requests launch a missing KiCad editor without activation
