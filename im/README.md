@@ -26,7 +26,161 @@ FreekiCAD exposes these shared modules through relative symlinks in its Python
 package. Standalone FreekiCAD synchronization and release archives dereference
 the links so distributed packages contain regular files.
 
-## Standalone node
+## Python API
+
+The `im` package root does not re-export names. Import application-facing APIs
+from the module that defines them. Names beginning with `_`, including
+`im_mesh._exchange()` and `im_mesh._file_lock()`, are implementation details;
+`im_transport` is the low-level socket/named-pipe transport rather than an
+application API. Use the functions below so token handling, discovery,
+election, retries, and result polling remain centralized.
+
+Paths passed to IM should be absolute. Public file APIs canonicalize paths with
+`abspath()`, `realpath()`, and `normcase()` before comparing or publishing
+them. Calls that may discover, launch, or wait for an editor are blocking and
+should run outside a GUI thread.
+
+### Client and coordination API
+
+| API | Result and intended use |
+| --- | --- |
+| `im_mesh.request(message, timeout=120.0)` | Send one dispatched editor request. `message` contains the nested editor action, not `mesh_action`, token, or request ID. IM discovers a capable node, waits for its final reply, and returns the reply dictionary. No node raises `ConnectionError`; exhausted communication/result waits raise `TimeoutError`; an editor failure normally returns `status: "error"`. |
+| `im_mesh.discover()` | Probe live nodes and return their `hello` data plus `endpoint`, ordered by PID and node ID. This is a read-only capability query, not a cached registry. |
+| `im_mesh.scan_freecad_documents()` | Return `(pid, paths)` pairs from responding FreeCAD GUI nodes. Unavailable or temporarily unresponsive nodes are omitted. |
+| `im_mesh.activate_open_freecad_document(filepath, target_pid=None, before_activate=None)` | Select an already-open FreeCAD document and return its PID, or `None`. It never opens a missing document. `before_activate(pid)` can foreground the process before its MDI tab changes. |
+| `im_mesh.open_in_freecad_node(filepath, before_open=None)` | Queue a file in an existing FreeCAD GUI node and return that PID, or `None` when no suitable node exists. Acceptance means the GUI owns the job; it does not mean a long import has finished. |
+| `im_mesh.bind_freecad_source(pid, filepath, timeout=45)` | After launching FreeCAD with an importable file, wait for that node and associate the imported document with its source path. Returns a boolean. |
+| `freecad_open.open_board(filepath, socket_path)` | KiCad add-on entry point for **Open in FreeCAD**. It probes GUI nodes, chooses the target document/process, and queues an update or creation. Returns the selected FreeCAD PID, or `None` when a duplicate click is coalesced. |
+
+`im_mesh.request()` accepts the editor actions listed in
+[Dispatched editor actions](#dispatched-editor-actions). It returns a completed
+reply, so callers do not send `dispatch` or poll `result` themselves. Direct
+mesh commands are documented for protocol implementations and diagnostics;
+normal Python callers should not construct them.
+
+### Hosting a node
+
+`im_mesh.start_node(handle, on_change=None)` starts one node for the current
+process and returns its `InstanceNode`. Repeated calls return the same local
+node until `close()` is called; they do not replace the original callbacks.
+`handle(request)` executes a dispatched editor request in a worker thread and
+returns a reply dictionary. `on_change(filepath, pid, socket_path)` is called
+when a newer mapping event is applied. Kikakuka and FreekiCAD normally use
+`instance_backend.handle` as the standard editor handler.
+
+The returned node exposes these lifecycle and mapping methods:
+
+| API | Behavior |
+| --- | --- |
+| `node.publish(filepath, pid, socket_path=None)` | Publish or replace a file-to-process mapping. Pass `pid=None` to publish a tombstone when the file closes. |
+| `node.refresh()` | Merge peer snapshots on demand and tombstone mappings whose process has exited. |
+| `node.snapshot()` | Refresh and return the current live `{canonical_path: pid}` mapping. Tombstones and socket details are omitted. |
+| `node.close()` | Stop the listener, remove its Unix socket when applicable, and clear the process-local singleton. Safe to call more than once. |
+| `im_mesh.local_node()` | Return the process-local node, or `None` if this process is client-only or its node has closed. |
+
+A FreeCAD GUI host can additionally register document providers on its node:
+
+| Registration | Callback contract |
+| --- | --- |
+| `set_document_provider(provider)` | `provider() -> iterable[str]` of open canonical document/source paths. |
+| `set_document_activator(activator)` | `activator(filepath) -> bool`; select an existing document and tab without opening it. |
+| `set_document_opener(opener)` | `opener(filepath) -> bool`; open/import a general FreeCAD-supported file. |
+| `set_pcb_opener(opener)` | `opener(filepath, socket_path, *, create, active_only, probe, document_name)`; probe or update/create a linked PCB document. |
+| `set_source_registrar(registrar)` | `registrar(filepath) -> bool`; bind a launch-imported document to its source path. |
+
+Provider callbacks can be invoked by listener or worker threads. A GUI host is
+responsible for dispatching GUI-only work to its main thread. Registering the
+document provider advertises FreeCAD GUI document capability in `hello`;
+registering the PCB opener advertises the current Open in FreeCAD capability.
+
+### Supporting APIs
+
+These helpers are shared by Kikakuka and FreekiCAD but are more specialized
+than the normal request/node interface:
+
+| Module | Public helpers |
+| --- | --- |
+| `im_mesh` | `activate_or_open_file()` serializes reuse versus launch for an application-owned file; `launch_lock()` serializes editor startup; `runtime_dir()` returns the private transport/lock directory. `owned_process_iter()`, `owned_process()`, `owned_pid_exists()`, and `owned_pids()` perform same-user process inspection; `is_kicad_editor_process()` classifies editor process names. |
+| `instance_backend` | `handle()` is the standard dispatched editor backend; `scan_open_kicad_boards()` reports verified KiCad boards; `external_process_environment()` and `freecad_process_environment()` construct sanitized child environments; `freecad_launch_log_path()` returns the fallback launch log; `ensure_windows_kicad_api_sentinel()` and `launch_linux_kicad()` implement platform-specific launch support. |
+| `kicad_api_retry` | `retry_kicad_call()`, `get_ready_kicad_board()`, `probe_kicad_board_ready()`, and `is_kicad_retryable_error()` centralize retries for KiCad busy/not-ready responses. |
+| `linux_window` | `bring_pid_to_front()` performs best-effort X11/EWMH activation; `x11_display_available()` and `xwayland_available()` report availability; activation failures raise `WindowActivationError`. |
+
+### Examples
+
+#### Send a client-only request
+
+A process does not need to host a node to send a request. This opens or reuses
+the matching editor and brings it to the foreground:
+
+```python
+from pathlib import Path
+
+from im.im_mesh import request
+
+filepath = str(Path("boards/demo.kicad_pcb").resolve())
+reply = request({"action": "open-file", "filepath": filepath})
+if reply.get("status") != "ok":
+    raise RuntimeError(reply.get("message", "editor request failed"))
+
+print(reply.get("pid"), reply.get("socket"))
+```
+
+For a PCB freshly exported to disk, add `"ensure_fresh": True`. This reverts
+an already-open board through KiCad IPC; it is intentionally valid only for an
+`open-file` `.kicad_pcb` request.
+
+#### Embed the standard editor node
+
+Use the shared backend when the host process should both send and execute
+editor requests:
+
+```python
+from im.im_mesh import start_node
+from im.instance_backend import handle
+
+
+def mapping_changed(filepath, pid, socket_path):
+    print("mapping", filepath, pid, socket_path)
+
+
+node = start_node(handle, mapping_changed)
+try:
+    # Run the host application's event loop here.
+    run_application()
+finally:
+    node.close()
+```
+
+The listener is background-threaded, but `request()` itself blocks while the
+selected node works and should not be called directly from a GUI event handler.
+
+#### Publish an application-owned document
+
+Applications such as Fabrication Planner can publish a file owned by their own
+process so another process activates it instead of opening a duplicate:
+
+```python
+import os
+from pathlib import Path
+
+from im.im_mesh import start_node
+from im.instance_backend import handle
+
+node = start_node(handle)
+filepath = str(Path("jobs/demo.kkkk_fab").resolve())
+node.publish(filepath, os.getpid())
+
+try:
+    run_document_window()
+finally:
+    node.publish(filepath, None)
+    node.close()
+```
+
+Publishing records ownership only; it does not open, focus, or validate the
+document. The host must publish a tombstone when the document closes or moves.
+
+## Standalone node for debugging
 
 Run a foreground mesh node from the repository root with either command:
 
