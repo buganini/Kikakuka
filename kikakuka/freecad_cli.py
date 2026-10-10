@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from addon_manager import freecad_commands
+from .addon_manager import freecad_commands
 
 
 def kkkk_export_script_path() -> Path:
@@ -17,7 +17,7 @@ def kkkk_export_script_path() -> Path:
         script = Path(frozen_root) / "freekicad/scripts/kkkk_export.py"
     else:
         script = (
-            Path(__file__).resolve().parent
+            Path(__file__).resolve().parents[1]
             / "FreekiCAD/scripts/kkkk_export.py"
         )
     if not script.is_file():

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import freecad_cli
+from kikakuka import freecad_cli
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "kikakuka" / "__main__.py"
@@ -14,20 +14,21 @@ SCRIPT = Path(__file__).resolve().parents[1] / "kikakuka" / "__main__.py"
 
 class KikakukaCliTest(unittest.TestCase):
     def test_killall_mode_is_dispatched_before_ui_imports(self):
-        process_control = types.ModuleType("process_control")
+        process_control = types.ModuleType("kikakuka.process_control")
         process_control.kill_all_cad_instances = mock.Mock(return_value=17)
 
         blocked_ui_modules = {
-            "differ": None,
-            "workspace": None,
-            "panelizer": None,
-            "gerber": None,
+            "kikakuka.differ": None,
+            "kikakuka.workspace": None,
+            "kikakuka.panelizer": None,
+            "kikakuka.gerber": None,
         }
         with mock.patch.object(
                 sys, "argv", [str(SCRIPT), "--killall"]), \
                 mock.patch.dict(
                     sys.modules,
-                    {"process_control": process_control, **blocked_ui_modules},
+                    {"kikakuka.process_control": process_control,
+                     **blocked_ui_modules},
                 ):
             with self.assertRaises(SystemExit) as exited:
                 runpy.run_path(str(SCRIPT), run_name="__main__")
@@ -36,11 +37,14 @@ class KikakukaCliTest(unittest.TestCase):
         process_control.kill_all_cad_instances.assert_called_once_with()
 
     def test_killall_rejects_arguments(self):
-        process_control = types.ModuleType("process_control")
+        process_control = types.ModuleType("kikakuka.process_control")
         process_control.kill_all_cad_instances = mock.Mock(return_value=0)
         with mock.patch.object(
                 sys, "argv", [str(SCRIPT), "--killall", "extra"]), \
-                mock.patch.dict(sys.modules, {"process_control": process_control}), \
+                mock.patch.dict(
+                    sys.modules,
+                    {"kikakuka.process_control": process_control},
+                ), \
                 mock.patch.object(sys, "stderr"):
             with self.assertRaises(SystemExit) as exited:
                 runpy.run_path(str(SCRIPT), run_name="__main__")
@@ -51,21 +55,22 @@ class KikakukaCliTest(unittest.TestCase):
     def test_assembly_export_is_dispatched_before_ui_imports(self):
         for target in ("model.step", "model.STP", "model.stl"):
             with self.subTest(target=target):
-                launcher = types.ModuleType("freecad_cli")
+                launcher = types.ModuleType("kikakuka.freecad_cli")
                 launcher.run_freekicad_export = mock.Mock(return_value=31)
                 arguments = ["assembly.KKKK_ASM", target]
 
                 blocked_ui_modules = {
-                    "differ": None,
-                    "workspace": None,
-                    "panelizer": None,
-                    "gerber": None,
+                    "kikakuka.differ": None,
+                    "kikakuka.workspace": None,
+                    "kikakuka.panelizer": None,
+                    "kikakuka.gerber": None,
                 }
                 with mock.patch.object(
                         sys, "argv", [str(SCRIPT), *arguments]), \
                         mock.patch.dict(
                             sys.modules,
-                            {"freecad_cli": launcher, **blocked_ui_modules},
+                            {"kikakuka.freecad_cli": launcher,
+                             **blocked_ui_modules},
                         ):
                     with self.assertRaises(SystemExit) as exited:
                         runpy.run_path(str(SCRIPT), run_name="__main__")
@@ -76,20 +81,21 @@ class KikakukaCliTest(unittest.TestCase):
                 )
 
     def test_freecadcmd_mode_is_dispatched_before_ui_imports(self):
-        launcher = types.ModuleType("freecad_cli")
+        launcher = types.ModuleType("kikakuka.freecad_cli")
         launcher.run_freecadcmd = mock.Mock(return_value=23)
         arguments = ["--freecadcmd", "export.py", "input.FCStd", "output.step"]
 
         blocked_ui_modules = {
-            "differ": None,
-            "workspace": None,
-            "panelizer": None,
-            "gerber": None,
+            "kikakuka.differ": None,
+            "kikakuka.workspace": None,
+            "kikakuka.panelizer": None,
+            "kikakuka.gerber": None,
         }
         with mock.patch.object(sys, "argv", [str(SCRIPT), *arguments]), \
                 mock.patch.dict(
                     sys.modules,
-                    {"freecad_cli": launcher, **blocked_ui_modules},
+                    {"kikakuka.freecad_cli": launcher,
+                     **blocked_ui_modules},
                 ):
             with self.assertRaises(SystemExit) as exited:
                 runpy.run_path(str(SCRIPT), run_name="__main__")
@@ -98,20 +104,21 @@ class KikakukaCliTest(unittest.TestCase):
         launcher.run_freecadcmd.assert_called_once_with(arguments[1:])
 
     def test_open_mode_is_dispatched_before_ui_imports(self):
-        pcb_open = types.ModuleType("pcb_open")
+        pcb_open = types.ModuleType("kikakuka.pcb_open")
         pcb_open.open_requested_kicad_files = mock.Mock(return_value=True)
         arguments = ["--open", "--fresh", "/boards/main.kicad_pcb"]
 
         blocked_ui_modules = {
-            "differ": None,
-            "workspace": None,
-            "panelizer": None,
-            "gerber": None,
+            "kikakuka.differ": None,
+            "kikakuka.workspace": None,
+            "kikakuka.panelizer": None,
+            "kikakuka.gerber": None,
         }
         with mock.patch.object(sys, "argv", [str(SCRIPT), *arguments]), \
                 mock.patch.dict(
                     sys.modules,
-                    {"pcb_open": pcb_open, **blocked_ui_modules},
+                    {"kikakuka.pcb_open": pcb_open,
+                     **blocked_ui_modules},
                 ):
             with self.assertRaises(SystemExit) as exited:
                 runpy.run_path(str(SCRIPT), run_name="__main__")

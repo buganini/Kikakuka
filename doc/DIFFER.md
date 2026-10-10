@@ -54,7 +54,7 @@ The pair metadata contains:
 ## Legacy full-page renderer
 
 The reference implementation is `PcbLegacyRenderer` in
-`legacy_pcb_diff.py`. Commit
+`kikakuka/legacy_pcb_diff.py`. Commit
 `3e66601edc4a8be2bf5efba3a2d96aba210bebe0` is the last revision before the
 viewport renderer was introduced.
 
@@ -77,7 +77,7 @@ imported by the application.
 
 ## Shared viewport scheduler
 
-`PdfTileScheduler` in `pdf_tile_scheduler.py` is shared by PCB and schematic
+`PdfTileScheduler` in `kikakuka/pdf_tile_scheduler.py` is shared by PCB and schematic
 diffs. It owns the background priority queue, generation changes, cancellation,
 result LRU, pinned coarse tile, retained low-resolution cache, and nearest-LOD
 fallback selection. Renderers receive a tile task and return the same A, B,
@@ -105,7 +105,7 @@ difference mask are unchanged.
 
 ## PCB viewport tile renderer
 
-The application uses `PcbTileRenderer` in `pcb_diff_tiles.py`:
+The application uses `PcbTileRenderer` in `kikakuka/pcb_diff_tiles.py`:
 
 1. Keep layer PDFs as vectors; do not create full-page PNGs after export.
 2. Express the document and viewport in PDF points.
@@ -224,7 +224,8 @@ sufficient coverage.
 revision. `convert_sch()` also makes small page thumbnails for the page
 selectors, but those PNGs are not used by the main comparison canvas.
 
-For each selected page pair, `SchematicTileRenderer` in `sch_diff_tiles.py`:
+For each selected page pair, `SchematicTileRenderer` in
+`kikakuka/sch_diff_tiles.py`:
 
 1. Caches the PDF documents and selected page handles.
 2. Centers differently sized pages on a common PDF-point canvas using the same

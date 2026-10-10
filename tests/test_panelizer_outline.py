@@ -1,6 +1,6 @@
 import unittest
 
-from panelizer_outline import merge_collinear_segments
+from kikakuka.panelizer_outline import merge_collinear_segments
 
 
 class Point:

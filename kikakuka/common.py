@@ -1,6 +1,6 @@
 import os
 import sys
-import sexpr
+from . import sexpr
 
 VERSION = "8.3.4"
 
@@ -52,7 +52,10 @@ def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources")
+        base_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "resources",
+        )
 
     return os.path.join(base_path, relative_path)
 

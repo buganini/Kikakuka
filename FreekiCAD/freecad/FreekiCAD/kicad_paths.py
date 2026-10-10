@@ -1,1 +1,1 @@
-../../../kicad_paths.py
+../../../kikakuka/kicad_paths.py

@@ -1,7 +1,7 @@
 import unittest
 from threading import Event
 
-from pdf_tile_scheduler import PdfTileScheduler
+from kikakuka.pdf_tile_scheduler import PdfTileScheduler
 
 
 class PdfTileSchedulerTests(unittest.TestCase):

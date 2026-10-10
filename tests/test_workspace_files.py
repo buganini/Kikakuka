@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from common import (findFiles, kicad_project_path, workspace_entry_path,
+from kikakuka.common import (findFiles, kicad_project_path, workspace_entry_path,
                     workspace_filename)
 
 

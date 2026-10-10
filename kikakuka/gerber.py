@@ -4,16 +4,16 @@ import sys
 import zipfile
 from itertools import groupby
 
-from pcb_tools import gerber
+from .pcb_tools import gerber
 import pcbnew
 import math
 import kikit.common
 import shapely
 from shapely.geometry import Polygon
 
-from tableloader import TableLoader
+from .tableloader import TableLoader
 
-PKG_BASE = os.path.dirname(__file__)
+PKG_BASE = os.path.dirname(os.path.dirname(__file__))
 KIKAKUKA_LIB = os.path.join(
     PKG_BASE, "resources/kikakuka-internal.pretty")
 

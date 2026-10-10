@@ -4,7 +4,7 @@ import types
 import unittest
 from unittest import mock
 
-import githelper
+from kikakuka import githelper
 
 
 class GitLogTests(unittest.TestCase):

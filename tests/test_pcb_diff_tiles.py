@@ -7,12 +7,12 @@ from unittest import mock
 import cv2
 import numpy as np
 
-from legacy_pcb_diff import (
+from kikakuka.legacy_pcb_diff import (
     PcbLegacyRenderer,
     legacy_compare_layer,
     legacy_finish_layer_mask,
 )
-from pcb_diff_tiles import (
+from kikakuka.pcb_diff_tiles import (
     DEFAULT_PCB_LAYER_PRESET,
     PCB_LAYER_PRESETS,
     PcbTileRenderer,
@@ -118,8 +118,8 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
     def test_pair_metadata_matches_renamed_layers_by_canonical_id(self):
         layer_names_a = {"User.2": "User.2"}
         layer_names_b = {"User.2": "F.Stiffener"}
-        with mock.patch("pcb_diff_tiles.find_layer_pdf") as find_pdf, mock.patch(
-            "pcb_diff_tiles.pdf_page_size", return_value=(100.0, 80.0)
+        with mock.patch("kikakuka.pcb_diff_tiles.find_layer_pdf") as find_pdf, mock.patch(
+            "kikakuka.pcb_diff_tiles.pdf_page_size", return_value=(100.0, 80.0)
         ):
             find_pdf.side_effect = lambda cache, name: f"{cache}/{name}.pdf"
             metadata = build_pair_metadata(
@@ -141,8 +141,8 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
         )
 
     def test_pair_metadata_skips_layer_missing_from_one_board(self):
-        with mock.patch("pcb_diff_tiles.find_layer_pdf") as find_pdf, mock.patch(
-            "pcb_diff_tiles.pdf_page_size", return_value=(100.0, 80.0)
+        with mock.patch("kikakuka.pcb_diff_tiles.find_layer_pdf") as find_pdf, mock.patch(
+            "kikakuka.pcb_diff_tiles.pdf_page_size", return_value=(100.0, 80.0)
         ):
             find_pdf.return_value = "cache_a/User.2.pdf"
             metadata = build_pair_metadata(
@@ -1051,7 +1051,7 @@ class PcbDiffRendererBlockTests(unittest.TestCase):
         document.close.side_effect = lambda: close_order.append("document")
 
         with mock.patch(
-                "pcb_diff_tiles.pdfium.PdfDocument",
+                "kikakuka.pcb_diff_tiles.pdfium.PdfDocument",
                 return_value=document) as pdf_document:
             self.assertIs(renderer._page("board.pdf"), page)
             self.assertIs(renderer._page("board.pdf"), page)

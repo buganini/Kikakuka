@@ -1,6 +1,6 @@
 import unittest
 
-from differ_view_geometry import (
+from kikakuka.differ_view_geometry import (
     DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, canvas_priority_point,
     clipped_view_transform, overlap_bounds, viewport_center_splitter_fraction,
 )

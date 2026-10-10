@@ -1,6 +1,6 @@
 import unittest
 
-import sexpr
+from kikakuka import sexpr
 
 
 class SExprTest(unittest.TestCase):

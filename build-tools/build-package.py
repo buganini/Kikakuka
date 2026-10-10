@@ -11,7 +11,7 @@ PKG_BASE = os.fspath(Path(__file__).resolve().parents[1])
 sys.path.insert(0, PKG_BASE)
 os.chdir(PKG_BASE)
 
-from kicad_cli import resolve_kicad_cli
+from kikakuka.kicad_cli import resolve_kicad_cli
 from tools.package_dependencies import check_dependencies
 
 kicad_cli, _ = resolve_kicad_cli()
@@ -77,7 +77,7 @@ pyinstaller_args.extend([
     "--add-data",
     f"{os.path.join(PKG_BASE, 'build', 'addons')}:addons",
     "--add-data",
-    f"{os.path.join(PKG_BASE, 'freecad_addon_installer.py')}:addons",
+    f"{os.path.join(PKG_BASE, 'kikakuka', 'freecad_addon_installer.py')}:addons",
     "--add-data",
     f"{freekicad_runtime}:freekicad",
 ])

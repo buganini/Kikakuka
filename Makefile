@@ -2,7 +2,7 @@
 
 METADATA_REPO_URL ?= git@gitlab.com:buganini/metadata.git
 METADATA_WORKDIR ?= workdir/metadata
-KIKAKUKA_VERSION := $(shell sed -n 's/^VERSION = "\([^"]*\)"/\1/p' common.py)
+KIKAKUKA_VERSION := $(shell sed -n 's/^VERSION = "\([^"]*\)"/\1/p' kikakuka/common.py)
 KICAD_LIBRARY_VERSION := $(shell python3 -c 'import json; print(json.load(open("kicad-addon/library/metadata.json"))["versions"][0]["version"])')
 KICAD_PLUGIN_VERSION := $(shell python3 -c 'import json; print(json.load(open("kicad-addon/plugin/metadata.json"))["versions"][0]["version"])')
 FREECAD_VERSION := $(shell python3 -c 'import xml.etree.ElementTree as ET; print(ET.parse("FreekiCAD/package.xml").getroot().find("{*}version").text)')

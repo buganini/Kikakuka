@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from differ_overlap import OVERLAP_COLOR_SHIFT, apply_overlap_color_shift
+from kikakuka.differ_overlap import OVERLAP_COLOR_SHIFT, apply_overlap_color_shift
 
 
 class OverlapColorTests(unittest.TestCase):

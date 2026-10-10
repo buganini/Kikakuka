@@ -2,12 +2,12 @@ import os
 import unittest
 from unittest import mock
 
-import pcb_open
+from kikakuka import pcb_open
 
 
 class PcbOpenTests(unittest.TestCase):
     def setUp(self):
-        patcher = mock.patch("pcb_open._ensure_instance_node")
+        patcher = mock.patch("kikakuka.pcb_open._ensure_instance_node")
         self.ensure_node = patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -17,7 +17,7 @@ class PcbOpenTests(unittest.TestCase):
             "status": "ok", "action": "open-file", "filepath": path,
             "pid": 123,
         }
-        with mock.patch("pcb_open.mesh.request", return_value=reply) as request:
+        with mock.patch("kikakuka.pcb_open.mesh.request", return_value=reply) as request:
             self.assertTrue(pcb_open.request_workspace_open(path))
         request.assert_called_once_with(
             {"action": "open-file", "filepath": path}, timeout=pcb_open.WORKSPACE_OPEN_TIMEOUT)
@@ -27,7 +27,7 @@ class PcbOpenTests(unittest.TestCase):
             "status": "ok", "action": "open-file",
             "filepath": "/boards/other.kicad_pcb", "pid": 123,
         }
-        with mock.patch("pcb_open.mesh.request", return_value=reply):
+        with mock.patch("kikakuka.pcb_open.mesh.request", return_value=reply):
             with self.assertRaisesRegex(RuntimeError, "mismatched"):
                 pcb_open.request_workspace_open("/boards/panel.kicad_pcb")
 
@@ -38,31 +38,31 @@ class PcbOpenTests(unittest.TestCase):
             "pid": 123, "activation_error": "native Wayland",
         }
         handler = mock.Mock()
-        with mock.patch("pcb_open.mesh.request", return_value=reply):
+        with mock.patch("kikakuka.pcb_open.mesh.request", return_value=reply):
             self.assertTrue(pcb_open.request_workspace_open(
                 path, activation_error_handler=handler))
         handler.assert_called_once_with("native Wayland")
 
     def test_manager_error_does_not_duplicate_open(self):
-        with mock.patch("pcb_open.os.path.isfile", return_value=True):
-            with mock.patch("pcb_open.request_workspace_open", side_effect=RuntimeError("KiCad busy")):
-                with mock.patch("pcb_open.open_with_system") as fallback:
+        with mock.patch("kikakuka.pcb_open.os.path.isfile", return_value=True):
+            with mock.patch("kikakuka.pcb_open.request_workspace_open", side_effect=RuntimeError("KiCad busy")):
+                with mock.patch("kikakuka.pcb_open.open_with_system") as fallback:
                     with self.assertRaisesRegex(RuntimeError, "KiCad busy"):
                         pcb_open.open_pcb_file("/boards/panel.kicad_pcb")
         fallback.assert_not_called()
 
     def test_ambiguous_timeout_does_not_duplicate_open(self):
-        with mock.patch("pcb_open.os.path.isfile", return_value=True):
-            with mock.patch("pcb_open.request_workspace_open", side_effect=TimeoutError("waiting")):
-                with mock.patch("pcb_open.open_with_system") as fallback:
+        with mock.patch("kikakuka.pcb_open.os.path.isfile", return_value=True):
+            with mock.patch("kikakuka.pcb_open.request_workspace_open", side_effect=TimeoutError("waiting")):
+                with mock.patch("kikakuka.pcb_open.open_with_system") as fallback:
                     with self.assertRaises(TimeoutError):
                         pcb_open.open_pcb_file("/boards/panel.kicad_pcb")
         fallback.assert_not_called()
 
     def test_manager_success_does_not_open_file_again(self):
-        with mock.patch("pcb_open.os.path.isfile", return_value=True):
-            with mock.patch("pcb_open.request_workspace_open", return_value=True):
-                with mock.patch("pcb_open.open_with_system") as fallback:
+        with mock.patch("kikakuka.pcb_open.os.path.isfile", return_value=True):
+            with mock.patch("kikakuka.pcb_open.request_workspace_open", return_value=True):
+                with mock.patch("kikakuka.pcb_open.open_with_system") as fallback:
                     result = pcb_open.open_pcb_file("/boards/panel.kicad_pcb")
         self.assertEqual(result, "workspace")
         self.ensure_node.assert_called_once_with()
@@ -70,9 +70,9 @@ class PcbOpenTests(unittest.TestCase):
 
     def test_schematic_uses_the_same_workspace_first_tool(self):
         path = "/boards/main.kicad_sch"
-        with mock.patch("pcb_open.os.path.isfile", return_value=True):
-            with mock.patch("pcb_open.request_workspace_open", return_value=True) as request:
-                with mock.patch("pcb_open.open_with_system") as fallback:
+        with mock.patch("kikakuka.pcb_open.os.path.isfile", return_value=True):
+            with mock.patch("kikakuka.pcb_open.request_workspace_open", return_value=True) as request:
+                with mock.patch("kikakuka.pcb_open.open_with_system") as fallback:
                     result = pcb_open.open_kicad_file(path)
         self.assertEqual(result, "workspace")
         request.assert_called_once_with(path, ensure_fresh=False)
@@ -84,8 +84,8 @@ class PcbOpenTests(unittest.TestCase):
             "status": "ok", "action": "open-file", "filepath": path,
             "pid": 123,
         }
-        with mock.patch("pcb_open.os.path.isfile", return_value=True), \
-                mock.patch("pcb_open.mesh.request", return_value=reply) as request:
+        with mock.patch("kikakuka.pcb_open.os.path.isfile", return_value=True), \
+                mock.patch("kikakuka.pcb_open.mesh.request", return_value=reply) as request:
             result = pcb_open.open_pcb_file(path, ensure_fresh=True)
         self.assertEqual(result, "workspace")
         request.assert_called_once_with({
@@ -102,37 +102,37 @@ class PcbOpenTests(unittest.TestCase):
             pcb_open.open_pcb_file("/boards/main.kicad_sch")
 
     def test_unavailable_manager_falls_back_to_system(self):
-        with mock.patch("pcb_open.os.path.isfile", return_value=True):
+        with mock.patch("kikakuka.pcb_open.os.path.isfile", return_value=True):
             with mock.patch(
-                "pcb_open.request_workspace_open",
+                "kikakuka.pcb_open.request_workspace_open",
                 side_effect=ConnectionRefusedError("offline"),
             ):
-                with mock.patch("pcb_open.open_with_system") as fallback:
+                with mock.patch("kikakuka.pcb_open.open_with_system") as fallback:
                     result = pcb_open.open_pcb_file("/boards/panel.kicad_pcb")
         self.assertEqual(result, "system")
         fallback.assert_called_once_with("/boards/panel.kicad_pcb")
 
     def test_system_fallback_uses_platform_launcher(self):
         path = "/boards/panel.kicad_pcb"
-        with mock.patch("pcb_open.platform.system", return_value="Darwin"):
-            with mock.patch("pcb_open.subprocess.Popen") as popen:
+        with mock.patch("kikakuka.pcb_open.platform.system", return_value="Darwin"):
+            with mock.patch("kikakuka.pcb_open.subprocess.Popen") as popen:
                 pcb_open.open_with_system(path)
         popen.assert_called_once_with(["open", "-n", path])
 
-        with mock.patch("pcb_open.platform.system", return_value="Linux"):
+        with mock.patch("kikakuka.pcb_open.platform.system", return_value="Linux"):
             with mock.patch(
                     "cadhoc.instance_backend.launch_linux_kicad") as launch:
                 pcb_open.open_with_system(path)
         launch.assert_called_once_with(path)
 
-        with mock.patch("pcb_open.platform.system", return_value="Windows"):
+        with mock.patch("kikakuka.pcb_open.platform.system", return_value="Windows"):
             with mock.patch.object(os, "startfile", create=True) as startfile:
                 pcb_open.open_with_system(path)
         startfile.assert_called_once_with(path)
 
     def test_linux_freecad_fallback_uses_freecad_launcher(self):
         path = "/models/assembly.FCStd"
-        with mock.patch("pcb_open.platform.system", return_value="Linux"), \
+        with mock.patch("kikakuka.pcb_open.platform.system", return_value="Linux"), \
                 mock.patch("cadhoc.instance_backend._launch") as launch, \
                 mock.patch("cadhoc.instance_backend.launch_linux_kicad") as kicad:
             pcb_open.open_with_system(path, program="freecad")
@@ -141,8 +141,8 @@ class PcbOpenTests(unittest.TestCase):
         kicad.assert_not_called()
 
     def test_missing_file_is_not_sent_to_workspace_or_system(self):
-        with mock.patch("pcb_open.os.path.isfile", return_value=False):
-            with mock.patch("pcb_open.request_workspace_open") as request:
+        with mock.patch("kikakuka.pcb_open.os.path.isfile", return_value=False):
+            with mock.patch("kikakuka.pcb_open.request_workspace_open") as request:
                 with self.assertRaises(FileNotFoundError):
                     pcb_open.open_pcb_file("/boards/missing.kicad_pcb")
         request.assert_not_called()
@@ -166,7 +166,7 @@ class PcbOpenTests(unittest.TestCase):
 
     def test_open_cli_forwards_all_files_to_instance_open(self):
         paths = ["/boards/a.kicad_pcb", "/boards/b.kicad_pcb"]
-        with mock.patch("pcb_open.open_kicad_file") as open_file:
+        with mock.patch("kikakuka.pcb_open.open_kicad_file") as open_file:
             handled = pcb_open.open_requested_kicad_files(
                 ["--open", "--fresh", *paths])
 
@@ -182,7 +182,7 @@ class PcbOpenTests(unittest.TestCase):
             "/boards/a.kicad_pcb",
             "/boards/a.kicad_pro",
         ]
-        with mock.patch("pcb_open.open_kicad_file") as open_file:
+        with mock.patch("kikakuka.pcb_open.open_kicad_file") as open_file:
             handled = pcb_open.open_requested_kicad_files(
                 ["--open", *paths, "--fresh"])
 
@@ -194,7 +194,7 @@ class PcbOpenTests(unittest.TestCase):
         ])
 
     def test_open_cli_fresh_requires_a_pcb_before_opening_anything(self):
-        with mock.patch("pcb_open.open_kicad_file") as open_file:
+        with mock.patch("kikakuka.pcb_open.open_kicad_file") as open_file:
             with self.assertRaisesRegex(ValueError, "at least one .kicad_pcb"):
                 pcb_open.open_requested_kicad_files([
                     "--open", "--fresh", "/boards/a.kicad_sch",
@@ -203,7 +203,7 @@ class PcbOpenTests(unittest.TestCase):
         open_file.assert_not_called()
 
     def test_open_cli_is_not_selected_without_open_flag(self):
-        with mock.patch("pcb_open.open_kicad_file") as open_file:
+        with mock.patch("kikakuka.pcb_open.open_kicad_file") as open_file:
             self.assertFalse(pcb_open.open_requested_kicad_files([
                 "/boards/main.kicad_pcb",
             ]))

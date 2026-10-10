@@ -1,1 +1,1 @@
-../kicad_compat.py
+../kikakuka/kicad_compat.py

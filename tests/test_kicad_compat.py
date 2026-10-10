@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kicad_compat import (
+from kikakuka.kicad_compat import (
     KiCad10Compatibility,
     UnsupportedKiCadVersion,
     get_kicad_compat,

@@ -3,7 +3,7 @@ from unittest import mock
 
 import numpy as np
 
-from sch_diff_tiles import (
+from kikakuka.sch_diff_tiles import (
     SchematicTileRenderer,
     corresponding_schematic_page,
     matched_page_shift,
@@ -157,7 +157,7 @@ class SchematicTileRendererTests(unittest.TestCase):
             "page_index_b": 0,
         }
 
-        with mock.patch("sch_diff_tiles.finish_merged_mask") as finish:
+        with mock.patch("kikakuka.sch_diff_tiles.finish_merged_mask") as finish:
             result = renderer.render_tile(
                 metadata, 1.0, 0, 0,
                 image_buffers=images,

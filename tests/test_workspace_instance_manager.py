@@ -11,7 +11,9 @@ from unittest import mock
 class WorkspaceInstanceManagerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.source_path = Path(__file__).resolve().parents[1] / "workspace.py"
+        cls.source_path = (
+            Path(__file__).resolve().parents[1] / "kikakuka" / "workspace.py"
+        )
         cls.source = cls.source_path.read_text(encoding="utf-8")
         tree = ast.parse(cls.source)
         main_class = next(
@@ -62,7 +64,9 @@ class WorkspaceInstanceManagerTests(unittest.TestCase):
         worker = self._method("_kill_all_instances", {})
         owner = SimpleNamespace(refresh_monitor=mock.Mock())
 
-        with mock.patch.dict(sys.modules, {"process_control": process_control}):
+        with mock.patch.dict(
+                sys.modules,
+                {"kikakuka.process_control": process_control}):
             worker(owner)
 
         process_control.kill_all_cad_instances.assert_called_once_with()

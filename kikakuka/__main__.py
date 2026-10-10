@@ -10,20 +10,20 @@ if not __package__ and not getattr(sys, "frozen", False):
 
 inputs = sys.argv[1:]
 if inputs[:1] == ["--killall"]:
-    from process_control import kill_all_cad_instances
+    from kikakuka.process_control import kill_all_cad_instances
 
     if len(inputs) != 1:
         print("--killall does not accept arguments", file=sys.stderr)
         sys.exit(2)
     sys.exit(kill_all_cad_instances())
 if inputs[:1] == ["--freecadcmd"]:
-    from freecad_cli import run_freecadcmd
+    from kikakuka.freecad_cli import run_freecadcmd
 
     sys.exit(run_freecadcmd(inputs[1:]))
 if (len(inputs) == 2
         and inputs[0].lower().endswith(".kkkk_asm")
         and inputs[1].lower().endswith((".step", ".stp", ".stl"))):
-    from freecad_cli import run_freekicad_export
+    from kikakuka.freecad_cli import run_freekicad_export
 
     sys.exit(run_freekicad_export(inputs[0], inputs[1]))
 
@@ -31,15 +31,15 @@ fabplanner_requested = inputs[:1] == ["--fabplanner"]
 if fabplanner_requested:
     inputs = inputs[1:]
 if "--open" in inputs or "--fresh" in inputs:
-    from pcb_open import open_requested_kicad_files
+    from kikakuka.pcb_open import open_requested_kicad_files
 
     open_requested_kicad_files(inputs)
     sys.exit(0)
 
-from differ import *
-from workspace import *
-from panelizer import *
-from gerber import *
+from kikakuka.differ import *
+from kikakuka.workspace import *
+from kikakuka.panelizer import *
+from kikakuka.gerber import *
 
 if inputs:
     if inputs[0] == "--differ":

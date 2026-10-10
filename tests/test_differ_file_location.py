@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from file_location import file_location, open_file_location
+from kikakuka.file_location import file_location, open_file_location
 
 
 class DifferFileLocationTests(unittest.TestCase):
@@ -17,8 +17,8 @@ class DifferFileLocationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             self.assertEqual(file_location(temp_dir), temp_dir)
 
-    @patch("file_location.subprocess.run")
-    @patch("file_location.platform.system", return_value="Darwin")
+    @patch("kikakuka.file_location.subprocess.run")
+    @patch("kikakuka.file_location.platform.system", return_value="Darwin")
     def test_open_file_location_uses_native_folder_opener(
             self, _system, run):
         with tempfile.TemporaryDirectory() as temp_dir:

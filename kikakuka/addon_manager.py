@@ -18,8 +18,8 @@ import time
 from typing import Iterable, Mapping, Optional
 import zipfile
 
-from kicad_compat import get_kicad_compat
-from user_config import custom_executable
+from .kicad_compat import get_kicad_compat
+from .user_config import custom_executable
 
 
 KICAD_PLUGIN = "kicad_plugin"
@@ -134,7 +134,7 @@ class KiCadPaths:
 
 
 def _source_root() -> Path:
-    return Path(__file__).resolve().parent
+    return Path(__file__).resolve().parents[1]
 
 
 def freekicad_source_directory() -> Optional[Path]:
@@ -174,11 +174,11 @@ def bundle_archive(key: str) -> Path:
 
 def freecad_helper_path() -> Path:
     if freekicad_source_directory() is not None:
-        return _source_root() / "freecad_addon_installer.py"
+        return Path(__file__).resolve().with_name("freecad_addon_installer.py")
     bundled = _resource_root() / "addons" / "freecad_addon_installer.py"
     if bundled.is_file():
         return bundled
-    return _source_root() / "freecad_addon_installer.py"
+    return Path(__file__).resolve().with_name("freecad_addon_installer.py")
 
 
 def _read_json_metadata(key: str) -> dict:

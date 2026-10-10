@@ -1,7 +1,7 @@
 import sys
 import os
 import pcbnew
-from gerber import *
+from .gerber import *
 import kikit
 from kikit import panelize, substrate
 from kikit.panelize import Origin, VECTOR2I
@@ -20,10 +20,10 @@ from enum import Enum
 import traceback
 import json
 import itertools
-from shootly import *
-from common import *
+from .shootly import *
+from .common import *
 from PUI.PySide6 import *
-from ui_application import DesktopApplication
+from .ui_application import DesktopApplication
 # from PUI.wx import *
 import PUI
 import wx
@@ -32,15 +32,15 @@ import atexit
 import shutil
 import psutil
 import re
-from buildexpr import buildexpr
+from .buildexpr import buildexpr
 import gc
 from threading import BoundedSemaphore, Event, Lock, Thread, current_thread
-from pcb_open import open_pcb_file
-from panelizer_freekicad import (
+from .pcb_open import open_pcb_file
+from .panelizer_freekicad import (
     FREEKICAD_LAYER_NAME,
     prepare_panel_freekicad_sources,
 )
-from panelizer_outline import merge_collinear_segments
+from .panelizer_outline import merge_collinear_segments
 
 BUILDEXPR = "BUILDEXPR"
 KICAD_RUNTIME_SOURCE = "Bundled" if getattr(sys, "_MEIPASS", None) else "System"

@@ -8,7 +8,9 @@ from unittest import mock
 class PanelizerOpenFileTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.source_path = Path(__file__).resolve().parents[1] / "panelizer.py"
+        cls.source_path = (
+            Path(__file__).resolve().parents[1] / "kikakuka" / "panelizer.py"
+        )
         cls.tree = ast.parse(cls.source_path.read_text(encoding="utf-8"))
         panelizer_class = next(
             node for node in cls.tree.body

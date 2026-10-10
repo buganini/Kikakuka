@@ -1,3 +1,3 @@
 [submodule "pcb_tools"]
-	path = pcb_tools
+	path = kikakuka/pcb_tools
 	url = https://github.com/buganini/pcb-tools.git

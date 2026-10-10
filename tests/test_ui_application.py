@@ -12,11 +12,11 @@ class DesktopDialogTests(unittest.TestCase):
 from unittest.mock import patch
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QApplication, QFileDialog
-from ui_application import DesktopApplication
+from kikakuka.ui_application import DesktopApplication
 import os
 
 application = DesktopApplication()
-with patch('ui_application.register_linux_desktop'), patch('ui_application.Application.update'):
+with patch('kikakuka.ui_application.register_linux_desktop'), patch('kikakuka.ui_application.Application.update'):
     application.update()
 assert QApplication.testAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs) == bool(os.environ.get('APPDIR'))
 if os.environ.get('APPDIR'):

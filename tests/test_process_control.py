@@ -4,7 +4,7 @@ from unittest import mock
 
 import psutil
 
-import process_control
+from kikakuka import process_control
 
 
 def fake_process(pid, name):

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from kicad_cli import resolve_kicad_cli
+from kikakuka.kicad_cli import resolve_kicad_cli
 
 
 class KiCadCliTests(unittest.TestCase):
@@ -19,8 +19,8 @@ class KiCadCliTests(unittest.TestCase):
                 base.mkdir(parents=True)
                 cli.parent.mkdir(parents=True, exist_ok=True)
                 cli.touch()
-                with patch("kicad_cli.platform.system", return_value=system), \
-                        patch("kicad_cli.sys._MEIPASS", str(base), create=True):
+                with patch("kikakuka.kicad_cli.platform.system", return_value=system), \
+                        patch("kikakuka.kicad_cli.sys._MEIPASS", str(base), create=True):
                     self.assertEqual(resolve_kicad_cli(), (str(cli), "Bundled"))
 
     def test_missing_bundle_falls_back_to_system_on_all_platforms(self):
@@ -32,16 +32,16 @@ class KiCadCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             for system, cli in expected.items():
                 with self.subTest(system=system), \
-                        patch("kicad_cli.platform.system", return_value=system), \
-                        patch("kicad_cli.sys._MEIPASS", directory, create=True), \
-                        patch("kicad_cli.glob.glob", return_value=[expected["Windows"]]), \
-                        patch("kicad_cli.shutil.which", return_value=expected["Linux"]):
+                        patch("kikakuka.kicad_cli.platform.system", return_value=system), \
+                        patch("kikakuka.kicad_cli.sys._MEIPASS", directory, create=True), \
+                        patch("kikakuka.kicad_cli.glob.glob", return_value=[expected["Windows"]]), \
+                        patch("kikakuka.kicad_cli.shutil.which", return_value=expected["Linux"]):
                     self.assertEqual(resolve_kicad_cli(), (cli, "System"))
 
     def test_linux_without_path_entry_keeps_default(self):
-        with patch("kicad_cli.platform.system", return_value="Linux"), \
-                patch("kicad_cli.sys._MEIPASS", None, create=True), \
-                patch("kicad_cli.shutil.which", return_value=None):
+        with patch("kikakuka.kicad_cli.platform.system", return_value="Linux"), \
+                patch("kikakuka.kicad_cli.sys._MEIPASS", None, create=True), \
+                patch("kikakuka.kicad_cli.shutil.which", return_value=None):
             self.assertEqual(resolve_kicad_cli(), ("/usr/bin/kicad-cli", "System"))
 
 

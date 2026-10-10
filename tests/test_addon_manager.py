@@ -15,10 +15,10 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "build-tools"))
 
-import addon_manager
+from kikakuka import addon_manager
 import build_addon_archives
-import freecad_addon_installer
-from freecad_addon_installer import dependency_specs
+from kikakuka import freecad_addon_installer
+from kikakuka.freecad_addon_installer import dependency_specs
 
 
 def metadata(identifier, package_type, version="8.0"):

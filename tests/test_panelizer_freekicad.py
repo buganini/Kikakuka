@@ -1,6 +1,6 @@
 import unittest
 
-import panelizer_freekicad as subject
+from kikakuka import panelizer_freekicad as subject
 
 
 class _Drawing:

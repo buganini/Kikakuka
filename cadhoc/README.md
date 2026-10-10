@@ -228,7 +228,7 @@ require it to be running.
 
 FreekiCAD is deployed independently from Kikakuka. In this repository its
 `FreekiCAD.cadhoc` subpackage is a relative directory symlink to `cadhoc/`,
-while `kicad_paths.py` links to the repository-root implementation. Release
+while `kicad_paths.py` links to the `kikakuka` package implementation. Release
 and Addon Manager packaging dereference both links recursively into regular
 files and directories inside the FreekiCAD Python package. Shared CADhoc
 modules must therefore use only the Python
@@ -769,7 +769,8 @@ passive and never launches an editor.
 
 FreekiCAD's [`cadhoc_client.py`](../FreekiCAD/freecad/FreekiCAD/cadhoc_client.py)
 provides asynchronous and synchronous KiCad requests for linked PCB objects.
-The Workspace Manager's KiCad and FreeCAD open actions and `pcb_open.py` use
+The Workspace Manager's KiCad and FreeCAD open actions and
+`kikakuka/pcb_open.py` use
 the same route.
 The old `/tmp/kikakuka.sock` / Windows port 19780 daemon and its tests have
 been removed. KiCad's own

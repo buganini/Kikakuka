@@ -4,7 +4,7 @@ import os
 import cv2
 import numpy as np
 
-from pcb_diff_tiles import PcbTileRenderer
+from .pcb_diff_tiles import PcbTileRenderer
 
 
 def legacy_compare_layer(image_a, image_b):

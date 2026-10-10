@@ -1,8 +1,8 @@
 import os
 from PUI.PySide6 import *
-from ui_application import DesktopApplication
+from .ui_application import DesktopApplication
 import PUI
-from common import *
+from .common import *
 import json
 import math
 import platform
@@ -15,24 +15,24 @@ import numpy as np
 import tempfile
 import atexit
 import shutil
-import githelper
+from . import githelper
 import pcbnew
-from kicad_cli import resolve_kicad_cli
-from pcb_open import open_kicad_file
-from gerber import is_gerber_dir, is_gerber_zip
-from differ_input import prepare_differ_source
-from differ_source import source_paths
-from file_location import file_location, open_file_location
-from differ_view_geometry import (
+from .kicad_cli import resolve_kicad_cli
+from .pcb_open import open_kicad_file
+from .gerber import is_gerber_dir, is_gerber_zip
+from .differ_input import prepare_differ_source
+from .differ_source import source_paths
+from .file_location import file_location, open_file_location
+from .differ_view_geometry import (
     DEFAULT_OVERLAP_PERCENT, adjust_overlap_percent, canvas_priority_point,
     clipped_view_transform, overlap_bounds, viewport_center_splitter_fraction,
 )
-from differ_overlap import apply_overlap_color_shift
+from .differ_overlap import apply_overlap_color_shift
 import time
 from collections import OrderedDict
 from PySide6 import QtCore, QtGui
 
-from pcb_diff_tiles import (
+from .pcb_diff_tiles import (
     DEFAULT_PCB_LAYER_PRESET,
     PCB_LAYER_PRESETS,
     PcbTileRenderer,
@@ -54,8 +54,8 @@ from pcb_diff_tiles import (
     tile_pixel_bounds,
     visible_tile_indices,
 )
-from pdf_tile_scheduler import PdfTileScheduler
-from sch_diff_tiles import (
+from .pdf_tile_scheduler import PdfTileScheduler
+from .sch_diff_tiles import (
     SchematicTileRenderer,
     build_schematic_pair_metadata,
     corresponding_schematic_page,

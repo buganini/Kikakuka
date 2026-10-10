@@ -5,7 +5,7 @@
 Kikakuka, FreekiCAD, the KiCad library, and the KiCad plugin each own their
 version. Update the files for every module being released:
 
-1. Kikakuka: `common.py` (`VERSION`)
+1. Kikakuka: `kikakuka/common.py` (`VERSION`)
 2. FreekiCAD: `FreekiCAD/package.xml` (`<version>` and the release `<date>`)
    and `FreekiCAD/pyproject.toml` (`project.version`)
 3. KiCad library: the single entry under `versions` in
@@ -72,8 +72,8 @@ regular files.
 FreekiCAD is a separate deployment and cannot import modules from the
 Kikakuka repository root. During development,
 `FreekiCAD/freecad/FreekiCAD/cadhoc` is a relative directory symlink to the
-repository-root `cadhoc/` package, and `kicad_paths.py` links to the
-repository-root implementation. Edit those targets rather than creating
+repository-root `cadhoc/` package, and `kicad_paths.py` links to
+`kikakuka/kicad_paths.py`. Edit those targets rather than creating
 divergent copies under FreekiCAD. Release archives and `make sync` must
 dereference both links recursively so the standalone addon contains ordinary
 package-local files and directories.

@@ -2,9 +2,9 @@ import math
 import unittest
 
 import pcbnew
-from pcb_tools import gerber
+from kikakuka.pcb_tools import gerber
 
-from gerber import populate_kicad
+from kikakuka.gerber import populate_kicad
 
 
 class GerberPolarityTests(unittest.TestCase):

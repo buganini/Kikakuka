@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication
 
-from linux_desktop import DESKTOP_ID, register_linux_desktop
+from .linux_desktop import DESKTOP_ID, register_linux_desktop
 
 
 def clear_opencv_qt_paths():

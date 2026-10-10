@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import sys
 
-from common import resource_path
+from .common import resource_path
 
 
 DESKTOP_ID = "Kikakuka"
@@ -42,7 +42,7 @@ def register_linux_desktop(desktop_id=DESKTOP_ID, name="Kikakuka",
     else:
         command = [
             sys.executable,
-            str(Path(__file__).resolve().with_name("kikakuka")),
+            str(Path(__file__).resolve().parent),
         ]
 
     command.extend(arguments)

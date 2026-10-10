@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pcbnew
 
-from gerber import (
+from kikakuka.gerber import (
     convert_to_kicad,
     find_CPL,
     find_cu_bottom,

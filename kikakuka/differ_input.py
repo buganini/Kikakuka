@@ -3,7 +3,7 @@
 import os
 import tempfile
 
-from gerber import convert_to_kicad, is_gerber_dir, is_gerber_zip
+from .gerber import convert_to_kicad, is_gerber_dir, is_gerber_zip
 
 
 def prepare_differ_source(source, side, temp_dir):

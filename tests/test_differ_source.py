@@ -2,7 +2,7 @@ import hashlib
 import os
 import unittest
 
-from differ_source import source_paths
+from kikakuka.differ_source import source_paths
 
 
 class DifferSourcePathTests(unittest.TestCase):

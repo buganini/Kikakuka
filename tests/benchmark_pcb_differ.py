@@ -14,8 +14,8 @@ import time
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from legacy_pcb_diff import PcbLegacyRenderer
-from pcb_diff_tiles import (
+from kikakuka.legacy_pcb_diff import PcbLegacyRenderer
+from kikakuka.pcb_diff_tiles import (
     PcbTileRenderer,
     build_pair_metadata,
     choose_render_scale,

@@ -6,7 +6,7 @@ import types
 import unittest
 from unittest import mock
 
-import kicad_paths
+from kikakuka import kicad_paths
 
 
 def load_module():

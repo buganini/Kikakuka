@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import pypdfium2 as pdfium
 
-from pdf_tile_scheduler import (
+from .pdf_tile_scheduler import (
     choose_coarse_render_scale,
     choose_fallback_scale,
     select_fallback_results,

@@ -70,13 +70,13 @@ def download_tool(name, cache):
 
 
 def version():
-    tree = ast.parse((ROOT / "common.py").read_text())
+    tree = ast.parse((ROOT / "kikakuka/common.py").read_text())
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(
                 isinstance(target, ast.Name) and target.id == "VERSION"
                 for target in node.targets):
             return ast.literal_eval(node.value)
-    raise ValueError("VERSION not found in common.py")
+    raise ValueError("VERSION not found in kikakuka/common.py")
 
 
 def elf_files(directory):

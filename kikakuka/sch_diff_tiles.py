@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import pypdfium2 as pdfium
 
-from pcb_diff_tiles import (
+from .pcb_diff_tiles import (
     TILE_GUTTER,
     finish_merged_mask,
     pixel_aligned_page_layout,

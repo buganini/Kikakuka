@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import user_config
+from kikakuka import user_config
 
 
 class UserConfigTest(unittest.TestCase):

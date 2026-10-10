@@ -2,7 +2,7 @@ import os
 import sys
 import json
 from PUI.PySide6 import *
-from ui_application import DesktopApplication
+from .ui_application import DesktopApplication
 from PUI.interfaces import BaseTreeAdapter
 import PUI
 import subprocess
@@ -11,11 +11,11 @@ from pathlib import Path
 from PySide6 import QtCore
 from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
-from common import *
+from .common import *
 from cadhoc.mesh import owned_pid_exists
-from workspace_monitor import (replace_freecad_documents,
+from .workspace_monitor import (replace_freecad_documents,
                                snapshot_editor_processes, update_pidmap_entry)
-from addon_manager import (
+from .addon_manager import (
     FREEKICAD,
     KICAD_LIBRARY,
     KICAD_PLUGIN,
@@ -29,8 +29,8 @@ from addon_manager import (
     resolve_kicad_installation,
     uninstall_addon,
 )
-from user_config import config_path, load_config, set_custom_executable, update_config
-from kicad_compat import (
+from .user_config import config_path, load_config, set_custom_executable, update_config
+from .kicad_compat import (
     KICAD10_COMPAT,
     UnsupportedKiCadVersion,
     get_kicad_compat,
@@ -588,11 +588,11 @@ class WorkspaceUI(PUIView):
             else:
                 if owned_pid_exists(pid):
                     return
-        from pcb_open import open_with_system
+        from kikakuka.pcb_open import open_with_system
         Thread(target=open_with_system, args=[path], daemon=True).start()
 
     def _open_kicad_file_and_refresh(self, path):
-        from pcb_open import open_kicad_file
+        from kikakuka.pcb_open import open_kicad_file
 
         open_kicad_file(
             path,
@@ -626,7 +626,7 @@ class WorkspaceUI(PUIView):
 
     def _openFreeCAD(self, filepath):
         from cadhoc import mesh
-        from pcb_open import open_with_system
+        from kikakuka.pcb_open import open_with_system
         try:
             reply = mesh.request({"action": "open-file", "filepath": filepath})
             if reply.get("status") == "error":
@@ -850,7 +850,7 @@ class MainUI(DesktopApplication):
         Thread(target=self._kill_all_instances, daemon=True).start()
 
     def _kill_all_instances(self):
-        from process_control import kill_all_cad_instances
+        from kikakuka.process_control import kill_all_cad_instances
 
         kill_all_cad_instances()
         self.refresh_monitor()

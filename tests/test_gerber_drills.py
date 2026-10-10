@@ -3,9 +3,9 @@ import tempfile
 import unittest
 
 import pcbnew
-from pcb_tools import gerber
+from kikakuka.pcb_tools import gerber
 
-from gerber import convert_to_kicad, excellon_tool_functions
+from kikakuka.gerber import convert_to_kicad, excellon_tool_functions
 
 
 class GerberDrillTests(unittest.TestCase):
