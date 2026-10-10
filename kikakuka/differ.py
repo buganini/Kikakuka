@@ -38,6 +38,7 @@ from .pcb_diff_tiles import (
     PcbTileRenderer,
     TILE_SIZE,
     build_pair_metadata,
+    canvas_region_edges,
     choose_render_scale,
     clipped_tile_geometry,
     combine_layer_similarity_stats,
@@ -680,8 +681,11 @@ class PdfTileDiffView(PUIView):
         for result in tile_results:
             draw_result(result, allow_load=True, draw_mask=True)
 
-        cursor_left = round(view_offx + region_darker[0] * scale)
-        cursor_right = round(view_offx + region_darker[1] * scale)
+        cursor_left, cursor_right = canvas_region_edges(
+            region_darker, canvas.width, view_transform, flipped
+        )
+        cursor_left = round(cursor_left)
+        cursor_right = round(cursor_right)
         canvas.drawLine(
             cursor_left, 0, cursor_left, canvas.height,
             color=self.cursor_color, width=1,

@@ -24,6 +24,7 @@ from kikakuka.pcb_diff_tiles import (
     binary_layer_difference,
     binary_layer_occupancy,
     build_pair_metadata,
+    canvas_region_edges,
     choose_coarse_render_scale,
     choose_render_scale,
     choose_fallback_scale,
@@ -74,6 +75,21 @@ class PcbDiffTileGeometryTests(unittest.TestCase):
                 (2048.0, 512.0), (512, 512), transform, 1.0
             ),
             [(3, 0)],
+        )
+
+    def test_flipped_cursor_region_follows_display_coordinates(self):
+        view_transform = mirrored_view_transform(
+            300.0, 100.0, (10.0, 0.0, 2.0)
+        )
+        _region_a, _region_b, cursor_region = comparison_regions(
+            100.0, 25.0, 35.0, flipped=True
+        )
+
+        self.assertEqual(
+            canvas_region_edges(
+                cursor_region, 300.0, view_transform, flipped=True
+            ),
+            (60.0, 80.0),
         )
 
     def test_similarity_signature_ignores_focused_layer_order(self):

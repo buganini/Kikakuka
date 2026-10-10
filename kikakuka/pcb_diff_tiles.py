@@ -475,6 +475,16 @@ def mirrored_view_transform(canvas_width, page_width, view_transform):
     return canvas_width - offx - page_width * scale, offy, scale
 
 
+def canvas_region_edges(region, canvas_width, view_transform, flipped=False):
+    """Map a source-space horizontal region to ordered canvas edges."""
+    offx, _offy, scale = view_transform
+    left = offx + region[0] * scale
+    right = offx + region[1] * scale
+    if flipped:
+        return canvas_width - right, canvas_width - left
+    return left, right
+
+
 def comparison_regions(page_width, x_left, x_right, flipped=False):
     """Return source-space A, B and overlap regions in display order."""
     if flipped:
