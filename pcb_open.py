@@ -27,15 +27,22 @@ def system_open_command(filepath, mac_args=()):
     raise ValueError("Linux KiCad files are launched directly")
 
 
-def open_with_system(filepath):
-    """Open a KiCad file through the platform-specific launcher."""
+def open_with_system(filepath, program="kicad"):
+    """Open an editor file through the platform-specific launcher."""
+    if program not in {"kicad", "freecad"}:
+        raise ValueError(f"unsupported editor program: {program}")
     system = platform.system()
     if system == "Windows":
         os.startfile(filepath)
     elif system == "Linux":
-        from im.instance_backend import launch_linux_kicad
+        if program == "freecad":
+            from im.instance_backend import _launch
 
-        launch_linux_kicad(filepath)
+            _launch(filepath, "freecad")
+        else:
+            from im.instance_backend import launch_linux_kicad
+
+            launch_linux_kicad(filepath)
     else:
         subprocess.Popen(system_open_command(filepath, mac_args=("-n",)))
 

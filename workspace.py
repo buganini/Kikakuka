@@ -637,7 +637,7 @@ class WorkspaceUI(PUIView):
                 print("Instance mesh unavailable: FreeCAD is running but its "
                       "FreekiCAD instance node cannot be reached")
                 return
-            open_with_system(filepath)
+            open_with_system(filepath, program="freecad")
 
     def close(self):
         if Confirm("Are you sure you want to close this workspace?", "Close workspace"):

@@ -130,6 +130,16 @@ class PcbOpenTests(unittest.TestCase):
                 pcb_open.open_with_system(path)
         startfile.assert_called_once_with(path)
 
+    def test_linux_freecad_fallback_uses_freecad_launcher(self):
+        path = "/models/assembly.FCStd"
+        with mock.patch("pcb_open.platform.system", return_value="Linux"), \
+                mock.patch("im.instance_backend._launch") as launch, \
+                mock.patch("im.instance_backend.launch_linux_kicad") as kicad:
+            pcb_open.open_with_system(path, program="freecad")
+
+        launch.assert_called_once_with(path, "freecad")
+        kicad.assert_not_called()
+
     def test_missing_file_is_not_sent_to_workspace_or_system(self):
         with mock.patch("pcb_open.os.path.isfile", return_value=False):
             with mock.patch("pcb_open.request_workspace_open") as request:

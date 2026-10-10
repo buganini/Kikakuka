@@ -163,7 +163,7 @@ requested behavior; see [Process launching and access](#process-launching-and-ac
 | KiCad add-on **Open in FreeCAD**, read-only probe phase | Search active documents first, then other documents, for an existing linked PCB. | No tab activation, reload, process launch, or focus change. |
 | KiCad add-on **Open in FreeCAD**, selected update/create phase | Update the selected document; create one in a responding FreeCAD GUI node when no match exists; launch FreeCAD only when no GUI instance is running. | Restore and foreground the selected or newly launched FreeCAD process, then activate the selected document. |
 | General `.FCStd`, `.step`, `.stp`, `.stl`, or `.kkkk_asm` `open-file` | Activate an already-open document; otherwise queue the open in a responding FreeCAD GUI node; launch a new process only when no FreeCAD GUI is running. | Foreground FreeCAD and select the matching document/tab when available. |
-| Shared opener with no reachable IM node | Fall back to the platform file association. An explicit error from a responding node does not fall back, because that could open a duplicate. | Controlled by the platform association rather than IM. |
+| Shared opener with no reachable IM node | Fall back to the platform-specific launcher. An explicit error from a responding node does not fall back, because that could open a duplicate. | Controlled by the fallback launcher rather than IM. |
 
 ### Reuse and launch order
 
