@@ -24,7 +24,7 @@ Kikakuka (企画課, きかくか, Planning Section) creates a few more dimensio
 * [FreekiCAD Integration](#freekicad-freecad-addon)
 * [Flexible PCB Bending](#flexible-pcb-bending)
 * [Kikakuka KiCad Library](#kikakuka-library)
-* [Project Background](#project-background)
+* [Technical Background and Evolution](#technical-background-and-evolution)
 * [Run from source on Linux/macOS](#run-from-source-linuxmacos)
 * [Run from source on Windows](#run-from-source-windows)
 * [CLI Usage](#cli-usage)
@@ -424,10 +424,12 @@ All three coupler footprints use the `Unspecified` type, placing their helper mo
 
 The separate Kikakuka Tools IPC plugin provides **Coupler 3D Viewer** and **Hide Couplers** actions. Coupler 3D Viewer applies each coupler's `Z`, `Tilt`, and `Offset` to its helper model and opens KiCad's 3D Viewer; Hide Couplers marks these models hidden without removing them and also opens the Viewer. **Populate Placeholder 3D Models** likewise opens the Viewer after populating models. To omit couplers from STEP export, enable **Ignore 'Unspecified' components**.
 
-# Project Background
+# Technical Background and Evolution
 Kikakuka is mainly built on top of [KiKit](https://github.com/yaqwsx/KiKit), [Shapely](https://github.com/shapely/shapely), modified [pcb-tools](https://github.com/curtacircuitos/pcb-tools), [OpenCV](https://github.com/opencv/opencv-python), [pypdfium2](https://github.com/pypdfium2-team/pypdfium2) and [PUI](https://github.com/buganini/PUI).
 
 Its FreeCAD integration is inspired by [KiCadStepUp](https://github.com/easyw/kicadStepUpMod) and [KiConnect](https://codeberg.org/kiconnect/KiConnect).
+
+Kikakuka began as an interactive GUI for KiKit and later expanded to include a workspace manager. File-to-instance tracking was introduced to make navigation from the workspace manager to KiCad reliable, with the workspace manager initially serving as the central orchestrator. After FreekiCAD was introduced, that mechanism evolved into a mesh of peer Instance Manager nodes running in Kikakuka and FreekiCAD, without a permanent central orchestrator. The mesh also includes a client-only node in the KiCad add-on. The mesh maintains a shared view of KiCad and FreeCAD instances and their open documents, so navigation no longer depends on the workspace manager.
 
 # Run from source (Linux/macOS)
 Make sure your python can import `pcbnew`
