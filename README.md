@@ -109,14 +109,14 @@ yet. A virtual project row omits the `.kicad_pro` suffix; an existing project
 file keeps it. Rows list only PCB/schematic files that currently exist.
 Opening a missing project row reports the missing project instead of launching
 KiCad.
-![Workspace Manager](screenshots/workspace.png)
+![Workspace Manager](demo/workspace.png)
 
 # Differ
 ## Schematics Differ
-![Schematics Differ](screenshots/sch_differ.gif)
+![Schematics Differ](demo/sch_differ.gif)
 
 ## PCB Differ
-![PCB Differ](screenshots/pcb_differ.png)
+![PCB Differ](demo/pcb_differ.png)
 * A diff sample of [cynthion-hardware](https://github.com/greatscottgadgets/cynthion-hardware)
 
 # Fabrication Planner
@@ -127,13 +127,13 @@ Example: [`samples/build_variant.kkkk_fab`](samples/build_variant.kkkk_fab) and 
 
 Set `BUILDEXPR` in footprints' properties. This can be done quickly with `Symbol Fields Table` using the current sheet only scope. Remember to sync them to PCB afterward.
 
-![BUILDEXPR-Prop](screenshots/buildexpr-prop.png)
+![BUILDEXPR-Prop](demo/buildexpr-prop.png)
 
 * Kikakuka extracts build flags from `BUILDEXPR`. Selected flags are interpreted as true, and vice versa.
 * Footprints with the BUILDEXPR evaluated as false will be marked as DNP.
 * Footprints with unset or empty BUILDEXPR will be kept as is.
 
-![BUILDEXPR-Flags](screenshots/buildexpr-flags.png)
+![BUILDEXPR-Flags](demo/buildexpr-flags.png)
 
 ## BUILDEXPR
 A boolean expression with operators:
@@ -144,14 +144,14 @@ A boolean expression with operators:
 It can be as simple as a build name as shown in the image above or an expression like `(A | ~B) & C`.
 
 Panelization with different build variants
-![BUILDEXPR-Flags](screenshots/buildexpr-dnp.png)
+![BUILDEXPR-Flags](demo/buildexpr-dnp.png)
 
 Single PCB without panelization can be done with frameless setting
-![BUILDEXPR-SinglePCB](screenshots/buildexpr-singlepcb.png)
+![BUILDEXPR-SinglePCB](demo/buildexpr-singlepcb.png)
 
 ## Field Values Variants
 `Field#Flag` or multiple flags like `Field#FlagA#FlagB` will set `Field` to the value where build flags contain all the flags.
-![Variants-FieldValue](screenshots/variants-fieldvalue.png)
+![Variants-FieldValue](demo/variants-fieldvalue.png)
 `Field#Opt=A`, `Field#Opt=B` will be displayed as dropdown options.
 
 # Fabrication Planner - Panelizer
@@ -162,43 +162,43 @@ Kikakuka/FabPlanner – Panelization](https://img.youtube.com/vi/40IOZ7cjGgk/0.j
 
 <!--
 ## Global Alignment
-![Global Alignment](screenshots/global_alignment.gif)
+![Global Alignment](demo/global_alignment.gif)
 
 ## Per-PCB Alignment
-![Per-PCB Alignment](screenshots/single_alignment.gif)
+![Per-PCB Alignment](demo/single_alignment.gif)
 -->
 
 ## Substrate Hole
-![Substrate Hole](screenshots/substrate_hole.png)
+![Substrate Hole](demo/substrate_hole.png)
 ### 3D Output
-![Substrate Hole 3D Output](screenshots/substrate_hole_output_3d.png)
+![Substrate Hole 3D Output](demo/substrate_hole_output_3d.png)
 
 <!--
 ## Tight Frame + Auto Tab + V-Cuts *or* Mousebites
-![UI](screenshots/tight_frame_autotab_autocut.png)
+![UI](demo/tight_frame_autotab_autocut.png)
 ### Output
-![Output](screenshots/tight_frame_autotab_autocut_output.png)
+![Output](demo/tight_frame_autotab_autocut_output.png)
 ### 3D Output
-![3D Output](screenshots/tight_frame_autotab_autocut_output_3d.png)
+![3D Output](demo/tight_frame_autotab_autocut_output_3d.png)
 
 ## Tight Frame + Auto Tab + V-Cuts *and* Mousebites
-![UI](screenshots/tight_frame_autotab_vcuts_and_mousebites.png)
+![UI](demo/tight_frame_autotab_vcuts_and_mousebites.png)
 
 ## Loose Frame + Auto Tab + Mousebites
-![UI](screenshots/loose_frame_autotab_mousebites.png)
+![UI](demo/loose_frame_autotab_mousebites.png)
 ### 3D Output
-![3D Output](screenshots/loose_frame_autotab_mousebites_output_3d.png)
+![3D Output](demo/loose_frame_autotab_mousebites_output_3d.png)
 
 ## Auto Tab
 Tab position candidates are determined by the PCB edge and max_tab_spacing, prioritized by divided edge length (smaller first), and skipped if there is a nearby candidate (distance < max_tab_spacing/3) with higher priority.
 
 In the image below with debug mode on, small red dots are tab position candidates, larger red circles are selected candidates, and the two rectangles represent the two half-bridge tabs.
-![Auto Tab](screenshots/auto_tab.png)
+![Auto Tab](demo/auto_tab.png)
 
 ## Manual Tab
 Auto tab is off for PCB with manual tabs.
 Drag inside the PCB for moving selected tab, drag outside the PCB for changing the direction for the selected tab.
-![Manual Tab](screenshots/manual_tab.gif)
+![Manual Tab](demo/manual_tab.gif)
 -->
 
 # FreekiCAD (FreeCAD Addon)
@@ -239,7 +239,8 @@ object. The option can be disabled independently for each object.
 > bundled KiCad plugin, KiCad library, and FreekiCAD addon. Close all instances
 > of the affected application before using an install or uninstall button.
 > Release builds already contain the addon packages. When running Kikakuka
-> from source, generate them first with `python3 build_addon_archives.py` (or
+> from source, generate them first with
+> `python3 build-tools/build_addon_archives.py` (or
 > `make archive-zips`); the GUI loads the resulting runtime packages from
 > `build/addons/`.
 
@@ -320,22 +321,22 @@ For a standalone FreekiCAD deployment without Kikakuka, follow the
 [![Kikakuka/FreekiCAD – STL/STEP and KiCad PCB Assembly](https://img.youtube.com/vi/geRS6CZaJ4s/0.jpg)](https://www.youtube.com/watch?v=geRS6CZaJ4s)
 
 ### Positioning Arguments
-![Coupler-Arguments](screenshots/coupler-args.png)
+![Coupler-Arguments](demo/coupler-args.png)
 
 ### Coupler Pair
 
-![FreekiCAD-Coupler](screenshots/freekicad_coupler.png)
-![FreekiCAD-Coupler-Assembly](screenshots/freekicad_coupler_assembly.png)
+![FreekiCAD-Coupler](demo/freekicad_coupler.png)
+![FreekiCAD-Coupler-Assembly](demo/freekicad_coupler_assembly.png)
 
 ### Changing Z and Tilt
 
-![FreekiCAD-Coupler-Z-Tilt](screenshots/freekicad_coupler_z_tilt.png)
-![FreekiCAD-Coupler-Z-Tilt-Assembly](screenshots/freekicad_coupler_z_tilt_assembly.png)
+![FreekiCAD-Coupler-Z-Tilt](demo/freekicad_coupler_z_tilt.png)
+![FreekiCAD-Coupler-Z-Tilt-Assembly](demo/freekicad_coupler_z_tilt_assembly.png)
 
 Coupler plane markers are available as child objects in FreeCAD and are hidden by default.
 
 ## Flexible PCB Stiffener
-![FreekiCAD-Stiffener](screenshots/freekicad_stiffener.png)
+![FreekiCAD-Stiffener](demo/freekicad_stiffener.png)
 
 Rename KiCad user layers to `F.Stiffener` and/or `B.Stiffener`
 (case-insensitive). Each closed rectangle, circle, polygon, or connected
@@ -399,13 +400,13 @@ Manual bending checks are currently done with these sample boards:
 * [`samples/maze_radius.kicad_pcb`](samples/maze_radius.kicad_pcb)
 
 <!--
-![FreekiCAD-FPC](screenshots/freekicad_fpc.png)
+![FreekiCAD-FPC](demo/freekicad_fpc.png)
 -->
 
 For the implementation details of the bending pipeline, see [`FreekiCAD/ARCHITECTURE.md`](FreekiCAD/ARCHITECTURE.md).
 
 ### Bending + Assembly
-![FreekiCAD-Bending-Assembly](screenshots/freekicad_bending_assembly.png)
+![FreekiCAD-Bending-Assembly](demo/freekicad_bending_assembly.png)
 
 # Kikakuka Library
 The KiCad library is stored under [`kicad-addon/library`](kicad-addon/library).
@@ -475,7 +476,9 @@ git submodule update --init --recursive
 
 Run
 ```
-./env/bin/python3 kikakuka.py
+./env/bin/python3 -m kikakuka
+# Equivalent directory entry point:
+./env/bin/python3 kikakuka/
 ```
 
 
@@ -493,7 +496,7 @@ git submodule update --init --recursive
 & .\tools\materialize-symlinks.ps1
 
 &"C:\Program Files\KiCad\10.0\bin\python.exe" -m pip install -r requirements.txt
-&"C:\Program Files\KiCad\10.0\bin\python.exe" kikakuka.py
+&"C:\Program Files\KiCad\10.0\bin\python.exe" -m kikakuka
 ```
 
 The materialization only changes the working tree; Git still tracks those paths
@@ -504,51 +507,51 @@ blocks local scripts, run
 # CLI Usage
 ```
 # Just open it
-./env/bin/python3 kikakuka.py
+./env/bin/python3 -m kikakuka
 
 # Start with PCB files
-./env/bin/python3 kikakuka.py a.kicad_pcb b.kicad_pcb...
+./env/bin/python3 -m kikakuka a.kicad_pcb b.kicad_pcb...
 
 # Open KiCad files through the instance manager
-./env/bin/python3 kikakuka.py --open a.kicad_pcb
+./env/bin/python3 -m kikakuka --open a.kicad_pcb
 
 # Run a foreground CADhoc node with request/mapping logs
 ./env/bin/python3 -m cadhoc
 # The equivalent directory entry point is: ./env/bin/python3 cadhoc
 
 # Open or focus a PCB and reload it from disk once its IPC API is ready
-./env/bin/python3 kikakuka.py --open --fresh a.kicad_pcb
+./env/bin/python3 -m kikakuka --open --fresh a.kicad_pcb
 # In a mixed list, --fresh affects only .kicad_pcb files; schematics and
 # projects are opened normally.
 
 # Run the detected FreeCADCmd with pass-through arguments
-./env/bin/python3 kikakuka.py --freecadcmd FreekiCAD/scripts/kkkk_export.py input.kkkk_asm output.step
+./env/bin/python3 -m kikakuka --freecadcmd FreekiCAD/scripts/kkkk_export.py input.kkkk_asm output.step
 
 # Stop all same-user KiCad and FreeCAD GUI instances (not FreeCADCmd)
 # Warning: unsaved work may be lost.
-./env/bin/python3 kikakuka.py --killall
+./env/bin/python3 -m kikakuka --killall
 
 # Export a FreekiCAD assembly through the detected FreeCADCmd and bundled exporter
-./env/bin/python3 kikakuka.py input.kkkk_asm output.step
-./env/bin/python3 kikakuka.py input.kkkk_asm output.stp
-./env/bin/python3 kikakuka.py input.kkkk_asm output.stl
+./env/bin/python3 -m kikakuka input.kkkk_asm output.step
+./env/bin/python3 -m kikakuka input.kkkk_asm output.stp
+./env/bin/python3 -m kikakuka input.kkkk_asm output.stl
 
 # Load file (.kkkk, .kkkk_fab, or legacy .kikit_pnl)
-./env/bin/python3 kikakuka.py a.kkkk_fab
+./env/bin/python3 -m kikakuka a.kkkk_fab
 
 # Headless export for panelization or build variants
-./env/bin/python3 kikakuka.py a.kkkk_fab out.kicad_pcb
+./env/bin/python3 -m kikakuka a.kkkk_fab out.kicad_pcb
 
 # Differ
-./env/bin/python3 kikakuka.py --differ a.kicad_sch b.kicad_sch
-./env/bin/python3 kikakuka.py --differ a.kicad_pcb gerber_folder
-./env/bin/python3 kikakuka.py --differ gerber.zip b.kicad_pcb
+./env/bin/python3 -m kikakuka --differ a.kicad_sch b.kicad_sch
+./env/bin/python3 -m kikakuka --differ a.kicad_pcb gerber_folder
+./env/bin/python3 -m kikakuka --differ gerber.zip b.kicad_pcb
 
 # Gerber to KiCAD Conversion
-./env/bin/python3 kikakuka.py gerber.gbr out.kicad_pcb
-./env/bin/python3 kikakuka.py gerber_folder out.kicad_pcb # BOM/CPL will be detected if they are in the folder
-./env/bin/python3 kikakuka.py gerber.zip out.kicad_pcb
-./env/bin/python3 kikakuka.py gerber.zip out.kicad_pcb bom_or_cpl_1.csv bom_or_cpl_2.csv # BOM/CPL files are determined by filename regardless of argument order
+./env/bin/python3 -m kikakuka gerber.gbr out.kicad_pcb
+./env/bin/python3 -m kikakuka gerber_folder out.kicad_pcb # BOM/CPL will be detected if they are in the folder
+./env/bin/python3 -m kikakuka gerber.zip out.kicad_pcb
+./env/bin/python3 -m kikakuka gerber.zip out.kicad_pcb bom_or_cpl_1.csv bom_or_cpl_2.csv # BOM/CPL files are determined by filename regardless of argument order
 ```
 
 # Reverse-Engineering Notes for KiCAD Gerber

@@ -1,0 +1,1 @@
+"""Kikakuka application package."""

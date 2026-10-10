@@ -30,7 +30,7 @@ archive-source:
 	tar --format=ustar --dereference -C "$$tmpdir" -czf "$(CURDIR)/$(SOURCE_ARCHIVE)" "$$root"
 
 archive-zips:
-	python3 build_addon_archives.py
+	python3 build-tools/build_addon_archives.py
 
 archive: archive-source archive-zips
 	mkdir -p $(dir $(METADATA_WORKDIR))
@@ -39,8 +39,8 @@ archive: archive-source archive-zips
 	else \
 		git clone "$(METADATA_REPO_URL)" "$(METADATA_WORKDIR)"; \
 	fi
-	python3 build-kicad-library-metadata.py "$(METADATA_WORKDIR)"
-	python3 build-kicad-plugin-metadata.py "$(METADATA_WORKDIR)"
+	python3 build-tools/build-kicad-library-metadata.py "$(METADATA_WORKDIR)"
+	python3 build-tools/build-kicad-plugin-metadata.py "$(METADATA_WORKDIR)"
 	@if command -v sha256sum >/dev/null 2>&1; then \
 		sha256sum "$(SOURCE_ARCHIVE)" "$(LIBRARY_ARCHIVE)" "$(PLUGIN_ARCHIVE)" "$(FREECAD_ARCHIVE)"; \
 	else \

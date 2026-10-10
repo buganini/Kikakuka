@@ -316,7 +316,7 @@ requested behavior; see [Process launching and access](#process-launching-and-ac
 
 | Entry point | Reuse or open behavior | Foreground behavior |
 | --- | --- | --- |
-| Workspace Manager, Differ, Fabrication Planner, or `kikakuka.py --open` | Send `open-file`; reuse the matching editor when possible, otherwise open one. | Foreground the reused or newly opened KiCad or FreeCAD process. |
+| Workspace Manager, Differ, Fabrication Planner, or `python -m kikakuka --open` | Send `open-file`; reuse the matching editor when possible, otherwise open one. | Foreground the reused or newly opened KiCad or FreeCAD process. |
 | Instance Manager **Go to** | Navigate to the selected already-open instance; for FreeCAD, also select its matching document/tab. It never opens a file or launches a new process. | Foreground the selected running process. |
 | Fabrication Planner after a successful export | Send PCB `open-file` with `ensure_fresh: true`; revert an already-open board from disk, or open the newly exported board. | Foreground KiCad after the board is ready. |
 | FreekiCAD **Open in KiCad** | Send PCB `open-file` without `ensure_fresh`; reuse or open the board without reverting unsaved KiCad content. | Foreground KiCad. |

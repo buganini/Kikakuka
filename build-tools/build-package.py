@@ -5,6 +5,11 @@ import itertools
 import glob
 import shutil
 import sys
+from pathlib import Path
+
+PKG_BASE = os.fspath(Path(__file__).resolve().parents[1])
+sys.path.insert(0, PKG_BASE)
+os.chdir(PKG_BASE)
 
 from kicad_cli import resolve_kicad_cli
 from tools.package_dependencies import check_dependencies
@@ -22,11 +27,12 @@ import PyInstaller.__main__
 import kikit
 kikit_base = os.path.dirname(kikit.__file__)
 
-PKG_BASE = os.path.dirname(__file__)
-
 # Build the exact addon payloads embedded in this Kikakuka release without
 # assuming that make(1) or zip(1) exists on the target packaging platform.
-subprocess.run([sys.executable, "build_addon_archives.py"], cwd=PKG_BASE, check=True)
+subprocess.run([
+    sys.executable,
+    os.path.join(PKG_BASE, "build-tools", "build_addon_archives.py"),
+], cwd=PKG_BASE, check=True)
 freekicad_runtime = os.path.join(PKG_BASE, "build", "freekicad-runtime")
 shutil.rmtree(freekicad_runtime, ignore_errors=True)
 shutil.unpack_archive(
@@ -88,7 +94,7 @@ pyinstaller_args.extend(["--copy-metadata=kicad-python"])
 print(pyinstaller_args)
 
 PyInstaller.__main__.run([
-    'kikakuka.py',
+    os.path.join(PKG_BASE, "kikakuka", "__main__.py"),
     "--name", "Kikakuka",
     "--onedir",
     "--noconfirm",
@@ -127,7 +133,6 @@ elif platform.system() == "Windows":
 
 elif platform.system() == "Linux":
     from tools.linux_appimage import build_appimage
-    from pathlib import Path
 
     build_appimage(
         Path(PKG_BASE) / "dist/Kikakuka", Path(kicad_cli),

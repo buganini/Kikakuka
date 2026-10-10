@@ -105,8 +105,8 @@ from KiCad's AppImage toolchain. Install the build requirements on Ubuntu:
 ```sh
 sudo apt install bash file binutils patchelf
 env/bin/python -m pip install PyInstaller
-env/bin/python build-package.py --check-dependencies
-env/bin/python build-package.py
+env/bin/python build-tools/build-package.py --check-dependencies
+env/bin/python build-tools/build-package.py
 ```
 
 Use a Python environment that can import the installed KiCad `pcbnew` bindings
@@ -126,7 +126,8 @@ Before creating its first Linux GUI window, Kikakuka sets Qt's desktop identity 
 registers a launcher and PNG icon under `XDG_DATA_HOME` (normally
 `~/.local/share`). This lets Ubuntu's Wayland dock resolve the icon and pin a
 launcher that uses the original AppImage path rather than its temporary mount.
-Source runs use the current Python interpreter and an absolute script path.
+Source runs use the current Python interpreter and an absolute application
+directory path.
 Generated launchers are refreshed when the application moves; custom or system
 launchers are preserved. Headless commands do not register desktop files.
 Workspace, Fab Planner, and Differ use `Kikakuka`, `Kikakuka-FabPlanner`, and
@@ -154,7 +155,7 @@ is enabled for images of any size; users need no PyInstaller or packaging tools.
 4. Upload `Kikakuka-{version}.tar.gz`,
    `kikakuka-library-{version}.zip`, `kikakuka-plugin-{version}.zip`, and
    `freekicad-{version}.zip` as the applicable release assets, using each
-   module's own version in its filename. `build-package.py` embeds the three
+   module's own version in its filename. `build-tools/build-package.py` embeds the three
    addon ZIPs so Instance Manager can install the matching release offline.
 5. If updating the separate FreekiCAD release mirror, review the target and
    run `make sync`; this command uses `rsync --delete` on `../FreekiCAD/`.

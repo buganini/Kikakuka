@@ -150,7 +150,7 @@ def _resource_root() -> Path:
     frozen_root = getattr(sys, "_MEIPASS", None)
     if frozen_root:
         return Path(frozen_root)
-    # build_addon_archives.py places CLI/source-runtime resources here;
+    # build-tools/build_addon_archives.py places CLI/source-runtime resources here;
     # PyInstaller exposes the same relative layout under sys._MEIPASS.
     return _source_root() / "build"
 

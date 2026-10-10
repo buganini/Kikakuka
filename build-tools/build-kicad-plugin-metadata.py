@@ -8,7 +8,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 SOURCE_METADATA = ROOT / "kicad-addon" / "plugin" / "metadata.json"
 SOURCE_ICON = ROOT / "kicad-addon" / "plugin" / "resources" / "icon.png"
 DOWNLOAD_BASE = "https://github.com/buganini/Kikakuka/releases/download"

@@ -40,7 +40,10 @@ def register_linux_desktop(desktop_id=DESKTOP_ID, name="Kikakuka",
     elif getattr(sys, "frozen", False):
         command = [sys.executable]
     else:
-        command = [sys.executable, str(Path(__file__).resolve().with_name("kikakuka.py"))]
+        command = [
+            sys.executable,
+            str(Path(__file__).resolve().with_name("kikakuka")),
+        ]
 
     command.extend(arguments)
     icon = data_home / "icons/hicolor/512x512/apps" / f"{desktop_id}.png"

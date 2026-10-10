@@ -75,13 +75,13 @@ def main():
         "--python",
         type=Path,
         default=Path(sys.executable),
-        help="Python executable used to run kikakuka.py.",
+        help="Python executable used to run Kikakuka.",
     )
     parser.add_argument(
         "--kikakuka",
         type=Path,
-        default=repo_root / "kikakuka.py",
-        help="Path to kikakuka.py.",
+        default=repo_root / "kikakuka",
+        help="Path to the kikakuka application directory.",
     )
     parser.add_argument(
         "--timeout",

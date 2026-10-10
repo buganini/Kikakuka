@@ -28,7 +28,7 @@ for details.
 > regular file named `%TEMP%\kicad\api.sock`. Leave this sentinel file in place
 > for future KiCad launches.
 
-![Bending+Assembly](https://github.com/buganini/Kikakuka/raw/main/screenshots/freekicad_bending_assembly.png)
+![Bending+Assembly](https://github.com/buganini/Kikakuka/raw/main/demo/freekicad_bending_assembly.png)
 
 ## Features
 
@@ -109,7 +109,7 @@ You can install FreekiCAD from Kikakuka's **Add-ons** tab, which installs
 FreekiCAD and its required `psutil`, `kicad-python`, and `shapely` packages
 together. Kikakuka release builds already contain the addon package. When
 running Kikakuka from source, generate the packages with
-`python3 build_addon_archives.py` (or `make archive-zips`) before using its
+`python3 build-tools/build_addon_archives.py` (or `make archive-zips`) before using its
 Add-ons tab.
 
 FreekiCAD requires FreeCAD 1.0 or later, KiCad 9.0 or later, `psutil>=7.2.2`,
@@ -237,7 +237,7 @@ The following video demonstrates coupler-based alignment:
 
 [![Kikakuka/FreekiCAD – STL/STEP and KiCad PCB Assembly](https://img.youtube.com/vi/geRS6CZaJ4s/0.jpg)](https://www.youtube.com/watch?v=geRS6CZaJ4s)
 
-![Coupler-Arguments](https://github.com/buganini/Kikakuka/raw/main/screenshots/coupler-args.png)
+![Coupler-Arguments](https://github.com/buganini/Kikakuka/raw/main/demo/coupler-args.png)
 
 Use the bundled `CouplerFixed` and `CouplerMoving` KiCad footprints to align
 two linked PCBs. Place `CouplerFixed` on the reference board and
@@ -303,7 +303,7 @@ The footprints are available in Kikakuka's
 
 ## Flexible PCB Stiffener
 
-![Stiffener](https://github.com/buganini/Kikakuka/raw/main/screenshots/freekicad_stiffener.png)
+![Stiffener](https://github.com/buganini/Kikakuka/raw/main/demo/freekicad_stiffener.png)
 
 Rename KiCad user layers to `F.Stiffener` and/or `B.Stiffener`
 (case-insensitive). Each closed rectangle, circle, polygon, or connected
@@ -361,7 +361,7 @@ an area are also errors; unannotated areas are skipped with a warning. The
 [![Kikakuka/FreekiCAD – Flexible PCB Bending](https://img.youtube.com/vi/iNXvksXA2hA/0.jpg)](https://www.youtube.com/watch?v=iNXvksXA2hA)
 
 <!--
-![Flexible PCB bending](https://github.com/buganini/Kikakuka/raw/main/screenshots/freekicad_fpc.png)
+![Flexible PCB bending](https://github.com/buganini/Kikakuka/raw/main/demo/freekicad_fpc.png)
 -->
 
 Rename an unused KiCad user layer to `FreekiCAD` (case-insensitive). This is

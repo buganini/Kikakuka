@@ -8,7 +8,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 SOURCE_METADATA = ROOT / "kicad-addon" / "library" / "metadata.json"
 SOURCE_ICON = (
     ROOT / "kicad-addon" / "library" / "resources" / "icon.png"

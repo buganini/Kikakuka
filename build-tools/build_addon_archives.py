@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _git_symlinks() -> set[Path]:

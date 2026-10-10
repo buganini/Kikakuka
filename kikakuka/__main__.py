@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 import sys
+from pathlib import Path
+
+
+# ``python kikakuka/`` executes this file outside package context, so expose
+# the repository's source modules just as ``python -m kikakuka`` does.
+if not __package__ and not getattr(sys, "frozen", False):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 inputs = sys.argv[1:]
 if inputs[:1] == ["--killall"]:

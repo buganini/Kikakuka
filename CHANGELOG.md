@@ -103,7 +103,7 @@
     * Open known file locations directly from Instance Manager rows
     * Start an Instance Manager node on demand in standalone Kikakuka tools before opening KiCad files
     * Add `python3 -m im` and `python3 im` foreground node entry points with endpoint, request, reply, mapping, socket, and shutdown logs
-    * Add `kikakuka.py --open [--fresh] FILE...` to open or focus mixed KiCad files through Instance Manager and refresh already-open PCB files from disk
+    * Add `python -m kikakuka --open [--fresh] FILE...` to open or focus mixed KiCad files through Instance Manager and refresh already-open PCB files from disk
     * Work around KiCad's Windows multi-instance IPC collision by creating a filesystem sentinel that selects PID-specific named pipes
     * Resolve generic KiCad IPC owners with same-user per-process socket inspection on macOS/Linux and `GetNamedPipeServerProcessId()` on Windows, with bounded startup retries and no extra Windows dependency
     * Filter every process inspection, reuse, and focus operation by current OS user and match only exact KiCad editor executable names, excluding helpers such as `kicad-api` and `kicad-cli`

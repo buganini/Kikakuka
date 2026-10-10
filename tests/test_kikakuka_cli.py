@@ -9,7 +9,7 @@ from unittest import mock
 import freecad_cli
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / "kikakuka.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "kikakuka" / "__main__.py"
 
 
 class KikakukaCliTest(unittest.TestCase):
