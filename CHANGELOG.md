@@ -2,6 +2,8 @@
 * CADhoc
     * Rename the shared Instance Manager coordination library to CADhoc and add dedicated icon assets and Python API documentation
     * Add a confirmation-protected **Close All** action for same-user KiCad and FreeCAD GUI instances
+* Workspace Manager
+    * Rename the **Add-ons** tab to **Integration**
 * FreekiCAD
     * Replace the 10 µm silkscreen geometry offset with an override-protected, viewport-only Coin3D filled-polygon depth bias (`factor=-16`, `units=-16`), preserving exact model dimensions for measurement and export
     * Save and best-effort restore each active structured 3D camera field independently in `.kkkk_asm` manifests while keeping headless exports GUI-independent
