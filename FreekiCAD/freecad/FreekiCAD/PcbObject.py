@@ -44,7 +44,10 @@ SILKSCREEN_POLYGON_OFFSET_NAME = "FreekiCADSilkscreenPolygonOffset"
 MASK_POLYGON_OFFSET_NAME = "FreekiCADMaskPolygonOffset"
 SILKSCREEN_DEPTH_BUFFER_NAME = "FreekiCADSilkscreenDepthBuffer"
 MASK_DEPTH_BUFFER_NAME = "FreekiCADMaskDepthBuffer"
+COPPER_DEPTH_BUFFER_NAME = "FreekiCADCopperDepthBuffer"
 SURFACE_SHAPE_HINTS_NAME = "FreekiCADSurfaceShapeHints"
+MASK_TRANSPARENCY_NAME = "FreekiCADMaskTransparency"
+MASK_TRANSPARENCY_CALLBACK_NAME = "FreekiCADMaskTransparencyReplay"
 # Compress each overlay's viewport depth range by a tiny, layer-wide amount.
 # Unlike polygon offset, this does not derive a different bias from each
 # tessellated triangle's slope at grazing angles. Geometry and measurements
@@ -52,6 +55,7 @@ SURFACE_SHAPE_HINTS_NAME = "FreekiCADSurfaceShapeHints"
 # the copper/board surface.
 SILKSCREEN_DEPTH_RANGE = (0.0, 0.99998)
 MASK_DEPTH_RANGE = (0.0, 0.999996)
+COPPER_DEPTH_RANGE = (0.0, 0.999998)
 # Master switch for coupler synchronization in both directions.
 # Local FreeCAD marker editing and coupled-board positioning remain active.
 COUPLER_KICAD_SYNC_ENABLED = True
@@ -118,6 +122,32 @@ def _oriented_surface_display_shape(shape, layer_name, surface_side=None):
     return display_shape
 
 
+def _render_mask_transparency(_data, action):
+    """Replay delayed coatings through Coin's transparent triangle renderer.
+
+    The initial traversal queues masks after sorted transparent objects (the
+    substrate). During replay, mode 8 keeps FreeCAD's SoBrepFaceSet out of its
+    direct VBO path, which can discard material alpha in FreeCAD 1.1. A plain
+    DELAYED_BLEND node alone consequently makes the coating look opaque.
+    """
+    from pivy import coin
+
+    # Pivy passes an SoAction wrapper even for a derived GL render action.
+    if not action.isOfType(coin.SoGLRenderAction.getClassTypeId()):
+        return
+    action = coin.cast(action, "SoGLRenderAction")
+    if not action.isRenderingTranspPaths():
+        return
+    state = action.getState()
+    if (coin.SoShapeStyleElement.getTransparencyType(state)
+            != coin.SoGLRenderAction.DELAYED_BLEND):
+        # In particular, respect an enclosing order-independent renderer.
+        return
+    mode = coin.SoGLRenderAction.SORTED_OBJECT_SORTED_TRIANGLE_BLEND
+    coin.SoShapeStyleElement.setTransparencyType(state, mode)
+    coin.SoLazyElement.setTransparencyType(state, mode)
+
+
 def _apply_surface_render_state(view_object, layer_name,
                                 silkscreen=False, surface_side=None):
     """Apply view-only depth bias and surface directionality."""
@@ -134,6 +164,11 @@ def _apply_surface_render_state(view_object, layer_name,
         elif str(layer_name or "") in {"F.Mask", "B.Mask"}:
             depth_name = MASK_DEPTH_BUFFER_NAME
             depth_range = MASK_DEPTH_RANGE
+        elif str(layer_name or "") in {"F.Cu", "B.Cu"}:
+            # Outer copper and the dielectric cap have very little separation.
+            # Keep copper ahead of the cap but behind its solder mask.
+            depth_name = COPPER_DEPTH_BUFFER_NAME
+            depth_range = COPPER_DEPTH_RANGE
         else:
             depth_name = None
             depth_range = None
@@ -158,7 +193,9 @@ def _apply_surface_render_state(view_object, layer_name,
             depth.setOverride(True)
             depth.test.setValue(True)
             depth.function.setValue(coin.SoDepthBuffer.LEQUAL)
-            depth.getField("write").setValue(True)
+            # Inherit the action's opaque/transparent depth-write policy.
+            # Coin ignores this field during delayed transparency anyway.
+            depth.getField("write").setIgnored(True)
             depth.range.setValue(depth_range)
             next_index += 1
 
@@ -178,10 +215,37 @@ def _apply_surface_render_state(view_object, layer_name,
             hints.setOverride(True)
             hints.vertexOrdering.setValue(coin.SoShapeHints.COUNTERCLOCKWISE)
             hints.shapeType.setValue(coin.SoShapeHints.SOLID)
+            next_index += 1
         elif hints is not None:
             hints.setOverride(False)
             hints.vertexOrdering.setValue(coin.SoShapeHints.UNKNOWN_ORDERING)
             hints.shapeType.setValue(coin.SoShapeHints.UNKNOWN_SHAPE_TYPE)
+
+        if layer_name in {"F.Mask", "B.Mask"}:
+            # Sorting an entire bent mask against the entire bent substrate
+            # can reverse their blending order as the camera moves. Coatings
+            # belong after the substrate, still depth-tested against copper,
+            # silkscreen, and components. This is local to the mask node;
+            # other objects and the viewer's transparency setting are intact.
+            transparency, index = _find_coin_child(
+                root, MASK_TRANSPARENCY_NAME)
+            if transparency is None:
+                transparency = coin.SoTransparencyType()
+                transparency.setName(MASK_TRANSPARENCY_NAME)
+            _place_coin_child(root, transparency, index, next_index)
+            transparency.value.setValue(coin.SoTransparencyType.DELAYED_BLEND)
+            transparency.setOverride(True)
+            next_index += 1
+            replay, index = _find_coin_child(
+                root, MASK_TRANSPARENCY_CALLBACK_NAME)
+            if replay is None:
+                replay = coin.SoCallback()
+                replay.setName(MASK_TRANSPARENCY_CALLBACK_NAME)
+            _place_coin_child(root, replay, index, next_index)
+            # Reinstall callbacks after document restore; callable state is
+            # not serialized by Coin. A module-level function owns no stale
+            # ViewObject or Pivy wrapper from an earlier import.
+            replay.setCallback(_render_mask_transparency, None)
         return True
     except Exception as ex:
         FreeCAD.Console.PrintWarning(

@@ -171,9 +171,13 @@ class OutlineWireOrderTests(unittest.TestCase):
         class Field:
             def __init__(self):
                 self.value = None
+                self.ignored = False
 
             def setValue(self, *value):
                 self.value = value[0] if len(value) == 1 else value
+
+            def setIgnored(self, value):
+                self.ignored = value
 
         class Name:
             def __init__(self, value=""):
@@ -218,6 +222,7 @@ class OutlineWireOrderTests(unittest.TestCase):
                 self.test = Field()
                 self.function = Field()
                 self.write_field = Field()
+                self.write = self.write_field
                 self.range = Field()
                 self.refs = 0
 
@@ -274,6 +279,18 @@ class OutlineWireOrderTests(unittest.TestCase):
             def getName(self):
                 return Name()
 
+        class TransparencyType(ShapeHints):
+            DELAYED_BLEND = 5
+
+            def __init__(self):
+                super().__init__()
+                self.value = Field()
+
+        class Callback(ShapeHints):
+            def setCallback(self, callback, data=None):
+                self.callback = callback
+                self.data = data
+
         class Root:
             def __init__(self):
                 self.children = [Geometry()]
@@ -296,7 +313,9 @@ class OutlineWireOrderTests(unittest.TestCase):
         fake_pivy.coin = types.SimpleNamespace(
             SoPolygonOffset=PolygonOffset,
             SoDepthBuffer=DepthBuffer,
-            SoShapeHints=ShapeHints)
+            SoShapeHints=ShapeHints,
+            SoTransparencyType=TransparencyType,
+            SoCallback=Callback)
         linked_object.FreeCAD.GuiUp = True
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintWarning=mock.Mock())
@@ -318,7 +337,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertIs(depth.override, True)
         self.assertIs(depth.test.value, True)
         self.assertEqual(depth.function.value, DepthBuffer.LEQUAL)
-        self.assertIs(depth.write_field.value, True)
+        self.assertIs(depth.write_field.ignored, True)
         self.assertEqual(
             depth.range.value, linked_object.SILKSCREEN_DEPTH_RANGE)
         self.assertIs(hints.override, True)
@@ -330,37 +349,80 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertIs(root.children[0], depth)
         self.assertIs(root.children[1], hints)
 
-        mask_root = Root()
-        mask_view_object = types.SimpleNamespace(RootNode=mask_root)
-        with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
-            self.assertTrue(linked_object._apply_surface_render_state(
-                mask_view_object, "F.Mask"))
-            self.assertTrue(linked_object._apply_surface_render_state(
-                mask_view_object, "F.Mask"))
-        mask_depth = next(child for child in mask_root.children
-                          if isinstance(child, DepthBuffer))
-        self.assertEqual(
-            mask_depth.getName().getString(),
-            linked_object.MASK_DEPTH_BUFFER_NAME)
-        self.assertIs(mask_depth.override, True)
-        self.assertIs(mask_depth.test.value, True)
-        self.assertEqual(mask_depth.function.value, DepthBuffer.LEQUAL)
-        self.assertIs(mask_depth.write_field.value, True)
-        self.assertEqual(mask_depth.range.value, linked_object.MASK_DEPTH_RANGE)
-        self.assertIs(mask_root.children[0], mask_depth)
-        self.assertEqual(sum(isinstance(child, DepthBuffer)
-                             for child in mask_root.children), 1)
+        for layer_name in ("F.Mask", "B.Mask"):
+            with self.subTest(layer=layer_name):
+                mask_root = Root()
+                geometry = mask_root.children[0]
+                mask_view_object = types.SimpleNamespace(RootNode=mask_root)
+                with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
+                    self.assertTrue(linked_object._apply_surface_render_state(
+                        mask_view_object, layer_name))
+                    original_nodes = list(mask_root.children)
+                    # Restored view-provider graphs may put state nodes after
+                    # geometry. Reapply must retain each node and callback.
+                    mask_root.children = [geometry, *original_nodes[:-1]]
+                    self.assertTrue(linked_object._apply_surface_render_state(
+                        mask_view_object, layer_name))
+                    self.assertTrue(linked_object._apply_surface_render_state(
+                        mask_view_object, layer_name))
+                self.assertEqual(mask_root.children, original_nodes)
+                self.assertEqual(len(mask_root.children), 5)
+                mask_depth, mask_hints, transparency, callback, _ = \
+                    mask_root.children
+                self.assertEqual(
+                    mask_depth.getName().getString(),
+                    linked_object.MASK_DEPTH_BUFFER_NAME)
+                self.assertIs(mask_depth.test.value, True)
+                self.assertEqual(mask_depth.function.value, DepthBuffer.LEQUAL)
+                self.assertIs(mask_depth.write_field.ignored, True)
+                self.assertEqual(
+                    mask_depth.range.value, linked_object.MASK_DEPTH_RANGE)
+                self.assertIs(mask_hints.override, True)
+                self.assertEqual(
+                    mask_hints.vertexOrdering.value,
+                    ShapeHints.COUNTERCLOCKWISE)
+                self.assertEqual(mask_hints.shapeType.value, ShapeHints.SOLID)
+                self.assertEqual(
+                    transparency.getName().getString(),
+                    linked_object.MASK_TRANSPARENCY_NAME)
+                self.assertEqual(
+                    transparency.value.value, TransparencyType.DELAYED_BLEND)
+                self.assertEqual(
+                    callback.getName().getString(),
+                    linked_object.MASK_TRANSPARENCY_CALLBACK_NAME)
+                self.assertIs(
+                    callback.callback, linked_object._render_mask_transparency)
+                self.assertTrue(all(node.refs == 0
+                                    for node in mask_root.children[:-1]))
 
-        # Mask is directional too; otherwise transparent front/back surfaces
-        # blend together and change color with distance and view angle.
-        mask_hints = next(child for child in mask_root.children
-                          if isinstance(child, ShapeHints))
-        self.assertIs(mask_hints.override, True)
-        self.assertEqual(
-            mask_hints.vertexOrdering.value, ShapeHints.COUNTERCLOCKWISE)
-        self.assertEqual(
-            mask_hints.shapeType.value, ShapeHints.SOLID)
-        self.assertIs(mask_root.children[1], mask_hints)
+        for layer_name in ("F.Cu", "B.Cu"):
+            with self.subTest(layer=layer_name):
+                copper_root = Root()
+                copper_view = types.SimpleNamespace(RootNode=copper_root)
+                with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
+                    self.assertTrue(linked_object._apply_surface_render_state(
+                        copper_view, layer_name))
+                    self.assertTrue(linked_object._apply_surface_render_state(
+                        copper_view, layer_name))
+                self.assertEqual(len(copper_root.children), 3)
+                copper_depth, copper_hints, _ = copper_root.children
+                self.assertEqual(
+                    copper_depth.getName().getString(),
+                    linked_object.COPPER_DEPTH_BUFFER_NAME)
+                self.assertIs(copper_depth.test.value, True)
+                self.assertIs(copper_depth.write_field.ignored, True)
+                self.assertEqual(
+                    copper_depth.function.value, DepthBuffer.LEQUAL)
+                self.assertEqual(
+                    copper_depth.range.value, linked_object.COPPER_DEPTH_RANGE)
+                self.assertLess(linked_object.SILKSCREEN_DEPTH_RANGE[1],
+                                linked_object.MASK_DEPTH_RANGE[1])
+                self.assertLess(linked_object.MASK_DEPTH_RANGE[1],
+                                linked_object.COPPER_DEPTH_RANGE[1])
+                self.assertLess(linked_object.COPPER_DEPTH_RANGE[1], 1.0)
+                self.assertEqual(
+                    copper_hints.vertexOrdering.value,
+                    ShapeHints.COUNTERCLOCKWISE)
 
         inner_copper_root = Root()
         inner_copper_view = types.SimpleNamespace(RootNode=inner_copper_root)
@@ -378,6 +440,71 @@ class OutlineWireOrderTests(unittest.TestCase):
                              for child in inner_copper_root.children))
         self.assertIs(inner_copper_root.children[0], copper_hints)
         linked_object.FreeCAD.Console.PrintWarning.assert_not_called()
+
+    def test_mask_triangle_sorting_only_changes_delayed_transparency_replay(self):
+        linked_object = self._import_linked_object()
+
+        class GLRenderAction:
+            DELAYED_BLEND = 5
+            SORTED_OBJECT_SORTED_TRIANGLE_BLEND = 8
+            SORTED_LAYERS_BLEND = 10
+
+            @staticmethod
+            def getClassTypeId():
+                return "GLRenderAction"
+
+        class ShapeStyleElement:
+            @staticmethod
+            def getTransparencyType(state):
+                return state.style_mode
+
+            @staticmethod
+            def setTransparencyType(state, mode):
+                state.style_mode = mode
+                state.writes.append(("style", mode))
+
+        class LazyElement:
+            @staticmethod
+            def setTransparencyType(state, mode):
+                state.lazy_mode = mode
+                state.writes.append(("lazy", mode))
+
+        fake_pivy = types.ModuleType("pivy")
+        fake_pivy.coin = types.SimpleNamespace(
+            SoGLRenderAction=GLRenderAction,
+            SoShapeStyleElement=ShapeStyleElement,
+            SoLazyElement=LazyElement)
+        for is_gl, replay, initial_mode, expected_mode in (
+                (True, False, 5, 5),
+                (True, True, 5, 8),
+                (False, True, 5, 5),
+                (True, True, 10, 10)):
+            with self.subTest(is_gl=is_gl, replay=replay, mode=initial_mode):
+                state = types.SimpleNamespace(
+                    style_mode=initial_mode, lazy_mode=initial_mode, writes=[])
+                render_action = types.SimpleNamespace(
+                    isRenderingTranspPaths=mock.Mock(return_value=replay),
+                    getState=mock.Mock(return_value=state))
+                # Pivy initially exposes only the base SoAction methods.
+                action = types.SimpleNamespace(
+                    isOfType=mock.Mock(return_value=is_gl))
+                fake_pivy.coin.cast = mock.Mock(return_value=render_action)
+                with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
+                    linked_object._render_mask_transparency(None, action)
+                self.assertEqual(state.style_mode, expected_mode)
+                self.assertEqual(state.lazy_mode, expected_mode)
+                if not is_gl:
+                    fake_pivy.coin.cast.assert_not_called()
+                    render_action.isRenderingTranspPaths.assert_not_called()
+                    render_action.getState.assert_not_called()
+                else:
+                    fake_pivy.coin.cast.assert_called_once_with(
+                        action, "SoGLRenderAction")
+                if initial_mode == expected_mode:
+                    self.assertEqual(state.writes, [])
+                else:
+                    self.assertCountEqual(
+                        state.writes, [("style", 8), ("lazy", 8)])
 
     def test_surface_side_marks_only_outer_layers(self):
         linked_object = self._import_linked_object()

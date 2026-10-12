@@ -7,6 +7,7 @@
 * Workspace Manager
     * Rename the **Add-ons** tab to **Integration**
 * FreekiCAD
+    * Composite translucent solder mask after the substrate while preserving transparent triangle rendering, and separate outer copper from the substrate in viewport depth
     * Render zero-thickness copper, solder mask, and silkscreen with outward surface orientation and layer-specific viewport depth ranges, preserving exact model dimensions while reducing z-fighting and opposite-side color bleed
     * Save and best-effort restore each active structured 3D camera field independently in `.kkkk_asm` manifests while keeping headless exports GUI-independent
 * Differ
