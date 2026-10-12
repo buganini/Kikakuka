@@ -75,6 +75,10 @@ def _apply_silkscreen_polygon_offset(view_object):
             root.removeChild(offset_index)
         if offset_index != 0:
             root.insertChild(offset, 0)
+        # Part ViewProvider nodes may install their own render state below the
+        # root.  Keep this view-only bias authoritative for all silkscreen
+        # triangles, including independently tessellated bent surfaces.
+        offset.setOverride(True)
         offset.factor.setValue(SILKSCREEN_POLYGON_OFFSET_FACTOR)
         offset.units.setValue(SILKSCREEN_POLYGON_OFFSET_UNITS)
         offset.styles.setValue(coin.SoPolygonOffset.FILLED)

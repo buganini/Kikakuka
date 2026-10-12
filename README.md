@@ -218,12 +218,15 @@ or reuses a responding FreeCAD instance; see
 KiCad `.kicad_pcb` boards and STEP models remain external files referenced by
 path. When saved as `.FCStd`, the FreeCAD document caches their generated
 objects and geometry, but the links remain reloadable from the source files. A
-`.kkkk_asm` manifest stores only source paths, settings, and placements; it
-never contains cached objects or geometry. Source paths are stored relative to
-the manifest whenever possible and resolved from its directory on import, when
-every external source is loaded fresh. `AutoReload` is enabled by default on
-both object types, so changing either source file reloads its linked FreeCAD
-object. The option can be disabled independently for each object.
+`.kkkk_asm` manifest stores source paths, settings, placements, and an optional
+structured 3D viewport camera; it never contains cached objects or geometry.
+Source paths are stored relative to the manifest whenever possible and resolved
+from its directory on import, when every external source is loaded fresh. The
+camera is restored field by field in FreeCAD's GUI, skipping unsupported or
+invalid fields, and ignored by headless STEP/STL export.
+`AutoReload` is enabled by default on both object types, so changing either
+source file reloads its linked FreeCAD object. The option can be disabled
+independently for each object.
 
 > [!TIP]
 > You can use Kikakuka's **Integration** tab to install, update, or uninstall the
@@ -258,7 +261,7 @@ For a standalone FreekiCAD deployment without Kikakuka, follow the
         * Right-click on the board object -> Reload KiCad PCB
     * Export or import an assembly manifest
         * Use FreeCAD's standard Export command to write `.kkkk_asm`, or its Import command to read `.kkkk_asm`; select `FreekiCAD Assembly (*.kkkk_asm)` as the file type.
-        * The JSON stores only each external PCB or STEP source path, editable FreekiCAD settings, and its placement. It contains no cached objects or generated geometry, and every external source is loaded fresh during import. Export prefers paths relative to the manifest and falls back to absolute paths only when necessary; relative paths are resolved from the manifest's directory. FreeCAD regenerates object names and labels during import.
+        * The JSON stores each external PCB or STEP source path, editable FreekiCAD settings, its placement, and—when exported from the GUI—the active 3D viewport camera. It contains no cached objects or generated geometry, and every external source is loaded fresh during import. Export prefers paths relative to the manifest and falls back to absolute paths only when necessary; relative paths are resolved from the manifest's directory. FreeCAD regenerates object names and labels during import. GUI import restores each available camera field independently after recomputation and skips fields that are invalid or unsupported; headless STEP/STL export ignores the camera.
         * Selecting an original `PcbObject` or `StepObject` exports its own Placement. Selecting one or more `App::Link` instances exports each linked source at that instance's final global placement. Selecting an `Assembly::AssemblyObject` recursively expands its direct and nested Links, including multiple instances of the same source.
         * Assembly and Link exports are flattened placement snapshots; `.kkkk_asm` does not store Links, joints, constraints, remaining degrees of freedom, or the Assembly hierarchy. A linked PCB snapshot is exported with `SnapToCoupler` disabled in the manifest so coupler alignment cannot overwrite its solved Assembly placement; the source `PcbObject` in the current FreeCAD document is not modified.
         * When original PCB source objects are selected directly, Placement is omitted for a `CouplerMoving` board if the same export contains its matching `CouplerFixed` board; coupler alignment recalculates that placement after import.

@@ -187,6 +187,7 @@ class OutlineWireOrderTests(unittest.TestCase):
 
             def __init__(self):
                 self.name = Name()
+                self.override = False
                 self.factor = Field()
                 self.units = Field()
                 self.styles = Field()
@@ -197,6 +198,9 @@ class OutlineWireOrderTests(unittest.TestCase):
 
             def getName(self):
                 return self.name
+
+            def setOverride(self, value):
+                self.override = value
 
         class Geometry:
             def getName(self):
@@ -236,6 +240,7 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertEqual(len(root.children), 2)
         offset = root.children[0]
         self.assertIsInstance(offset, PolygonOffset)
+        self.assertIs(offset.override, True)
         self.assertEqual(offset.factor.value, -16.0)
         self.assertEqual(offset.units.value, -16.0)
         self.assertEqual(offset.styles.value, PolygonOffset.FILLED)

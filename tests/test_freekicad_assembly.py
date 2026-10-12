@@ -53,6 +53,58 @@ class Placement:
         )
 
 
+class CoinValue:
+    def __init__(self, value):
+        self.value = tuple(value)
+
+    def getValue(self):
+        return self.value
+
+
+class CameraField:
+    def __init__(self, value):
+        self.value = value
+
+    def getValue(self):
+        if isinstance(self.value, (tuple, list)):
+            return CoinValue(self.value)
+        return self.value
+
+    def setValue(self, *value):
+        self.value = value if len(value) != 1 else value[0]
+
+
+class Camera:
+    def __init__(self):
+        self.position = CameraField((12.0, 23.0, 34.0))
+        self.orientation = CameraField((0.1, 0.2, 0.3, 0.9))
+        self.nearDistance = CameraField(1.5)
+        self.farDistance = CameraField(1500.0)
+        self.aspectRatio = CameraField(1.6)
+        self.focalDistance = CameraField(250.0)
+        self.height = CameraField(90.0)
+        self.heightAngle = CameraField(0.75)
+
+
+class View:
+    def __init__(self, camera_type="Orthographic"):
+        self.camera_type = camera_type
+        self.camera = Camera()
+        self.redraw_count = 0
+
+    def getCameraType(self):
+        return self.camera_type
+
+    def setCameraType(self, value):
+        self.camera_type = value
+
+    def getCameraNode(self):
+        return self.camera
+
+    def redraw(self):
+        self.redraw_count += 1
+
+
 def placement(x=0, y=0, z=0, angle=0):
     return Placement(Vector(x, y, z), Rotation(Vector(0, 0, 1), angle))
 
@@ -198,6 +250,152 @@ class AssemblyTests(unittest.TestCase):
             self.assertAlmostEqual(
                 saved["placement"]["rotation"]["angle_degrees"], 45.0
             )
+
+    def test_export_saves_active_viewport_camera(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "main.kkkk_asm")
+            document = Document("Assembly")
+            obj = PcbObjectStub(
+                document, os.path.join(root, "main.kicad_pcb"))
+            view = View("Orthographic")
+            gui_document = types.SimpleNamespace(activeView=lambda: view)
+            freecad_gui = types.ModuleType("FreeCADGui")
+            freecad_gui.activeDocument = lambda: gui_document
+
+            with mock.patch.object(
+                    self.fake_freecad, "GuiUp", True, create=True), \
+                    mock.patch.dict(sys.modules, {"FreeCADGui": freecad_gui}):
+                self.assembly.export([obj], manifest_path)
+
+            with open(manifest_path, encoding="utf-8") as stream:
+                viewport = json.load(stream)["viewport"]
+            self.assertEqual(viewport, {
+                "camera_type": "Orthographic",
+                "position": [12.0, 23.0, 34.0],
+                "orientation": [0.1, 0.2, 0.3, 0.9],
+                "near_distance": 1.5,
+                "far_distance": 1500.0,
+                "aspect_ratio": 1.6,
+                "focal_distance": 250.0,
+                "height": 90.0,
+            })
+
+    def test_restore_viewport_camera(self):
+        document = Document("Target")
+        view = View()
+        gui_document = types.SimpleNamespace(activeView=lambda: view)
+        freecad_gui = types.ModuleType("FreeCADGui")
+        freecad_gui.getDocument = lambda name: gui_document
+        viewport = {
+            "camera_type": "Perspective",
+            "position": [1, 2, 3],
+            "orientation": [0, 0, 0, 1],
+            "near_distance": 2,
+            "far_distance": 2000,
+            "aspect_ratio": 1.25,
+            "focal_distance": 300,
+            "height_angle": 0.5,
+        }
+
+        with mock.patch.object(
+                self.fake_freecad, "GuiUp", True, create=True), \
+                mock.patch.dict(sys.modules, {"FreeCADGui": freecad_gui}):
+            restored = self.assembly._restore_viewport(document, viewport)
+
+        self.assertTrue(restored)
+        self.assertEqual(view.camera_type, "Perspective")
+        self.assertEqual(view.camera.position.value, (1.0, 2.0, 3.0))
+        self.assertEqual(view.camera.orientation.value, (0.0, 0.0, 0.0, 1.0))
+        self.assertEqual(view.camera.nearDistance.value, 2.0)
+        self.assertEqual(view.camera.farDistance.value, 2000.0)
+        self.assertEqual(view.camera.aspectRatio.value, 1.25)
+        self.assertEqual(view.camera.focalDistance.value, 300.0)
+        self.assertEqual(view.camera.heightAngle.value, 0.5)
+        self.assertEqual(view.redraw_count, 1)
+
+    def test_insert_restores_viewport_after_recompute(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest_path = os.path.join(root, "main.kkkk_asm")
+            viewport = {
+                "camera_type": "Orthographic",
+                "position": [4, 5, 6],
+                "orientation": [0, 0, 0, 1],
+                "near_distance": 1,
+                "far_distance": 1000,
+                "aspect_ratio": 1.5,
+                "focal_distance": 100,
+                "height": 75,
+            }
+            with open(manifest_path, "w", encoding="utf-8") as stream:
+                json.dump({
+                    "objects": [{
+                        "type": "StepObject",
+                        "file": "enclosure.step",
+                    }],
+                    "viewport": viewport,
+                }, stream)
+
+            document = Document("Target")
+            self.documents[document.Name] = document
+            created = StepObjectStub(document)
+            step_module = types.ModuleType(
+                "FreekiCAD.freecad.FreekiCAD.StepObject")
+            step_module.create_step_object = mock.Mock(return_value=created)
+            view = View()
+            gui_document = types.SimpleNamespace(activeView=lambda: view)
+            freecad_gui = types.ModuleType("FreeCADGui")
+            freecad_gui.getDocument = lambda name: gui_document
+
+            with mock.patch.object(
+                    self.fake_freecad, "GuiUp", True, create=True), \
+                    mock.patch.dict(sys.modules, {
+                        "FreeCADGui": freecad_gui,
+                        "FreekiCAD.freecad.FreekiCAD.StepObject": step_module,
+                    }):
+                self.assembly.insert(manifest_path, document.Name)
+
+            self.assertEqual(document.recompute_count, 1)
+            self.assertEqual(view.camera.position.value, (4.0, 5.0, 6.0))
+            self.assertEqual(view.camera.height.value, 75.0)
+            self.assertEqual(view.redraw_count, 1)
+
+    def test_invalid_viewport_property_is_skipped(self):
+        with tempfile.NamedTemporaryFile(
+                "w", suffix=".kkkk_asm") as stream:
+            json.dump({
+                "objects": [],
+                "viewport": {
+                    "camera_type": "Orthographic",
+                    "position": [0, 0, 1],
+                    "orientation": [0, 0, 0, 0],
+                    "near_distance": 1,
+                    "far_distance": 10,
+                    "aspect_ratio": 1,
+                    "focal_distance": 5,
+                    "height": 2,
+                },
+            }, stream)
+            stream.flush()
+            viewport = self.assembly._read(stream.name)["viewport"]
+
+        document = Document("Target")
+        view = View()
+        original_orientation = view.camera.orientation.value
+        gui_document = types.SimpleNamespace(activeView=lambda: view)
+        freecad_gui = types.ModuleType("FreeCADGui")
+        freecad_gui.getDocument = lambda name: gui_document
+
+        with mock.patch.object(
+                self.fake_freecad, "GuiUp", True, create=True), \
+                mock.patch.dict(sys.modules, {"FreeCADGui": freecad_gui}):
+            restored = self.assembly._restore_viewport(document, viewport)
+
+        self.assertTrue(restored)
+        self.assertEqual(view.camera.position.value, (0.0, 0.0, 1.0))
+        self.assertEqual(view.camera.orientation.value, original_orientation)
+        self.assertEqual(view.camera.focalDistance.value, 5.0)
+        self.assertEqual(view.camera.height.value, 2.0)
+        self.assertEqual(view.redraw_count, 1)
 
     def test_export_omits_placement_for_couplermoving_positioned_object(self):
         with tempfile.TemporaryDirectory() as root:

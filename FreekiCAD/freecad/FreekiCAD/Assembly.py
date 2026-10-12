@@ -31,6 +31,7 @@ MODEL_OBJECT_SETTINGS = {
     "StepObject": ("AutoReload",),
     "StlObject": ("AutoReload", "LengthPerUnit"),
 }
+CAMERA_TYPES = ("Orthographic", "Perspective")
 
 
 class _ExportInstance:
@@ -122,6 +123,198 @@ def _placement_from_json(data):
             FreeCAD.Vector(*(float(value) for value in axis)), float(angle)
         ),
     )
+
+
+def _field_components(field):
+    """Return a Coin vector or rotation field as plain JSON numbers."""
+    value = field.getValue()
+    if hasattr(value, "getValue"):
+        value = value.getValue()
+    return [float(component) for component in value]
+
+
+def _capture_viewport():
+    """Return the active 3D camera state, or None outside the GUI."""
+    if not getattr(FreeCAD, "GuiUp", False):
+        return None
+    try:
+        import FreeCADGui
+
+        gui_document = FreeCADGui.activeDocument()
+        if gui_document is None:
+            return None
+        view = gui_document.activeView()
+        if view is None:
+            return None
+        camera_type = str(view.getCameraType())
+        if camera_type not in CAMERA_TYPES:
+            return None
+        camera = view.getCameraNode()
+        data = {
+            "camera_type": camera_type,
+            "position": _field_components(camera.position),
+            "orientation": _field_components(camera.orientation),
+            "near_distance": float(camera.nearDistance.getValue()),
+            "far_distance": float(camera.farDistance.getValue()),
+            "aspect_ratio": float(camera.aspectRatio.getValue()),
+            "focal_distance": float(camera.focalDistance.getValue()),
+        }
+        if camera_type == "Orthographic":
+            data["height"] = float(camera.height.getValue())
+        else:
+            data["height_angle"] = float(camera.heightAngle.getValue())
+        _validate_viewport(data)
+        return data
+    except Exception as ex:
+        console = getattr(FreeCAD, "Console", None)
+        if console is not None and hasattr(console, "PrintWarning"):
+            console.PrintWarning(
+                "FreekiCAD: Could not capture assembly viewport: {}\n".format(
+                    ex))
+        return None
+
+
+def _finite_number(value, description, positive=False):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("{} must be a number".format(description))
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError("{} must be finite".format(description))
+    if positive and value <= 0:
+        raise ValueError("{} must be positive".format(description))
+    return value
+
+
+def _number_array(data, name, length):
+    value = data.get(name)
+    if not isinstance(value, list) or len(value) != length:
+        raise ValueError("viewport {} must have {} values".format(
+            name, length))
+    return [
+        _finite_number(component, "viewport {} value".format(name))
+        for component in value
+    ]
+
+
+def _validate_viewport(data):
+    """Validate and normalize the optional portable camera block."""
+    if not isinstance(data, dict):
+        raise ValueError("viewport must be an object")
+    camera_type = data.get("camera_type")
+    if camera_type not in CAMERA_TYPES:
+        raise ValueError(
+            "viewport camera_type must be Orthographic or Perspective")
+    position = _number_array(data, "position", 3)
+    orientation = _number_array(data, "orientation", 4)
+    if not any(orientation):
+        raise ValueError("viewport orientation must not be zero")
+    near_distance = _finite_number(
+        data.get("near_distance"), "viewport near_distance", positive=True)
+    far_distance = _finite_number(
+        data.get("far_distance"), "viewport far_distance", positive=True)
+    if far_distance <= near_distance:
+        raise ValueError(
+            "viewport far_distance must be greater than near_distance")
+    normalized = {
+        "camera_type": camera_type,
+        "position": position,
+        "orientation": orientation,
+        "near_distance": near_distance,
+        "far_distance": far_distance,
+        "aspect_ratio": _finite_number(
+            data.get("aspect_ratio"), "viewport aspect_ratio", positive=True),
+        "focal_distance": _finite_number(
+            data.get("focal_distance"), "viewport focal_distance",
+            positive=True),
+    }
+    dimension_name = (
+        "height" if camera_type == "Orthographic" else "height_angle")
+    normalized[dimension_name] = _finite_number(
+        data.get(dimension_name), "viewport {}".format(dimension_name),
+        positive=True)
+    return normalized
+
+
+def _restore_viewport(document, data):
+    """Best-effort restore of viewport fields without affecting geometry."""
+    if data is None or not getattr(FreeCAD, "GuiUp", False):
+        return False
+    if not isinstance(data, dict):
+        return False
+
+    def warn(name, ex):
+        console = getattr(FreeCAD, "Console", None)
+        if console is not None and hasattr(console, "PrintWarning"):
+            console.PrintWarning(
+                "FreekiCAD: Could not restore viewport {}: {}\n".format(
+                    name, ex))
+
+    try:
+        import FreeCADGui
+
+        gui_document = FreeCADGui.getDocument(document.Name)
+        view = gui_document.activeView()
+    except Exception as ex:
+        warn("view", ex)
+        return False
+
+    applied = False
+
+    def apply(name, callback):
+        nonlocal applied
+        if name not in data:
+            return
+        try:
+            callback()
+            applied = True
+        except Exception as ex:
+            warn(name, ex)
+
+    def set_camera_type():
+        camera_type = data["camera_type"]
+        if camera_type not in CAMERA_TYPES:
+            raise ValueError("must be Orthographic or Perspective")
+        view.setCameraType(camera_type)
+
+    apply("camera_type", set_camera_type)
+    try:
+        camera = view.getCameraNode()
+    except Exception as ex:
+        warn("camera", ex)
+        return applied
+
+    apply("position", lambda: camera.position.setValue(
+        *_number_array(data, "position", 3)))
+
+    def set_orientation():
+        orientation = _number_array(data, "orientation", 4)
+        if not any(orientation):
+            raise ValueError("must not be zero")
+        camera.orientation.setValue(*orientation)
+
+    apply("orientation", set_orientation)
+
+    scalar_fields = (
+        ("near_distance", "nearDistance"),
+        ("far_distance", "farDistance"),
+        ("aspect_ratio", "aspectRatio"),
+        ("focal_distance", "focalDistance"),
+        ("height", "height"),
+        ("height_angle", "heightAngle"),
+    )
+    for source_name, field_name in scalar_fields:
+        apply(source_name, lambda source_name=source_name,
+              field_name=field_name: getattr(camera, field_name).setValue(
+                  _finite_number(
+                      data[source_name], "viewport {}".format(source_name),
+                      positive=True)))
+
+    if applied and hasattr(view, "redraw"):
+        try:
+            view.redraw()
+        except Exception as ex:
+            warn("redraw", ex)
+    return applied
 
 
 def _object_type(obj):
@@ -341,6 +534,9 @@ def export(export_list, filename):
             for instance in instances
         ],
     }
+    viewport = _capture_viewport()
+    if viewport is not None:
+        data["viewport"] = viewport
     with builtins.open(filename, "w", encoding="utf-8", newline="\n") as stream:
         json.dump(data, stream, ensure_ascii=False, indent=2)
         stream.write("\n")
@@ -413,6 +609,7 @@ def insert(filename, document_name, recompute=True):
 
     if recompute:
         document.recompute()
+        _restore_viewport(document, data.get("viewport"))
     return imported
 
 

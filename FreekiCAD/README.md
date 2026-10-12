@@ -82,16 +82,19 @@ linked object can be reloaded. `AutoReload` is enabled by default and can be
 disabled independently on each linked object.
 
 By contrast, a `.kkkk_asm` manifest never contains cached objects or generated
-geometry. It stores only the linked source paths, object settings, and
-placements, and prefers paths relative to the manifest, falling back to an
-absolute path only when a relative path cannot be represented. On import,
-relative paths are resolved from the manifest's directory and every source is
-loaded fresh. This also makes FreekiCAD useful for assembling external models
-without KiCad. STL files have no unit metadata, so linked `StlObject` instances
-interpret one coordinate unit as one millimetre by default and expose
-`LengthPerUnit` for other source units. `LengthPerUnit` is a FreeCAD length
-field, so values such as `1 mm`, `1 in`, or `1 mil` may be entered directly.
-Portable manifests store its canonical millimetre value as `LengthPerUnitMM`.
+geometry. It stores the linked source paths, object settings, placements, and
+an optional structured 3D viewport camera, and prefers paths relative to the
+manifest, falling back to an absolute path only when a relative path cannot be
+represented. On import, relative paths are resolved from the manifest's
+directory and every source is loaded fresh. GUI import restores each available
+camera field independently after recomputation, skipping invalid or unsupported
+fields, while headless STEP/STL export ignores it. This also makes FreekiCAD
+useful for assembling external models without KiCad. STL files have
+no unit metadata, so linked `StlObject` instances interpret one coordinate unit
+as one millimetre by default and expose `LengthPerUnit` for other source units.
+`LengthPerUnit` is a FreeCAD length field, so values such as `1 mm`, `1 in`, or
+`1 mil` may be entered directly. Portable manifests store its canonical
+millimetre value as `LengthPerUnitMM`.
 
 The [FPC assembly example][fpc-assembly-example] shows a `.kkkk_asm` manifest
 containing linked KiCad PCB files.
