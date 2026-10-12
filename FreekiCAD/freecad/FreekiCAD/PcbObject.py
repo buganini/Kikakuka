@@ -27,6 +27,7 @@ GEOMETRY_TOLERANCE = 0.001  # mm (1 µm)
 PARTITION_RELATIVE_TOLERANCE = 1e-6
 BEND_ANNOTATION_POSITION_TOLERANCE = 0.1  # mm
 STEP_IMPORTER_REVISION = 2
+SURFACE_GEOMETRY_REVISION = 1
 COPPER_STRAIN_WARNING = 0.05
 
 COUPLER_MOVING = "CouplerMoving"
@@ -39,9 +40,62 @@ COUPLER_MONITOR_INTERVAL_MS = 1000
 COUPLER_MONITOR_RETRY_INITIAL_S = 5.0
 COUPLER_MONITOR_RETRY_MAX_S = 20.0
 PCB_OBJECT_TYPES = {"PcbObject", "LinkedObject"}
+SILKSCREEN_POLYGON_OFFSET_NAME = "FreekiCADSilkscreenPolygonOffset"
+SILKSCREEN_POLYGON_OFFSET_FACTOR = -16.0
+SILKSCREEN_POLYGON_OFFSET_UNITS = -16.0
 # Master switch for coupler synchronization in both directions.
 # Local FreeCAD marker editing and coupled-board positioning remain active.
 COUPLER_KICAD_SYNC_ENABLED = True
+
+
+def _apply_silkscreen_polygon_offset(view_object):
+    """Bias silkscreen depth in the viewport without moving its Shape."""
+    if view_object is None or not getattr(FreeCAD, 'GuiUp', False):
+        return False
+    try:
+        from pivy import coin
+
+        root = view_object.RootNode
+        offset = None
+        offset_index = -1
+        for index in range(root.getNumChildren()):
+            child = root.getChild(index)
+            try:
+                name = child.getName().getString()
+            except Exception:
+                continue
+            if name == SILKSCREEN_POLYGON_OFFSET_NAME:
+                offset = child
+                offset_index = index
+                break
+        if offset is None:
+            offset = coin.SoPolygonOffset()
+            offset.setName(SILKSCREEN_POLYGON_OFFSET_NAME)
+        elif offset_index > 0:
+            root.removeChild(offset_index)
+        if offset_index != 0:
+            root.insertChild(offset, 0)
+        offset.factor.setValue(SILKSCREEN_POLYGON_OFFSET_FACTOR)
+        offset.units.setValue(SILKSCREEN_POLYGON_OFFSET_UNITS)
+        offset.styles.setValue(coin.SoPolygonOffset.FILLED)
+        offset.on.setValue(True)
+        return True
+    except Exception as ex:
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD: Could not apply silkscreen depth bias: {ex}\n")
+        return False
+
+
+def _apply_silkscreen_polygon_offsets(obj):
+    """Apply the viewport-only bias to every silkscreen child of *obj*."""
+    applied = 0
+    for child in getattr(obj, 'Group', []):
+        if not hasattr(child, 'SilkscreenLayer'):
+            continue
+        if _apply_silkscreen_polygon_offset(
+                getattr(child, 'ViewObject', None)):
+            applied += 1
+    return applied
 
 
 @contextmanager
@@ -2165,23 +2219,12 @@ def load_board(filepath, socket_path, import_outer_copper=False,
                     False: mask_opening_data.get(
                         BoardLayer.BL_B_Mask, {}).get("shapes", []),
                 }
-            stiffener_surface_offsets = {}
-            if import_silkscreen and stackup is not None:
-                from .Silkscreen import silkscreen_stackup_layers
-                for silk_info in silkscreen_stackup_layers(
-                        stackup, BoardLayer,
-                        total_thickness=thickness):
-                    stiffener_surface_offsets[
-                        silk_info.name == "F.SilkS"] = abs(
-                            silk_info.z - (thickness
-                                           if silk_info.name == "F.SilkS" else 0.0))
             stiffener_layers = build_stiffener_layers(
                 all_shapes, all_text, stiffener_layer_defs, thickness,
                 to_concrete=to_concrete_board_shape,
                 warn=_surface_warning,
                 error=_surface_error,
-                mask_openings=mask_openings_by_side,
-                surface_offsets=stiffener_surface_offsets)
+                mask_openings=mask_openings_by_side)
             for area in stiffener_layers:
                 FreeCAD.Console.PrintMessage(
                     f"FreekiCAD: Stiffener {area['layer_name']}: "
@@ -2949,7 +2992,7 @@ class PcbObject:
         obj.ImportSolderMask = False
         obj.addProperty(
             "App::PropertyBool", "ImportSilkscreen", "LinkedFile",
-            "Import F.SilkS and B.SilkS planes 10 microns above the board"
+            "Import F.SilkS and B.SilkS planes on the finished board surfaces"
         )
         obj.ImportSilkscreen = False
         obj.addProperty(
@@ -2983,6 +3026,12 @@ class PcbObject:
             "JSON: coupler poses from the linked board"
         )
         obj.setPropertyStatus("CouplerPoses", "Hidden")
+        obj.addProperty(
+            "App::PropertyInteger", "SurfaceGeometryRevision", "LinkedFile",
+            "Cached surface-geometry format revision"
+        )
+        obj.SurfaceGeometryRevision = SURFACE_GEOMETRY_REVISION
+        obj.setPropertyStatus("SurfaceGeometryRevision", "Hidden")
         obj.Proxy = self
         self.Type = "PcbObject"
         self._board_color = None
@@ -2995,7 +3044,7 @@ class PcbObject:
         self._ensure_coupler_monitor_state()
 
     def onDocumentRestored(self, obj):
-        """Migrate saved coupler markers to the editable property set."""
+        """Migrate cached PCB geometry and saved coupler markers."""
         self._export_face_colors = {}
         self._ensure_properties(obj)
         self._last_filename = _resolved_linked_filename(obj)
@@ -3388,8 +3437,8 @@ class PcbObject:
                     pass
             obj.addObject(board_obj)
 
-        # Copper and mask remain zero-thickness display faces at physical
-        # stackup Z. Silkscreen retains its outward physical display shell.
+        # Copper, mask, and silkscreen remain zero-thickness display faces at
+        # physical stackup Z. Silkscreen receives a viewport-only depth bias.
         # Finished thickness still controls component/coupler placement.
         self._layer_extrusion_directions = {}
         self._layer_cap_modes = {}
@@ -3499,6 +3548,8 @@ class PcbObject:
                 silk_obj.ViewObject.DisplayMode = "Shaded"
             except Exception:
                 pass
+            _apply_silkscreen_polygon_offset(
+                getattr(silk_obj, 'ViewObject', None))
             obj.addObject(silk_obj)
 
         # Stiffeners use additive physical thickness outside the finished
@@ -13150,10 +13201,15 @@ class PcbObject:
         "ImportSilkscreen",
         "BuildDebugObjects", "DebugBoard", "WedgeMode",
         "ComponentMtimes", "FileMtime", "CouplerPoses",
+        "SurfaceGeometryRevision",
     }
 
     def _ensure_properties(self, obj):
         """Add missing properties and remove obsolete ones (migration)."""
+        try:
+            saved_surface_revision = int(obj.SurfaceGeometryRevision)
+        except Exception:
+            saved_surface_revision = 0
         if not hasattr(obj, 'ImportOuterCopper'):
             obj.addProperty(
                 "App::PropertyBool", "ImportOuterCopper", "LinkedFile",
@@ -13172,7 +13228,7 @@ class PcbObject:
         if not hasattr(obj, 'ImportSilkscreen'):
             obj.addProperty(
                 "App::PropertyBool", "ImportSilkscreen", "LinkedFile",
-                "Import F.SilkS and B.SilkS planes 10 microns above the board")
+                "Import F.SilkS and B.SilkS planes on the finished board surfaces")
             obj.ImportSilkscreen = False
         if not hasattr(obj, 'SnapToCoupler'):
             obj.addProperty(
@@ -13194,6 +13250,18 @@ class PcbObject:
                 "App::PropertyString", "FileMtime", "LinkedFile",
                 "Stored mtime of the linked .kicad_pcb file")
             obj.setPropertyStatus("FileMtime", "Hidden")
+        if not hasattr(obj, 'SurfaceGeometryRevision'):
+            obj.addProperty(
+                "App::PropertyInteger", "SurfaceGeometryRevision",
+                "LinkedFile", "Cached surface-geometry format revision")
+            obj.setPropertyStatus("SurfaceGeometryRevision", "Hidden")
+        obj.SurfaceGeometryRevision = SURFACE_GEOMETRY_REVISION
+        if (saved_surface_revision < SURFACE_GEOMETRY_REVISION
+                and any(hasattr(child, 'SilkscreenLayer')
+                        for child in getattr(obj, 'Group', []))):
+            # Older cached silkscreen was displaced by 10 microns. Force one
+            # source reload so restored documents regain exact dimensions.
+            obj.FileMtime = ""
         if not hasattr(obj, 'BuildDebugObjects'):
             obj.addProperty(
                 "App::PropertyBool", "BuildDebugObjects", "LinkedFile",
@@ -13229,6 +13297,7 @@ class PcbObjectViewProvider:
 
     def attach(self, vobj):
         self.Object = vobj.Object
+        _apply_silkscreen_polygon_offsets(self.Object)
         # Restoring an FCStd does not necessarily reload its unchanged PCB,
         # but its saved CouplerPoses still need a document-level positioning
         # pass after every linked object has finished restoring.
@@ -13242,6 +13311,10 @@ class PcbObjectViewProvider:
         self._coupler_monitor_timer.timeout.connect(
             lambda: self._monitor_couplers(vobj))
         self._coupler_monitor_timer.start(COUPLER_MONITOR_INTERVAL_MS)
+
+    def updateData(self, obj, prop):
+        if prop == "Group":
+            _apply_silkscreen_polygon_offsets(obj)
 
     def _monitor_couplers(self, vobj):
         """Poll the live KiCad document for persisted coupler pose changes."""

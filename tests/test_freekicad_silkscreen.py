@@ -79,8 +79,8 @@ class SilkscreenTests(unittest.TestCase):
 
         self.assertEqual([layer.name for layer in layers],
                          ["F.SilkS", "B.SilkS"])
-        self.assertAlmostEqual(layers[0].z, 1.61)
-        self.assertAlmostEqual(layers[1].z, -0.01)
+        self.assertAlmostEqual(layers[0].z, 1.6)
+        self.assertAlmostEqual(layers[1].z, 0.0)
         self.assertAlmostEqual(layers[0].thickness, 0.0)
         self.assertAlmostEqual(layers[1].thickness, 0.0)
         self.assertEqual(layers[0].color, (1.0, 200 / 255, 100 / 255))
@@ -180,7 +180,7 @@ class SilkscreenTests(unittest.TestCase):
         self.assertEqual(layers[0]["text_count"], 2)
         self.assertEqual(layers[0]["face_count"], 4)
         self.assertAlmostEqual(layers[0]["area"], 4.0)
-        self.assertAlmostEqual(layers[0]["shape"].z, 1.61)
+        self.assertAlmostEqual(layers[0]["shape"].z, 1.6)
         self.assertAlmostEqual(layers[0]["direction"], 0.0)
         self.assertEqual(layers[0]["volume"], 0.0)
         self.assertIs(layers[0]["shape"], layers[0]["profile_shape"])

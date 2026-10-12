@@ -339,11 +339,11 @@ Other material names are accepted with a warning. When `Color` or `Opacity`
 is omitted for an unlisted material, the corresponding `Polyimide` default is
 used.
 
-Front stiffeners extend outward beyond the front silkscreen plane; back
-stiffeners extend outward beyond the back silkscreen plane. Pad, via, and
-explicit mask-graphic openings on `F.Mask` are cut through front stiffeners,
-while `B.Mask` openings are cut through back stiffeners. This still applies
-when `ImportSolderMask` is disabled.
+Front and back stiffeners extend outward from the corresponding finished board
+surface. The silkscreen's viewport-only depth bias does not move them. Pad,
+via, and explicit mask-graphic openings on `F.Mask` are cut through front
+stiffeners, while `B.Mask` openings are cut through back stiffeners. This still
+applies when `ImportSolderMask` is disabled.
 
 Stiffener thickness is additive outside the finished PCB; it is not included
 in the board thickness and is never subtracted from the board body.

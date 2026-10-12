@@ -2,6 +2,8 @@
 * CADhoc
     * Rename the shared Instance Manager coordination library to CADhoc and add dedicated icon assets and Python API documentation
     * Add a confirmation-protected **Close All** action for same-user KiCad and FreeCAD GUI instances
+* FreekiCAD
+    * Replace the 10 µm silkscreen geometry offset with a viewport-only Coin3D filled-polygon depth bias (`factor=-16`, `units=-16`), preserving exact model dimensions for measurement and export
 * Differ
     * Draw the comparison cursor at the correct position in flipped board view
     * Preserve the visible board area and comparison cursor position when toggling **Flip Board View**

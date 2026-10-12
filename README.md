@@ -279,7 +279,7 @@ For a standalone FreekiCAD deployment without Kikakuka, follow the
         * Mask is a zero-thickness face at the finished outer surface. Imported mask reserves its physical outer stackup thickness in the single substrate body; when mask import is disabled, the body fills that thickness.
     * Inspect Silkscreen
         * `ImportSilkscreen` imports board- and footprint-level graphics, references, values, fields, and free text from `F.SilkS` and `B.SilkS`. It defaults to off.
-        * Silkscreen is extruded outward from the finished board boundary and renders its outward surface and walls without an inward interface surface. It is additive and does not consume finished board thickness.
+        * Silkscreen is a zero-thickness face on the finished board surface. A Coin3D polygon offset resolves viewport z-fighting without moving the geometry, so measurements, bounds, and exports retain the exact finished dimensions.
     * [Flexible PCB Stiffener](#flexible-pcb-stiffener)
         * Import annotated stiffener solids automatically from `F.Stiffener` and `B.Stiffener` user layers.
     * [Coupler-Based PCB Alignment](#coupler-based-pcb-alignment)

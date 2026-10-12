@@ -165,6 +165,83 @@ class _Placement2D:
 
 
 class OutlineWireOrderTests(unittest.TestCase):
+    def test_silkscreen_polygon_offset_is_view_only_and_idempotent(self):
+        linked_object = self._import_linked_object()
+
+        class Field:
+            def __init__(self):
+                self.value = None
+
+            def setValue(self, value):
+                self.value = value
+
+        class Name:
+            def __init__(self, value=""):
+                self.value = value
+
+            def getString(self):
+                return self.value
+
+        class PolygonOffset:
+            FILLED = 7
+
+            def __init__(self):
+                self.name = Name()
+                self.factor = Field()
+                self.units = Field()
+                self.styles = Field()
+                self.on = Field()
+
+            def setName(self, value):
+                self.name = Name(value)
+
+            def getName(self):
+                return self.name
+
+        class Geometry:
+            def getName(self):
+                return Name()
+
+        class Root:
+            def __init__(self):
+                self.children = [Geometry()]
+
+            def getNumChildren(self):
+                return len(self.children)
+
+            def getChild(self, index):
+                return self.children[index]
+
+            def insertChild(self, child, index):
+                self.children.insert(index, child)
+
+            def removeChild(self, index):
+                self.children.pop(index)
+
+        root = Root()
+        view_object = types.SimpleNamespace(RootNode=root)
+        fake_pivy = types.ModuleType("pivy")
+        fake_pivy.coin = types.SimpleNamespace(
+            SoPolygonOffset=PolygonOffset)
+        linked_object.FreeCAD.GuiUp = True
+        linked_object.FreeCAD.Console = types.SimpleNamespace(
+            PrintWarning=mock.Mock())
+
+        with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
+            self.assertTrue(linked_object._apply_silkscreen_polygon_offset(
+                view_object))
+            self.assertTrue(linked_object._apply_silkscreen_polygon_offset(
+                view_object))
+
+        self.assertEqual(len(root.children), 2)
+        offset = root.children[0]
+        self.assertIsInstance(offset, PolygonOffset)
+        self.assertEqual(offset.factor.value, -16.0)
+        self.assertEqual(offset.units.value, -16.0)
+        self.assertEqual(offset.styles.value, PolygonOffset.FILLED)
+        self.assertIs(offset.on.value, True)
+        linked_object.FreeCAD.Console.PrintWarning.assert_not_called()
+
     def test_import_property_writes_do_not_schedule_rebend(self):
         module = self._import_linked_object()
         proxy = module.PcbObject.__new__(module.PcbObject)
@@ -689,6 +766,33 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertIs(obj.ImportInnerCopper, False)
         self.assertIs(obj.ImportSolderMask, False)
         self.assertIs(obj.ImportSilkscreen, False)
+        self.assertEqual(
+            obj.SurfaceGeometryRevision,
+            linked_object.SURFACE_GEOMETRY_REVISION)
+
+    def test_old_silkscreen_geometry_forces_one_reload_on_restore(self):
+        linked_object = self._import_linked_object()
+
+        class FakeObject:
+            PropertiesList = []
+            Group = [types.SimpleNamespace(SilkscreenLayer="F.SilkS")]
+            FileMtime = "saved"
+
+            def addProperty(self, _kind, name, _group, _description):
+                setattr(self, name, None)
+
+            def setPropertyStatus(self, _name, _status):
+                pass
+
+        obj = FakeObject()
+        proxy = linked_object.PcbObject.__new__(linked_object.PcbObject)
+
+        proxy._ensure_properties(obj)
+
+        self.assertEqual(obj.FileMtime, "")
+        self.assertEqual(
+            obj.SurfaceGeometryRevision,
+            linked_object.SURFACE_GEOMETRY_REVISION)
 
     def test_surface_property_change_is_debounced_before_clearing_mtime(self):
         linked_object = self._import_linked_object()

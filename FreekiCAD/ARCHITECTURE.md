@@ -65,10 +65,11 @@ wedge mapping as copper during bending.
 
 `Silkscreen.py` imports board- and footprint-level `F.SilkS`/`B.SilkS`
 graphics and asks KiCad to convert visible text and fields to polygonal shapes.
-The profiles on each side are unioned, extruded outward from `0/T` by their
-physical thickness, and reduced to outward caps plus walls. The inward cap is
-not rendered. Silkscreen is additive outside the finished board and is never
-subtracted from the body. Its base profiles follow the same rigid-piece and
+The profiles on each side are unioned into zero-thickness faces at `0/T`.
+Their view-provider roots receive a filled-polygon Coin3D depth bias so the
+silkscreen renders above coincident board, copper, or mask faces without any
+geometric displacement. Measurements, bounds, and exports therefore retain
+the exact finished dimensions. The profiles follow the same rigid-piece and
 wedge mapping as copper and mask during bending.
 
 ## Stiffener Solids
@@ -87,7 +88,8 @@ areas are skipped with a warning.
 
 Thickness and coupler Z share `Units.parse_length_mm`, accepting `mm`, `in`,
 `mil` (0.001 inch), and `um`, with unitless values interpreted as millimetres.
-Stiffeners start beyond an imported silkscreen and extrude away from the board.
+Stiffeners start at the finished board surface and extrude away from the board;
+the silkscreen depth bias has no effect on their geometry.
 Their display shells contain the outward cap and walls but no inward interface
 cap. Stiffener thickness is additive: it is never included in the finished
 board thickness or subtracted from the board body.

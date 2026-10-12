@@ -1,4 +1,4 @@
-"""Build zero-thickness silkscreen surfaces above the board."""
+"""Build zero-thickness silkscreen surfaces on the finished board."""
 
 from dataclasses import dataclass
 import warnings
@@ -14,7 +14,6 @@ from .Copper import (
 
 
 NM_PER_MM = 1_000_000.0
-SILKSCREEN_OFFSET_MM = 0.010
 DEFAULT_SILKSCREEN_COLOR = (0.94, 0.94, 0.94)
 
 
@@ -47,7 +46,7 @@ def _color_tuple(color, fallback=DEFAULT_SILKSCREEN_COLOR):
 
 def silkscreen_stackup_layers(stackup, board_layer,
                                total_thickness=None):
-    """Return F/B silkscreen planes offset 10 microns from the board.
+    """Return F/B silkscreen planes on the finished board surfaces.
 
     Both sides are described so silk graphics still import when an older
     KiCad file omits explicit silkscreen stackup entries.
@@ -70,8 +69,7 @@ def silkscreen_stackup_layers(stackup, board_layer,
         result.append(SilkscreenLayerInfo(
             layer=layer,
             name=name,
-            z=(total_mm + SILKSCREEN_OFFSET_MM
-               if is_front else -SILKSCREEN_OFFSET_MM),
+            z=(total_mm if is_front else 0.0),
             thickness=0.0,
             color=_color_tuple(getattr(entry, "color", None)),
             direction=0.0,
