@@ -165,15 +165,15 @@ class _Placement2D:
 
 
 class OutlineWireOrderTests(unittest.TestCase):
-    def test_silkscreen_polygon_offset_is_view_only_and_idempotent(self):
+    def test_surface_depth_range_is_view_only_and_idempotent(self):
         linked_object = self._import_linked_object()
 
         class Field:
             def __init__(self):
                 self.value = None
 
-            def setValue(self, value):
-                self.value = value
+            def setValue(self, *value):
+                self.value = value[0] if len(value) == 1 else value
 
         class Name:
             def __init__(self, value=""):
@@ -192,6 +192,7 @@ class OutlineWireOrderTests(unittest.TestCase):
                 self.units = Field()
                 self.styles = Field()
                 self.on = Field()
+                self.refs = 0
 
             def setName(self, value):
                 self.name = Name(value)
@@ -201,6 +202,73 @@ class OutlineWireOrderTests(unittest.TestCase):
 
             def setOverride(self, value):
                 self.override = value
+
+            def ref(self):
+                self.refs += 1
+
+            def unref(self):
+                self.refs -= 1
+
+        class DepthBuffer:
+            LEQUAL = 3
+
+            def __init__(self):
+                self.name = Name()
+                self.override = False
+                self.test = Field()
+                self.function = Field()
+                self.write_field = Field()
+                self.range = Field()
+                self.refs = 0
+
+            def setName(self, value):
+                self.name = Name(value)
+
+            def getName(self):
+                return self.name
+
+            def setOverride(self, value):
+                self.override = value
+
+            def getField(self, name):
+                if name != "write":
+                    raise KeyError(name)
+                return self.write_field
+
+            def ref(self):
+                self.refs += 1
+
+            def unref(self):
+                self.refs -= 1
+
+        class ShapeHints:
+            UNKNOWN_ORDERING = 0
+            UNKNOWN_SHAPE_TYPE = 0
+            CLOCKWISE = 1
+            COUNTERCLOCKWISE = 2
+            SOLID = 1
+
+            def __init__(self):
+                self.name = Name()
+                self.override = False
+                self.vertexOrdering = Field()
+                self.shapeType = Field()
+                self.refs = 0
+
+            def setName(self, value):
+                self.name = Name(value)
+
+            def getName(self):
+                return self.name
+
+            def setOverride(self, value):
+                self.override = value
+
+            def ref(self):
+                self.refs += 1
+
+            def unref(self):
+                self.refs -= 1
 
         class Geometry:
             def getName(self):
@@ -226,7 +294,9 @@ class OutlineWireOrderTests(unittest.TestCase):
         view_object = types.SimpleNamespace(RootNode=root)
         fake_pivy = types.ModuleType("pivy")
         fake_pivy.coin = types.SimpleNamespace(
-            SoPolygonOffset=PolygonOffset)
+            SoPolygonOffset=PolygonOffset,
+            SoDepthBuffer=DepthBuffer,
+            SoShapeHints=ShapeHints)
         linked_object.FreeCAD.GuiUp = True
         linked_object.FreeCAD.Console = types.SimpleNamespace(
             PrintWarning=mock.Mock())
@@ -234,18 +304,123 @@ class OutlineWireOrderTests(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
             self.assertTrue(linked_object._apply_silkscreen_polygon_offset(
                 view_object))
+            # Force both state nodes out of position. Reordering must keep a
+            # temporary Coin reference so the Pivy wrapper cannot dangle.
+            root.children.insert(0, Geometry())
             self.assertTrue(linked_object._apply_silkscreen_polygon_offset(
                 view_object))
 
-        self.assertEqual(len(root.children), 2)
-        offset = root.children[0]
-        self.assertIsInstance(offset, PolygonOffset)
-        self.assertIs(offset.override, True)
-        self.assertEqual(offset.factor.value, -30.0)
-        self.assertEqual(offset.units.value, -30.0)
-        self.assertEqual(offset.styles.value, PolygonOffset.FILLED)
-        self.assertIs(offset.on.value, True)
+        self.assertEqual(len(root.children), 4)
+        depth = next(child for child in root.children
+                     if isinstance(child, DepthBuffer))
+        hints = next(child for child in root.children
+                     if isinstance(child, ShapeHints))
+        self.assertIs(depth.override, True)
+        self.assertIs(depth.test.value, True)
+        self.assertEqual(depth.function.value, DepthBuffer.LEQUAL)
+        self.assertIs(depth.write_field.value, True)
+        self.assertEqual(
+            depth.range.value, linked_object.SILKSCREEN_DEPTH_RANGE)
+        self.assertIs(hints.override, True)
+        self.assertEqual(
+            hints.vertexOrdering.value, ShapeHints.COUNTERCLOCKWISE)
+        self.assertEqual(hints.shapeType.value, ShapeHints.SOLID)
+        self.assertEqual(depth.refs, 0)
+        self.assertEqual(hints.refs, 0)
+        self.assertIs(root.children[0], depth)
+        self.assertIs(root.children[1], hints)
+
+        mask_root = Root()
+        mask_view_object = types.SimpleNamespace(RootNode=mask_root)
+        with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
+            self.assertTrue(linked_object._apply_surface_render_state(
+                mask_view_object, "F.Mask"))
+            self.assertTrue(linked_object._apply_surface_render_state(
+                mask_view_object, "F.Mask"))
+        mask_depth = next(child for child in mask_root.children
+                          if isinstance(child, DepthBuffer))
+        self.assertEqual(
+            mask_depth.getName().getString(),
+            linked_object.MASK_DEPTH_BUFFER_NAME)
+        self.assertIs(mask_depth.override, True)
+        self.assertIs(mask_depth.test.value, True)
+        self.assertEqual(mask_depth.function.value, DepthBuffer.LEQUAL)
+        self.assertIs(mask_depth.write_field.value, True)
+        self.assertEqual(mask_depth.range.value, linked_object.MASK_DEPTH_RANGE)
+        self.assertIs(mask_root.children[0], mask_depth)
+        self.assertEqual(sum(isinstance(child, DepthBuffer)
+                             for child in mask_root.children), 1)
+
+        # Mask is directional too; otherwise transparent front/back surfaces
+        # blend together and change color with distance and view angle.
+        mask_hints = next(child for child in mask_root.children
+                          if isinstance(child, ShapeHints))
+        self.assertIs(mask_hints.override, True)
+        self.assertEqual(
+            mask_hints.vertexOrdering.value, ShapeHints.COUNTERCLOCKWISE)
+        self.assertEqual(
+            mask_hints.shapeType.value, ShapeHints.SOLID)
+        self.assertIs(mask_root.children[1], mask_hints)
+
+        inner_copper_root = Root()
+        inner_copper_view = types.SimpleNamespace(RootNode=inner_copper_root)
+        with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
+            self.assertTrue(linked_object._apply_surface_render_state(
+                inner_copper_view, "In1.Cu", surface_side="back"))
+        copper_hints = next(child for child in inner_copper_root.children
+                            if isinstance(child, ShapeHints))
+        self.assertIs(copper_hints.override, True)
+        self.assertEqual(
+            copper_hints.vertexOrdering.value, ShapeHints.COUNTERCLOCKWISE)
+        self.assertEqual(
+            copper_hints.shapeType.value, ShapeHints.SOLID)
+        self.assertFalse(any(isinstance(child, DepthBuffer)
+                             for child in inner_copper_root.children))
+        self.assertIs(inner_copper_root.children[0], copper_hints)
         linked_object.FreeCAD.Console.PrintWarning.assert_not_called()
+
+    def test_surface_side_marks_only_outer_layers(self):
+        linked_object = self._import_linked_object()
+        self.assertEqual(linked_object._surface_side("F.Cu"), "front")
+        self.assertEqual(linked_object._surface_side("B.Mask"), "back")
+        self.assertIsNone(linked_object._surface_side("In1.Cu"))
+        self.assertEqual(
+            linked_object._surface_side("In1.Cu", 1.2, 1.6), "front")
+        self.assertEqual(
+            linked_object._surface_side("In6.Cu", 0.4, 1.6), "back")
+
+    def test_back_surface_display_shape_reverses_copy_only(self):
+        linked_object = self._import_linked_object()
+
+        class Shape:
+            def __init__(self, reversed_count=0):
+                self.reversed_count = reversed_count
+
+            def copy(self):
+                return Shape(self.reversed_count)
+
+            def reverse(self):
+                self.reversed_count += 1
+
+        source = Shape()
+        front = linked_object._oriented_surface_display_shape(
+            source, "F.Mask")
+        back = linked_object._oriented_surface_display_shape(
+            source, "B.Mask")
+        inner = linked_object._oriented_surface_display_shape(
+            source, "In1.Cu")
+        lower_inner = linked_object._oriented_surface_display_shape(
+            source, "In6.Cu", "back")
+
+        self.assertIsNot(front, source)
+        self.assertIsNot(back, source)
+        self.assertIsNot(inner, source)
+        self.assertIsNot(lower_inner, source)
+        self.assertEqual(source.reversed_count, 0)
+        self.assertEqual(front.reversed_count, 0)
+        self.assertEqual(back.reversed_count, 1)
+        self.assertEqual(inner.reversed_count, 0)
+        self.assertEqual(lower_inner.reversed_count, 1)
 
     def test_import_property_writes_do_not_schedule_rebend(self):
         module = self._import_linked_object()

@@ -41,65 +41,188 @@ COUPLER_MONITOR_RETRY_INITIAL_S = 5.0
 COUPLER_MONITOR_RETRY_MAX_S = 20.0
 PCB_OBJECT_TYPES = {"PcbObject", "LinkedObject"}
 SILKSCREEN_POLYGON_OFFSET_NAME = "FreekiCADSilkscreenPolygonOffset"
-SILKSCREEN_POLYGON_OFFSET_FACTOR = -30.0
-SILKSCREEN_POLYGON_OFFSET_UNITS = -30.0
+MASK_POLYGON_OFFSET_NAME = "FreekiCADMaskPolygonOffset"
+SILKSCREEN_DEPTH_BUFFER_NAME = "FreekiCADSilkscreenDepthBuffer"
+MASK_DEPTH_BUFFER_NAME = "FreekiCADMaskDepthBuffer"
+SURFACE_SHAPE_HINTS_NAME = "FreekiCADSurfaceShapeHints"
+# Compress each overlay's viewport depth range by a tiny, layer-wide amount.
+# Unlike polygon offset, this does not derive a different bias from each
+# tessellated triangle's slope at grazing angles. Geometry and measurements
+# remain untouched. Silkscreen stays in front of mask, which stays in front of
+# the copper/board surface.
+SILKSCREEN_DEPTH_RANGE = (0.0, 0.99998)
+MASK_DEPTH_RANGE = (0.0, 0.999996)
 # Master switch for coupler synchronization in both directions.
 # Local FreeCAD marker editing and coupled-board positioning remain active.
 COUPLER_KICAD_SYNC_ENABLED = True
 
 
-def _apply_silkscreen_polygon_offset(view_object):
-    """Bias silkscreen depth in the viewport without moving its Shape."""
+def _find_coin_child(root, name):
+    """Return ``(node, index)`` for a named direct Coin child."""
+    for index in range(root.getNumChildren()):
+        child = root.getChild(index)
+        try:
+            child_name = child.getName().getString()
+        except Exception:
+            continue
+        if child_name == name:
+            return child, index
+    return None, -1
+
+
+def _place_coin_child(root, node, current_index, target_index):
+    """Place an existing Coin child without invalidating its Pivy wrapper."""
+    if current_index == target_index:
+        return
+    if current_index < 0:
+        root.insertChild(node, target_index)
+        return
+
+    # SoGroup owns the only C++ reference for nodes restored from an existing
+    # scene graph. removeChild() may therefore destroy the node immediately,
+    # leaving Pivy's Python wrapper dangling. Hold a temporary Coin reference
+    # across the move; both observed macOS crashes ended in getField() on that
+    # exact kind of stale wrapper.
+    node.ref()
+    try:
+        root.removeChild(current_index)
+        if current_index < target_index:
+            target_index -= 1
+        root.insertChild(node, target_index)
+    finally:
+        node.unref()
+
+
+def _surface_side(layer_name, display_z=None, board_thickness=None):
+    """Return the outward side for a KiCad display surface."""
+    name = str(layer_name or "")
+    if name.startswith("F."):
+        return "front"
+    if name.startswith("B."):
+        return "back"
+    if (name.endswith(".Cu") and display_z is not None
+            and board_thickness is not None):
+        return ("front" if float(display_z) >= float(board_thickness) / 2.0
+                else "back")
+    return None
+
+
+def _oriented_surface_display_shape(shape, layer_name, surface_side=None):
+    """Copy *shape* and point a back-facing layer toward the PCB back."""
+    display_shape = shape.copy()
+    side = surface_side or _surface_side(layer_name)
+    if side == "back":
+        # OCC orientation changes only the face traversal/normal direction;
+        # vertex coordinates and therefore all measured dimensions stay exact.
+        display_shape.reverse()
+    return display_shape
+
+
+def _apply_surface_render_state(view_object, layer_name,
+                                silkscreen=False, surface_side=None):
+    """Apply view-only depth bias and surface directionality."""
     if view_object is None or not getattr(FreeCAD, 'GuiUp', False):
         return False
     try:
         from pivy import coin
 
         root = view_object.RootNode
-        offset = None
-        offset_index = -1
-        for index in range(root.getNumChildren()):
-            child = root.getChild(index)
-            try:
-                name = child.getName().getString()
-            except Exception:
-                continue
-            if name == SILKSCREEN_POLYGON_OFFSET_NAME:
-                offset = child
-                offset_index = index
-                break
-        if offset is None:
-            offset = coin.SoPolygonOffset()
-            offset.setName(SILKSCREEN_POLYGON_OFFSET_NAME)
-        elif offset_index > 0:
-            root.removeChild(offset_index)
-        if offset_index != 0:
-            root.insertChild(offset, 0)
-        # Part ViewProvider nodes may install their own render state below the
-        # root.  Keep this view-only bias authoritative for all silkscreen
-        # triangles, including independently tessellated bent surfaces.
-        offset.setOverride(True)
-        offset.factor.setValue(SILKSCREEN_POLYGON_OFFSET_FACTOR)
-        offset.units.setValue(SILKSCREEN_POLYGON_OFFSET_UNITS)
-        offset.styles.setValue(coin.SoPolygonOffset.FILLED)
-        offset.on.setValue(True)
+        next_index = 0
+        if silkscreen:
+            depth_name = SILKSCREEN_DEPTH_BUFFER_NAME
+            depth_range = SILKSCREEN_DEPTH_RANGE
+        elif str(layer_name or "") in {"F.Mask", "B.Mask"}:
+            depth_name = MASK_DEPTH_BUFFER_NAME
+            depth_range = MASK_DEPTH_RANGE
+        else:
+            depth_name = None
+            depth_range = None
+
+        # Disable a polygon-offset node saved by an experimental/older view
+        # provider. Removing a restored Coin child is crash-prone on Pivy, so
+        # leave it in place but make it inert.
+        legacy_offset_name = (SILKSCREEN_POLYGON_OFFSET_NAME
+                              if silkscreen else MASK_POLYGON_OFFSET_NAME)
+        legacy_offset, _legacy_index = _find_coin_child(
+            root, legacy_offset_name)
+        if legacy_offset is not None:
+            legacy_offset.setOverride(False)
+            legacy_offset.on.setValue(False)
+
+        if depth_name is not None:
+            depth, depth_index = _find_coin_child(root, depth_name)
+            if depth is None:
+                depth = coin.SoDepthBuffer()
+                depth.setName(depth_name)
+            _place_coin_child(root, depth, depth_index, next_index)
+            depth.setOverride(True)
+            depth.test.setValue(True)
+            depth.function.setValue(coin.SoDepthBuffer.LEQUAL)
+            depth.getField("write").setValue(True)
+            depth.range.setValue(depth_range)
+            next_index += 1
+
+        layer_name = str(layer_name or "")
+        side = surface_side or _surface_side(layer_name)
+        hints, hints_index = _find_coin_child(
+            root, SURFACE_SHAPE_HINTS_NAME)
+        if side is not None:
+            if hints is None:
+                hints = coin.SoShapeHints()
+                hints.setName(SURFACE_SHAPE_HINTS_NAME)
+            _place_coin_child(root, hints, hints_index, next_index)
+            # Back display shapes are orientation-reversed without moving any
+            # geometry, so every visible side uses standard front-face winding.
+            # Culling prevents transparent mask and embedded copper from the
+            # opposite half of the board being blended into the current side.
+            hints.setOverride(True)
+            hints.vertexOrdering.setValue(coin.SoShapeHints.COUNTERCLOCKWISE)
+            hints.shapeType.setValue(coin.SoShapeHints.SOLID)
+        elif hints is not None:
+            hints.setOverride(False)
+            hints.vertexOrdering.setValue(coin.SoShapeHints.UNKNOWN_ORDERING)
+            hints.shapeType.setValue(coin.SoShapeHints.UNKNOWN_SHAPE_TYPE)
         return True
     except Exception as ex:
         FreeCAD.Console.PrintWarning(
-            f"FreekiCAD: Could not apply silkscreen depth bias: {ex}\n")
+            f"FreekiCAD: Could not apply surface render state: {ex}\n")
         return False
 
 
-def _apply_silkscreen_polygon_offsets(obj):
-    """Apply the viewport-only bias to every silkscreen child of *obj*."""
+def _apply_silkscreen_polygon_offset(view_object, layer_name="F.SilkS"):
+    """Bias and orient silkscreen without moving its measured Shape."""
+    return _apply_surface_render_state(
+        view_object, layer_name, silkscreen=True)
+
+
+def _apply_surface_render_states(obj):
+    """Apply view-only state to imported copper, mask, and silkscreen."""
     applied = 0
     for child in getattr(obj, 'Group', []):
-        if not hasattr(child, 'SilkscreenLayer'):
+        layer_name = None
+        silkscreen = False
+        if hasattr(child, 'SilkscreenLayer'):
+            layer_name = child.SilkscreenLayer
+            silkscreen = True
+        elif hasattr(child, 'MaskLayer'):
+            layer_name = child.MaskLayer
+        elif hasattr(child, 'CopperLayer'):
+            layer_name = child.CopperLayer
+        if layer_name is None:
             continue
-        if _apply_silkscreen_polygon_offset(
-                getattr(child, 'ViewObject', None)):
+        surface_side = str(getattr(child, 'SurfaceSide', '') or '')
+        if surface_side not in {"front", "back"}:
+            surface_side = _surface_side(layer_name)
+        if _apply_surface_render_state(
+                getattr(child, 'ViewObject', None), layer_name,
+                silkscreen=silkscreen, surface_side=surface_side):
             applied += 1
     return applied
+
+
+def _apply_silkscreen_polygon_offsets(obj):
+    """Backward-compatible wrapper for restored document view providers."""
+    return _apply_surface_render_states(obj)
 
 
 @contextmanager
@@ -3449,6 +3572,8 @@ class PcbObject:
         self._unbent_copper_shapes = {}
         self._unbent_copper_profiles = {}
         for layer_data in copper_layers or []:
+            surface_side = _surface_side(
+                layer_data['name'], layer_data.get('display_z'), thickness)
             safe_name = layer_data['name'].replace('.', '_')
             copper_obj = doc.addObject(
                 "Part::Feature", obj.Name + "_Copper_" + safe_name)
@@ -3463,9 +3588,16 @@ class PcbObject:
                 "Physical copper thickness from the KiCad stackup")
             copper_obj.CopperThickness = layer_data['thickness']
             copper_obj.setPropertyStatus("CopperThickness", "ReadOnly")
-            copper_obj.Shape = layer_data['shape']
+            copper_obj.addProperty(
+                "App::PropertyString", "SurfaceSide", "KiCad",
+                "Outward render side for this zero-thickness surface")
+            copper_obj.SurfaceSide = surface_side or ""
+            copper_obj.setPropertyStatus("SurfaceSide", "ReadOnly")
+            display_shape = _oriented_surface_display_shape(
+                layer_data['shape'], layer_data['name'], surface_side)
+            copper_obj.Shape = display_shape
             self._unbent_copper_shapes[copper_obj.Name] = \
-                layer_data['shape'].copy()
+                display_shape.copy()
             self._unbent_copper_profiles[copper_obj.Name] = \
                 layer_data['profile_shape'].copy()
             self._layer_extrusion_directions[copper_obj.Name] = \
@@ -3484,6 +3616,7 @@ class PcbObject:
         self._unbent_mask_shapes = {}
         self._unbent_mask_profiles = {}
         for layer_data in mask_layers or []:
+            surface_side = _surface_side(layer_data['name'])
             safe_name = layer_data['name'].replace('.', '_')
             mask_obj = doc.addObject(
                 "Part::Feature", obj.Name + "_Mask_" + safe_name)
@@ -3498,9 +3631,16 @@ class PcbObject:
                 "Physical mask thickness from the KiCad stackup")
             mask_obj.MaskThickness = layer_data['thickness']
             mask_obj.setPropertyStatus("MaskThickness", "ReadOnly")
-            mask_obj.Shape = layer_data['shape']
+            mask_obj.addProperty(
+                "App::PropertyString", "SurfaceSide", "KiCad",
+                "Outward render side for this zero-thickness surface")
+            mask_obj.SurfaceSide = surface_side or ""
+            mask_obj.setPropertyStatus("SurfaceSide", "ReadOnly")
+            display_shape = _oriented_surface_display_shape(
+                layer_data['shape'], layer_data['name'], surface_side)
+            mask_obj.Shape = display_shape
             self._unbent_mask_shapes[mask_obj.Name] = \
-                layer_data['shape'].copy()
+                display_shape.copy()
             self._unbent_mask_profiles[mask_obj.Name] = \
                 layer_data['profile_shape'].copy()
             self._layer_extrusion_directions[mask_obj.Name] = \
@@ -3522,6 +3662,7 @@ class PcbObject:
         self._unbent_silkscreen_shapes = {}
         self._unbent_silkscreen_profiles = {}
         for layer_data in silkscreen_layers or []:
+            surface_side = _surface_side(layer_data['name'])
             safe_name = layer_data['name'].replace('.', '_')
             silk_obj = doc.addObject(
                 "Part::Feature", obj.Name + "_Silkscreen_" + safe_name)
@@ -3536,9 +3677,16 @@ class PcbObject:
                 "Silkscreen display thickness (zero for a planar surface)")
             silk_obj.SilkscreenThickness = layer_data['thickness']
             silk_obj.setPropertyStatus("SilkscreenThickness", "ReadOnly")
-            silk_obj.Shape = layer_data['shape']
+            silk_obj.addProperty(
+                "App::PropertyString", "SurfaceSide", "KiCad",
+                "Outward render side for this zero-thickness surface")
+            silk_obj.SurfaceSide = surface_side or ""
+            silk_obj.setPropertyStatus("SurfaceSide", "ReadOnly")
+            display_shape = _oriented_surface_display_shape(
+                layer_data['shape'], layer_data['name'], surface_side)
+            silk_obj.Shape = display_shape
             self._unbent_silkscreen_shapes[silk_obj.Name] = \
-                layer_data['shape'].copy()
+                display_shape.copy()
             self._unbent_silkscreen_profiles[silk_obj.Name] = \
                 layer_data['profile_shape'].copy()
             self._layer_extrusion_directions[silk_obj.Name] = \
@@ -3553,7 +3701,7 @@ class PcbObject:
             except Exception:
                 pass
             _apply_silkscreen_polygon_offset(
-                getattr(silk_obj, 'ViewObject', None))
+                getattr(silk_obj, 'ViewObject', None), layer_data['name'])
             obj.addObject(silk_obj)
 
         # Stiffeners use additive physical thickness outside the finished
@@ -11250,7 +11398,11 @@ class PcbObject:
                             f"{layer_name} face "
                             f"{source_face_index} on wedge p{pi}: {ex}\n")
             if display_faces:
-                surface_obj.Shape = Part.makeCompound(display_faces)
+                surface_side = str(
+                    getattr(surface_obj, 'SurfaceSide', '') or '')
+                surface_obj.Shape = _oriented_surface_display_shape(
+                    Part.makeCompound(display_faces), layer_name,
+                    surface_side)
             FreeCAD.Console.PrintMessage(
                 f"FreekiCAD: Bent display layer {layer_name}: "
                 f"source_faces={len(source_faces)}, "
