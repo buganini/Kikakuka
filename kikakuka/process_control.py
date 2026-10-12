@@ -11,6 +11,25 @@ import psutil
 from cadhoc.mesh import is_kicad_editor_process, owned_process_iter
 
 
+_APPLICATIONS = {
+    "freecad": "FreeCAD",
+    "kicad": "KiCad",
+}
+
+
+def normalize_cad_application(application: Optional[str]) -> Optional[str]:
+    """Return the canonical case-insensitive application filter."""
+    if application is None:
+        return None
+    try:
+        normalized = _APPLICATIONS[application.casefold()]
+    except (AttributeError, KeyError):
+        raise ValueError(
+            "application must be FreeCAD or KiCad"
+        ) from None
+    return normalized
+
+
 def _application_for_process(name: str) -> Optional[str]:
     """Classify processes that belong to a supported CAD application."""
     if is_kicad_editor_process(name):
@@ -32,12 +51,15 @@ def _wait_for_processes(processes, timeout: float):
         return [], list(processes)
 
 
-def kill_all_cad_instances(timeout: float = 3.0) -> int:
-    """Stop all same-user KiCad and FreeCAD GUI editor processes.
+def kill_all_cad_instances(application: Optional[str] = None,
+                           timeout: float = 3.0) -> int:
+    """Stop selected same-user KiCad/FreeCAD GUI editor processes.
 
     Processes first receive a normal termination request. Any that remain after
-    *timeout* seconds are killed. Return zero only when every target is gone.
+    *timeout* seconds are killed. When *application* is omitted, both supported
+    editors are targeted. Return zero only when every target is gone.
     """
+    application_filter = normalize_cad_application(application)
     targets = []
     applications = {}
     for process in owned_process_iter(["pid", "name"]):
@@ -45,7 +67,9 @@ def kill_all_cad_instances(timeout: float = 3.0) -> int:
             application = _application_for_process(
                 process.info.get("name") or ""
             )
-            if application is None:
+            if (application is None
+                    or (application_filter is not None
+                        and application != application_filter)):
                 continue
             targets.append(process)
             applications[process.pid] = application
@@ -53,7 +77,10 @@ def kill_all_cad_instances(timeout: float = 3.0) -> int:
             continue
 
     if not targets:
-        print("No running KiCad or FreeCAD instances found.")
+        if application_filter is None:
+            print("No running KiCad or FreeCAD instances found.")
+        else:
+            print(f"No running {application_filter} instances found.")
         return 0
 
     failed = []
@@ -90,10 +117,17 @@ def kill_all_cad_instances(timeout: float = 3.0) -> int:
         )
         for application in ("KiCad", "FreeCAD")
     }
-    print(
-        "Stopped "
-        f"{counts['KiCad']} KiCad and {counts['FreeCAD']} FreeCAD instance(s)."
-    )
+    if application_filter is None:
+        print(
+            "Stopped "
+            f"{counts['KiCad']} KiCad and "
+            f"{counts['FreeCAD']} FreeCAD instance(s)."
+        )
+    else:
+        print(
+            f"Stopped {counts[application_filter]} "
+            f"{application_filter} instance(s)."
+        )
     for process, error in failed:
         application = applications.get(process.pid, "CAD")
         print(

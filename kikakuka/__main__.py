@@ -10,12 +10,21 @@ if not __package__ and not getattr(sys, "frozen", False):
 
 inputs = sys.argv[1:]
 if inputs[:1] == ["--killall"]:
-    from kikakuka.process_control import kill_all_cad_instances
+    from kikakuka.process_control import (
+        kill_all_cad_instances,
+        normalize_cad_application,
+    )
 
-    if len(inputs) != 1:
-        print("--killall does not accept arguments", file=sys.stderr)
+    if len(inputs) > 2:
+        print("Usage: --killall [freecad|kicad]", file=sys.stderr)
         sys.exit(2)
-    sys.exit(kill_all_cad_instances())
+    try:
+        application = normalize_cad_application(
+            inputs[1] if len(inputs) == 2 else None)
+    except ValueError as exc:
+        print(f"--killall: {exc}", file=sys.stderr)
+        sys.exit(2)
+    sys.exit(kill_all_cad_instances(application=application))
 if inputs[:1] == ["--freecadcmd"]:
     from kikakuka.freecad_cli import run_freecadcmd
 
@@ -64,7 +73,7 @@ if inputs:
         print(f"  {sys.argv[0]} --freecadcmd [arguments ...]")
         print()
         print("  # Stop all same-user KiCad and FreeCAD GUI instances")
-        print(f"  {sys.argv[0]} --killall")
+        print(f"  {sys.argv[0]} --killall [freecad|kicad]")
         print("  # Warning: unsaved work may be lost")
         print()
         print("  # Headless FreekiCAD assembly export")

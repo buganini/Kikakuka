@@ -525,6 +525,10 @@ blocks local scripts, run
 # Warning: unsaved work may be lost.
 ./env/bin/python3 -m kikakuka --killall
 
+# Stop only one application (case-insensitive)
+./env/bin/python3 -m kikakuka --killall freecad
+./env/bin/python3 -m kikakuka --killall kicad
+
 # Export a FreekiCAD assembly through the detected FreeCADCmd and bundled exporter
 ./env/bin/python3 -m kikakuka input.kkkk_asm output.step
 ./env/bin/python3 -m kikakuka input.kkkk_asm output.stp

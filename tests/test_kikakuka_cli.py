@@ -16,6 +16,8 @@ class KikakukaCliTest(unittest.TestCase):
     def test_killall_mode_is_dispatched_before_ui_imports(self):
         process_control = types.ModuleType("kikakuka.process_control")
         process_control.kill_all_cad_instances = mock.Mock(return_value=17)
+        process_control.normalize_cad_application = mock.Mock(
+            return_value=None)
 
         blocked_ui_modules = {
             "kikakuka.differ": None,
@@ -34,11 +36,37 @@ class KikakukaCliTest(unittest.TestCase):
                 runpy.run_path(str(SCRIPT), run_name="__main__")
 
         self.assertEqual(exited.exception.code, 17)
-        process_control.kill_all_cad_instances.assert_called_once_with()
+        process_control.kill_all_cad_instances.assert_called_once_with(
+            application=None)
 
-    def test_killall_rejects_arguments(self):
+    def test_killall_accepts_case_insensitive_application(self):
+        for argument, expected in (("FREECAD", "FreeCAD"),
+                                   ("KiCaD", "KiCad")):
+            with self.subTest(argument=argument):
+                process_control = types.ModuleType("kikakuka.process_control")
+                process_control.kill_all_cad_instances = mock.Mock(
+                    return_value=0)
+                process_control.normalize_cad_application = (
+                    lambda value: {"freecad": "FreeCAD", "kicad": "KiCad"}[
+                        value.casefold()])
+                with mock.patch.object(
+                        sys, "argv", [str(SCRIPT), "--killall", argument]), \
+                        mock.patch.dict(
+                            sys.modules,
+                            {"kikakuka.process_control": process_control},
+                        ):
+                    with self.assertRaises(SystemExit) as exited:
+                        runpy.run_path(str(SCRIPT), run_name="__main__")
+
+                self.assertEqual(exited.exception.code, 0)
+                process_control.kill_all_cad_instances.assert_called_once_with(
+                    application=expected)
+
+    def test_killall_rejects_unknown_application(self):
         process_control = types.ModuleType("kikakuka.process_control")
         process_control.kill_all_cad_instances = mock.Mock(return_value=0)
+        process_control.normalize_cad_application = mock.Mock(
+            side_effect=ValueError("application must be FreeCAD or KiCad"))
         with mock.patch.object(
                 sys, "argv", [str(SCRIPT), "--killall", "extra"]), \
                 mock.patch.dict(
@@ -50,6 +78,25 @@ class KikakukaCliTest(unittest.TestCase):
                 runpy.run_path(str(SCRIPT), run_name="__main__")
 
         self.assertEqual(exited.exception.code, 2)
+        process_control.kill_all_cad_instances.assert_not_called()
+
+    def test_killall_rejects_multiple_arguments(self):
+        process_control = types.ModuleType("kikakuka.process_control")
+        process_control.kill_all_cad_instances = mock.Mock(return_value=0)
+        process_control.normalize_cad_application = mock.Mock()
+        with mock.patch.object(
+                sys, "argv",
+                [str(SCRIPT), "--killall", "freecad", "kicad"]), \
+                mock.patch.dict(
+                    sys.modules,
+                    {"kikakuka.process_control": process_control},
+                ), \
+                mock.patch.object(sys, "stderr"):
+            with self.assertRaises(SystemExit) as exited:
+                runpy.run_path(str(SCRIPT), run_name="__main__")
+
+        self.assertEqual(exited.exception.code, 2)
+        process_control.normalize_cad_application.assert_not_called()
         process_control.kill_all_cad_instances.assert_not_called()
 
     def test_assembly_export_is_dispatched_before_ui_imports(self):

@@ -2,6 +2,8 @@
 * CADhoc
     * Rename the shared Instance Manager coordination library to CADhoc and add dedicated icon assets and Python API documentation
     * Add a confirmation-protected **Close All** action for same-user KiCad and FreeCAD GUI instances
+* Command Line
+    * Allow `--killall` to optionally stop only FreeCAD or KiCad, accepting the application name case-insensitively
 * Workspace Manager
     * Rename the **Add-ons** tab to **Integration**
 * FreekiCAD

@@ -61,6 +61,27 @@ class ProcessControlTest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("Could not stop FreeCAD PID 20", error.getvalue())
 
+    def test_application_filter_is_case_insensitive(self):
+        pcbnew = fake_process(10, "pcbnew")
+        freecad = fake_process(20, "FreeCAD")
+        output = io.StringIO()
+        with mock.patch.object(
+                process_control, "owned_process_iter",
+                return_value=[pcbnew, freecad]), mock.patch.object(
+                    process_control.psutil, "wait_procs",
+                    return_value=([freecad], [])), \
+                mock.patch("sys.stdout", output):
+            result = process_control.kill_all_cad_instances("FrEeCaD")
+
+        self.assertEqual(result, 0)
+        freecad.terminate.assert_called_once_with()
+        pcbnew.terminate.assert_not_called()
+        self.assertIn("Stopped 1 FreeCAD", output.getvalue())
+
+    def test_application_filter_rejects_unknown_value(self):
+        with self.assertRaisesRegex(ValueError, "FreeCAD or KiCad"):
+            process_control.kill_all_cad_instances("freekad")
+
     def test_succeeds_when_no_instances_are_running(self):
         output = io.StringIO()
         with mock.patch.object(
