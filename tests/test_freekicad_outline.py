@@ -241,8 +241,8 @@ class OutlineWireOrderTests(unittest.TestCase):
         offset = root.children[0]
         self.assertIsInstance(offset, PolygonOffset)
         self.assertIs(offset.override, True)
-        self.assertEqual(offset.factor.value, -16.0)
-        self.assertEqual(offset.units.value, -16.0)
+        self.assertEqual(offset.factor.value, -30.0)
+        self.assertEqual(offset.units.value, -30.0)
         self.assertEqual(offset.styles.value, PolygonOffset.FILLED)
         self.assertIs(offset.on.value, True)
         linked_object.FreeCAD.Console.PrintWarning.assert_not_called()

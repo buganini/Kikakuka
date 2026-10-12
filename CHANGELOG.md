@@ -5,7 +5,7 @@
 * Workspace Manager
     * Rename the **Add-ons** tab to **Integration**
 * FreekiCAD
-    * Replace the 10 µm silkscreen geometry offset with an override-protected, viewport-only Coin3D filled-polygon depth bias (`factor=-16`, `units=-16`), preserving exact model dimensions for measurement and export
+    * Replace the 10 µm silkscreen geometry offset with an override-protected, viewport-only Coin3D filled-polygon depth bias (`factor=-30`, `units=-30`), preserving exact model dimensions for measurement and export
     * Save and best-effort restore each active structured 3D camera field independently in `.kkkk_asm` manifests while keeping headless exports GUI-independent
 * Differ
     * Draw the comparison cursor at the correct position in flipped board view

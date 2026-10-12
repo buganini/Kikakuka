@@ -41,8 +41,8 @@ COUPLER_MONITOR_RETRY_INITIAL_S = 5.0
 COUPLER_MONITOR_RETRY_MAX_S = 20.0
 PCB_OBJECT_TYPES = {"PcbObject", "LinkedObject"}
 SILKSCREEN_POLYGON_OFFSET_NAME = "FreekiCADSilkscreenPolygonOffset"
-SILKSCREEN_POLYGON_OFFSET_FACTOR = -16.0
-SILKSCREEN_POLYGON_OFFSET_UNITS = -16.0
+SILKSCREEN_POLYGON_OFFSET_FACTOR = -30.0
+SILKSCREEN_POLYGON_OFFSET_UNITS = -30.0
 # Master switch for coupler synchronization in both directions.
 # Local FreeCAD marker editing and coupled-board positioning remain active.
 COUPLER_KICAD_SYNC_ENABLED = True
