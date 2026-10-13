@@ -165,7 +165,7 @@ class _Placement2D:
 
 
 class OutlineWireOrderTests(unittest.TestCase):
-    def test_surface_depth_range_is_view_only_and_idempotent(self):
+    def test_surface_bias_is_view_only_and_idempotent(self):
         linked_object = self._import_linked_object()
 
         class Field:
@@ -307,7 +307,26 @@ class OutlineWireOrderTests(unittest.TestCase):
             def removeChild(self, index):
                 self.children.pop(index)
 
+        def assert_offset(offset, name, units):
+            self.assertIsInstance(offset, PolygonOffset)
+            self.assertEqual(offset.getName().getString(), name)
+            self.assertIs(offset.override, True)
+            self.assertIs(offset.on.value, True)
+            self.assertEqual(offset.styles.value, PolygonOffset.FILLED)
+            # A nonzero factor restores the angle-dependent triangle bias.
+            self.assertEqual(offset.factor.value, 0.0)
+            self.assertEqual(offset.units.value, units)
+
         root = Root()
+        native_geometry = root.children[0]
+        legacy_silk_offset = PolygonOffset()
+        legacy_silk_offset.setName(linked_object.SILKSCREEN_POLYGON_OFFSET_NAME)
+        legacy_silk_offset.factor.setValue(-1.0)
+        legacy_silk_offset.units.setValue(-100.0)
+        legacy_silk_depth = DepthBuffer()
+        legacy_silk_depth.setName(linked_object.SILKSCREEN_DEPTH_BUFFER_NAME)
+        legacy_silk_depth.range.setValue((0.0, 0.99998))
+        root.children.extend([legacy_silk_offset, legacy_silk_depth])
         view_object = types.SimpleNamespace(RootNode=root)
         fake_pivy = types.ModuleType("pivy")
         fake_pivy.coin = types.SimpleNamespace(
@@ -323,13 +342,13 @@ class OutlineWireOrderTests(unittest.TestCase):
         with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
             self.assertTrue(linked_object._apply_silkscreen_polygon_offset(
                 view_object))
-            # Force both state nodes out of position. Reordering must keep a
+            # Force state nodes out of position. Reordering must keep a
             # temporary Coin reference so the Pivy wrapper cannot dangle.
             root.children.insert(0, Geometry())
             self.assertTrue(linked_object._apply_silkscreen_polygon_offset(
                 view_object))
 
-        self.assertEqual(len(root.children), 4)
+        self.assertEqual(len(root.children), 6)
         depth = next(child for child in root.children
                      if isinstance(child, DepthBuffer))
         hints = next(child for child in root.children
@@ -340,19 +359,43 @@ class OutlineWireOrderTests(unittest.TestCase):
         self.assertIs(depth.write_field.ignored, True)
         self.assertEqual(
             depth.range.value, linked_object.SILKSCREEN_DEPTH_RANGE)
+        self.assertEqual(depth.range.value, (0.0, 1.0))
+        self.assertIs(depth, legacy_silk_depth)
         self.assertIs(hints.override, True)
         self.assertEqual(
             hints.vertexOrdering.value, ShapeHints.COUNTERCLOCKWISE)
         self.assertEqual(hints.shapeType.value, ShapeHints.SOLID)
         self.assertEqual(depth.refs, 0)
+        self.assertEqual(legacy_silk_offset.refs, 0)
         self.assertEqual(hints.refs, 0)
         self.assertIs(root.children[0], depth)
-        self.assertIs(root.children[1], hints)
+        self.assertIs(root.children[1], legacy_silk_offset)
+        assert_offset(legacy_silk_offset,
+                      linked_object.SILKSCREEN_POLYGON_OFFSET_NAME,
+                      linked_object.SILKSCREEN_POLYGON_OFFSET_UNITS)
+        self.assertIs(root.children[2], hints)
+        bias = root.children[3]
+        self.assertIsInstance(bias, Callback)
+        self.assertEqual(bias.getName().getString(),
+                         linked_object.SILKSCREEN_DEPTH_BIAS_CALLBACK_NAME)
+        self.assertIs(bias.callback, linked_object._render_silkscreen_depth_bias)
+        self.assertEqual(bias.refs, 0)
+        # Native ModeSwitch/geometry must remain direct RootNode children;
+        # grouping them into an annotation breaks FreeCAD picking/bounds.
+        self.assertIs(root.children[-1], native_geometry)
 
         for layer_name in ("F.Mask", "B.Mask"):
             with self.subTest(layer=layer_name):
                 mask_root = Root()
                 geometry = mask_root.children[0]
+                legacy_offset = PolygonOffset()
+                legacy_offset.setName(linked_object.MASK_POLYGON_OFFSET_NAME)
+                legacy_offset.factor.setValue(1.0)
+                legacy_offset.on.setValue(False)
+                legacy_depth = DepthBuffer()
+                legacy_depth.setName(linked_object.MASK_DEPTH_BUFFER_NAME)
+                legacy_depth.range.setValue((0.0, 0.999996))
+                mask_root.children.extend([legacy_offset, legacy_depth])
                 mask_view_object = types.SimpleNamespace(RootNode=mask_root)
                 with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
                     self.assertTrue(linked_object._apply_surface_render_state(
@@ -366,9 +409,15 @@ class OutlineWireOrderTests(unittest.TestCase):
                     self.assertTrue(linked_object._apply_surface_render_state(
                         mask_view_object, layer_name))
                 self.assertEqual(mask_root.children, original_nodes)
-                self.assertEqual(len(mask_root.children), 5)
-                mask_depth, mask_hints, transparency, callback, _ = \
+                self.assertEqual(len(mask_root.children), 6)
+                mask_depth, mask_offset, mask_hints, transparency, callback, _ = \
                     mask_root.children
+                self.assertIs(mask_root.children[-1], geometry)
+                self.assertIs(mask_depth, legacy_depth)
+                self.assertIs(mask_offset, legacy_offset)
+                assert_offset(mask_offset,
+                              linked_object.MASK_POLYGON_OFFSET_NAME,
+                              linked_object.MASK_POLYGON_OFFSET_UNITS)
                 self.assertEqual(
                     mask_depth.getName().getString(),
                     linked_object.MASK_DEPTH_BUFFER_NAME)
@@ -377,6 +426,7 @@ class OutlineWireOrderTests(unittest.TestCase):
                 self.assertIs(mask_depth.write_field.ignored, True)
                 self.assertEqual(
                     mask_depth.range.value, linked_object.MASK_DEPTH_RANGE)
+                self.assertEqual(mask_depth.range.value, (0.0, 1.0))
                 self.assertIs(mask_hints.override, True)
                 self.assertEqual(
                     mask_hints.vertexOrdering.value,
@@ -398,14 +448,19 @@ class OutlineWireOrderTests(unittest.TestCase):
         for layer_name in ("F.Cu", "B.Cu"):
             with self.subTest(layer=layer_name):
                 copper_root = Root()
+                geometry = copper_root.children[0]
                 copper_view = types.SimpleNamespace(RootNode=copper_root)
                 with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
                     self.assertTrue(linked_object._apply_surface_render_state(
                         copper_view, layer_name))
                     self.assertTrue(linked_object._apply_surface_render_state(
                         copper_view, layer_name))
-                self.assertEqual(len(copper_root.children), 3)
-                copper_depth, copper_hints, _ = copper_root.children
+                self.assertEqual(len(copper_root.children), 4)
+                copper_depth, copper_offset, copper_hints, _ = copper_root.children
+                self.assertIs(copper_root.children[-1], geometry)
+                assert_offset(copper_offset,
+                              linked_object.COPPER_POLYGON_OFFSET_NAME,
+                              linked_object.COPPER_POLYGON_OFFSET_UNITS)
                 self.assertEqual(
                     copper_depth.getName().getString(),
                     linked_object.COPPER_DEPTH_BUFFER_NAME)
@@ -415,11 +470,12 @@ class OutlineWireOrderTests(unittest.TestCase):
                     copper_depth.function.value, DepthBuffer.LEQUAL)
                 self.assertEqual(
                     copper_depth.range.value, linked_object.COPPER_DEPTH_RANGE)
-                self.assertLess(linked_object.SILKSCREEN_DEPTH_RANGE[1],
-                                linked_object.MASK_DEPTH_RANGE[1])
-                self.assertLess(linked_object.MASK_DEPTH_RANGE[1],
-                                linked_object.COPPER_DEPTH_RANGE[1])
-                self.assertLess(linked_object.COPPER_DEPTH_RANGE[1], 1.0)
+                self.assertEqual(copper_depth.range.value, (0.0, 1.0))
+                self.assertLess(linked_object.SILKSCREEN_POLYGON_OFFSET_UNITS,
+                                linked_object.MASK_POLYGON_OFFSET_UNITS)
+                self.assertLess(linked_object.MASK_POLYGON_OFFSET_UNITS,
+                                linked_object.COPPER_POLYGON_OFFSET_UNITS)
+                self.assertLess(linked_object.COPPER_POLYGON_OFFSET_UNITS, 0.0)
                 self.assertEqual(
                     copper_hints.vertexOrdering.value,
                     ShapeHints.COUNTERCLOCKWISE)
@@ -436,7 +492,7 @@ class OutlineWireOrderTests(unittest.TestCase):
             copper_hints.vertexOrdering.value, ShapeHints.COUNTERCLOCKWISE)
         self.assertEqual(
             copper_hints.shapeType.value, ShapeHints.SOLID)
-        self.assertFalse(any(isinstance(child, DepthBuffer)
+        self.assertFalse(any(isinstance(child, (DepthBuffer, PolygonOffset))
                              for child in inner_copper_root.children))
         self.assertIs(inner_copper_root.children[0], copper_hints)
         linked_object.FreeCAD.Console.PrintWarning.assert_not_called()

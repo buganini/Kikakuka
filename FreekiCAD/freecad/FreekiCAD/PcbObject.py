@@ -41,21 +41,31 @@ COUPLER_MONITOR_RETRY_INITIAL_S = 5.0
 COUPLER_MONITOR_RETRY_MAX_S = 20.0
 PCB_OBJECT_TYPES = {"PcbObject", "LinkedObject"}
 SILKSCREEN_POLYGON_OFFSET_NAME = "FreekiCADSilkscreenPolygonOffset"
+SILKSCREEN_DEPTH_BIAS_CALLBACK_NAME = "FreekiCADSilkscreenDepthBias"
 MASK_POLYGON_OFFSET_NAME = "FreekiCADMaskPolygonOffset"
+COPPER_POLYGON_OFFSET_NAME = "FreekiCADCopperPolygonOffset"
 SILKSCREEN_DEPTH_BUFFER_NAME = "FreekiCADSilkscreenDepthBuffer"
 MASK_DEPTH_BUFFER_NAME = "FreekiCADMaskDepthBuffer"
 COPPER_DEPTH_BUFFER_NAME = "FreekiCADCopperDepthBuffer"
 SURFACE_SHAPE_HINTS_NAME = "FreekiCADSurfaceShapeHints"
 MASK_TRANSPARENCY_NAME = "FreekiCADMaskTransparency"
 MASK_TRANSPARENCY_CALLBACK_NAME = "FreekiCADMaskTransparencyReplay"
-# Compress each overlay's viewport depth range by a tiny, layer-wide amount.
-# Unlike polygon offset, this does not derive a different bias from each
-# tessellated triangle's slope at grazing angles. Geometry and measurements
-# remain untouched. Silkscreen stays in front of mask, which stays in front of
-# the copper/board surface.
-SILKSCREEN_DEPTH_RANGE = (0.0, 0.99998)
-MASK_DEPTH_RANGE = (0.0, 0.999996)
-COPPER_DEPTH_RANGE = (0.0, 0.999998)
+# Keep the camera's depth range intact, including when restoring older nodes.
+# Compressing it moves silk in front of real components at tight near planes.
+SILKSCREEN_DEPTH_RANGE = (0.0, 1.0)
+MASK_DEPTH_RANGE = (0.0, 1.0)
+COPPER_DEPTH_RANGE = (0.0, 1.0)
+# Use only the constant, driver-scaled part of polygon offset. A zero slope
+# factor avoids amplifying the bias on grazing/bent triangles. These small
+# bands provide a minimum separation in the depth buffer at distant views.
+SILKSCREEN_POLYGON_OFFSET_UNITS = -24.0
+MASK_POLYGON_OFFSET_UNITS = -4.0
+COPPER_POLYGON_OFFSET_UNITS = -2.0
+# At close perspective views, a depth-buffer unit can represent less than the
+# rounding error of independently rendered mask/silk triangles. Supplement the
+# discrete offset with a small camera-space displacement, in millimetres, only
+# during GL rendering. This is not layer thickness or a change to CAD geometry.
+SILKSCREEN_RENDER_BIAS_MM = 0.005
 # Master switch for coupler synchronization in both directions.
 # Local FreeCAD marker editing and coupled-board positioning remain active.
 COUPLER_KICAD_SYNC_ENABLED = True
@@ -122,6 +132,26 @@ def _oriented_surface_display_shape(shape, layer_name, surface_side=None):
     return display_shape
 
 
+def _render_silkscreen_depth_bias(_data, action):
+    """Keep coincident silk visible at close views without changing its Shape."""
+    from pivy import coin
+
+    # Picking, bounding boxes, and exports must see the original coordinates.
+    if not action.isOfType(coin.SoGLRenderAction.getClassTypeId()):
+        return
+    state = action.getState()
+    # The displacement follows the camera, so it cannot live in a render cache
+    # built for another view. RootNode's separator restores this state afterward.
+    coin.SoCacheElement.invalidate(state)
+    viewing = coin.SoViewingMatrixElement.get(state)
+    model = coin.SoModelMatrixElement.get(state)
+    world_delta = viewing.inverse().multDirMatrix(
+        coin.SbVec3f(0, 0, SILKSCREEN_RENDER_BIAS_MM))
+    local_delta = model.inverse().multDirMatrix(world_delta)
+    coin.SoModelMatrixElement.translateBy(
+        state, action.getCurPath().getTail(), local_delta)
+
+
 def _render_mask_transparency(_data, action):
     """Replay delayed coatings through Coin's transparent triangle renderer.
 
@@ -161,28 +191,25 @@ def _apply_surface_render_state(view_object, layer_name,
         if silkscreen:
             depth_name = SILKSCREEN_DEPTH_BUFFER_NAME
             depth_range = SILKSCREEN_DEPTH_RANGE
+            offset_name = SILKSCREEN_POLYGON_OFFSET_NAME
+            offset_units = SILKSCREEN_POLYGON_OFFSET_UNITS
         elif str(layer_name or "") in {"F.Mask", "B.Mask"}:
             depth_name = MASK_DEPTH_BUFFER_NAME
             depth_range = MASK_DEPTH_RANGE
+            offset_name = MASK_POLYGON_OFFSET_NAME
+            offset_units = MASK_POLYGON_OFFSET_UNITS
         elif str(layer_name or "") in {"F.Cu", "B.Cu"}:
             # Outer copper and the dielectric cap have very little separation.
             # Keep copper ahead of the cap but behind its solder mask.
             depth_name = COPPER_DEPTH_BUFFER_NAME
             depth_range = COPPER_DEPTH_RANGE
+            offset_name = COPPER_POLYGON_OFFSET_NAME
+            offset_units = COPPER_POLYGON_OFFSET_UNITS
         else:
             depth_name = None
             depth_range = None
-
-        # Disable a polygon-offset node saved by an experimental/older view
-        # provider. Removing a restored Coin child is crash-prone on Pivy, so
-        # leave it in place but make it inert.
-        legacy_offset_name = (SILKSCREEN_POLYGON_OFFSET_NAME
-                              if silkscreen else MASK_POLYGON_OFFSET_NAME)
-        legacy_offset, _legacy_index = _find_coin_child(
-            root, legacy_offset_name)
-        if legacy_offset is not None:
-            legacy_offset.setOverride(False)
-            legacy_offset.on.setValue(False)
+            offset_name = None
+            offset_units = None
 
         if depth_name is not None:
             depth, depth_index = _find_coin_child(root, depth_name)
@@ -197,6 +224,21 @@ def _apply_surface_render_state(view_object, layer_name,
             # Coin ignores this field during delayed transparency anyway.
             depth.getField("write").setIgnored(True)
             depth.range.setValue(depth_range)
+            next_index += 1
+
+        if offset_name is not None:
+            offset, offset_index = _find_coin_child(root, offset_name)
+            if offset is None:
+                offset = coin.SoPolygonOffset()
+                offset.setName(offset_name)
+            _place_coin_child(root, offset, offset_index, next_index)
+            # Override Part's nested Flat Lines offset while preserving its
+            # native scene graph paths for picking and bounding-box queries.
+            offset.setOverride(True)
+            offset.factor.setValue(0.0)
+            offset.units.setValue(offset_units)
+            offset.styles.setValue(coin.SoPolygonOffset.FILLED)
+            offset.on.setValue(True)
             next_index += 1
 
         layer_name = str(layer_name or "")
@@ -220,6 +262,17 @@ def _apply_surface_render_state(view_object, layer_name,
             hints.setOverride(False)
             hints.vertexOrdering.setValue(coin.SoShapeHints.UNKNOWN_ORDERING)
             hints.shapeType.setValue(coin.SoShapeHints.UNKNOWN_SHAPE_TYPE)
+
+        if silkscreen:
+            bias, index = _find_coin_child(
+                root, SILKSCREEN_DEPTH_BIAS_CALLBACK_NAME)
+            if bias is None:
+                bias = coin.SoCallback()
+                bias.setName(SILKSCREEN_DEPTH_BIAS_CALLBACK_NAME)
+            _place_coin_child(root, bias, index, next_index)
+            # Reinstall the non-serialized callable on document restore.
+            bias.setCallback(_render_silkscreen_depth_bias, None)
+            next_index += 1
 
         if layer_name in {"F.Mask", "B.Mask"}:
             # Sorting an entire bent mask against the entire bent substrate
