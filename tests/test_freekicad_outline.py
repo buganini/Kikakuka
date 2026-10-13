@@ -384,6 +384,27 @@ class OutlineWireOrderTests(unittest.TestCase):
         # grouping them into an annotation breaks FreeCAD picking/bounds.
         self.assertIs(root.children[-1], native_geometry)
 
+        board_root = Root()
+        board_geometry = board_root.children[0]
+        board_view = types.SimpleNamespace(RootNode=board_root)
+        board = types.SimpleNamespace(Name='PcbObject_Board',
+                                      ViewObject=board_view)
+        parent = types.SimpleNamespace(Group=[board])
+        with mock.patch.dict(sys.modules, {"pivy": fake_pivy}):
+            self.assertEqual(linked_object._apply_surface_render_states(parent), 1)
+            board_offset = board_root.children[0]
+            # Restored nodes must be moved safely and reused on repeated setup.
+            board_root.children = [board_geometry, board_offset]
+            self.assertEqual(linked_object._apply_surface_render_states(parent), 1)
+            self.assertTrue(linked_object._apply_board_polygon_offset(board_view))
+        self.assertEqual(board_root.children, [board_offset, board_geometry])
+        assert_offset(board_offset, linked_object.BOARD_POLYGON_OFFSET_NAME,
+                      linked_object.BOARD_POLYGON_OFFSET_UNITS)
+        self.assertGreater(linked_object.BOARD_POLYGON_OFFSET_UNITS, 0.0)
+        self.assertEqual(board_offset.refs, 0)
+        # Do not install surface culling or mask alpha state on a solid body.
+        self.assertEqual(len(board_root.children), 2)
+
         for layer_name in ("F.Mask", "B.Mask"):
             with self.subTest(layer=layer_name):
                 mask_root = Root()

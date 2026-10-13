@@ -44,6 +44,7 @@ SILKSCREEN_POLYGON_OFFSET_NAME = "FreekiCADSilkscreenPolygonOffset"
 SILKSCREEN_DEPTH_BIAS_CALLBACK_NAME = "FreekiCADSilkscreenDepthBias"
 MASK_POLYGON_OFFSET_NAME = "FreekiCADMaskPolygonOffset"
 COPPER_POLYGON_OFFSET_NAME = "FreekiCADCopperPolygonOffset"
+BOARD_POLYGON_OFFSET_NAME = "FreekiCADBoardPolygonOffset"
 SILKSCREEN_DEPTH_BUFFER_NAME = "FreekiCADSilkscreenDepthBuffer"
 MASK_DEPTH_BUFFER_NAME = "FreekiCADMaskDepthBuffer"
 COPPER_DEPTH_BUFFER_NAME = "FreekiCADCopperDepthBuffer"
@@ -61,6 +62,11 @@ COPPER_DEPTH_RANGE = (0.0, 1.0)
 SILKSCREEN_POLYGON_OFFSET_UNITS = -24.0
 MASK_POLYGON_OFFSET_UNITS = -4.0
 COPPER_POLYGON_OFFSET_UNITS = -2.0
+# The translucent substrate is drawn after opaque copper. Projection roundoff
+# can make some of its triangles pass the copper depth test even with the
+# correct physical gap. Bias the substrate away from the eye, keeping the
+# copper/mask/silk offsets and all CAD dimensions unchanged.
+BOARD_POLYGON_OFFSET_UNITS = 16.0
 # At close perspective views, a depth-buffer unit can represent less than the
 # rounding error of independently rendered mask/silk triangles. Supplement the
 # discrete offset with a small camera-space displacement, in millimetres, only
@@ -312,10 +318,39 @@ def _apply_silkscreen_polygon_offset(view_object, layer_name="F.SilkS"):
         view_object, layer_name, silkscreen=True)
 
 
+def _apply_board_polygon_offset(view_object):
+    """Keep the substrate behind copper without changing its solid or alpha."""
+    if view_object is None or not getattr(FreeCAD, 'GuiUp', False):
+        return False
+    try:
+        from pivy import coin
+
+        root = view_object.RootNode
+        offset, index = _find_coin_child(root, BOARD_POLYGON_OFFSET_NAME)
+        if offset is None:
+            offset = coin.SoPolygonOffset()
+            offset.setName(BOARD_POLYGON_OFFSET_NAME)
+        _place_coin_child(root, offset, index, 0)
+        offset.setOverride(True)
+        offset.factor.setValue(0.0)
+        offset.units.setValue(BOARD_POLYGON_OFFSET_UNITS)
+        offset.styles.setValue(coin.SoPolygonOffset.FILLED)
+        offset.on.setValue(True)
+        return True
+    except Exception as ex:
+        FreeCAD.Console.PrintWarning(
+            f"FreekiCAD: Could not apply substrate render state: {ex}\n")
+        return False
+
+
 def _apply_surface_render_states(obj):
-    """Apply view-only state to imported copper, mask, and silkscreen."""
+    """Apply view-only state to the substrate and its display layers."""
     applied = 0
     for child in getattr(obj, 'Group', []):
+        if getattr(child, 'Name', '').endswith('_Board'):
+            if _apply_board_polygon_offset(getattr(child, 'ViewObject', None)):
+                applied += 1
+            continue
         layer_name = None
         silkscreen = False
         if hasattr(child, 'SilkscreenLayer'):
@@ -3680,6 +3715,7 @@ class PcbObject:
                 except Exception:
                     pass
             obj.addObject(board_obj)
+            _apply_board_polygon_offset(getattr(board_obj, 'ViewObject', None))
 
         # Copper, mask, and silkscreen remain zero-thickness display faces at
         # physical stackup Z. Silkscreen receives a viewport-only depth bias.

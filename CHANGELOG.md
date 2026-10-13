@@ -7,6 +7,7 @@
 * Workspace Manager
     * Rename the **Add-ons** tab to **Integration**
 * FreekiCAD
+    * Prevent translucent substrate triangles from washing through outer copper in close perspective views using a constant viewport depth offset on the substrate, without changing stackup geometry or silkscreen rendering
     * Composite translucent solder mask after the substrate while preserving transparent triangle rendering, and separate outer copper from the substrate in viewport depth
     * Stabilize zero-thickness copper, solder mask, and silkscreen using outward surface orientation, constant polygon offsets, and a 5 µm camera-space silk correction during rendering; close views retain lettering and component occlusion without changing model dimensions
     * Save and best-effort restore each active structured 3D camera field independently in `.kkkk_asm` manifests while keeping headless exports GUI-independent

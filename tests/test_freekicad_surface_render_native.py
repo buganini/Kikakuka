@@ -75,7 +75,7 @@ class SurfaceRenderNativeTests(unittest.TestCase):
 
         self.board = self._feature(
             'Substrate', Part.makeBox(20, 20, 0.972, App.Vector(-10, -10, 0)),
-            (0.75, 0.75, 0.75), transparency=37)
+            (0.75, 0.75, 0.75), transparency=37, substrate=True)
         self.copper = self._feature(
             'Copper', self._plane(-8, -8, 7, 16, z=0.99), (0.85, 0.25, 0.05))
         self.mask = self._feature(
@@ -122,13 +122,18 @@ class SurfaceRenderNativeTests(unittest.TestCase):
     def _plane(x, y, width, height, z=1):
         return Part.makePlane(width, height, App.Vector(x, y, z))
 
-    def _feature(self, name, shape, color, transparency=0):
+    def _feature(self, name, shape, color, transparency=0, substrate=False):
         obj = self.doc.addObject('Part::Feature', name)
         obj.Shape = shape
         obj.ViewObject.DisplayMode = 'Shaded'
         obj.ViewObject.ShapeColor = color
         obj.ViewObject.LineColor = color
         obj.ViewObject.Transparency = transparency
+        if substrate:
+            cad_state = self._cad_state()
+            self.assertTrue(self.pcb._apply_board_polygon_offset(obj.ViewObject))
+            self.assertEqual(self._cad_state(), cad_state,
+                             'substrate render state changed CAD geometry or placement')
         return obj
 
     def _cad_state(self):
@@ -175,7 +180,7 @@ class SurfaceRenderNativeTests(unittest.TestCase):
         Gui.updateGui()
         camera = self.view.getCameraNode()
         camera.nearDistance.setValue(self.near_distance)
-        camera.farDistance.setValue(100.0)
+        camera.farDistance.setValue(getattr(self, 'far_distance', 100.0))
         path = self.output / '{}-{:02d}-{}.png'.format(
             self._testMethodName, self.capture_index, label)
         self.capture_index += 1
@@ -471,6 +476,342 @@ class SurfaceRenderNativeTests(unittest.TestCase):
                 self._assert_silk_survives_coincident_mask(
                     reference, composited, mask, silk,
                     'transformed parent {}deg'.format(angle))
+        self.assertEqual(self._cad_state(), cad_state)
+
+    def test_global_flat_mask_composes_over_copper_with_tight_clipping(self):
+        mask, silk, center, normal, tangent, width = self._stress_surfaces(False)
+        silk.ViewObject.Visibility = False
+        horizontal = tangent.cross(normal)
+
+        def rectangle(x0, y0, x1, y1, depth):
+            points = [center + horizontal * x + tangent * y - normal * depth
+                      for x, y in ((x0, y0), (x1, y0), (x1, y1),
+                                   (x0, y1), (x0, y0))]
+            return Part.Face(Part.makePolygon(points))
+
+        # Match the actual flat PCB's separations, while independently
+        # tessellating its copper into differently positioned triangles.
+        copper = self._feature('StressCopper', Part.makeCompound([
+            rectangle(x, y, x + 2, y + 2, 0.010)
+            for x in (-3, -1, 1) for y in (-3, -1, 1)]),
+            (0.85, 0.25, 0.05))
+        substrate = self._feature(
+            'StressSubstrate', rectangle(-3, -3, 3, 3, 0.028).extrude(
+                normal * -0.3), (0.75, 0.75, 0.75), transparency=37,
+            substrate=True)
+        self.doc.recompute()
+        self.assertTrue(self.pcb._apply_surface_render_state(
+            copper.ViewObject, 'F.Cu'))
+        cad_state = self._cad_state()
+
+        def rgb(image, x, y):
+            pixel = image.pixel(x, y)
+            return ((pixel >> 16) & 255, (pixel >> 8) & 255, pixel & 255)
+
+        def is_copper(image, x, y):
+            red, green, blue = rgb(image, x, y)
+            return red > 170 and green < 100 and blue < 45
+
+        def is_mask(image, x, y):
+            red, green, blue = rgb(image, x, y)
+            return red < 50 and green > 100 and blue < 60
+
+        for distance, near, angle in ((2.8, 0.002, 12), (30, 0.002, 60),
+                                      (75, 0.0001, 12), (75, 0.02, 60)):
+            with self.subTest(eye_distance=distance, near=near, tilt=angle):
+                size = self._grazing_camera(center, normal, tangent, width, angle)
+                camera = self.view.getCameraNode()
+                outward = (normal * math.sin(math.radians(angle))
+                           + tangent * math.cos(math.radians(angle)))
+                position = center + outward * distance
+                camera.position.setValue(position.x, position.y, position.z)
+                camera.focalDistance.setValue(distance)
+                # Keep the same close framing while changing the eye distance,
+                # so a precision failure is not hidden by subpixel geometry.
+                camera.heightAngle.setValue(2 * math.atan(
+                    math.tan(math.radians(45) / 2) * 2.8 / distance))
+                self.near_distance = near
+                label = 'flat-eye{}-near{}-{}deg'.format(distance, near, angle)
+
+                substrate.ViewObject.Visibility = False
+                mask.ViewObject.Visibility = False
+                copper.ViewObject.Visibility = True
+                copper_only = self._capture(label + '-copper-only', size=size)
+                substrate.ViewObject.Visibility = True
+                copper_with_body = self._capture(label + '-copper-with-body', size=size)
+                substrate.ViewObject.Visibility = False
+                copper.ViewObject.Visibility = False
+                mask.ViewObject.Visibility = True
+                mask.ViewObject.Transparency = 0
+                mask_only = self._capture(label + '-opaque-mask-only', size=size)
+                copper.ViewObject.Visibility = True
+                # Diagnose the two interfaces separately: substrate showing
+                # through opaque copper also changes the eventual mask color.
+                substrate.ViewObject.Visibility = False
+                mask.ViewObject.Transparency = 50
+                composited = self._capture(label + '-mask-over-copper', size=size)
+
+                with self.subTest(interface='copper/substrate'):
+                    self._assert_copper_occludes_substrate(
+                        copper_only, copper_with_body, label)
+
+                checked = 0
+                mismatches = []
+                for y in range(3, size[1] - 3):
+                    for x in range(3, size[0] - 3):
+                        # Exclude silhouette/antialiasing pixels in both
+                        # controls. Test interiors across all native triangles,
+                        # rather than sampling one triangle's median color.
+                        if not all(is_copper(copper_only, x + dx, y + dy)
+                                   and is_mask(mask_only, x + dx, y + dy)
+                                   for dx, dy in ((0, 0), (-3, 0), (3, 0),
+                                                  (0, -3), (0, 3))):
+                            continue
+                        checked += 1
+                        expected = tuple((a + b) / 2 for a, b in zip(
+                            rgb(copper_only, x, y), rgb(mask_only, x, y)))
+                        actual = rgb(composited, x, y)
+                        if max(abs(a - b) for a, b in zip(actual, expected)) > 12:
+                            mismatches.append((x, y))
+                record = self.capture_records[int(composited.cacheKey())]
+                record['mask_copper_composition'] = {
+                    'eye_distance_mm': distance,
+                    'mask_to_copper_mm': 0.010,
+                    'mask_to_substrate_mm': 0.028,
+                    'checked_pixels': checked,
+                    'incorrect_pixels': len(mismatches),
+                    'first_incorrect_pixels': mismatches[:30],
+                    # saveImage may use a framebuffer with a different depth
+                    # format from the live viewport. Preserve this limitation.
+                    'capture_method': 'FreeCAD activeView.saveImage',
+                }
+                Path(record['image']).with_suffix('.json').write_text(
+                    json.dumps(record, indent=2))
+                self.assertGreater(checked, 200, label + ' lacks control overlap')
+                self.assertLessEqual(
+                    len(mismatches), max(8, int(checked * 0.001)),
+                    '{}: {}/{} mask/copper pixels have incorrect color; {}'.format(
+                        label, len(mismatches), checked, record['image']))
+        self.assertEqual(self._cad_state(), cad_state)
+
+    def _assert_copper_occludes_substrate(self, reference, composited, label):
+        def rgb(image, x, y):
+            pixel = image.pixel(x, y)
+            return ((pixel >> 16) & 255, (pixel >> 8) & 255, pixel & 255)
+
+        def is_copper(x, y):
+            red, green, blue = rgb(reference, x, y)
+            return red > 170 and green < 100 and blue < 45
+
+        checked = 0
+        incorrect = []
+        colors = {}
+        for y in range(3, reference.height() - 3):
+            for x in range(3, reference.width() - 3):
+                if not all(is_copper(x + dx, y + dy)
+                           for dx, dy in ((0, 0), (-3, 0), (3, 0),
+                                          (0, -3), (0, 3))):
+                    continue
+                checked += 1
+                expected = rgb(reference, x, y)
+                actual = rgb(composited, x, y)
+                if max(abs(a - b) for a, b in zip(actual, expected)) > 12:
+                    incorrect.append((x, y))
+                    colors[actual] = colors.get(actual, 0) + 1
+        record = self.capture_records[int(composited.cacheKey())]
+        record['copper_substrate_occlusion'] = {
+            'copper_to_substrate_mm': 0.018,
+            'checked_pixels': checked,
+            'incorrect_pixels': len(incorrect),
+            'first_incorrect_pixels': incorrect[:30],
+            'incorrect_colors': [
+                {'rgb': color, 'count': count}
+                for color, count in sorted(colors.items(),
+                                           key=lambda item: -item[1])[:8]],
+            'capture_method': 'FreeCAD activeView.saveImage',
+        }
+        Path(record['image']).with_suffix('.json').write_text(
+            json.dumps(record, indent=2))
+        self.assertGreater(checked, 200, label + ' lacks visible copper interiors')
+        self.assertLessEqual(
+            len(incorrect), max(8, int(checked * 0.001)),
+            '{}: substrate changed {}/{} opaque copper pixels; {}'.format(
+                label, len(incorrect), checked, record['image']))
+
+    def test_global_flat_copper_occludes_substrate_around_drill_holes(self):
+        for obj in self.doc.Objects:
+            obj.ViewObject.Visibility = False
+        center = App.Vector(175, -77, 17)
+        # Measured normal of the user's affected flat board region. The eye
+        # is nearly normal to this plane, rather than grazing a bent surface.
+        normal = App.Vector(-0.856722146929626, -0.12659843190297582, 0.5)
+        rotation = App.Rotation(App.Vector(0, 0, 1), normal)
+        tangent = rotation.multVec(App.Vector(0, 1, 0))
+        top = self._plane(-3, -3, 6, 6, z=0)
+        pads = []
+        for x, y, radius in ((-1.5, -1.3, 0.23), (1.2, -1.4, 0.31),
+                             (-1.1, 1.4, 0.27), (1.5, 1.2, 0.20)):
+            axis = App.Vector(x, y, 0)
+            hole = Part.Face(Part.Wire(Part.makeCircle(radius, axis)))
+            pad = Part.Face(Part.Wire(Part.makeCircle(0.78, axis)))
+            pads.append(pad.cut(hole))
+            top = top.cut(hole)
+
+        def positioned(shape, depth):
+            # Bake the transform into the BREP's geometry, so native float
+            # vertices retain the real board's large global coordinates.
+            return shape.transformGeometry(App.Placement(
+                center - normal * depth, rotation).toMatrix())
+
+        copper = self._feature('DrilledCopper', positioned(
+            Part.makeCompound(pads), 0), (0.85, 0.25, 0.05))
+        substrate = self._feature('DrilledSubstrate', positioned(
+            top.extrude(App.Vector(0, 0, -0.3)), 0.018),
+            (0.75, 0.75, 0.75), transparency=37, substrate=True)
+        # Separate circular boundaries produce different native triangles in
+        # the annular pads and the larger board face surrounding the drills.
+        copper.ViewObject.Deviation = 0.02
+        copper.ViewObject.AngularDeflection = 5.0
+        substrate.ViewObject.Deviation = 0.08
+        substrate.ViewObject.AngularDeflection = 20.0
+        self.doc.recompute()
+        self.assertTrue(self.pcb._apply_surface_render_state(
+            copper.ViewObject, 'F.Cu'))
+        cad_state = self._cad_state()
+        distance = 19.340759
+        self.far_distance = 50.101582
+        for near in (0.012207392, 1.0):
+            with self.subTest(eye_distance=distance, near=near):
+                angle = 86.85831
+                size = self._grazing_camera(center, normal, tangent, 5.2, angle)
+                camera = self.view.getCameraNode()
+                outward = (normal * math.sin(math.radians(angle))
+                           + tangent * math.cos(math.radians(angle)))
+                position = center + outward * distance
+                camera.position.setValue(position.x, position.y, position.z)
+                camera.focalDistance.setValue(distance)
+                camera.heightAngle.setValue(2 * math.atan(
+                    math.tan(math.radians(45) / 2) * 2.8 / distance))
+                self.near_distance = near
+                label = 'drilled-eye{}-near{}'.format(distance, near)
+                substrate.ViewObject.Visibility = False
+                reference = self._capture(label + '-copper-only', size=size)
+                substrate.ViewObject.Visibility = True
+                composited = self._capture(label + '-copper-with-body', size=size)
+                self._assert_copper_occludes_substrate(reference, composited, label)
+        self.assertEqual(self._cad_state(), cad_state)
+
+    def test_substrate_still_occludes_buried_patch_except_through_hole(self):
+        for obj in self.doc.Objects:
+            obj.ViewObject.Visibility = False
+        center = App.Vector(175, -77, 17)
+        normal = App.Vector(-0.856722146929626, -0.12659843190297582, 0.5)
+        rotation = App.Rotation(App.Vector(0, 0, 1), normal)
+        tangent = rotation.multVec(App.Vector(0, 1, 0))
+        horizontal = rotation.multVec(App.Vector(1, 0, 0))
+
+        def positioned(shape, depth):
+            return shape.transformGeometry(App.Placement(
+                center - normal * depth, rotation).toMatrix())
+
+        top = self._plane(-3, -3, 6, 6, z=0)
+        hole = Part.Face(Part.Wire(Part.makeCircle(0.45)))
+        substrate = self._feature('OccludingSubstrate', positioned(
+            top.cut(hole).extrude(App.Vector(0, 0, -0.3)), 0),
+            (0.75, 0.75, 0.75), substrate=True)
+        patches = []
+        for name, depth in (('FrontBuriedPatch', 0.1), ('BackBuriedPatch', 0.2)):
+            shape = positioned(self._plane(-2, -2, 4, 4, z=0), depth)
+            if name.startswith('Back'):
+                shape.reverse()
+            patches.append(self._feature(name, shape, (0.10, 0.15, 0.85)))
+        self.doc.recompute()
+        cad_state = self._cad_state()
+        distance = 19.340759
+        self.far_distance = 50.101582
+
+        for side in (1, -1):
+            patch = patches[0 if side == 1 else 1]
+            patches[1 if side == 1 else 0].ViewObject.Visibility = False
+            cap_center = center if side == 1 else center - normal * 0.3
+            buried_center = cap_center - normal * (side * 0.1)
+            sample_points = {
+                'covered': tuple(buried_center + horizontal * 1.0),
+                'through_hole': tuple(buried_center),
+            }
+            # The real camera and a well-resolved near plane are asserted.
+            # An extreme .0001 near plane is captured for diagnosis only: at
+            # this eye distance the .1 mm gap can fall below depth precision.
+            near_values = (0.012207392, 1.0, 0.0001) if side == 1 else (0.012207392, 1.0)
+            for near in near_values:
+                diagnostic_only = near == 0.0001
+                with self.subTest(side=side, near=near,
+                                  diagnostic_only=diagnostic_only):
+                    angle = 86.85831
+                    size = self._grazing_camera(
+                        cap_center, normal * side, tangent, 5.2, angle)
+                    camera = self.view.getCameraNode()
+                    outward = (normal * side * math.sin(math.radians(angle))
+                               + tangent * math.cos(math.radians(angle)))
+                    position = cap_center + outward * distance
+                    camera.position.setValue(position.x, position.y, position.z)
+                    camera.focalDistance.setValue(distance)
+                    camera.heightAngle.setValue(2 * math.atan(
+                        math.tan(math.radians(45) / 2) * 2.8 / distance))
+                    self.near_distance = near
+                    label = 'buried-side{}-near{}'.format(side, near)
+                    patch.ViewObject.Visibility = True
+                    substrate.ViewObject.Visibility = False
+                    reference = self._capture(label + '-patch-only', size=size)
+                    patch.ViewObject.Visibility = False
+                    substrate.ViewObject.Visibility = True
+                    substrate.ViewObject.Transparency = 0
+                    body_only = self._capture(label + '-body-only', size=size)
+                    patch.ViewObject.Visibility = True
+                    opaque = self._capture(label + '-opaque-body', size=size)
+                    substrate.ViewObject.Transparency = 37
+                    transparent = self._capture(label + '-transparent-body', size=size)
+
+                    patch_color = self._sample(reference, sample_points['covered'])
+                    body_color = self._sample(body_only, sample_points['covered'])
+                    opaque_color = self._sample(opaque, sample_points['covered'])
+                    transparent_color = self._sample(
+                        transparent, sample_points['covered'])
+                    expected_tint = tuple(0.63 * b + 0.37 * p
+                                          for b, p in zip(body_color, patch_color))
+                    hole_reference = self._sample(reference, sample_points['through_hole'])
+                    opaque_hole = self._sample(opaque, sample_points['through_hole'])
+                    transparent_hole = self._sample(
+                        transparent, sample_points['through_hole'])
+                    record = self.capture_records[int(transparent.cacheKey())]
+                    record['buried_patch_occlusion'] = {
+                        'buried_depth_mm': 0.1,
+                        'side': 'front' if side == 1 else 'back',
+                        'diagnostic_only': diagnostic_only,
+                        'patch_rgb': patch_color,
+                        'body_rgb': body_color,
+                        'opaque_rgb': opaque_color,
+                        'transparent_rgb': transparent_color,
+                        'expected_transparent_rgb': expected_tint,
+                        'hole_reference_rgb': hole_reference,
+                        'opaque_hole_rgb': opaque_hole,
+                        'transparent_hole_rgb': transparent_hole,
+                    }
+                    Path(record['image']).with_suffix('.json').write_text(
+                        json.dumps(record, indent=2))
+                    if diagnostic_only:
+                        continue
+                    self.assertGreater(max(abs(a - b) for a, b in zip(
+                        patch_color, body_color)), 40,
+                        'buried patch and body controls must differ')
+                    self._assert_rgb_close(opaque_color, body_color,
+                                           label + ' opaque cap hides buried patch')
+                    self._assert_rgb_close(transparent_color, expected_tint,
+                                           label + ' transparent cap tints buried patch')
+                    self._assert_rgb_close(opaque_hole, hole_reference,
+                                           label + ' opaque body preserves hole')
+                    self._assert_rgb_close(transparent_hole, hole_reference,
+                                           label + ' transparent body preserves hole')
         self.assertEqual(self._cad_state(), cad_state)
 
     def test_mask_preserves_alpha_over_substrate_and_copper(self):
