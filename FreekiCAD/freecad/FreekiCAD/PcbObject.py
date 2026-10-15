@@ -3701,6 +3701,9 @@ class PcbObject:
             self._unbent_board_shape = board_solid.copy()
             board_obj = doc.addObject("Part::Feature", obj.Name + "_Board")
             board_obj.Shape = board_solid
+            # Tree Description reports finished stackup thickness, not the
+            # reduced dielectric body thickness or viewport displacement.
+            board_obj.Label2 = f"t={thickness:.6g}mm"
             if board_color:
                 self._remember_export_colors(
                     board_obj, board_color, body_transparency)
