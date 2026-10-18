@@ -1188,7 +1188,11 @@ class DifferUI(DesktopApplication):
                 if ext in [SCH_SUFFIX, PCB_SUFFIX]:
                     self.state.source_a = os.path.abspath(fn)
                     self.state.file_a = self.state.source_a
-                    self.change_file_a()
+                    apply_to_other = not self.state.file_b and Confirm(
+                        "Also apply this file to side B?",
+                        "Apply to both sides",
+                    )
+                    self.change_file_a(apply_to_other=apply_to_other)
                     event.accept()
                     return True
         event.reject()
@@ -1202,34 +1206,38 @@ class DifferUI(DesktopApplication):
                 if ext in [SCH_SUFFIX, PCB_SUFFIX]:
                     self.state.source_b = os.path.abspath(fn)
                     self.state.file_b = self.state.source_b
-                    self.change_file_b()
+                    apply_to_other = not self.state.file_a and Confirm(
+                        "Also apply this file to side A?",
+                        "Apply to both sides",
+                    )
+                    self.change_file_b(apply_to_other=apply_to_other)
                     event.accept()
                     return True
         event.reject()
         return False
 
-    def change_file_a(self):
+    def change_file_a(self, *, apply_to_other=True):
         self.invalidate_full_board_similarity()
         if self.state.use_workspace:
             self.state.source_a = self.state.file_a
         self._pending_revision_a = None
         self.state.logs_a = None
         self.state.cached_file_a = ""
-        if not self.state.file_b:
+        if apply_to_other and not self.state.file_b:
             self.state.file_b = self.state.file_a
             self.state.source_b = self.state.source_a
             self.state.logs_b = None
             self.state.cached_file_b = ""
         self.build()
 
-    def change_file_b(self):
+    def change_file_b(self, *, apply_to_other=True):
         self.invalidate_full_board_similarity()
         if self.state.use_workspace:
             self.state.source_b = self.state.file_b
         self._pending_revision_b = None
         self.state.logs_b = None
         self.state.cached_file_b = ""
-        if not self.state.file_a:
+        if apply_to_other and not self.state.file_a:
             self.state.file_a = self.state.file_b
             self.state.source_a = self.state.source_b
             self.state.logs_a = None
