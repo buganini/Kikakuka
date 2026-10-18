@@ -459,16 +459,16 @@ class WorkspaceUI(PUIView):
         self.saveFile()
 
     def handleDragEnter(self, event):
-        if event.mimeData().hasUrls():
+        if event.files:
             event.accept()
             return True
-        event.ignore()
+        event.reject()
         return False
 
     def handleDrop(self, event):
-        if event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
-                filepath = os.path.abspath(url.toLocalFile())
+        if event.files:
+            for file in event.files:
+                filepath = os.path.abspath(file.path)
                 lower = filepath.lower()
                 if not lower.endswith((
                         *KICAD_PROJECT_MEMBER_SUFFIXES,
@@ -478,7 +478,7 @@ class WorkspaceUI(PUIView):
                 self.addFile(filepath)
             event.accept()
             return True
-        event.ignore()
+        event.reject()
         return False
 
     def openDiffer(self):

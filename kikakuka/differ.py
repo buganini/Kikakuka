@@ -1120,14 +1120,14 @@ class DifferUI(DesktopApplication):
                                 )
                 else:
                     with HBox():
-                        with VBox().dragEnter(self.handleDragEnter).drop(self.drop_file_a):
+                        with VBox().dragEnter(self.handleDragEnter).drop(self.drop_file_a, extensions=(SCH_SUFFIX, PCB_SUFFIX)):
                             Spacer()
                             with HBox():
                                 Spacer()
                                 Label("Drop File Here").style(fontSize=36)
                                 Spacer()
                             Spacer()
-                        with VBox().dragEnter(self.handleDragEnter).drop(self.drop_file_b):
+                        with VBox().dragEnter(self.handleDragEnter).drop(self.drop_file_b, extensions=(SCH_SUFFIX, PCB_SUFFIX)):
                             Spacer()
                             with HBox():
                                 Spacer()
@@ -1170,20 +1170,20 @@ class DifferUI(DesktopApplication):
         self.build()
 
     def handleDragEnter(self, event):
-        if event.mimeData().hasUrls():
-            if len(event.mimeData().urls()) == 1:
-                fn = event.mimeData().urls()[0].toLocalFile()
+        if event.files:
+            if len(event.files) == 1:
+                fn = event.files[0].path
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in [SCH_SUFFIX, PCB_SUFFIX]:
                     event.accept()
                     return True
-        event.ignore()
+        event.reject()
         return False
 
     def drop_file_a(self, event):
-        if event.mimeData().hasUrls():
-            if len(event.mimeData().urls()) == 1:
-                fn = event.mimeData().urls()[0].toLocalFile()
+        if event.files:
+            if len(event.files) == 1:
+                fn = event.files[0].path
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in [SCH_SUFFIX, PCB_SUFFIX]:
                     self.state.source_a = os.path.abspath(fn)
@@ -1191,13 +1191,13 @@ class DifferUI(DesktopApplication):
                     self.change_file_a()
                     event.accept()
                     return True
-        event.ignore()
+        event.reject()
         return False
 
     def drop_file_b(self, event):
-        if event.mimeData().hasUrls():
-            if len(event.mimeData().urls()) == 1:
-                fn = event.mimeData().urls()[0].toLocalFile()
+        if event.files:
+            if len(event.files) == 1:
+                fn = event.files[0].path
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in [SCH_SUFFIX, PCB_SUFFIX]:
                     self.state.source_b = os.path.abspath(fn)
@@ -1205,7 +1205,7 @@ class DifferUI(DesktopApplication):
                     self.change_file_b()
                     event.accept()
                     return True
-        event.ignore()
+        event.reject()
         return False
 
     def change_file_a(self):

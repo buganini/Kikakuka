@@ -3351,20 +3351,20 @@ class PanelizerUI(DesktopApplication):
         self.state.focus.cpl_file = OpenFile("Select CPL", dir=os.path.dirname(self.state.focus.file), types="CPL (*.csv)|*.csv")
 
     def handleDragEnter(self, event):
-        if event.mimeData().hasUrls():
+        if event.files:
             event.accept()
             return True
-        event.ignore()
+        event.reject()
         return False
 
     def handleDrop(self, event):
-        if not event.mimeData().hasUrls():
-            event.ignore()
+        if not event.files:
+            event.reject()
             return False
 
         paths = [
-            os.path.abspath(url.toLocalFile())
-            for url in event.mimeData().urls()
+            os.path.abspath(file.path)
+            for file in event.files
         ]
         kinds = []
         for path in paths:
@@ -3380,7 +3380,7 @@ class PanelizerUI(DesktopApplication):
             else:
                 kinds.append(None)
         if not kinds or not all(kinds) or ("plan" in kinds and len(kinds) != 1):
-            event.ignore()
+            event.reject()
             return False
 
         try:
@@ -3402,7 +3402,7 @@ class PanelizerUI(DesktopApplication):
                 f"Error loading dropped input:\n\n{traceback_text}",
                 "Error loading dropped input",
             )
-            event.ignore()
+            event.reject()
             return False
 
         event.accept()
