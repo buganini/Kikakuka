@@ -1230,7 +1230,7 @@ class PanelizerUI(DesktopApplication):
                 )
 
 
-    def addFile(self, boardfile):
+    def addFile(self, boardfile, *, position=None):
         p = None
         pcbs = []
         try:
@@ -1239,10 +1239,10 @@ class PanelizerUI(DesktopApplication):
                 for i in range(p.pcb_file.subboards):
                     sp = self.makePanelCell(boardfile, (p.pcb_file, i))
                     pcbs.append(sp)
-                    self._addPCB(sp)
+                    self._addPCB(sp, position=position)
             else:
                 pcbs.append(p)
-                self._addPCB(p)
+                self._addPCB(p, position=position)
         except Exception as e:
             for p in pcbs:
                 if p in self.state.pcb:
@@ -1290,8 +1290,10 @@ class PanelizerUI(DesktopApplication):
     def makePanelCell(self, path, subboard=None):
         return PanelCell(self, self.getPCBFile(path, subboard))
 
-    def _addPCB(self, pcb):
-        if len(self.state.pcb) > 0:
+    def _addPCB(self, pcb, *, position=None):
+        if position is not None:
+            pcb.x, pcb.y = position
+        elif len(self.state.pcb) > 0:
             last = self.state.pcb[-1]
             pcb.y = last.y + last.rheight + self.state.spacing * self.unit
         else:
@@ -3387,13 +3389,20 @@ class PanelizerUI(DesktopApplication):
             if kinds[0] == "plan":
                 self.load(None, paths[0])
             else:
+                position = None
+                if (event.x is not None and event.y is not None
+                        and (event.x, event.y) != (0, 0)
+                        and self.state.scale is not None):
+                    # Canvas pixels -> panel-relative internal units. PCB
+                    # geometry adds off_x/off_y separately when rendered.
+                    position = tuple(round(v) for v in self.fromCanvas(event.x, event.y))
                 added = set()
                 for path in paths:
                     if is_gerber_file(path) and is_gerber_dir(os.path.dirname(path)):
                         path = os.path.dirname(path)
                     path = os.path.realpath(path)
                     if path not in added:
-                        self.addFile(path)
+                        self.addFile(path, position=position)
                         added.add(path)
         except Exception:
             traceback_text = traceback.format_exc()
