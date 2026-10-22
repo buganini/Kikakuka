@@ -21,6 +21,20 @@ class FakeProcess:
 
 
 class WorkspaceMonitorTests(unittest.TestCase):
+    def test_registered_tools_include_both_differ_inputs_and_empty_planner(self):
+        applications = [
+            {"pid": 41, "program": "Differ", "documents": ["/a.kicad_pcb", "/b.kicad_pcb"]},
+            {"pid": 42, "program": "Fabrication Planner", "documents": []},
+        ]
+        with mock.patch("kikakuka.workspace_monitor.owned_process_iter", return_value=[
+                FakeProcess(41, "python"), FakeProcess(42, "python")]):
+            rows = snapshot_editor_processes({}, applications)
+        self.assertEqual(rows, (
+            (41, "Differ", "/a.kicad_pcb"),
+            (41, "Differ", "/b.kicad_pcb"),
+            (42, "Fabrication Planner", ""),
+        ))
+
     def test_multiple_freecad_documents_share_a_pid(self):
         pidmap = {}
         update_pidmap_entry(pidmap, "/models/first.FCStd", 30)

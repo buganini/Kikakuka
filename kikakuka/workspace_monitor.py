@@ -60,7 +60,7 @@ def _file_paths(arguments, program, cwd=None):
     return paths
 
 
-def snapshot_editor_processes(pidmap):
+def snapshot_editor_processes(pidmap, applications=()):
     """Return sorted (PID, program, path) rows for running GUI editors.
 
     A blank path means the process was found but its active document could not
@@ -72,11 +72,19 @@ def snapshot_editor_processes(pidmap):
             tracked_by_pid.setdefault(pid, []).append(filepath)
 
     rows = []
+    registered_pids = set()
+    for app in applications:
+        pid = app["pid"]
+        registered_pids.add(pid)
+        for path in dict.fromkeys(app["documents"]) or ("",):
+            rows.append((pid, app["program"], path))
     try:
         processes = owned_process_iter(["pid", "name"])
         for process in processes:
             try:
                 pid = process.info["pid"]
+                if pid in registered_pids:
+                    continue
                 name = process.info.get("name")
                 tracked = tracked_by_pid.get(pid, ())
                 panel_paths = _file_paths(

@@ -64,13 +64,19 @@ normal Python callers should not construct them.
 
 ### Hosting a node
 
-`mesh.start_node(handle, on_change=None)` starts one node for the current
+`mesh.start_node(handle, on_change=None, *, on_application_change=None)` starts one node for the current
 process and returns its `InstanceNode`. Repeated calls return the same local
-node until `close()` is called; they do not replace the original callbacks.
+node until `close()` is called. The original handler and mapping callback are
+retained; a non-None `on_application_change` replaces the application callback.
 `handle(request)` executes a dispatched editor request in a worker thread and
 returns a reply dictionary. `on_change(filepath, pid, socket_path)` is called
 when a newer mapping event is applied. Kikakuka and FreekiCAD normally use
 `instance_backend.handle` as the standard editor handler.
+
+`on_application_change(pid, application)` receives registration changes.
+`application` contains `program` and `documents`, or is `None` on removal.
+Callbacks may run on an IPC thread; dispatch UI updates to the UI thread
+(for example, with a PUI poster captured from a mounted Window).
 
 The returned node exposes these lifecycle and mapping methods:
 
@@ -81,6 +87,31 @@ The returned node exposes these lifecycle and mapping methods:
 | `node.snapshot()` | Refresh and return the current live `{canonical_path: pid}` mapping. Tombstones and socket details are omitted. |
 | `node.close()` | Stop the listener, remove its Unix socket when applicable, and clear the process-local singleton. Safe to call more than once. |
 | `mesh.local_node()` | Return the process-local node, or `None` if this process is client-only or its node has closed. |
+
+### Generic application registration
+
+Any application may advertise its own process without providing a CAD file
+opener. This inventory supports display and foreground activation by PID:
+
+```python
+node.register_application("Differ", [source_a, source_b])
+# Repeat when the documents change; identical registrations send no event.
+node.unregister_application()  # On normal UI exit; close() also unregisters.
+```
+
+`mesh.registered_applications()` queries live peers and returns dictionaries
+with `pid`, `program`, and `documents`. Empty document lists are supported.
+Registration changes are pushed to peers through `on_application_change`;
+a query supplies the initial inventory or an explicit refresh. Abrupt process
+termination cannot send an unregister event and requires a later query to
+remove stale inventory from a caller's cache.
+
+Application metadata is separate from `publish()` file-owner mappings. Fab
+Planner uses both: metadata for display, mappings for same-file reuse. Differ
+advertises its A/B sources without claiming ownership of those CAD files.
+Neither registration authorizes opening a document in the registered tool.
+
+### FreeCAD document providers
 
 A FreeCAD GUI host can additionally register document providers on its node:
 
@@ -104,10 +135,19 @@ than the normal request/node interface:
 
 | Module | Public helpers |
 | --- | --- |
-| `mesh` | `activate_or_open_file()` serializes reuse versus launch for an application-owned file; `launch_lock()` serializes editor startup; `runtime_dir()` returns the private transport/lock directory. `owned_process_iter()`, `owned_process()`, `owned_pid_exists()`, and `owned_pids()` perform same-user process inspection; `is_kicad_editor_process()` classifies editor process names. |
-| `instance_backend` | `handle()` is the standard dispatched editor backend; `scan_open_kicad_boards()` reports verified KiCad boards; `external_process_environment()` and `freecad_process_environment()` construct sanitized child environments; `freecad_launch_log_path()` returns the fallback launch log; `ensure_windows_kicad_api_sentinel()` and `launch_linux_kicad()` implement platform-specific launch support. |
+| `mesh` | `registration_lock(filepath)` serializes application-owned file registration; `launch_lock()` serializes editor startup; `runtime_dir()` returns the private transport/lock directory. `owned_process_iter()`, `owned_process()`, `owned_pid_exists()`, and `owned_pids()` perform same-user process inspection; `is_kicad_editor_process()` classifies editor process names. |
+| `editor_open` | `open_kicad_file()` and `open_freecad_file()` validate inputs, request mesh opening, and select an offline fallback. Ambiguous timeouts and editor errors do not trigger duplicate launches; unreachable running FreeCAD instances prevent fallback. |
+| `instance_backend` | `open_with_system()` provides platform-specific fallback launching, explicitly selecting FreeCAD for its supported formats including `.kkkk_asm`; `handle()` is the standard dispatched editor backend; `scan_open_kicad_boards()` reports verified KiCad boards; `external_process_environment()` and `freecad_process_environment()` construct sanitized child environments; `freecad_launch_log_path()` returns the fallback launch log; `ensure_windows_kicad_api_sentinel()` and `launch_linux_kicad()` implement platform-specific launch support. |
 | `kicad_api_retry` | `retry_kicad_call()`, `get_ready_kicad_board()`, `probe_kicad_board_ready()`, and `is_kicad_retryable_error()` centralize retries for KiCad busy/not-ready responses. |
 | `linux_window` | `bring_pid_to_front()` performs best-effort X11/EWMH activation; `x11_display_available()` and `xwayland_available()` report availability; activation failures raise `WindowActivationError`. |
+
+`activate_or_open_file(filepath, opener, activator)` now resides in
+`kikakuka.instance_tools`, not `cadhoc.mesh`. Its only production caller is
+Workspace's Fab Planner launcher. It returns `(pid, opened)`, reuses a live
+published owner or calls the supplied opener under the registration lock,
+and publishes the new owner. Without a local node it directly invokes the
+opener. This move removes the old Python import path; CAD editor requests
+continue to use CADhoc's separate request/handler pipeline.
 
 ### Examples
 

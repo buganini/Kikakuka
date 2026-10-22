@@ -6,6 +6,7 @@ from .ui_application import DesktopApplication
 from PUI.interfaces import BaseTreeAdapter
 import PUI
 import subprocess
+import queue
 import platform
 from pathlib import Path
 from importlib.metadata import PackageNotFoundError, version as package_version
@@ -620,19 +621,11 @@ class WorkspaceUI(PUIView):
         Thread(target=self._openFreeCAD, args=[filepath], daemon=True).start()
 
     def _openFreeCAD(self, filepath):
-        from cadhoc import mesh
-        from kikakuka.pcb_open import open_with_system
+        from cadhoc.editor_open import open_freecad_file
         try:
-            reply = mesh.request({"action": "open-file", "filepath": filepath})
-            if reply.get("status") == "error":
-                print(f"Instance mesh: {reply.get('message', 'could not open FreeCAD file')}")
-        except ConnectionError:
-            from cadhoc.instance_backend import _editors
-            if _editors("freecad"):
-                print("Instance mesh unavailable: FreeCAD is running but its "
-                      "FreekiCAD instance node cannot be reached")
-                return
-            open_with_system(filepath, program="freecad")
+            open_freecad_file(filepath, activation_error_handler=_show_window_activation_error)
+        except Exception as exc:
+            _show_window_activation_error(str(exc))
 
     def close(self):
         if Confirm("Are you sure you want to close this workspace?", "Close workspace"):
@@ -645,6 +638,8 @@ class MainUI(DesktopApplication):
         # Resolve the ref on the UI thread after child nodes are mounted.
         global _window_activation_error_post
         _window_activation_error_post = PUI.ref("main").node.get_poster()
+        self._ui_post = _window_activation_error_post
+        self._apply_application_events()
 
     def __init__(self, filepaths=None):
         workspaces = []
@@ -668,6 +663,9 @@ class MainUI(DesktopApplication):
         self.commit()
         self.pidmap = StateDict({})
         self.kicad_sockets = StateDict({})
+        self.registered_apps = ()
+        self._application_events = queue.SimpleQueue()
+        self._ui_post = None
         self.addons = StateDict({
             key: StateDict({
                 "label": label,
@@ -696,7 +694,8 @@ class MainUI(DesktopApplication):
         try:
             from cadhoc.mesh import start_node
             from cadhoc.instance_backend import handle
-            self._bus = start_node(handle, self._mesh_mapping_changed)
+            self._bus = start_node(handle, self._mesh_mapping_changed,
+                                   on_application_change=self._application_changed)
             import atexit
             atexit.register(self._shutdown_bus)
         except Exception as e:
@@ -821,6 +820,8 @@ class MainUI(DesktopApplication):
             self._set_addon_row(key, previous)
 
     def refresh_monitor(self, _event=None):
+        from cadhoc.mesh import registered_applications
+        self.registered_apps = registered_applications()
         from cadhoc.instance_backend import scan_open_kicad_boards
         boards = scan_open_kicad_boards()
         with self.kicad_sockets:
@@ -874,6 +875,31 @@ class MainUI(DesktopApplication):
     def _update_pidmap_entry(self, filepath, pid):
         with self.pidmap:
             update_pidmap_entry(self.pidmap, filepath, pid)
+
+    def _application_changed(self, pid, application):
+        # Mesh callbacks run on the IPC thread; only touch UI state via poster.
+        self._application_events.put((pid, application))
+        if self._ui_post is not None:
+            self._ui_post(self._apply_application_events)
+
+    def _apply_application_events(self):
+        apps = {app["pid"]: app for app in self.registered_apps}
+        changed = False
+        while True:
+            try:
+                pid, application = self._application_events.get_nowait()
+            except queue.Empty:
+                break
+            if application is None:
+                changed |= apps.pop(pid, None) is not None
+            else:
+                entry = {"pid": pid, "program": application["program"],
+                         "documents": application["documents"]}
+                changed |= apps.get(pid) != entry
+                apps[pid] = entry
+        if changed:
+            self.registered_apps = tuple(apps.values())
+            self.pidmap()
 
     def _mesh_mapping_changed(self, filepath, pid, socket_path=None):
         previous_pid = self.pidmap.get(filepath)
@@ -936,9 +962,9 @@ class MainUI(DesktopApplication):
                                         Label("File Path").grid(row=0, column=2)
                                         Label("IPC Socket").grid(row=0, column=3)
                                         Label("Action").grid(row=0, column=4)
-                                        rows = snapshot_editor_processes(self.pidmap)
+                                        rows = snapshot_editor_processes(self.pidmap, self.registered_apps)
                                         if not rows:
-                                            Label("No KiCad or FreeCAD processes found").grid(row=1, column=0)
+                                            Label("No registered applications or CAD editors found").grid(row=1, column=0)
                                         else:
                                             for row, (pid, program, filepath) in enumerate(rows, start=1):
                                                 Label(str(pid)).grid(row=row, column=0)
@@ -1072,7 +1098,7 @@ class MainUI(DesktopApplication):
         Thread(target=self._openPanelizer, args=[filepath], daemon=True).start()
 
     def _openPanelizer(self, filepath):
-        from cadhoc.mesh import activate_or_open_file
+        from kikakuka.instance_tools import activate_or_open_file
 
         filepath = os.path.normcase(
             os.path.realpath(os.path.abspath(filepath))

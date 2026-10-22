@@ -447,9 +447,10 @@ def launch_lock(program):
 
 
 class InstanceNode:
-    def __init__(self, handle, on_change=None, kicad_api=None):
+    def __init__(self, handle, on_change=None, kicad_api=None, on_application_change=None):
         self.handle = handle
         self.on_change = on_change
+        self.on_application_change = on_application_change
         self.document_provider = None
         self.document_activator = None
         self.document_opener = None
@@ -479,6 +480,7 @@ class InstanceNode:
         self._freecad_open_inflight = {}
         self._freecad_pcb_inflight = {}
         self._mappings = {}
+        self._application = None
         self._running = True
         self._ready = threading.Event()
         self._thread = threading.Thread(target=self._serve, daemon=True)
@@ -625,6 +627,20 @@ class InstanceNode:
                 return {"status": "error", "message": "absolute file path required"}
             return {"status": "ok", "pid": self.pid,
                     "bound": bool(self.source_registrar(filepath))}
+        if action == "application-changed":
+            pid, app = request.get("pid"), request.get("application")
+            if (not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0
+                    or (app is not None and (
+                        not isinstance(app, dict) or not isinstance(app.get("program"), str)
+                        or not isinstance(app.get("documents"), list)
+                        or not all(isinstance(path, str) for path in app["documents"])))):
+                return {"status": "error", "message": "invalid application registration"}
+            if self.on_application_change:
+                self.on_application_change(pid, app)
+            return {"status": "ok"}
+        if action == "application":
+            with self._lock:
+                return {"status": "ok", "pid": self.pid, "application": self._application}
         if action == "snapshot":
             with self._lock:
                 return {"status": "ok", "mappings": dict(self._mappings)}
@@ -771,6 +787,34 @@ class InstanceNode:
             return {path: value["pid"] for path, value in self._mappings.items()
                     if value.get("pid")}
 
+    def register_application(self, program, documents=()):
+        """Advertise this process for inventory/focus, never for file opening."""
+        if not isinstance(program, str) or not program:
+            raise ValueError("application name required")
+        documents = [os.path.abspath(os.fspath(path)) for path in documents if path]
+        self._set_application({"program": program, "documents": documents})
+
+    def unregister_application(self):
+        self._set_application(None)
+
+    def _set_application(self, application):
+        with self._lock:
+            if self._application == application:
+                return
+            self._application = application
+        if self.on_application_change:
+            self.on_application_change(self.pid, application)
+        for peer in discover():
+            if peer["id"] == self.id:
+                continue
+            try:
+                _exchange(peer["endpoint"], {
+                    "mesh_action": "application-changed", "pid": self.pid,
+                    "application": application,
+                }, 300)
+            except (OSError, ConnectionError, TimeoutError, ValueError):
+                pass
+
     def set_document_provider(self, provider):
         self.document_provider = provider
 
@@ -790,6 +834,7 @@ class InstanceNode:
         global _local_node
         if not self._running:
             return
+        self.unregister_application()
         self._running = False
         if os.name == "nt":
             try:
@@ -803,11 +848,13 @@ class InstanceNode:
                 _local_node = None
 
 
-def start_node(handle, on_change=None):
+def start_node(handle, on_change=None, *, on_application_change=None):
     global _local_node
     with _nodes_lock:
         if _local_node is None:
-            _local_node = InstanceNode(handle, on_change)
+            _local_node = InstanceNode(handle, on_change, on_application_change=on_application_change)
+        elif on_application_change is not None:
+            _local_node.on_application_change = on_application_change
         return _local_node
 
 
@@ -815,27 +862,28 @@ def local_node():
     return _local_node
 
 
-def activate_or_open_file(filepath, opener, activator):
-    """Activate the existing file owner or spawn one without launch races."""
-    filepath = os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
-    node = local_node()
-    if node is None:
-        return opener(filepath), True
+def registration_lock(filepath):
+    """Serialize ownership changes for a registered document."""
+    return _file_lock(filepath)
 
-    with _file_lock(filepath):
-        pid = node.snapshot().get(filepath)
-        if pid is not None and owned_pid_exists(pid):
-            try:
-                activator(pid)
-            except Exception:
-                pass
-            return pid, False
-        if pid is not None:
-            node.publish(filepath, None)
-        pid = opener(filepath)
-        if pid is not None:
-            node.publish(filepath, pid)
-        return pid, True
+
+def registered_applications():
+    """Return live application metadata without providing launch capabilities."""
+    applications = []
+    for peer in discover():
+        try:
+            reply = _exchange(peer["endpoint"], {"mesh_action": "application"}, 300)
+            app = reply.get("application")
+            if (reply.get("status") != "ok" or reply.get("pid") != peer["pid"]
+                    or not isinstance(app, dict) or not isinstance(app.get("program"), str)
+                    or not isinstance(app.get("documents"), list)
+                    or not all(isinstance(path, str) for path in app["documents"])):
+                continue
+            applications.append({"pid": peer["pid"], "program": app["program"],
+                                 "documents": app["documents"]})
+        except (OSError, ConnectionError, TimeoutError, ValueError, TypeError):
+            continue
+    return applications
 
 
 def scan_freecad_documents():

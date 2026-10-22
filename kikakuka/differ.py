@@ -835,11 +835,32 @@ class DifferUI(DesktopApplication):
                 )
             self.build()
 
+    def run(self):
+        from cadhoc.mesh import start_node
+        from cadhoc.instance_backend import handle
+        self._registration_node = None
+        try:
+            self._registration_node = start_node(handle)
+            self._register_instance()
+        except Exception as exc:
+            print(f"Instance mesh: Could not register Differ: {exc}")
+        try:
+            return super().run()
+        finally:
+            if self._registration_node is not None:
+                self._registration_node.unregister_application()
+
+    def _register_instance(self):
+        node = getattr(self, "_registration_node", None)
+        if node is not None:
+            node.register_application("Differ", (self.state.source_a, self.state.source_b))
+
     def cleanup(self):
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
     def content(self):
+        self._register_instance()
         title = (
             f"Kikakuka v{VERSION} Differ "
             f"({kicad_cli_source} KiCad CLI {get_kicad_cli_version()}, "

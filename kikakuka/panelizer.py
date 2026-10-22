@@ -1024,6 +1024,8 @@ class PanelizerUI(DesktopApplication):
             return super().run()
         finally:
             self._publish_fabplan(None)
+            if self._instance_node is not None:
+                self._instance_node.unregister_application()
 
     def _publish_fabplan(self, filepath):
         if self._instance_node is None:
@@ -1032,6 +1034,7 @@ class PanelizerUI(DesktopApplication):
             os.path.normcase(os.path.realpath(os.path.abspath(filepath)))
             if filepath else None
         )
+        self._instance_node.register_application("Fabrication Planner", [filepath] if filepath else [])
         if filepath == self._published_fabplan:
             return
         if self._published_fabplan:

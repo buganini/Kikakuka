@@ -96,6 +96,23 @@ If any packaged file or package metadata changes after this step, run
 in the publish metadata; never replace the archive for an already published
 version.
 
+## Instance coordination boundaries
+
+CADhoc owns KiCad/FreeCAD open requests and fallback launching through
+`cadhoc.editor_open`. Its generic application registration advertises the
+owning process, display name and documents for inventory and window focus;
+it does not grant the application a file-opening handler.
+
+Other programs like Fab Planner and Differ register through `InstanceNode.register_application`
+and unregister when their UI exits. Instance Manager merges this inventory
+with native CAD process discovery and applies pushed registration changes
+on the UI thread through a PUI poster. Initial/explicit refresh queries live
+registrations; abrupt process exits require a later refresh.
+
+Kikakuka retains tool launching and
+same-file launch coordination in `kikakuka.instance_tools`; CADhoc supplies
+only shared registration and ownership locking for that coordination.
+
 ## Linux AppImage
 
 The native x86_64 Linux build keeps PyInstaller's onedir payload and packages it

@@ -1,6 +1,7 @@
 """Integration checks for the on-demand instance mesh."""
 
 import ctypes
+from kikakuka import instance_tools
 import os
 import sys
 from pathlib import Path
@@ -705,6 +706,34 @@ class InstanceMeshTests(unittest.TestCase):
         reply = im_mesh.request({"action": "open-file", "filepath": "/boards/main.kicad_pcb"})
         self.assertEqual(reply["owner"], "with-kipy")
 
+    def test_application_changes_are_pushed_without_refresh(self):
+        observer = self.node(lambda _: {"status": "ok"})
+        changes = mock.Mock()
+        observer.on_application_change = changes
+        owner = self.node(lambda _: {"status": "ok"})
+        owner.register_application("Differ", ["/a.kicad_pcb"])
+        changes.assert_called_once_with(owner.pid, {
+            "program": "Differ", "documents": ["/a.kicad_pcb"]})
+        changes.reset_mock()
+        owner.register_application("Differ", ["/a.kicad_pcb"])
+        changes.assert_not_called()
+        owner.register_application("Differ", ["/a.kicad_pcb", "/b.kicad_pcb"])
+        changes.assert_called_once_with(owner.pid, {
+            "program": "Differ", "documents": ["/a.kicad_pcb", "/b.kicad_pcb"]})
+        changes.reset_mock()
+        owner.close()
+        changes.assert_called_once_with(owner.pid, None)
+
+    def test_generic_application_registration_is_inventory_only(self):
+        node = self.node(lambda _: {"status": "ok"})
+        node.register_application("Differ", ["/boards/a.kicad_pcb", "/boards/b.kicad_pcb"])
+        applications = im_mesh.registered_applications()
+        self.assertIn({"pid": node.pid, "program": "Differ",
+                       "documents": ["/boards/a.kicad_pcb", "/boards/b.kicad_pcb"]}, applications)
+        self.assertEqual(node.snapshot(), {})
+        node.unregister_application()
+        self.assertEqual(im_mesh.registered_applications(), [])
+
     def test_activate_or_open_uses_published_owner(self):
         node = self.node(lambda _: {"status": "ok"})
         path = os.path.realpath(os.path.join(self.directory.name, "panel.kkkk_fab"))
@@ -712,8 +741,8 @@ class InstanceMeshTests(unittest.TestCase):
         opener = mock.Mock()
         activator = mock.Mock()
 
-        with mock.patch.object(im_mesh, "_local_node", node):
-            pid, opened = im_mesh.activate_or_open_file(
+        with mock.patch.object(instance_tools, "local_node", return_value=node):
+            pid, opened = instance_tools.activate_or_open_file(
                 path, opener, activator)
 
         self.assertEqual(pid, os.getpid())
@@ -726,8 +755,8 @@ class InstanceMeshTests(unittest.TestCase):
         path = os.path.realpath(os.path.join(self.directory.name, "panel.kkkk_fab"))
         opener = mock.Mock(return_value=os.getpid())
 
-        with mock.patch.object(im_mesh, "_local_node", node):
-            pid, opened = im_mesh.activate_or_open_file(
+        with mock.patch.object(instance_tools, "local_node", return_value=node):
+            pid, opened = instance_tools.activate_or_open_file(
                 path, opener, mock.Mock())
 
         self.assertEqual(pid, os.getpid())

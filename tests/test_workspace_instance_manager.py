@@ -30,6 +30,40 @@ class WorkspaceInstanceManagerTests(unittest.TestCase):
         exec(compile(module, str(self.source_path), "exec"), namespace)
         return namespace[name]
 
+    def test_application_notifications_wait_for_ui_poster(self):
+        import queue
+        from types import MethodType
+        queued = []
+        owner = SimpleNamespace(
+            registered_apps=(), _application_events=queue.SimpleQueue(),
+            _ui_post=queued.append, pidmap=mock.Mock(),
+        )
+        apply = self._method("_apply_application_events", {"queue": queue})
+        owner._apply_application_events = MethodType(apply, owner)
+        changed = self._method("_application_changed", {})
+        changed(owner, 123, {"program": "Differ", "documents": ["/a.kicad_pcb"]})
+        self.assertEqual(owner.registered_apps, ())
+        owner.pidmap.assert_not_called()
+        queued.pop()()
+        self.assertEqual(owner.registered_apps, ({
+            "pid": 123, "program": "Differ", "documents": ["/a.kicad_pcb"]},))
+        owner.pidmap.assert_called_once_with()
+        changed(owner, 123, None)
+        queued.pop()()
+        self.assertEqual(owner.registered_apps, ())
+
+    def test_application_notifications_before_mount_are_retained(self):
+        import queue
+        owner = SimpleNamespace(
+            registered_apps=(), _application_events=queue.SimpleQueue(),
+            _ui_post=None, pidmap=mock.Mock(),
+        )
+        changed = self._method("_application_changed", {})
+        changed(owner, 123, {"program": "Differ", "documents": []})
+        self._method("_apply_application_events", {"queue": queue})(owner)
+        self.assertEqual(owner.registered_apps[0]["pid"], 123)
+        owner.pidmap.assert_called_once_with()
+
     def test_kill_all_requires_confirmation_before_starting_worker(self):
         thread = mock.Mock()
         confirm = mock.Mock(return_value=False)
