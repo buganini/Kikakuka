@@ -1,8 +1,6 @@
 """Open KiCad files through the on-demand instance mesh."""
 
 import os
-import platform
-import subprocess
 import sys
 
 from cadhoc import mesh
@@ -17,34 +15,11 @@ def _ensure_instance_node():
     return mesh.start_node(handle)
 
 
-def system_open_command(filepath, mac_args=()):
-    """Return the macOS associated-file opener command."""
-    system = platform.system()
-    if system == "Darwin":
-        return ["open", *mac_args, filepath]
-    if system == "Windows":
-        raise ValueError("Windows uses os.startfile instead")
-    raise ValueError("Linux KiCad files are launched directly")
-
-
 def open_with_system(filepath, program="kicad"):
-    """Open an editor file through the platform-specific launcher."""
-    if program not in {"kicad", "freecad"}:
-        raise ValueError(f"unsupported editor program: {program}")
-    system = platform.system()
-    if system == "Windows":
-        os.startfile(filepath)
-    elif system == "Linux":
-        if program == "freecad":
-            from cadhoc.instance_backend import _launch
+    """Delegate fallback file opening to the shared CADhoc backend."""
+    from cadhoc.instance_backend import open_with_system as open_editor
 
-            _launch(filepath, "freecad")
-        else:
-            from cadhoc.instance_backend import launch_linux_kicad
-
-            launch_linux_kicad(filepath)
-    else:
-        subprocess.Popen(system_open_command(filepath, mac_args=("-n",)))
+    return open_editor(filepath, program=program)
 
 
 def request_workspace_open(

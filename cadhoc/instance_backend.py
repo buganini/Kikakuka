@@ -746,6 +746,31 @@ def _windows_open_kicad_background(filepath):
                 result, f"could not open associated KiCad file: {filepath}")
 
 
+def open_with_system(filepath, program="kicad"):
+    """Open an editor file without mesh transport, using platform launchers.
+
+    FreeCAD formats always use its explicit launcher rather than OS file
+    associations, including assembly files registered only by the addon.
+    """
+    if program not in {"kicad", "freecad"}:
+        raise ValueError(f"unsupported editor program: {program}")
+    filepath = os.fspath(filepath)
+    if filepath.lower().endswith(FREECAD_SUFFIXES):
+        program = "freecad"
+    if program == "freecad":
+        _launch(filepath, "freecad")
+        return
+    system = platform.system()
+    if system == "Windows":
+        os.startfile(filepath)
+    elif system == "Linux":
+        launch_linux_kicad(filepath)
+    elif system == "Darwin":
+        subprocess.Popen(["open", "-n", filepath])
+    else:
+        raise ValueError(f"unsupported platform: {system}")
+
+
 def _launch(filepath, program="kicad"):
     if platform.system() == "Windows" and program == "kicad":
         ensure_windows_kicad_api_sentinel()

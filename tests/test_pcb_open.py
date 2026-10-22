@@ -114,31 +114,45 @@ class PcbOpenTests(unittest.TestCase):
 
     def test_system_fallback_uses_platform_launcher(self):
         path = "/boards/panel.kicad_pcb"
-        with mock.patch("kikakuka.pcb_open.platform.system", return_value="Darwin"):
-            with mock.patch("kikakuka.pcb_open.subprocess.Popen") as popen:
+        with mock.patch("cadhoc.instance_backend.platform.system", return_value="Darwin"):
+            with mock.patch("cadhoc.instance_backend.subprocess.Popen") as popen:
                 pcb_open.open_with_system(path)
         popen.assert_called_once_with(["open", "-n", path])
 
-        with mock.patch("kikakuka.pcb_open.platform.system", return_value="Linux"):
+        with mock.patch("cadhoc.instance_backend.platform.system", return_value="Linux"):
             with mock.patch(
                     "cadhoc.instance_backend.launch_linux_kicad") as launch:
                 pcb_open.open_with_system(path)
         launch.assert_called_once_with(path)
 
-        with mock.patch("kikakuka.pcb_open.platform.system", return_value="Windows"):
+        with mock.patch("cadhoc.instance_backend.platform.system", return_value="Windows"):
             with mock.patch.object(os, "startfile", create=True) as startfile:
                 pcb_open.open_with_system(path)
         startfile.assert_called_once_with(path)
 
-    def test_linux_freecad_fallback_uses_freecad_launcher(self):
-        path = "/models/assembly.FCStd"
-        with mock.patch("kikakuka.pcb_open.platform.system", return_value="Linux"), \
-                mock.patch("cadhoc.instance_backend._launch") as launch, \
-                mock.patch("cadhoc.instance_backend.launch_linux_kicad") as kicad:
-            pcb_open.open_with_system(path, program="freecad")
+    def test_freecad_fallback_uses_explicit_launcher_on_all_platforms(self):
+        for system in ("Darwin", "Windows", "Linux"):
+            for suffix in (".FCStd", ".kkkk_asm"):
+                with self.subTest(system=system, suffix=suffix):
+                    path = "/models/assembly" + suffix
+                    with mock.patch("cadhoc.instance_backend.platform.system", return_value=system), \
+                            mock.patch("cadhoc.instance_backend._launch") as launch, \
+                            mock.patch("cadhoc.instance_backend.subprocess.Popen") as popen, \
+                            mock.patch.object(os, "startfile", create=True) as startfile:
+                        pcb_open.open_with_system(path, program="freecad")
+                    launch.assert_called_once_with(path, "freecad")
+                    popen.assert_not_called()
+                    startfile.assert_not_called()
 
-        launch.assert_called_once_with(path, "freecad")
-        kicad.assert_not_called()
+    def test_assembly_always_uses_freecad_without_program_selection(self):
+        for system in ("Darwin", "Windows", "Linux"):
+            for suffix in (".kkkk_asm", ".KKKK_ASM"):
+                with self.subTest(system=system, suffix=suffix):
+                    path = "/models/assembly" + suffix
+                    with mock.patch("cadhoc.instance_backend.platform.system", return_value=system), \
+                            mock.patch("cadhoc.instance_backend._launch") as launch:
+                        pcb_open.open_with_system(path)
+                    launch.assert_called_once_with(path, "freecad")
 
     def test_missing_file_is_not_sent_to_workspace_or_system(self):
         with mock.patch("kikakuka.pcb_open.os.path.isfile", return_value=False):
