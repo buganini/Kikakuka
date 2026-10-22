@@ -1088,11 +1088,7 @@ class DifferUI(DesktopApplication):
                                                         self.select_pcb_layer, layer
                                                     )
                                                     if selected:
-                                                        layer_label.qt(
-                                                            StyleSheet={
-                                                                "font-weight": "bold"
-                                                            }
-                                                        )
+                                                        layer_label.style(fontWeight=FontWeight.Bold)
                                                     Spacer()
                                                     full_board = (
                                                         self.state.similarity_scope ==
