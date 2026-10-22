@@ -8,7 +8,6 @@ import PUI
 import subprocess
 import platform
 from pathlib import Path
-from PySide6 import QtCore
 from importlib.metadata import PackageNotFoundError, version as package_version
 from threading import Thread
 from .common import *
@@ -62,20 +61,16 @@ if platform.system() == 'Windows':
     import win32con
 
 
-class _WindowActivationErrorNotifier(QtCore.QObject):
-    show_error = QtCore.Signal(str)
-
-    def __init__(self):
-        super().__init__()
-        self.show_error.connect(
-            self._show_error, QtCore.Qt.ConnectionType.QueuedConnection)
-
-    @QtCore.Slot(str)
-    def _show_error(self, message):
-        Critical(message, "Cannot Bring Window to Front")
+_window_activation_error_post = None
 
 
-_window_activation_error_notifier = _WindowActivationErrorNotifier()
+def _show_window_activation_error(message):
+    post = _window_activation_error_post
+    if post is None:
+        print(f"Cannot Bring Window to Front: {message}")
+        return
+    post(lambda: Critical(message, "Cannot Bring Window to Front"))
+
 
 def open_folder(location):
     if platform.system() == 'Darwin':
@@ -161,7 +156,7 @@ def linux_bring_pid_to_front(pid):
         return bring_pid_to_front(pid)
     except WindowActivationError as exc:
         print(f"Failed to bring application to front: {exc}")
-        _window_activation_error_notifier.show_error.emit(str(exc))
+        _show_window_activation_error(str(exc))
         return False
 
 def bringToFront(pid):
@@ -597,7 +592,7 @@ class WorkspaceUI(PUIView):
         open_kicad_file(
             path,
             activation_error_handler=(
-                _window_activation_error_notifier.show_error.emit),
+                _show_window_activation_error),
         )
         retries = (
             KICAD_SOCKET_REFRESH_RETRIES
@@ -645,6 +640,12 @@ class WorkspaceUI(PUIView):
             self.main.commit()
 
 class MainUI(DesktopApplication):
+    def sync(self):
+        super().sync()
+        # Resolve the ref on the UI thread after child nodes are mounted.
+        global _window_activation_error_post
+        _window_activation_error_post = PUI.ref("main").node.get_poster()
+
     def __init__(self, filepaths=None):
         workspaces = []
 
@@ -905,7 +906,7 @@ class MainUI(DesktopApplication):
             f"Kikakuka v{VERSION} Workspace "
             f"(PUI {PUI.__version__} {PUI_BACKEND}, kipy {KIPY_VERSION})"
         )
-        with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).keypress(self.keypress):
+        with Window(size=(1300, 768), title=title, icon=resource_path("icon.ico")).ref("main").keypress(self.keypress):
             with VBox():
                 with HBox():
                     Button("New Workspace").click(lambda e: self.newWorkspace())
