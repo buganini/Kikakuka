@@ -1024,7 +1024,7 @@ class DifferUI(DesktopApplication):
                         return
 
                     if os.path.splitext(self.state.file_a)[1].lower() == SCH_SUFFIX and os.path.splitext(self.state.file_b)[1].lower() == SCH_SUFFIX:
-                        with HBox().layout(weight=1):
+                        with HBox():
                             with Scroll().layout(width=250):
                                 with VBox():
                                     if self.state.cached_file_a:
@@ -1057,7 +1057,7 @@ class DifferUI(DesktopApplication):
                                         Label("Loading pages...")
                                     Spacer()
                     elif os.path.splitext(self.state.file_a)[1].lower() == PCB_SUFFIX:
-                        with HBox().layout(weight=1):
+                        with HBox():
                             with VBox().layout(weight=1):
                                 PcbDiffView(self)
                             with VBox():
@@ -1136,7 +1136,7 @@ class DifferUI(DesktopApplication):
                                     self.calculate_full_board_similarity
                                 )
                 else:
-                    with HBox().layout(weight=1):
+                    with HBox():
                         with VBox().dragEnter(self.handleDragEnter).drop(self.drop_file_a, extensions=(SCH_SUFFIX, PCB_SUFFIX)):
                             Spacer()
                             with HBox():
