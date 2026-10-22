@@ -350,7 +350,7 @@ class WorkspaceUI(PUIView):
                 Spacer()
                 Button("Close").click(lambda e: self.close())
 
-            with HBox():
+            with HBox().layout(weight=1):
                 with (Tree().layout(weight=1).expandAll().expandable(False)
                     .dragEnter(self.handleDragEnter).drop(self.handleDrop)):
                     for project in self.state.workspace["projects"]:
