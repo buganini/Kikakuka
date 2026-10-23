@@ -953,7 +953,7 @@ class MainUI(DesktopApplication):
                                 Label("KiCad and FreeCAD processes")
                                 Button("Refresh").click(self.refresh_monitor)
                                 Spacer()
-                                Button("Close All").click(self.kill_all_instances)
+                                Button("Close All FreeCAD/KiCad").click(self.kill_all_instances)
                             with Scroll().layout(weight=1):
                                 with VBox():
                                     with Grid():

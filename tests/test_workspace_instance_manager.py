@@ -116,7 +116,7 @@ class WorkspaceInstanceManagerTests(unittest.TestCase):
             'Button("Refresh").click(self.refresh_monitor)')
         spacer = manager.index("Spacer()", refresh)
         kill_all = manager.index(
-            'Button("Close All").click(self.kill_all_instances)')
+            'Button("Close All FreeCAD/KiCad").click(self.kill_all_instances)')
         self.assertLess(refresh, spacer)
         self.assertLess(spacer, kill_all)
 
