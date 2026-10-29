@@ -566,7 +566,7 @@ class PdfTileDiffView(PUIView):
                 clip_region = clip_region.subtracted(exclude_region)
             if clip_region.isEmpty():
                 return
-            canvas.qpainter.save()
+            canvas.push()
             try:
                 canvas.qpainter.setRenderHint(
                     QtGui.QPainter.RenderHint.SmoothPixmapTransform, True
@@ -591,7 +591,7 @@ class PdfTileDiffView(PUIView):
                     opacity=opacity,
                 )
             finally:
-                canvas.qpainter.restore()
+                canvas.pop()
 
         def draw_result(result, allow_load, draw_mask,
                         exclude_region=None):
