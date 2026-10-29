@@ -1262,14 +1262,14 @@ class DifferUI(DesktopApplication):
         self.build()
 
     def open_file_a(self, e):
-        fn = OpenFile("Open File A", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb|KiCad SCH (*.kicad_sch)|*.kicad_sch")
+        fn = OpenFile("Open File A", types={"KiCad PCB": ["kicad_pcb"], "KiCad Schematic": ["kicad_sch"]})
         if fn:
             self.state.source_a = os.path.abspath(fn)
             self.state.file_a = self.state.source_a
             self.change_file_a()
 
     def open_file_b(self, e):
-        fn = OpenFile("Open File B", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb|KiCad SCH (*.kicad_sch)|*.kicad_sch")
+        fn = OpenFile("Open File B", types={"KiCad PCB": ["kicad_pcb"], "KiCad Schematic": ["kicad_sch"]})
         if fn:
             self.state.source_b = os.path.abspath(fn)
             self.state.file_b = self.state.source_b
@@ -1319,7 +1319,7 @@ class DifferUI(DesktopApplication):
             description = "folder"
         else:
             source = OpenFile(
-                "Open Gerber Zip", types="Gerber Zip (*.zip)|*.zip")
+                "Open Gerber Zip", types={"Gerber Zip": ["zip"]})
             valid = is_gerber_zip
             description = "zip"
         if not source:

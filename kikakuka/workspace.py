@@ -510,7 +510,7 @@ class WorkspaceUI(PUIView):
         filepath = OpenFile(
             "Open KiCad/FabPlan/Assembly",
             dir=dir,
-            types="KiCad/FabPlan/Assembly (*.kicad_pro *.kicad_pcb *.kicad_sch *.kkkk_fab *.kikit_pnl *.kkkk_asm *.FCStd *.step *.stp *.stl)|*.kicad_pro;*.kicad_pcb;*.kicad_sch;*.kkkk_fab;*.kikit_pnl;*.kkkk_asm;*.FCStd;*.step;*.stp;*.stl",
+            types={"KiCad/FabPlan/Assembly": ["kicad_pro", "kicad_pcb", "kicad_sch", "kkkk_fab", "kikit_pnl", "kkkk_asm", "FCStd", "step", "stp", "stl"]},
         )
         if filepath:
             self.addFile(filepath)
@@ -540,7 +540,7 @@ class WorkspaceUI(PUIView):
     def newPanelization(self):
         if self.state.filepath:
             dir = os.path.dirname(self.state.filepath)
-        filepath = SaveFile("New FabPlan", dir=dir, types=f"Kikakuka FabPlan (*.kkkk_fab)|*.kkkk_fab")
+        filepath = SaveFile("New FabPlan", dir=dir, types={"Kikakuka FabPlan": ["kkkk_fab"]})
         if filepath:
             if not filepath.endswith(".kkkk_fab"):
                 filepath = filepath + ".kkkk_fab"
@@ -727,7 +727,7 @@ class MainUI(DesktopApplication):
     def change_addon_installation(self, _event, application):
         filepath = OpenFile(
             f"Select {'KiCad' if application == 'kicad' else 'FreeCAD'} installation",
-            types="All files (*)|*",
+            types={"All files": ["*"]},
         )
         if not filepath:
             return
@@ -1063,7 +1063,7 @@ class MainUI(DesktopApplication):
                             Spacer()
 
     def newWorkspace(self):
-        filepath = SaveFile("New Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
+        filepath = SaveFile("New Workspace", types={"Kikakuka Workspace": ["kkkk"]})
         if filepath:
             if not filepath.endswith(".kkkk"):
                 filepath = filepath + ".kkkk"
@@ -1073,7 +1073,7 @@ class MainUI(DesktopApplication):
                 self.commit()
 
     def openWorkspace(self):
-        filepath = OpenFile("Open Workspace", types=f"Kikakuka Workspace (*.kkkk)|*.kkkk")
+        filepath = OpenFile("Open Workspace", types={"Kikakuka Workspace": ["kkkk"]})
         if filepath:
             filepath = os.path.abspath(filepath)
             if filepath not in self.state.workspaces:
@@ -1082,14 +1082,14 @@ class MainUI(DesktopApplication):
 
 
     def newPanelization(self):
-        filepath = SaveFile("New FabPlan", types=f"Kikakuka FabPlan (*.kkkk_fab)|*.kkkk_fab")
+        filepath = SaveFile("New FabPlan", types={"Kikakuka FabPlan": ["kkkk_fab"]})
         if filepath:
             if not filepath.endswith(".kkkk_fab"):
                 filepath = filepath + ".kkkk_fab"
             self.openPanelizer(filepath)
 
     def openPanelizationAndClose(self):
-        filepath = OpenFile("Open FabPlan", types=f"Kikakuka FabPlan (*.kkkk_fab *.kikit_pnl)|*.kkkk_fab;*.kikit_pnl")
+        filepath = OpenFile("Open FabPlan", types={"Kikakuka FabPlan": ["kkkk_fab", "kikit_pnl"]})
         if filepath:
             self.openPanelizer(filepath)
             self.quit()

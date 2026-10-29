@@ -1220,7 +1220,7 @@ class PanelizerUI(DesktopApplication):
             dir = os.path.dirname(self.state.target_path)
         elif self.state.pcb:
             dir = os.path.dirname(self.state.pcb[0].file)
-        boardfile = OpenFile("Open KiCad PCB", dir=dir, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
+        boardfile = OpenFile("Open KiCad PCB", dir=dir, types={"KiCad PCB": ["kicad_pcb"]})
         if boardfile:
             try:
                 self.addFile(boardfile)
@@ -1260,7 +1260,7 @@ class PanelizerUI(DesktopApplication):
             Critical("Invalid Gerber folder: {}".format(folder), "Invalid Gerber folder")
 
     def addGerberZip(self, e):
-        zipfile = OpenFile("Open Gerber Zip", types="Gerber Zip (*.zip)|*.zip")
+        zipfile = OpenFile("Open Gerber Zip", types={"Gerber Zip": ["zip"]})
         if is_gerber_zip(zipfile):
             self._addPCB(self.makePanelCell(zipfile))
         else:
@@ -1344,7 +1344,7 @@ class PanelizerUI(DesktopApplication):
 
     def save(self, e, target=None):
         if target is None:
-            target = SaveFile(self.state.target_path, types="Kikakuka FabPlan (*.kkkk_fab)|*.kkkk_fab")
+            target = SaveFile(self.state.target_path, types={"Kikakuka FabPlan": ["kkkk_fab"]})
         if not target:
             return
 
@@ -1439,7 +1439,7 @@ class PanelizerUI(DesktopApplication):
         self.set_defaults()
 
         if target is None:
-            target = OpenFile("Load FabPlan", types="Kikakuka FabPlan (*.kkkk_fab *.kikit_pnl)|*.kkkk_fab;*.kikit_pnl")
+            target = OpenFile("Load FabPlan", types={"Kikakuka FabPlan": ["kkkk_fab", "kikit_pnl"]})
         if target:
             target = os.path.realpath(target)
             self.state.target_path = target
@@ -1609,7 +1609,7 @@ class PanelizerUI(DesktopApplication):
             self._publish_fabplan(target)
 
     def use_frame_pcb(self, e):
-        frame_pcb = OpenFile("Use Frame PCB", types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
+        frame_pcb = OpenFile("Use Frame PCB", types={"KiCad PCB": ["kicad_pcb"]})
         if frame_pcb:
             self.state.frame_pcb = os.path.realpath(frame_pcb)
             self.build()
@@ -1671,7 +1671,7 @@ class PanelizerUI(DesktopApplication):
             self.state.last_exported_path = ""
 
         if export is True:
-            export = SaveFile(self.state.export_path, types="KiCad PCB (*.kicad_pcb)|*.kicad_pcb")
+            export = SaveFile(self.state.export_path, types={"KiCad PCB": ["kicad_pcb"]})
             if not export:
                 return
 
@@ -3350,10 +3350,10 @@ class PanelizerUI(DesktopApplication):
         self.build()
 
     def select_bom(self, e):
-        self.state.focus.bom_file = OpenFile("Select BOM", dir=os.path.dirname(self.state.focus.file), types="BOM (*.csv)|*.csv")
+        self.state.focus.bom_file = OpenFile("Select BOM", dir=os.path.dirname(self.state.focus.file), types={"BOM": ["csv", "xlsx"]})
 
     def select_cpl(self, e):
-        self.state.focus.cpl_file = OpenFile("Select CPL", dir=os.path.dirname(self.state.focus.file), types="CPL (*.csv)|*.csv")
+        self.state.focus.cpl_file = OpenFile("Select CPL", dir=os.path.dirname(self.state.focus.file), types={"CPL": ["csv", "xlsx"]})
 
     def handleDragEnter(self, event):
         if event.files:
