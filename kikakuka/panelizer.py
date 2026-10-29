@@ -3545,22 +3545,22 @@ class PanelizerUI(DesktopApplication):
                             with HBox().id("frame-tooling"):
                                 Checkbox("Tooling Holes", self.state("frame_tooling_holes")).click(self.build)
                                 Label("Horizontal Offset")
-                                TextField(self.state("frame_tooling_horizontal_offset")).change(self.build)
+                                TextField(self.state("frame_tooling_horizontal_offset")).layout(width=40).change(self.build)
                                 Label("Vertical Offset")
-                                TextField(self.state("frame_tooling_vertical_offset")).change(self.build)
+                                TextField(self.state("frame_tooling_vertical_offset")).layout(width=40).change(self.build)
                                 Label("Diameter")
-                                TextField(self.state("frame_tooling_diameter")).change(self.build)
+                                TextField(self.state("frame_tooling_diameter")).layout(width=40).change(self.build)
                                 Label("Solder Mask Opening Diameter")
-                                TextField(self.state("frame_tooling_solder_mask_opening_diameter")).change(self.build)
+                                TextField(self.state("frame_tooling_solder_mask_opening_diameter")).layout(width=40).change(self.build)
 
                             with HBox().id("fiducials"):
                                 Checkbox("Fiducials", self.state("fiducials")).click(self.build)
                                 Label("Clearance")
-                                TextField(self.state("fiducials_clearance")).change(self.build)
+                                TextField(self.state("fiducials_clearance")).layout(width=40).change(self.build)
                                 Label("Diameter")
-                                TextField(self.state("fiducials_diameter")).change(self.build)
+                                TextField(self.state("fiducials_diameter")).layout(width=40).change(self.build)
                                 Label("Solder Mask Opening Diameter")
-                                TextField(self.state("fiducials_solder_mask_opening_diameter")).change(self.build)
+                                TextField(self.state("fiducials_solder_mask_opening_diameter")).layout(width=40).change(self.build)
                                 Label("Layer")
                                 with ComboBox(editable=False, text_model=self.state("fiducials_layer")).click(self.build):
                                     ComboBoxItem("Top")
@@ -3581,60 +3581,60 @@ class PanelizerUI(DesktopApplication):
                                     ComboBoxItem("Both")
                                     ComboBoxItem("All")
                                 Label("Clearance")
-                                TextField(self.state("copperfill_clearance")).change(self.build)
+                                TextField(self.state("copperfill_clearance")).layout(width=40).change(self.build)
                                 Label("Edge Clearance")
-                                TextField(self.state("copperfill_edge_clearance")).change(self.build)
+                                TextField(self.state("copperfill_edge_clearance")).layout(width=40).change(self.build)
                             if self.state.copperfill == "Hatched":
                                 with HBox().id("copperfill.hatched"):
                                     Label("Hatched Copperfill")
                                     Label("Stroke Width")
-                                    TextField(self.state("copperfill_hatched_stroke_width")).change(self.build)
+                                    TextField(self.state("copperfill_hatched_stroke_width")).layout(width=60).change(self.build)
                                     Label("Stroke Spacing")
-                                    TextField(self.state("copperfill_hatched_stroke_spacing")).change(self.build)
+                                    TextField(self.state("copperfill_hatched_stroke_spacing")).layout(width=60).change(self.build)
                                     Label("Orientation")
-                                    TextField(self.state("copperfill_hatched_orientation")).change(self.build)
+                                    TextField(self.state("copperfill_hatched_orientation")).layout(width=60).change(self.build)
                             if self.state.copperfill == "Hex":
                                 with HBox().id("copperfill.hex"):
                                     Label("Hex Copperfill")
                                     Label("Diameter")
-                                    TextField(self.state("copperfill_hex_diameter")).change(self.build)
+                                    TextField(self.state("copperfill_hex_diameter")).layout(width=60).change(self.build)
                                     Label("Space")
-                                    TextField(self.state("copperfill_hex_space")).change(self.build)
+                                    TextField(self.state("copperfill_hex_space")).layout(width=60).change(self.build)
                                     Label("Threshold")
-                                    TextField(self.state("copperfill_hex_threshold")).change(self.build)
+                                    TextField(self.state("copperfill_hex_threshold")).layout(width=60).change(self.build)
 
                         with HBox():
                             Label("PCB Spacing")
-                            TextField(self.state("spacing")).change(self.build)
+                            TextField(self.state("spacing")).layout(width=60).change(self.build)
 
                             Label("Tab Width")
-                            TextField(self.state("tab_width")).change(self.build)
+                            TextField(self.state("tab_width")).layout(width=60).change(self.build)
 
                             Label("Simulate Mill Fillets")
-                            TextField(self.state("mill_fillets")).change(self.build)
+                            TextField(self.state("mill_fillets")).layout(width=60).change(self.build)
 
                             Checkbox("Merge V-Cuts within", self.state("merge_vcuts")).click(self.build)
-                            TextField(self.state("merge_vcuts_threshold")).change(self.build)
+                            TextField(self.state("merge_vcuts_threshold")).layout(width=40).change(self.build)
 
                             Spacer()
 
                         with HBox():
                             Label("Mousebites")
                             Label("Spacing")
-                            TextField(self.state("mb_spacing")).change(self.build)
+                            TextField(self.state("mb_spacing")).layout(width=40).change(self.build)
                             Label("Diameter")
-                            TextField(self.state("mb_diameter")).change(self.build)
+                            TextField(self.state("mb_diameter")).layout(width=40).change(self.build)
                             Label("Offset")
-                            TextField(self.state("mb_offset")).change(self.build)
+                            TextField(self.state("mb_offset")).layout(width=40).change(self.build)
                             Spacer()
 
                         if not self.state.frame_pcb and self.state.use_frame:
                             with HBox().id("frame-size"):
                                 Label("Frame Size")
                                 Label("Width")
-                                TextField(self.state("frame_width")).change(self.build)
+                                TextField(self.state("frame_width")).layout(width=60).change(self.build)
                                 Label("Height")
-                                TextField(self.state("frame_height")).change(self.build)
+                                TextField(self.state("frame_height")).layout(width=60).change(self.build)
 
                                 Button("Fit").click(self.fit_frame)
 
@@ -3642,21 +3642,21 @@ class PanelizerUI(DesktopApplication):
 
                                 Label("Edge Rail")
                                 Label("Top")
-                                TextField(self.state("frame_top")).change(self.build)
+                                TextField(self.state("frame_top")).layout(width=40).change(self.build)
                                 Label("Bottom")
-                                TextField(self.state("frame_bottom")).change(self.build)
+                                TextField(self.state("frame_bottom")).layout(width=40).change(self.build)
                                 Label("Left")
-                                TextField(self.state("frame_left")).change(self.build)
+                                TextField(self.state("frame_left")).layout(width=40).change(self.build)
                                 Label("Right")
-                                TextField(self.state("frame_right")).change(self.build)
+                                TextField(self.state("frame_right")).layout(width=40).change(self.build)
 
                         if len(self.state.pcb) > 1:
                             with HBox().id("renamer"):
                                 Label("Rename")
                                 Label("Net")
-                                TextField(self.state("netRenamePattern")).change(self.build)
+                                TextField(self.state("netRenamePattern")).layout(width=150).change(self.build)
                                 Label("Ref")
-                                TextField(self.state("refRenamePattern")).change(self.build)
+                                TextField(self.state("refRenamePattern")).layout(width=150).change(self.build)
 
                         with HBox():
                             Label("Align")
@@ -3725,20 +3725,21 @@ class PanelizerUI(DesktopApplication):
                                             Label("Alignment Clearance").grid(row=r, column=0)
                                             with HBox().grid(row=r, column=1):
                                                 Label("Top")
-                                                TextField(self.state.focus("margin_top")).change(self.build)
+                                                TextField(self.state.focus("margin_top")).layout(width=40).change(self.build)
                                                 Label("Bottom")
-                                                TextField(self.state.focus("margin_bottom")).change(self.build)
+                                                TextField(self.state.focus("margin_bottom")).layout(width=40).change(self.build)
                                                 Label("Left")
-                                                TextField(self.state.focus("margin_left")).change(self.build)
+                                                TextField(self.state.focus("margin_left")).layout(width=40).change(self.build)
                                                 Label("Right")
-                                                TextField(self.state.focus("margin_right")).change(self.build)
+                                                TextField(self.state.focus("margin_right")).layout(width=40).change(self.build)
+                                                Spacer()
                                             r += 1
 
                                             Label("Rotate").grid(row=r, column=0)
                                             with HBox().grid(row=r, column=1):
                                                 Button("↺ (r)").click(self.rotateBy, 90)
                                                 Button("↺ 15°").click(self.rotateBy, 15)
-                                                TextField(self.state.focus("rotate")).change(self.build)
+                                                TextField(self.state.focus("rotate")).layout(width=40).change(self.build)
                                                 Button("↻ 15°").click(self.rotateBy, -15)
                                                 Button("↻ (R)").click(self.rotateBy, -90)
                                                 Spacer()
@@ -3746,7 +3747,7 @@ class PanelizerUI(DesktopApplication):
 
                                             Label("Move").grid(row=r, column=0)
                                             with HBox().grid(row=r, column=1):
-                                                TextField(self.state("move")).change(self.build)
+                                                TextField(self.state("move")).layout(width=40).change(self.build)
                                                 Button("⤒ Up").click(self.move_up)
                                                 Button("⤓ Down").click(self.move_down)
                                                 Button("⇤ Left").click(self.move_left)
@@ -3777,7 +3778,7 @@ class PanelizerUI(DesktopApplication):
                                                     Button("Select").click(self.select_tab, tab)
                                                     Button("Remove").click(self.remove_tab, tab)
                                                     Label("Width")
-                                                    TextField(self.state.focus._tabs[i]("width")).change(self.build)
+                                                    TextField(self.state.focus._tabs[i]("width")).layout(width=40).change(self.build)
                                                     Checkbox("To the closest point on the edge", self.state.focus._tabs[i]("closest")).click(self.build)
                                                     if not self.state.focus._tabs[i]["closest"]:
                                                         Label("Direction")
